@@ -1,423 +1,542 @@
-# Pandora design (v1)
+# Pandora design (v2)
 
 Remote execution for coding agents. An agent in a git worktree runs
 `pandora run -- <cmd>`; the command executes on a remote Linux host against a
-sealed copy of that worktree, in a private copy-on-write layer over a
-workspace that is already warm with the repo's dependencies. Many agents in
-many worktrees fan out to the same host and never think about local machine
-load.
+sealed copy of that worktree, in its own container over a copy-on-write
+snapshot of a continuously mirrored workspace that is already warm with the
+repo's dependencies. Many agents in many worktrees fan out to the same host
+and never think about local machine load.
 
 **Invariant:** a workspace may affect how fast a run executes; it must never
 determine which source a run executes or whether its result is trustworthy.
-Correctness comes from sealed inputs and provenance in results; workspaces,
-snapshots and caches are only speed.
+Correctness comes from sealed inputs and provenance in results; mirrors,
+snapshots, generations and caches are only speed.
 
-Tier: persistent host, CoW workspaces, cgroup-limited runs. MicroVM-per-run is
-a later executor swap behind the same client contract (section 9). First
-target repo: `eichler` (pnpm + turbo monorepo, Docker Postgres, Playwright).
+**Agent-UX invariant:** remote execution should be indistinguishable from
+local execution wherever that is achievable — same cwd, same env (minus
+platform variables), same exit code, same output paths, files changed by the
+command on disk before the command returns.
 
-v1 supersedes v0. Decisions were settled through a grill session and two
-independent red-team critiques (`tmp/critique-sidekick.md`, ChatGPT review);
-where v0 said otherwise, this document wins.
+Tier: persistent host, continuously mirrored workspaces, btrfs generations,
+container-per-run with cgroup limits. MicroVM-per-run (Firecracker on Linux,
+Tart on macOS) is a later executor swap behind the same client contract
+(section 12). First target repo: `eichler` (pnpm + turbo monorepo, Docker
+Postgres, Playwright).
+
+v2 supersedes v1. Changes settled by grill and verified by local POCs
+(`tmp/poc/`): continuous Mutagen mirror replaces capture-time rsync; real git
+on the box via pushed HEAD + alternates gitdir; container-per-run mounted at
+the local absolute path replaces overlay-at-stable-path; Docker API proxy
+replaces the eichler compose hook; `-c` fanout removed; write-back is
+automatic. POC evidence cited inline.
 
 ## 1. Agent-facing contract
 
 ```
-pandora init                      enrol this machine (client UUID, SSH key, API token, host)
-pandora run [flags] -- <argv...>   sync, run, wait; exit with the command's exit code
-pandora run -c "<cmd>" -c "<cmd>"  one sealed input, N runs, waits for all, per-command summary
-pandora wait <run-id...>          per-id outcome lines; non-zero if any did not pass
+pandora init                       enrol repo (writes .pandora.toml scaffold) / machine (SSH key, client UUID)
+pandora run [flags] -- <argv...>   converge mirror, seal, run, wait; exit with the command's exit code
+pandora wait <run-id...>           block on a set; per-id outcome lines; non-zero if any did not pass
+pandora ps [--all]                 runs for this worktree, merged local-pending + server state
 pandora logs <run-id> [--follow] [--tail N] [--range a-b]
-pandora result <run-id> [--json]  provenance + diagnostics + artifacts (exit 0 if retrieved)
-pandora ps [--all]                runs for this worktree, from the server
+pandora result <run-id> [--json]   provenance + diagnostics + hint (exit 0 if retrieved)
 pandora cancel <run-id>
-pandora plan -- <argv>            dry run: resolved cwd, limits, sync size, prepare state
-pandora apply <run-id>            write a run's source changes back into the worktree
-pandora reset                     new workspace epoch for this worktree; next run is warm-from-base
-pandora capabilities --json       limits, retention, supported diagnostic adapters
+pandora fetch <run-id> <path>      pull any file from a kept run tree (failed runs kept 24h)
+pandora sync status|reset          mirror convergence detail; terminate + recreate session
+pandora secret set NAME            server-side secret, injected as env into runs
+pandora host provision|update|status
+pandora cache clear                shared caches (turbo/pnpm store) for this repo
+pandora capabilities --json        limits, retention, supported diagnostic adapters
 ```
 
-Flags on `run`: `--detach` (print id, return), `--max-wait <dur>` (default
-8m), `--wait-forever`, `--mem <size>` (default 12g), `--cpus <n>` (default 4),
-`--timeout <dur>` (execution clock, default 20m), `--include <glob>` (opt an
-ignored path into the sync), `--write-back` (apply source changes on success),
-`--json` (machine mode: stdout is JSONL, raw command output goes to the log).
+Flags on `run`: `--detach`, `--stream`, `--max-wait <dur>` (default 8m),
+`--wait-forever`, `--mem`, `--cpus`, `--timeout` (server-side kill, default
+30m), `--profile <name>`, `--json`.
 
-### Blocking with a safety valve
+### What a run feels like
 
-`run` blocks by default: first line of output is `pandora: run <id>
-input <input-id>`, then streamed logs, then the summary, then exit with the
-observed command exit code. Fanout is the point, so waiting must never lose a
-run: agent tool calls have hard timeouts (often 10 min).
-
-- The run id is written to `~/.pandora/pending/<worktree-hash>` before any
-  network call, so a killed tool call can recover via `pandora ps`.
-- At `--max-wait`, the CLI exits **124** with a final machine-parseable line
-  `pandora: still-running id=<run-id>`. Exit 0 is never printed for an
-  unfinished run.
-- A transport disconnect never cancels a run; reconnecting resumes observation.
+- **Blocking by default.** First stderr line: `pandora: run <id> input
+  <input-id>`. Without `--stream`, stdout receives **head 50 + tail 150**
+  lines of combined command output with a `pandora: … N lines omitted (log:
+  ~/.pandora/runs/<id>/log)` marker on stderr; `--stream` gives the raw
+  stream. Queued runs announce `pandora: queued (position 3, ~2m)`. All
+  pandora lines are stderr, prefixed `pandora:`; stdout is the command's.
+- **Exit code mirrors the command** exactly. Reserved CLI codes: **124**
+  still-running at `--max-wait` (final line `pandora: still-running
+  id=<run-id>`), **125** infra/prepare failure, **126** mirror not converged.
+- **Interrupt detaches.** SIGINT/SIGTERM/harness kill never cancels the run;
+  the pending record lets `pandora ps`/`wait` recover it. `pandora cancel` is
+  the only stop.
+- **Return barrier.** Before `run` exits, the run's source changes have been
+  applied to the mirror and flushed to the Mac: a `git diff` in the next tool
+  call sees them. Adds ~1 sync cycle when files changed.
+- **cwd mirrors.** `cd apps/web && pandora run -- pnpm test` runs in the same
+  relative directory remotely.
+- **Paths mirror.** The run container mounts its snapshot at **the local
+  worktree's absolute path** (`/Users/gary/code/wt-a`). Every path any tool
+  emits — stdout, stack traces, Playwright HTML, JUnit XML, sourcemaps,
+  tsbuildinfo — is a valid local path. There is no `/workspace` convention
+  and no rewrite layer.
+- **Env mirrors, sanitised.** The caller's shell env is forwarded minus a
+  denylist of platform vars (`PATH`, `HOME`, `SHELL`, `TMPDIR`, `USER`,
+  `SSH_*`, `TERM*`, `XDG_*`, `HOMEBREW_*`, `LC_*`, `_`, harness markers) and
+  minus secret-looking names (`TOKEN|SECRET|KEY|PASSWORD` — dropped with a
+  one-line notice pointing at `pandora secret set`). So `DEBUG=pw:api pandora
+  run -- pnpm test` just works. `.pandora.toml [env]` values layer on top;
+  the forwarded set is recorded in the run spec.
+- **stdin closed, no TTY.** Prompt-based hangs hit the wait deadline;
+  `--stream` shows the stuck prompt. Non-interactive by contract.
+- **Fresh run, always.** Same command + same `input_id` executes again;
+  result notes `same input as run <prev>` so agents can tell a flake from a
+  change. Turbo's own cache still skips unchanged tasks inside the run.
+- **Fanout** is multiple invocations (`--detach` + `pandora wait <ids>`).
+  There is no `-c` and no server-side group object.
+- **Unenrolled repo:** refuse with `pandora: not a pandora repo (no
+  .pandora.toml up-tree); run \`pandora init\` at the repo root`.
+- **Hint channel.** Results carry a `hint` string from server-side
+  heuristics: OOM → raise `--mem`; timeout → raise `--timeout`; output
+  mentioning a path that exists locally but is gitignored → `pandora:
+  tmp/fixture.json exists locally but is gitignored; add to sync.include`.
 
 Three separate fields, never conflated: **observed command exit code**
-(nullable; absent on host loss), **CLI exit code**, **outcome**:
-`passed | command_failed | timed_out | oom | cancelled | infra_failed`.
-Each outcome carries `layer` (command / run / host) and `evidence`
-(e.g. `memory.events oom_kill=1`).
+(nullable), **CLI exit code**, **outcome**: `passed | command_failed |
+timed_out | oom | cancelled | prepare_failed | infra_failed`, each with
+`layer` (command / run / host) and `evidence` (e.g. `memory.events
+oom_kill=1`). `infra_failed` is reported, never retried silently.
 
-### Execution semantics
+### Idempotency and recovery
 
-- `argv` is passed verbatim; no shell. Shell syntax needs an explicit
-  `sh -c '...'`. stdin closed, no TTY, `--json` reserves stdout.
-- The worktree root is discovered from `cwd`; the caller's relative cwd is
-  recorded and the command executes there.
-- Two `pandora run` calls are independent runs. The second does not see the
-  first's outputs. Commands that depend on each other run in one run
-  (`-- sh -c 'pnpm build && pnpm test'`) or rely on the repo's own task graph.
-- Outside a supported worktree: fail before any upload with the probes that
-  failed (git toplevel, origin, enrolment).
+`request_id` is generated client-side before any network call and stored as
+one atomic record per request in `~/.pandora/pending/<request-id>.json`
+(request id, spec digest, upload state, acknowledged run id). Lifecycle:
+`flush+seal -> submit -> observe`. Re-submitting the same `request_id` with
+the same spec returns the same `run_id`; different spec is an error.
+Submission-unknown after a disconnect is resolved by re-presenting the
+`request_id`. `pandora ps` merges pending records with server state.
 
-### Result
+### Result schema
 
 ```json
 {
-  "schema_version": 1,
-  "run_id": "r_...", "input_id": "s_...", "request_id": "q_...",
+  "schema_version": 2,
+  "run_id": "r_...", "input_id": "t_<tree-hash>", "request_id": "q_...",
   "state": "finished", "outcome": "command_failed", "layer": "command",
-  "command": { "argv": ["pnpm","validate","postgres","api"], "cwd": "." },
+  "same_input_as": "r_...", "hint": null,
+  "command": { "argv": ["pnpm","validate","postgres","api"], "cwd": "apps/api" },
   "exit_code": 1, "cli_exit_code": 1,
-  "failed_command": { "index": 3, "argv": ["..."] },
-  "environment": { "runtime_id": "node24.x-pnpm12.3.4-...", "prepare_fingerprint": "p_...",
-                   "workspace_generation": "v17", "base_generation": "gen42" },
+  "environment": { "image": "pandora/eichler-runtime@sha256:...",
+                   "prepare_fingerprint": "p_...", "generation": "v17",
+                   "host_kind": "linux" },
   "limits": { "requested": {"mem":"12g","cpus":4}, "effective": {"mem":"12g","cpus":4} },
-  "durations_ms": { "queue": 1200, "prepare": 0, "execute": 84000 },
-  "diagnostics": {
-    "status": "complete | partial | missing | unsupported",
-    "adapter": "vitest-json",
-    "summary": "1 failed, 212 passed",
-    "failures": [ { "file": "...", "test": "...", "message": "...", "log_span": [12040, 14300] } ],
-    "truncated": false
-  },
+  "durations_ms": { "converge": 40, "queue": 1200, "prepare": 0, "execute": 84000 },
+  "diagnostics": { "status": "complete|partial|missing|unsupported",
+                   "adapter": "vitest-json", "summary": "1 failed, 212 passed",
+                   "failures": [...], "truncated": false },
   "log": { "path": "~/.pandora/runs/r_.../log", "bytes": 183211 },
-  "artifacts": [ { "glob": "tmp/validation/**", "files": 4, "synced_to_worktree": true } ],
-  "source_changes": { "files": 2, "patch": "~/.pandora/runs/r_.../changes.patch", "applied": false }
+  "artifacts": { "files": 6, "written_in_place": true, "kept": "~/.pandora/runs/r_.../artifacts/" },
+  "source_changes": { "applied": 2, "conflicts": [{ "path": "...", "reason": "local edit during run" }],
+                      "patch": "~/.pandora/runs/r_.../changes.patch" }
 }
 ```
 
-Diagnostics come from explicit adapters over run-owned report files (Vitest,
-Jest, Playwright JSON). Eichler's validation already writes `tests.json`; the
-adapter reads it. A missing or inherited report is `missing`, never "zero
-failures". Summary fields are sanitised of control characters.
-
-Logs and result JSON live under `~/.pandora/runs/<run-id>/` on the client.
-The server is the source of truth for run state; the client dir is a cache.
-
-### Source changes and write-back
-
-Some commands mutate source: formatters, `journey --update`, codegen,
-snapshot updates. After every run the server diffs client-owned paths in the
-run's writable layer against the sealed input and stores the result as
-`changes.patch`. `--write-back` (or `pandora apply <id>`) applies it to the
-worktree **only if the worktree still matches `input_id`**; otherwise it
-refuses and leaves the patch. There is no implicit reverse sync of source.
-
-A local `node_modules` is no longer required for validation. It remains useful
-for IDE typechecking and quick local formatting; the agent decides.
-
-### Idempotency and retries
-
-`request_id` is generated client-side before any network operation. The
-lifecycle is `begin(request_id) -> upload -> seal(input_id) -> submit`.
-Resubmitting the same `request_id` with the same spec returns the same
-`run_id`; with a different spec it is an error. Repeating a test on purpose is
-a new request. A retry after `infra_failed` references the original
-`input_id`; if it has expired, say so, never resync silently.
+Diagnostics adapters (Vitest, Jest, Playwright JSON) read run-owned report
+files; eichler's `tests.json` receipt is one. A missing report is `missing`,
+never "zero failures". `RunResult` (server facts) is separate from the CLI's
+observation record (local exit, downloads).
 
 ## 2. Workspace identity
 
 ```
-workspace_id = sha256(account_id, client_instance_id, canonical_origin_url, realpath(worktree_root))
+workspace_id = sha256(client_instance_id, canonical_origin_url, realpath(worktree_root))
 ```
 
-`client_instance_id` is a UUID in `~/.pandora/config` (so two Macs with the
-same path do not collide). Branch is recorded as metadata, not identity, so
-`git switch` / `branch -m` do not orphan a workspace. No file is written into
-the repo or its git dir. Same-path reincarnation reuses caches; that is
-harmless because sync reconciles source and `input_id` guards correctness.
+`client_instance_id` is a UUID in `~/.pandora/config`; two Macs with the same
+path do not collide, and the same local path on two machines maps to distinct
+workspaces (inside each container the path is still the local absolute path —
+per-host run dirs disambiguate on the box). Branch is metadata only.
+Worktree removal: a `pre-worktree-remove`-style git hook installed by
+`pandora init` terminates the Mutagen session and asks the box to retire the
+workspace; a 14-day sweeper covers hooks that never ran. Nothing is written
+into the repo's `.git`.
 
-`pandora reset` bumps the workspace **epoch**: new head from the current base
-generation; runs already holding the old generation finish unaffected; the
-old generation is garbage-collected when unreferenced.
+## 3. Source sync: continuous Mutagen mirror
 
-No `--workspace <name>` in v1.
+One Mutagen session per worktree: alpha = local worktree, beta =
+`/work/mirrors/<ws>` on the box, `two-way-resolved` (alpha wins). The mirror
+*is* the worktree's remote twin; `pandora run` does not capture anything —
+it converges and seals what is already there.
 
-## 3. Sync: sealed inputs, explicit ownership
+- **Session lifecycle.** Created lazily on first `pandora run` in the
+  worktree (or eagerly by the post-checkout hook, section 9). Terminated on
+  worktree removal or `pandora sync reset`.
+- **Ignore set.** Mutagen does not read `.gitignore` (POC 1a). The ignore
+  list is generated: `git ls-files -o -i --exclude-standard --directory`,
+  plus `.git` always, minus `.pandora.toml [sync] include` allowlisted
+  ignored paths. Regenerated at each `pandora run`; if the set changed, the
+  session is terminated and recreated (there is no live-update; recreation
+  is one rescan, POC 1f). Nested `.gitignore` per-dir patterns need
+  translation to root-relative patterns — harness item.
+- **Seal.** `pandora run` issues `mutagen sync flush`, then checks
+  convergence via `sync list`: `Connected: yes` on both ends and no
+  `Conflicts:` line — flush's exit code alone does not report conflicts
+  (POC 1c/e). Unconverged → refuse, exit 126, `pandora sync status` for the
+  cause. Never seal an input that may not equal the local tree.
+- **Conflicts.** `two-way-resolved` (Mac wins) discards box-side edits
+  silently between cycles (POC 1d). Box-side writes therefore never go
+  through the session's beta directly: run-produced source changes are
+  applied to the mirror by pandorad under a lock with a per-file guard
+  (section 5), so nothing races with the resolver.
+- **Ignored files** fall into three classes: derivable on the box
+  (`node_modules`, `dist/`, `.turbo/`, `.wrangler/`, reports — created in
+  the generation or the run, never synced); allowlisted in `[sync] include`
+  (fixtures, a local `.dev.vars` — travel like source); account secrets
+  (`pandora secret set`, env-injected). Eichler's validation generates
+  throwaway secrets and needs neither.
 
-Three owners, never mixed:
+## 4. Git on the box
 
-| Owner  | Contents | Who writes |
-|---|---|---|
-| client | tracked files + non-ignored untracked files + `--include`/config allowlist | sync only |
-| server | `node_modules`, `.git` (from base), prepared state | prepare only |
-| run    | reports, build outputs, temp files, databases | the run, in its writable layer |
+Files sync; `.git` never does (worktree `.git` is a pointer to a Mac path;
+two-way-syncing a live gitdir is unsafe). Eichler's tooling asks git real
+questions (`fingerprint()`: `rev-parse HEAD`, `diff HEAD --binary`,
+`ls-files --others`; also `cat-file <base-sha>`, `git log`, remote config),
+so the box needs a real repo, not files and not a synthetic commit.
 
-Capture:
+Mechanics (verified end to end, POC 3):
 
-1. Enumerate client-owned paths with `git ls-files -co --exclude-standard`
-   plus allowlisted ignored paths. Symlinks pointing outside the worktree are
-   rejected.
-2. Build a manifest: path, size, mtime, mode, symlink target, content hash for
-   small/changed files. `input_id = sha256(manifest)`.
-3. rsync `--files-from=<manifest>` into the workspace head over SSH (rrsync
-   jailed to that workspace's inbox, forced command per key).
-4. Re-enumerate. If the tree changed during transfer, retry once, then fail
-   `input_unstable`. Immutability is promised **after sealing**, not at the
-   moment of invocation; this is stated in the docs.
-5. Deletions come from diffing the previous sealed manifest against the new
-   one, never from ignore patterns. Server-owned and run-owned paths are never
-   touched by sync.
+- One bare **object store** per repo: `/work/repos/<repo>/store.git`,
+  fetching `origin` on a deploy key.
+- Per run, the client does `git push ssh://box/.../store.git
+  HEAD:refs/pandora/<ws>/head` — a no-op when HEAD hasn't moved.
+- Per workspace, a real gitdir `/work/ws/<ws>/ws.git`:
+  `objects/info/alternates` → store objects; `symbolic-ref HEAD` → the
+  branch name; `refs/heads/<branch>` = pushed SHA (alternates share
+  objects, not refs — resolve the store-side ref to a SHA first). A
+  **gitfile** `<mirror>/.git` → the gitdir makes plain `git` work in cwd.
+  The gitfile is box-generated and excluded from sync.
+- Seal-time: `read-tree HEAD` + `update-index --refresh` (exit 1 listing
+  `needs update` doubles as the drift detector against the manifest).
+- Per run, the small gitdir (index + refs + config, objects shared via
+  alternates) is copied into the run's tree and the gitfile repointed —
+  a run's `git commit`/`checkout` is run-local. Rule: **runs can change
+  your files, never your git history.** Objects written mirror-side can
+  never corrupt the store (alternates are read-fallback); store `gc` is
+  safe because pushed commits stay reachable through
+  `refs/pandora/<ws>/head`.
+- `input_id` = `git write-tree` against a temp index after `add -A` (with
+  `-f` for allowlisted ignored paths) in the sealed snapshot: a real
+  content hash of the exact tree the run sees.
+- LFS: the mirror gets smudged files via sync, no smudge needed; set
+  `GIT_LFS_SKIP_SMUDGE=1` in run env for any run-side git operation that
+  would materialise blobs (POC 3, eichler uses LFS).
 
-Secrets: ignored files stay home by default. Eichler's validation stack
-generates its own throwaway secrets, so it needs no secret sync. A repo can
-allowlist specific ignored paths in `.pandora.toml`; `.example` files are
-tracked and travel normally.
+Detached HEAD, amend, rebase: HEAD is pushed by SHA; branch ref attached
+when one exists; detached stays detached.
 
-## 4. Workspace model: base, head, generations, runs
+## 5. Workspace layout, generations, prepare
 
-All on one btrfs filesystem at `/work`. `/var/lib/docker` and pandorad's
-SQLite live on ext4/xfs (CoW hurts both).
-
-```
-/work/repos/<repo>/base@gen<N>          read-only snapshot: clone of origin/<default>, installed
-/work/ws/<workspace>/head               writable candidate, only pandorad writes here
-/work/ws/<workspace>/v<N>               read-only snapshot = sealed generation
-/work/ws/<workspace>/current            stable mount path every run executes at
-/work/runs/<run-id>/upper               per-run overlayfs upper + work dirs (plain dirs)
-```
-
-**Base.** Per repo, a real git clone tracking `origin/<default branch>` via a
-read-only deploy key. The updater builds `base.next` (fetch, checkout,
-prepare), then publishes it atomically as `base@gen<N+1>`. Workspace creation
-snapshots only a committed generation and records `base_generation`. Fetch on
-daemon start and every 15 min; publish only on change.
-
-**One lock over sync + prepare + seal.** Per workspace:
-
-1. take lock
-2. rsync client-owned paths into `head`, apply manifest-diff deletions
-3. compute the **prepare fingerprint** = runtime versions (node, pnpm) +
-   lockfile + every `package.json` + `pnpm-workspace.yaml` + `.npmrc` +
-   `patches/**` + install flags + environment-profile version. If it differs
-   from head's recorded fingerprint, run `pnpm install --frozen-lockfile
-   --prefer-offline` in `head` (at the stable path), with a network-failure
-   class and a timeout. Record the fingerprint only after success.
-4. `btrfs subvolume snapshot -r head v<N>`; record `v<N>` as ready
-5. release lock
-
-A failed prepare leaves `v<N-1>` as the ready generation and the run is
-reported `infra_failed` with layer `prepare`. The lock may be held ~30 s when
-the lockfile changed; runs from other workspaces are unaffected. Queued runs
-reference a sealed `(input_id, v<N>)`, never "whatever head holds".
-
-**Runs.** Each admitted run gets `overlayfs(lower=v<N>, upper=/work/runs/<id>/upper)`
-mounted at `/work/ws/<workspace>/current`. Identical mount path for prepare
-and every run is a hard invariant: pnpm's workspace-state file and eichler's
-`check-worktree-deps.mjs` compare recorded install paths against the running
-path by realpath, and vite/tsbuildinfo caches embed paths. Ten runs of the
-same generation share one snapshot. Cleanup is `rm -rf upper`; no per-run
-subvolume deletion churn.
-
-There is **no promotion**. Arbitrary command side effects never become the
-base for later runs. Warmth comes from: `node_modules` in the generation,
-shared pnpm store, shared turbo cache.
-
-**Shared, repo-scoped caches** (outside every subvolume):
-
-- pnpm store: shared per account. btrfs refuses hardlinks across subvolumes,
-  so pnpm is configured with `package-import-method=clone` (reflink); this is
-  verified on the box, and the install time claim (15-30 s) is measured, not
-  assumed.
-- turbo cache (`TURBO_CACHE_DIR`): shared per repo. Turbo hashes content and
-  repo-relative paths (eichler uses `$TURBO_ROOT$`), so identical inputs in
-  different worktrees hit. Turbo restores declared outputs only; it is not
-  general incremental compiler memory, and we do not claim otherwise.
-- Docker images: one host daemon. Databases, volumes and containers are
-  run-owned (per-run Compose projects on ephemeral ports).
-- Playwright browsers: versioned shared install; profiles are run-owned.
-  Playwright's own browser GC is disabled on the box; pandorad owns retention.
-
-**GC.** Reference-counted: a generation is deleted when no run references it
-and it is not the newest; a workspace when unsynced for N days and epoch-less
-of active runs; base generations when no workspace records them. Deletion is
-throttled (btrfs reclaims asynchronously). Never delete anything an active
-run references.
-
-## 5. Host daemon (`pandorad`)
-
-TypeScript/Node, runs as root (it mounts overlays and manages cgroups),
-spawns commands as the unprivileged `pandora` user. SQLite state on ext4.
-
-**Supervision.** Each run is a transient systemd unit
-`pandora-run-<id>.service`, so a pandorad crash does not kill runs. Logs
-stream to `/var/lib/pandora/runs/<id>/log`; the terminal result is written
-durably before the run is announced complete. On start, pandorad reconciles
-SQLite against live units, durable result files, mounted overlays, and
-Docker resources labelled `pandora.run=<id>`, adopting survivors and marking
-the rest `infra_failed`, **before** admitting new work.
-
-**cgroup hierarchy** (cgroups v2, via systemd):
+All mutable trees on one btrfs filesystem at `/work`; `/var/lib/docker` and
+pandorad's SQLite on ext4.
 
 ```
-pandora.slice                         MemoryMax = host RAM - reserve (dockerd, pandorad, OS)
-  ws-<workspace>.slice                CPUWeight per workspace (fair share between agents)
-    pandora-run-<id>.service          MemoryMax=--mem, CPUQuota=--cpus*100%, TasksMax
+/work/repos/<repo>/store.git              shared object store (origin fetch + pushed refs)
+/work/repos/<repo>/base/gen<N>            sealed base generation: origin/<default>, prepared
+/work/mirrors/<ws>                        writable mirror subvolume (Mutagen beta)
+/work/ws/<ws>/ws.git                      workspace gitdir (alternates → store)
+/work/ws/<ws>/v<N>                        read-only sealed generation: mirror content + prepared state
+/work/runs/<run-id>/                      writable snapshot of v<N> + run-owned files + run gitdir
+/work/cache/<repo>/{pnpm-store,turbo,browsers}
 ```
 
-`--mem` is the budget for the whole run including its services. Containers
-are created by dockerd and land under dockerd's tree by default, so the run
-passes its slice name to the repo's test stack (`PANDORA_CGROUP_PARENT`), and
-a cooperating stack sets Compose `cgroup_parent` accordingly (eichler hook
-below). Uncooperative stacks run with the limit covering only the command's
-own processes; the result records `accounting: partial`.
+**Prepare = dependency/environment setup** before execution: install from
+the lockfile into the candidate at its canonical path, plus pre-pulling
+compose service images. Prepare is a **run with profile `prepare`** in the
+same scheduler (same cgroup limits, same container mechanism, image =
+runtime image).
 
-OOM detection: `memory.events` on the run's cgroup. A guest-visible kill
-becomes outcome `oom`, layer `run`. A few GB of zram is configured as a shock
-absorber, not as the admission mechanism: swap under this workload converts
-one clean `oom` into slow, flaky failures across every run.
+**Transactional generation pipeline** (per-workspace lock):
 
-**Admission.** Global cap on concurrent runs (default 8), per-account cap,
-queue of sealed `(input_id, generation, spec)` entries. Oldest-fit with
-bounded bypass; a request that can never fit is rejected at submit. Prepare
-has its own pool (default 2) and requests for the same workspace generation
-coalesce. `wait` reports why a run is waiting (`memory`, `cap`, `prepare`,
-`disk`). Runner parallelism (Vitest workers, Playwright workers) is configured
-by the repo adapter; a cgroup limit is not a worker count.
+1. candidate = writable btrfs snapshot of newest ready `v<N>` (or seeded
+   from `base/gen<M>` for a new/changed workspace: clone the base tree,
+   then `pnpm install --frozen-lockfile --offline` relinks
+   `.pnpm-workspace-state-v1.json` to the candidate path in ~ms — verified
+   POC 2: 1.3 GB clone + 56 ms relink, `check-worktree-deps` passes; on
+   btrfs the clone is an O(1) snapshot).
+2. dirty marker written; mirror content is reconciled into the candidate
+   (rsync of the converged mirror, manifest-diff deletions; the mirror
+   itself is never executed).
+3. `read-tree`/`update-index` refresh in the candidate's gitdir copy.
+4. prepare fingerprint = runtime image digest + lockfile + every
+   `package.json` + `pnpm-workspace.yaml` + `.npmrc` + `patches/**` +
+   install flags + compose `image:` digests. Differs → run prepare
+   (install + image pre-pull) with network-failure class and timeout.
+5. seal: `input_id` via `git write-tree`; `btrfs subvolume snapshot -r`
+   → `v<N>`; record `(input_id, v<N>, fingerprint)`; publish. Any failure
+   discards the candidate; `v<N-1>` stays ready; the run reports
+   `prepare_failed` with a reason (`install` / `network` / `timeout`).
 
-**Disk.** Watch `btrfs filesystem usage` (data and metadata), Docker's
-filesystem, and pending deletions; `df` lies on btrfs. High/low watermarks
-stop admission before the control plane cannot record failures. Caps on
-upload bytes/files, per-run log and artifact size, retained generations.
-ENOSPC inside a run is `infra_failed`, layer `host`.
+Prepares for the same fingerprint coalesce; a fresh lockfile never
+invalidates the last ready generation. `origin/<default>` base generation:
+the box polls origin every ~10 min and rebuilds base as a low-priority
+prepare when its fingerprint changes.
 
-**Run environment.** Private `HOME`, `TMPDIR`, `XDG_*` per run under the
-upper layer; `PANDORA_RUN_ID`, `PANDORA_CGROUP_PARENT`, `TURBO_CACHE_DIR`,
-`PLAYWRIGHT_BROWSERS_PATH`, `npm_config_store_dir` set; repo-declared
-environment profile applied. All timestamps and ordering are server-side.
+**Runs.** Each admitted run gets a writable snapshot of its sealed `v<N>`
+at `/work/runs/<id>` — no overlayfs (POC-verified relink makes
+path-identity cheap; btrfs snapshot is O(1), host-inspectable, no whiteout
+semantics). Concurrent runs from one worktree each get their own snapshot
+of whatever generation was sealed at their submit; identical submissions
+share `input_id` and dedupe the seal step.
 
-**Transport.** rsync over SSH with a per-account key and a forced
-`rrsync` command jailed to that account's inbox; the client never chooses the
-destination path. HTTPS API with bearer tokens (hashed in SQLite) for
-begin/seal/submit/wait/logs/result/cancel; accepts argv arrays, never shell
-strings, never absolute paths or `..`. SSH identity and API token resolve to
-the same account.
+**No promotion.** Run side effects never become a later run's base. Warmth:
+`node_modules` in the generation; shared pnpm store (reflink imports);
+shared turbo cache (`TURBO_CACHE_DIR`, repo-scoped, content-addressed —
+poisoning is possible, `pandora cache clear` exists); shared browser
+install; dockerd's image cache.
 
-## 6. Security posture (v1, single tenant)
+**Source-change return.** After a run, pandorad diffs the run tree's
+client-owned paths against the sealed input (`git status --porcelain` +
+`git diff HEAD --binary` in the run's gitdir — new files and binaries
+included). Under the workspace apply-lock: for each changed file, apply
+into the mirror **only if mirror content still equals the sealed version**
+(per-file guard); files a concurrent local edit already changed are
+skipped, listed as conflicts, patch retained server-side and under
+`~/.pandora/runs/<id>/changes.patch`. Then flush → Mutagen propagates to
+the Mac before `run` exits (return barrier).
 
-- The `pandora` user is in the `docker` group. **This is root-equivalent on
-  the host.** Acceptable only because every run is your own agents' code
-  (threat model: bugs, not adversaries). Documented in the runbook; moving
-  dockerd inside the isolation boundary (rootless per run, or Docker-in-VM) is
-  the first item on the multi-tenant list.
-- Deploy key is repo-scoped, read-only, lives only on the host.
-- Hooks in base's `.git` are disabled (`core.hooksPath=/dev/null`).
-- Runs have unrestricted egress in v1; egress policy is a multi-tenant item.
-- Logs are untrusted content: control characters stripped from summaries.
+**Artifacts.** Every run-created/changed file outside the derivable-state
+denylist (`node_modules`, `.turbo`, `dist`, `.wrangler`, `tmp/validation`'s
+ephemeral stack dirs, …) comes back to its worktree-relative path —
+including gitignored outputs like `playwright-report/`. Concurrent runs
+writing the same path: last writer wins in the worktree; every run's full
+artifact set is kept under `~/.pandora/runs/<id>/artifacts/` and referenced
+in the result. No size cap in v1; `[sync] artifact_exclude` is the only
+knob.
 
-## 7. Repo integration (eichler)
+## 6. Execution: container per run
 
-`.pandora.toml` at the repo root, an explicit execution profile:
+```
+docker run --rm --name pandora-run-<id> \
+  --network host \
+  -v /work/runs/<id>:<local-worktree-path> -w <local-worktree-path>/<rel-cwd> \
+  -v /work/runs/<id>/docker.sock:/var/run/docker.sock \
+  -v /work/cache/<repo>/pnpm-store:<store> -v .../turbo:... -v .../browsers:... \
+  --memory 12g --cpus 4 --cgroup-parent pandora-ws-<ws>.slice \
+  -e TURBO_CACHE_DIR -e PLAYWRIGHT_BROWSERS_PATH -e npm_config_store_dir \
+  -e GIT_LFS_SKIP_SMUDGE=1 -e PANDORA_RUN_ID ... \
+  pandora/<repo>-runtime@sha256:<digest>  <argv>
+```
+
+- The mount target is the **local absolute path** — inside the Linux
+  container `/Users/gary/code/wt-a` is just a directory. Path-identity for
+  output, artifacts, and pnpm's realpath checks, for free.
+- **Runtime image** (digest-pinned, built by pandorad from a repo
+  `Dockerfile` fragment + base): OS libs, Node (per `engines`), pnpm (per
+  `packageManager`), Playwright browsers/system deps. Contains the
+  toolchain, **not** project dependencies — those live in the generation.
+  Toolchain changes → new image → new prepare fingerprint → new
+  generations.
+- Docker gives: private mount namespace, memory/CPU limits + OOM evidence
+  (`memory.events`), durable exit code via `docker inspect` even if
+  pandorad was down, `docker kill` = cancel.
+- dockerd `live-restore` on so daemon restart doesn't kill runs.
+
+### Per-run Docker API proxy
+
+The container's `docker.sock` is **not** the host socket: it's a per-run
+unix socket (`/work/runs/<id>/docker.sock`) served by one pandorad-owned
+process — one listener per run, so the socket itself identifies the run.
+On `POST /containers/create` it:
+
+- rewrites `HostConfig.Binds`/`Mounts[].Source` under
+  `<local-worktree-path>` → `/work/runs/<id>`;
+- injects `HostConfig.CgroupParent` = the run's slice and
+  `Labels["pandora.run"]=<id>` (also onto the container);
+- 403s mounts of `/`, the real docker socket, other runs' paths;
+- rewrites `Content-Length`, handles chunked bodies, passes through
+  streaming and HTTP-upgrade (`attach`, `exec`, `docker run -i`).
+
+Compose speaks the same API, so `docker compose up` is covered with no
+repo changes — this **replaces the v1 `EICHLER_COMPOSE_OVERRIDE` hook**.
+At run end pandorad removes everything labelled `pandora.run=<id>`;
+reconciliation at restart does the same. Fixed host ports collide as they
+do locally (clear error, run-scoped). Long-lived dev services are a later
+feature (`pandora service`); v1 targets finite commands. POC script
+written (`tmp/poc/docker-proxy.mjs`); daemon-side verification is a
+harness item — on Docker Desktop `CgroupParent` may be ignored, Linux is
+the real test.
+
+## 7. Resources and admission
+
+cgroups v2, host → workspace → run:
+
+```
+pandora.slice                       MemoryMax = host RAM - reserve
+  pandora-ws-<ws>.slice             per-workspace weight
+    run container + its proxy-labelled children (CgroupParent)
+```
+
+- **Admit on expected usage, enforce on ceiling.** Per profile (inferred
+  from command shape: first tokens of argv), pandorad records observed
+  peak memory; admission sums p95 expectations against `RAM − reserve`.
+  `--mem` is the hard per-run ceiling so a misbehaving run dies alone.
+- CPU oversubscribes freely (`--cpus` is a time quota); memory
+  oversubscription factor starts ~1.0, tunable from data.
+- Global concurrency cap derived at provisioning:
+  `floor((RAM − 16 GB reserve) / default_mem)`; the ~8 figure is a
+  128 GB-class assumption, not a constant.
+- FIFO queue, `pandora: queued (position N, ~Mm)`; per-account cap;
+  prepare jobs compete in the same scheduler (profile `prepare`) and count
+  against the shared memory budget.
+- OOM → outcome `oom`, evidence `memory.events`; zram configured as a
+  small shock absorber, never the admission mechanism.
+- Disk: watch `btrfs filesystem usage` (data + metadata), Docker's fs;
+  watermarks stop admission before the control plane can't record
+  failures; caps on per-run log size, retained generations.
+
+## 8. pandorad
+
+Node/TypeScript, runs as root (snapshots, containers, cgroups), spawns
+runs as an unprivileged in-container user. SQLite on ext4.
+
+- **Restart reconcile, before admitting:** every `running` row is matched
+  against `docker ps -a --filter label=pandora.run`; present → re-adopt;
+  exited → collect normally (inspect gives exit + OOM); absent →
+  `infra_failed(daemon_lost)`. Runner-side terminal status written durably
+  before completion is announced. Runs are never orphaned or
+  double-collected.
+- **Retention.** Run snapshots deleted after collection; **failed run
+  trees kept 24h** (`pandora fetch <id> <path>` inspects them). Results +
+  logs 30d. Last 2 sealed generations per workspace. Workspace GC'd 14d
+  after its session disappears (hook + sweeper). Generations are
+  reference-counted; never delete what a run references.
+- **Transport: SSH only.** Three SSH users of one connection
+  (ControlMaster, keepalive): Mutagen session; `git push` to the store;
+  pandorad API over a forwarded unix socket
+  (`ssh -L ~/.pandora/sock:/run/pandora/api.sock`, HTTP+JSON, bearer token
+  bound to the SSH key account). No open TCP port besides sshd.
+- **Versions.** The box serves the matching CLI binary; the CLI
+  self-updates at connect; protocol-major mismatch refuses with a named
+  fix. `pandora host update` deploys pandorad + CLI bundle atomically.
+
+## 9. Client footprint (Mac)
+
+- `mutagen` binary + its daemon (installed via brew, version-pinned).
+  No pandora-resident daemon: housekeeping (session GC, ignore refresh,
+  convergence checks) runs opportunistically inside any `pandora`
+  invocation.
+- `~/.pandora/`: config (client UUID, host, token), `pending/<req>.json`,
+  `runs/<id>/{log,result.json,artifacts/,changes.patch}`, CLI binary
+  cache, SSH socket.
+- Git hooks installed by `pandora init` per repo (non-destructive, chained
+  if a hook exists): post-checkout/worktree-add → background
+  `pandora sync init` (mirror + base-seeded prepare warm by the time the
+  agent's first command lands; cold inline path remains the fallback);
+  worktree-remove → session terminate.
+- Discovery: agent-oriented `--help` stating the invariants (remote, cwd/
+  env/exit mirror local, changes come back before exit, `still-running`
+  recovery, `wait`/`cancel`/`logs`/`fetch`), one paragraph in the repo's
+  AGENTS.md, optional thin repo wrappers (`pnpm rcheck`) so agents keep
+  existing habits.
+
+## 10. Security posture (v1, single tenant)
+
+- One SSH key = the only authn/authz. Runs are root-equivalent on the box
+  (docker group): accepted, documented — every run is the operator's own
+  agents' code. Isolation exists for correctness and capacity, not
+  adversarial containment; microVMs are the multi-tenant upgrade.
+- Deploy key read-only, repo-scoped, host-side only.
+- `core.hooksPath=/dev/null` in store/workspace gitdirs.
+- Logs/results sanitised of control characters in summaries.
+- Unrestricted egress in v1.
+
+## 11. Repo integration (eichler)
+
+`.pandora.toml`, intentionally small — everything else is inferred:
 
 ```toml
-[sync]
-include = []                               # ignored paths allowed to travel (none needed)
+[runtime]
+# derived if absent: node from engines, pnpm from packageManager
+dockerfile = ".pandora/Dockerfile"      # optional repo fragment
 
 [env]
 EICHLER_VALIDATION_DIRECT = "1"
-EICHLER_COMPOSE_OVERRIDE = "${PANDORA_COMPOSE_OVERRIDE}"
 
-[artifacts]
-pull = ["tmp/validation/**", "**/playwright-report/**", "**/test-results/**"]
-
-[profiles.heavy]
-match = ["pnpm validate postgres", "pnpm validate journey", "pnpm validate journeys",
-         "pnpm validate surface", "pnpm validate browser-integration", "pnpm validate mockup-browser"]
-mem = "16g"
+[sync]
+include = []                            # ignored paths allowed to travel
 ```
 
-Profile matching is on the resolved argv prefix, not substring search.
+Inference: prepare = `pnpm install --frozen-lockfile` when
+`packageManager: pnpm@…`; fingerprint from lockfile + all `package.json` +
+`pnpm-workspace.yaml` + `.npmrc` + `patches/**` + compose images;
+artifacts = every run-changed file minus the derivable denylist; profile
+from argv shape (`pnpm validate*`/`pnpm test:e2e*` → heavy defaults).
 
-One eichler PR:
+One eichler PR, one seam: `EICHLER_VALIDATION_DIRECT=1` skips only the
+Pueue `submit()` in `validate.mjs` — `heavy.mjs`/`surface.mjs`, ephemeral
+Compose stacks, generated secrets, fingerprinting and receipts all stay.
+`GITHUB_ACTIONS` must NOT be set (it swaps in CI raw commands without the
+stack). The compose override hook is gone — the proxy owns cgroups, paths
+and labels.
 
-1. `EICHLER_VALIDATION_DIRECT=1` gates **only** `validate.mjs:84` (run
-   `execute()` inline instead of Pueue `submit()`). `plan.mjs` keeps
-   `heavy.mjs` / `surface.mjs` (the `GITHUB_ACTIONS` branches swap in raw
-   `pnpm --filter` commands that expect CI service containers and fixed
-   ports; those must not be taken). Fingerprint and receipts stay: the run
-   tree is immutable, so the drift check is trivially satisfied, and the
-   receipt (`tests.json`) is what the diagnostics adapter reads.
-2. `EICHLER_COMPOSE_OVERRIDE`: if set, `tools/stack/instance.mjs` appends
-   `-f $EICHLER_COMPOSE_OVERRIDE` to its compose invocations. Pandora writes a
-   per-run override setting `cgroup_parent` on each service.
+Agent instructions: `pandora run -- pnpm check` replaces the
+install-then-check incantation; `pnpm test:ios` fails fast remotely
+(eichler throws off-darwin — correct); `pnpm dev:stack` stays local.
+Eichler stops needing locally: Pueue for validation, Docker Desktop for
+tests, per-worktree `node_modules` for validation (still useful for IDE).
 
-`.git` exists in every generation because base is a real clone; HEAD points at
-base's commit and the agent's files are overlaid. Git-dependent tooling that
-needs the agent's actual commits is unsupported in v1 (upgrade path: client
-pushes its HEAD to the box, rsync carries only the dirty delta).
-
-Agent instructions change from "`pnpm install --frozen-lockfile` then
-`pnpm check`" to `pandora run -- pnpm check` (plus `-c` fanout before a PR).
-`pnpm test:ios` fails fast remotely (eichler already throws off-darwin).
-`pnpm dev:stack` stays local.
-
-What eichler stops needing locally: Pueue, the validation state dir, the
-light/heavy/surfaces groups, Docker Desktop for tests. Pandora adds no test
-result cache; turbo task caching remains visible and governed by the repo.
-
-## 8. Host
-
-Hetzner dedicated (AX line, NVMe, KVM-capable for the later executor).
-Ubuntu LTS. `/work` btrfs; `/`, `/var/lib/docker`, `/var/lib/pandora` ext4.
-Provisioned by a checked-in script: Node (per `engines`), pnpm (per
-`packageManager`), Docker CE (rootful, overlay2), Playwright system deps,
-btrfs-progs, systemd units for pandorad, zram. Toolchain versions are part of
-the prepare fingerprint, so a bump invalidates generations instead of
-silently mismatching.
-
-## 9. Executor boundary (what tier 2 swaps)
-
-The stable boundary is:
+## 12. Executor boundary and platforms
 
 ```
-ExecutionSpec = sealed input_id + argv + relative cwd + runtime/profile + limits + artifact globs
+ExecutionSpec = sealed input_id + argv + relative cwd + runtime/profile
+              + limits + forwarded env + host_kind
+Executor interface: prepare / snapshot / execute / collect / cleanup
 ```
 
-Everything below it is executor-private: head/generation subvolumes, overlay
-mounts, shared dockerd, `TURBO_CACHE_DIR` as a directory, the base
-subvolume, cgroup-derived outcome evidence. A microVM executor would
-materialise the same sealed input into a guest disk, run Docker inside the
-guest (removing the compose hook and the docker-group problem), expose caches
-via virtiofs or a service, and report `oom` with layer `guest`. The CLI,
-result schema, identity and idempotency rules do not change.
+- **`linux` (v1):** container executor, sections 5–7.
+- **`macos` (follow-on):** native executor on a Mac mini-class host —
+  in-place runs in the prepared tree (no per-run copies: `sandbox-exec` FS
+  restrictions, process-group kill, per-workspace serialization, ~2
+  concurrent; the stable-path problem disappears because there is no
+  copy). Needed for Xcode/iOS-simulator suites (`pnpm test:ios`,
+  `test:native-*`); Docker Desktop provides the compose stack as on a
+  dev machine. APFS `cp -c` clones give O(files)-not-O(1) copies if
+  per-run copies are ever wanted.
+- **`linux-vm` / `macos-vm` (tier 2):** Firecracker / Tart VM-per-run.
+  Same contract; workspace hand-off becomes disk-image based (reflink
+  image copies, virtio-blk), a guest agent runs the command, Docker lives
+  inside the guest. The uniform "VM per run" model — but note
+  Firecracker is Linux/KVM-only and Tart is Apple-Silicon-only with a
+  2-VM licensing cap, so "uniform" means same shape, two integrations.
+  Costs deferred knowingly: image-based workspace, in-guest dockerd,
+  tap/NAT per VM, kernel/rootfs pipelines, no host-side tree inspection.
 
-## 10. Not in scope for v1
+**Platform truth for agents:** a Linux container cannot run Xcode builds,
+iOS simulators, or macOS SDKs — ever; that's not a container limitation,
+it's an OS one, and eichler already fails fast off-darwin. Headless
+browsers, Postgres, Node are all fine. Android emulators would work
+(KVM-passthrough) if ever needed.
 
-MicroVMs, multi-tenant isolation, egress policy, billing, GitHub Actions
-adapter, test selection or result caching, macOS/iOS suites, multi-host
-placement, IDE/LSP integration, named shared workspaces, promotion of run
-state.
+## 13. Out of scope for v1
 
-## 11. Build order
+Multi-tenant isolation, egress policy, billing, GitHub Actions adapter,
+test selection/result caching (beyond turbo), long-lived services
+(`pandora service` + port forwarding), interactive shells/PTY, the macOS
+and VM executors, multi-host placement (the host-kind field reserves it).
 
-1. Host provisioning script; verify on the box: reflink installs across
-   subvolumes, overlay-at-stable-path with eichler's `check-worktree-deps`,
-   snapshot and mount latency under 10 concurrent runs, Compose
-   `cgroup_parent` placement.
-2. Eichler PR (direct mode + compose override).
-3. pandorad: SQLite schema, begin/seal/submit, lock + prepare + generation,
-   overlay + systemd unit + cgroups, result persistence, restart
-   reconciliation.
-4. CLI: enrol, capture/seal, `run`/`wait`/`logs`/`result`/`ps`/`cancel`,
-   pending file, exit 124 path, `-c` fanout, artifacts pull, `changes.patch`
-   + `apply`.
-5. Diagnostics adapters (Vitest, Playwright, Jest JSON).
-6. Admission, prepare pool, disk watermarks, GC.
-7. Dogfood: replace `pnpm check` in one agent's instructions; measure cold,
-   warm, lockfile-change, and 8-way fanout; compare against local Pueue.
+## 14. Build order
+
+1. **Adversarial harness on hand-wired pieces** (before any daemon code):
+   provision script on the box; Mutagen over SSH incl. nested-.gitignore
+   ignore generation and convergence predicate; gitdir provisioning;
+   btrfs snapshot → container at local path → eichler `check-worktree-deps`
+   passes; proxy rewrite/cgroup/label/deny on real dockerd; compose via
+   proxy; OOM classification; torn-prepare recovery; concurrent runs with
+   distinct sentinels; `pandora run -- pnpm check` by hand.
+2. Eichler PR (`EICHLER_VALIDATION_DIRECT`).
+3. pandorad: SQLite, sessions/mirror state, seal pipeline, scheduler +
+   admission, container + proxy lifecycle, result store, restart
+   reconcile, retention.
+4. CLI: enrol, mirror mgmt, `run`/`wait`/`ps`/`logs`/`result`/`cancel`/
+   `fetch`, pending records, env denylist, head+tail, reserved exit
+   codes, self-update.
+5. Diagnostics adapters, `hint` heuristics.
+6. Dogfood: one agent's instructions → `pandora run -- pnpm check`;
+   measure cold, warm, lockfile-change, 8-way fanout vs local Pueue.
