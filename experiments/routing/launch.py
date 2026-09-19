@@ -16,11 +16,11 @@ a = p.parse_args()
 command = a.command[1:] if a.command[:1] == ['--'] else a.command
 if not command:
     p.error('Specify a command after --')
-real = shutil.which('pnpm')
-if not real or os.environ.get('PANDORA_REAL_PNPM'):
-    p.error('Start from an ordinary shell with pnpm available, not a nested routed session')
+real = os.environ.get('PANDORA_REAL_PNPM') or shutil.which('pnpm')
+if not real:
+    p.error('pnpm is not available')
 env = dict(os.environ)
-env['PANDORA_REAL_CODEX'] = shutil.which('codex') or ''
+env['PANDORA_REAL_CODEX'] = os.environ.get('PANDORA_REAL_CODEX') or shutil.which('codex') or ''
 env.update(PANDORA_HOST=a.host, PANDORA_STATE=str(a.state.resolve()),
            PANDORA_SESSION=a.session or uuid.uuid4().hex, PANDORA_REAL_PNPM=real)
 env['PATH'] = str(Path(__file__).resolve().parent / 'bin') + os.pathsep + env['PATH']
