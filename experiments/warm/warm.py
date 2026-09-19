@@ -23,12 +23,16 @@ def main():
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--require-warm', action='store_true')
+    p.add_argument('--attempt', default=None)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.@-]*', args.host):
         p.error('Invalid SSH destination')
     if any(s.startswith('-') for s in args.selectors):
         p.error('Only file selectors are supported in this experiment')
+    attempt = args.attempt or uuid.uuid4().hex
+    if not re.fullmatch('[0-9a-f]{32}', attempt):
+        p.error('Invalid attempt identity')
     started = time.monotonic()
     args.output.mkdir(parents=True, exist_ok=False)
     output = args.output.resolve()
@@ -36,7 +40,6 @@ def main():
     manifest, excluded = freeze(args.repo, output / 'source')
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
-    attempt = uuid.uuid4().hex
     metadata = {'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
     (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')

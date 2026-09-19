@@ -1,0 +1,28 @@
+Existing flow:
+t0 local={active,A}, worker={none}; write descriptor before source freeze.
+t1 local={active,A,submission id X}, worker={uploaded X}; SSH starts worker.
+t2 local={dead}, worker={running X}; local lock releases, remote lifetime depends on SSH/HUP.
+t3 retry={lock acquired,previous active A}; queries X. If terminal, marks A terminal then returns75 without artifacts.
+t4 next retry={previous terminal A}; submits Y. Missing artifacts of X never recovered. Intent to recover is lost.
+
+Revised flow:
+t0 local={active,A,host H}; descriptor durable, submission absent.
+t1 local={active,A,submission X}; uploads frozen source. No remote launch before submission durable.
+t2 worker={systemd-owned X,overall deadline}; worker has per-attempt lock and persistent launched marker. Start acknowledgement can be lost without re-execution.
+t3 local={dead}; worker continues bounded. local lock releases.
+t4 same-command retry={A}; attach to X only. Never submit Y. Different argv returns75.
+t5 worker={terminal X,verified cleanup,artifact manifest}; retry downloads to staging and hashes every file.
+t6 retry dies during download={active A}; next retry repeats retrieval of X.
+t7 local={verified evidence X,terminal A}; return X exit. Later deliberate invocation may create Y.
+Before upload/start ambiguity: status reports not registered, retry waits bounded grace then returns75, no re-launch. Explicit cancel marker prohibits any delayed worker from executing.
+Changed source: recovery must compare current manifest to X before returning test success. If different, recover evidence but return75 and say result applies only to submitted source; next invocation deliberate new run.
+Worker kill: systemd bounds worker; container independent deadline bounds workload. Missing terminal stays unresolved (never success).
+
+Parent-only death during capture:
+t0 route={active,A,id X,lock}; preparer={inherited lock,no metadata yet}.
+t1 route dies; preparer keeps the lock and finishes bounded submission/follow.
+t2 retry cannot acquire lock: returns75, no new work.
+t3 preparer exits; retry acquires lock, recovers X.
+If death occurs before preparer spawn, retry writes remote cancel marker X before
+clearing incomplete capture. A delayed worker sees the marker and never executes.
+Attempt identity exists before any source capture or remote launch.

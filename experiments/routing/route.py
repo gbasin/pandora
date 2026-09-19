@@ -24,11 +24,12 @@ def write(path, value):
     temp.replace(path)
 
 
-def control(output, action):
+def control(output, action, attempt=None):
     source = output / 'submission.json'
-    if not source.exists():
-        return {'exit_code': 130, 'cleanup_verified': True, 'state': 'cancelled-during-capture'}
-    attempt = json.loads(source.read_text())['attempt']
+    if source.exists():
+        attempt = json.loads(source.read_text())['attempt']
+    if not attempt:
+        return None
     try:
         return query(os.environ['PANDORA_HOST'], attempt, action)
     except (ConnectionError, ValueError, subprocess.SubprocessError):
@@ -73,20 +74,24 @@ def main():
             return 75
         output = Path(record['output'])
         if not (output / 'submission.json').exists():
-            print('[pandora] Capture interrupted before submission. No remote work launched; retry to capture fresh source.', file=sys.stderr)
-            record['state'] = 'terminal'
-            write(active, record)
+            terminal = control(output, 'cancel', record.get('attempt'))
+            if terminal and terminal.get('cleanup_verified'):
+                record.update(state='terminal', terminal=terminal)
+                write(active, record)
+                print('[pandora] Incomplete capture cancelled. A delayed worker cannot execute it; retry to capture fresh source.', file=sys.stderr)
+            else:
+                print('[pandora] Incomplete capture remains unresolved. No new request submitted.', file=sys.stderr)
             return 75
         print(f'[pandora] Recovering existing request, without resubmitting source. Evidence: {output}', flush=True)
         command = [sys.executable, '-B', str(ROOT.parent / 'warm/transport.py'),
                    os.environ['PANDORA_HOST'], str(output)]
     else:
         output = state / uuid.uuid4().hex
-        record = {'state': 'active', 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION']}
+        record = {'state': 'active', 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': uuid.uuid4().hex}
         write(active, record)
         command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                    '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
-                   '--output', str(output), '--require-warm', *selectors]
+                   '--output', str(output), '--require-warm', '--attempt', record['attempt'], *selectors]
     child = None
 
     def interrupted(signum, frame):
@@ -95,7 +100,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
-        child = subprocess.Popen(command, start_new_session=True)
+        child = subprocess.Popen(command, start_new_session=True, pass_fds=(lock.fileno(),))
         status = child.wait()
     except KeyboardInterrupt:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -108,12 +113,12 @@ def main():
                 os.killpg(child.pid, signal.SIGKILL)
                 child.wait()
         print('[pandora] Cancelling this request; verifying remote cleanup.', file=sys.stderr)
-        terminal = control(output, 'cancel')
+        terminal = control(output, 'cancel', record.get('attempt'))
         for _ in range(15):
             if terminal and terminal.get('cleanup_verified'):
                 break
             time.sleep(1)
-            terminal = control(output, 'status')
+            terminal = control(output, 'status', record.get('attempt'))
         if terminal and terminal.get('cleanup_verified'):
             record.update(state='terminal', terminal=terminal)
             write(active, record)
@@ -133,6 +138,10 @@ def main():
                     print('[pandora] Recovered result applies to earlier source. Local source changed; run again to validate current source.', file=sys.stderr)
                     return 75
     else:
+        if not (output / 'submission.json').exists():
+            # The preparer has exited and remote launch cannot precede metadata.
+            record.update(state='terminal', reason='capture-failed')
+            write(active, record)
         print('[pandora] No verified terminal evidence; retry the same command to recover. No replacement was submitted.', file=sys.stderr)
         if status == 0:
             status = 70
