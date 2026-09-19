@@ -21,6 +21,7 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
+    p.add_argument('--require-warm', action='store_true')
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.@-]*', args.host):
@@ -36,7 +37,7 @@ def main():
     (output / 'manifest.json').write_bytes(encode(manifest))
     attempt = uuid.uuid4().hex
     metadata = {'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
-                'selectors': args.selectors, 'snapshot_seconds': time.monotonic() - started}
+                'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
     (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
     scripts = Path(__file__).resolve().parent
     ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', args.host]
@@ -67,12 +68,18 @@ def main():
     print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
     status = 70
     try:
-        command = f'cd {remote} && set -o pipefail && python3 -u worker.py 2> >(tee stderr.log >&2) | tee stdout.log'
+        command = (f'cd {remote} || exit 70; : > stdout.log; : > stderr.log; '
+                   'python3 -u worker.py >stdout.log 2>stderr.log & worker=$!; '
+                   'tail --pid=$worker -n +1 -F stdout.log & out=$!; '
+                   'tail --pid=$worker -n +1 -F stderr.log >&2 & err=$!; '
+                   'trap \'kill -TERM "$worker" 2>/dev/null; wait "$worker"\' HUP INT TERM; '
+                   'wait "$worker"; status=$?; wait "$out" "$err"; exit "$status"')
         status = subprocess.run([*ssh, 'bash -c ' + shlex.quote(command)]).returncode
     finally:
         result = subprocess.run(['scp', '-q', '-r', f'{args.host}:{remote}/results',
                                  f'{args.host}:{remote}/container.json',
                                  f'{args.host}:{remote}/metrics.json',
+                                 f'{args.host}:{remote}/terminal.json',
                                  f'{args.host}:{remote}/stdout.log',
                                  f'{args.host}:{remote}/stderr.log', str(output)])
         if result.returncode and status == 0:
