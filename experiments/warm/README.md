@@ -7,7 +7,8 @@ transfer, and reusable installed dependencies. It is the scripted layer used by 
 ## Run
 
 Prepare the disposable worker with the corrected image from `../surface/`.
-Install Python 3, rsync, Docker, and systemd on that worker. Use Python 3.9 or
+Install Python 3, rsync, Docker, and systemd on that worker. The current worker
+preset assumes the SSH user is `ubuntu`, with UID 1000 and passwordless sudo. Use Python 3.9 or
 newer, rsync, and SSH on the Mac.
 
 ```sh
@@ -43,7 +44,9 @@ package manifests, lockfile, pnpm settings, and patches. The first matching run
 installs frozen dependencies. Later runs reuse the built image. Each container
 has its own writable overlay, including node_modules, so test writes cannot alter
 the cached image or another container. Source is copied into the container at the
-same absolute path used during installation.
+same absolute path used during installation. Installation inputs already in the
+keyed image retain their timestamps; copying identical patch bytes with a newer
+timestamp caused pnpm to reject the reused installation in a later trial.
 
 The profile currently assumes Eichler's installation inputs. Arbitrary install
 hooks that read other source files need an expanded dependency key/context or a

@@ -10,10 +10,17 @@ import subprocess
 import time
 import uuid
 from snapshot import encode, freeze
+from transport import follow, SSH_OPTIONS
 
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
+
+
+def write_metadata(path, metadata):
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(metadata, indent=2) + '\n')
+    temporary.replace(path)
 
 
 def main():
@@ -22,12 +29,16 @@ def main():
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
     p.add_argument('--require-warm', action='store_true')
+    p.add_argument('--attempt', default=None)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.@-]*', args.host):
         p.error('Invalid SSH destination')
     if any(s.startswith('-') for s in args.selectors):
         p.error('Only file selectors are supported in this experiment')
+    attempt = args.attempt or uuid.uuid4().hex
+    if not re.fullmatch('[0-9a-f]{32}', attempt):
+        p.error('Invalid attempt identity')
     started = time.monotonic()
     args.output.mkdir(parents=True, exist_ok=False)
     output = args.output.resolve()
@@ -35,18 +46,17 @@ def main():
     manifest, excluded = freeze(args.repo, output / 'source')
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
-    attempt = uuid.uuid4().hex
     metadata = {'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
-    (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    write_metadata(output / 'submission.json', metadata)
     scripts = Path(__file__).resolve().parent
-    ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', args.host]
+    ssh = ['ssh', *SSH_OPTIONS, args.host]
     home = run(*ssh, 'pwd', capture_output=True, text=True).stdout.strip()
     if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
         raise RuntimeError('Unsupported remote home path')
     root = home + '/pandora-warm'
     remote = root + '/runs/' + attempt
-    run(*ssh, f'mkdir -p {remote}/source')
+    run(*ssh, f'mkdir -p {root}/runs && mkdir {remote} && mkdir {remote}/source')
     cached = run(*ssh, f'readlink -f {root}/latest || true', capture_output=True,
                  text=True).stdout.strip()
     options = ['--link-dest=' + cached] if cached else []
@@ -58,7 +68,7 @@ def main():
                  capture_output=True, text=True)
     (output / 'transfer.log').write_text(result.stdout + result.stderr)
     metadata['transfer_seconds'] = time.monotonic() - transfer
-    (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    write_metadata(output / 'submission.json', metadata)
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
         str(scripts / 'snapshot.py'), str(scripts / 'worker.py'),
         str(scripts / 'in-container.sh'), f'{args.host}:{remote}/')
@@ -66,29 +76,21 @@ def main():
     run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
         f'mv -Tf {root}/latest-{attempt} {root}/latest')
     print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
-    status = 70
-    try:
-        command = (f'cd {remote} || exit 70; : > stdout.log; : > stderr.log; '
-                   'python3 -u worker.py >stdout.log 2>stderr.log & worker=$!; '
-                   'tail --pid=$worker -n +1 -F stdout.log & out=$!; '
-                   'tail --pid=$worker -n +1 -F stderr.log >&2 & err=$!; '
-                   'trap \'kill -TERM "$worker" 2>/dev/null; wait "$worker"\' HUP INT TERM; '
-                   'wait "$worker"; status=$?; wait "$out" "$err"; exit "$status"')
-        status = subprocess.run([*ssh, 'bash -c ' + shlex.quote(command)]).returncode
-    finally:
-        result = subprocess.run(['scp', '-q', '-r', f'{args.host}:{remote}/results',
-                                 f'{args.host}:{remote}/container.json',
-                                 f'{args.host}:{remote}/metrics.json',
-                                 f'{args.host}:{remote}/terminal.json',
-                                 f'{args.host}:{remote}/stdout.log',
-                                 f'{args.host}:{remote}/stderr.log', str(output)])
-        if result.returncode and status == 0:
-            status = 70
-        metadata['total_seconds'] = time.monotonic() - started
-        metadata['exit_code'] = status
-        (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
-    print(f'[pandora] exit={status}; evidence={output}', flush=True)
-    return status if status >= 0 else 128 - status
+    # systemd owns the worker independently of this SSH connection. Never retry
+    # this start after ambiguous acknowledgement; reconnect by the same attempt.
+    worker_command = 'exec python3 -u worker.py >stdout.log 2>stderr.log'
+    command = (f'sudo systemd-run --quiet --collect --unit=pandora-worker-{attempt} '
+               f'--uid=ubuntu --working-directory={remote} '
+               '--property=RuntimeMaxSec=40m --property=TimeoutStopSec=30s '
+               '--property=KillMode=control-group /bin/bash -c ' + shlex.quote(worker_command))
+    launched = subprocess.run([*ssh, command])
+    if launched.returncode:
+        print('[pandora] Start acknowledgement unavailable; checking the existing attempt only.', flush=True)
+    status = follow(args.host, output)
+    metadata['total_seconds'] = time.monotonic() - started
+    metadata['exit_code'] = status
+    write_metadata(output / 'submission.json', metadata)
+    return status
 
 
 if __name__ == '__main__':

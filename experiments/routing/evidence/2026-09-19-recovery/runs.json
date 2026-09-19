@@ -1,0 +1,674 @@
+[
+  {
+    "group": "agent-state",
+    "attempt": "ac5ba77f410f4ed28c4f24d8fc87f530",
+    "source_digest": "bf254b23653bb17e16b60104f3d6987bd4de0bbbcf34f43e46641c23f7c47dc7",
+    "selectors": [
+      "smoke.spec.ts",
+      "pandora-lane.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/agent-state/6571b6c0c538a34a144b891f00edca5a515af61f882a4bd28e33b0090d6af1b9/a60d34c7d6214d13bc9fdad64347fce3",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "ac5ba77f410f4ed28c4f24d8fc87f530",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 5.995089499978349,
+    "transfer_seconds": 3.1361363339819945,
+    "total_seconds": 202.83807337499456,
+    "metrics": {
+      "queue_seconds": 90.0020155150005,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07348674600052618,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 93.46987824200005,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "46",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "85.34456"
+    },
+    "sentinels": [
+      "source sentinel opus-a"
+    ]
+  },
+  {
+    "group": "agent-state",
+    "attempt": "d20c0ad07ebf4015958f7f28f5b5d6b8",
+    "source_digest": "e180e7543c18dd90ddeed480fd5828b79dd67ded07d02728488fd20bf1e483bc",
+    "selectors": [
+      "smoke.spec.ts",
+      "pandora-lane.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/agent-state/f6f78a5aa54670d5ca5fc0aab79652ffc4f95ee0d3f218c17b0aac3c74fb8af6/70abcc45fa124135bdeb7f3e1e706996",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "d20c0ad07ebf4015958f7f28f5b5d6b8",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 6.050256334012374,
+    "transfer_seconds": 3.1020326249999925,
+    "total_seconds": 402.65351870900486,
+    "metrics": {
+      "queue_seconds": 290.0108396860005,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08608637199995428,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 94.2434175089993,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "46",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "85.878461"
+    },
+    "sentinels": [
+      "source sentinel opus-b"
+    ]
+  },
+  {
+    "group": "agent-state",
+    "attempt": "064d97b368ba42e8b8fa5b7a41b156ac",
+    "source_digest": "6eb806774e816da807f965cc2e6fdf43a7a8f5d29db89567dc02096d01fee93a",
+    "selectors": [
+      "smoke.spec.ts",
+      "pandora-lane.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/agent-state/0642fba35604ee5c414b9ffa9ebeba1f516f0d3c9c385737bf4f8afefb0da153/c5df0b610f0d43769219eb70baa918f8",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "064d97b368ba42e8b8fa5b7a41b156ac",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 6.506029792013578,
+    "transfer_seconds": 4.045538250007667,
+    "total_seconds": 303.90929320896976,
+    "metrics": {
+      "queue_seconds": 190.0077858220002,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07933756999955222,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 93.57367499500015,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "46",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "85.307978"
+    },
+    "sentinels": [
+      "source sentinel codex-b"
+    ]
+  },
+  {
+    "group": "agent-state",
+    "attempt": "184f512d1a2f4e4296010824bb2043ca",
+    "source_digest": "d35e7061534f35c4bee1be3249f8198815772ab915015e963706fbb33f2cdb28",
+    "selectors": [
+      "smoke.spec.ts",
+      "pandora-lane.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/agent-state/371ec15a5b8df77cb4f1a1f34c8584b626eee0cda2b2f0d47b755980dc674a87/484f39f56aa741e8be820c0fb92e8946",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "184f512d1a2f4e4296010824bb2043ca",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 6.5854046670137905,
+    "transfer_seconds": 3.9322759589995258,
+    "total_seconds": 114.42968754202593,
+    "metrics": {
+      "queue_seconds": 7.20999923942145e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.09706267999990814,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 93.77520347300015,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "46",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "85.321686"
+    },
+    "sentinels": [
+      "source sentinel codex-a"
+    ]
+  },
+  {
+    "group": "agent-state",
+    "attempt": "2ddb496074e94f539b9f12e084aa6dfb",
+    "source_digest": "b80385716fc54f0969768d0a6a7420dc4d7dc61038d1ea2fd014a75af39202b6",
+    "selectors": [
+      "pandora-long-queue.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/agent-state/2f2c119fcc62f926c942b050a04d1d447cc38f11dde56db08529b99e60c4ded5/e98f990faf394ca8afc5168932e8afb3",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "2ddb496074e94f539b9f12e084aa6dfb",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 4.141264583042357,
+    "transfer_seconds": 3.001930167025421,
+    "total_seconds": 726.7573172500124,
+    "metrics": {
+      "queue_seconds": 700.0130018549999,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08011093999994046,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 9.780761555999561,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.7566969999999997"
+    },
+    "sentinels": [
+      "long queue sentinel"
+    ]
+  },
+  {
+    "group": "bypass-state",
+    "attempt": "ee3958a9778a4064be980512b948d2e0",
+    "source_digest": "1fe98330bc9c16b6368893e2191c2e1ebe493aa75317d9ea033ca29b795b06ca",
+    "selectors": [
+      "pandora-bypass.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/bypass-state/748719da57a12863af23c4d5ac507b5e8e8a7aa71a9951c3da0694b148f1d7e1/bc1f89aca87b43ecb34b26f68dcc90d5",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "ee3958a9778a4064be980512b948d2e0",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 5.807832291000523,
+    "transfer_seconds": 2.846367415972054,
+    "total_seconds": 38.62185820803279,
+    "metrics": {
+      "queue_seconds": 10.000976029999947,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.1039587710001797,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 10.015535270999862,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.7515919999999998"
+    },
+    "sentinels": [
+      "bounded bypass sentinel"
+    ]
+  },
+  {
+    "group": "fault-state",
+    "attempt": "79fe8cf9f7bf43f8a9be0c1085f1e72e",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-state/94758a7be5672a973db1ed5d2301e66ebac630b0a8de7449906590067684f9f5/c5dfbab9f1cf43949518e35a725f9000",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "79fe8cf9f7bf43f8a9be0c1085f1e72e",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 7.480943791975733,
+    "transfer_seconds": 3.0912322500371374,
+    "total_seconds": null,
+    "metrics": {
+      "queue_seconds": 50.00131316699935,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08202916099980939,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 25.02486869400036,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.750892"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "fault-state",
+    "attempt": "6621711fa9d748cbb036c41e8ed0e993",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-state/216fa2fd96a379037a83462f903532b39779156a876ca017dd5d7d772ac1c646/d20073ce29974caa9866addc87e424a5",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "6621711fa9d748cbb036c41e8ed0e993",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 3.8321203329833224,
+    "transfer_seconds": 3.9182699160301127,
+    "total_seconds": 64.90835016599158,
+    "metrics": {
+      "queue_seconds": 7.100000402715523e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07737126199936029,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 24.96644756400019,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.773936000000003"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "fault-state",
+    "attempt": "ff333a99c0094496a408573b85905a1f",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-state/c80fc0c143ba380a5e5d7923ed6431a529029e52d9178e23d88559c427ce994e/5932d367b9ef4fa8b5ceaca059bfee7b",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "ff333a99c0094496a408573b85905a1f",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 3.3907100000069477,
+    "transfer_seconds": 2.7783302079769783,
+    "total_seconds": null,
+    "metrics": {
+      "queue_seconds": 20.000348595000105,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07888019300025917,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 25.02453903500009,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.784601"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "fault-state",
+    "attempt": "4fe5d30daa924b8dbf140720ac1b038b",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-state/910c406db3f53a0ae7ef4428465bd60071726f76033b7d2d9193e6cdc62a9593/70a60f6a4118437a83db8895a788aa09",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "4fe5d30daa924b8dbf140720ac1b038b",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 2.988933457992971,
+    "transfer_seconds": 3.059734791982919,
+    "total_seconds": null,
+    "metrics": {
+      "queue_seconds": 7.409999852825422e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08445062899954792,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 24.6756782020002,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.732582999999998"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "fault-v2-state",
+    "attempt": "9311eaea996c4f8292701ab3ae060fed",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/5621b33da6a044a0b01a51cf4d625354",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "9311eaea996c4f8292701ab3ae060fed",
+      "exit_code": 137,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 3.6636677499627694,
+    "transfer_seconds": 3.2496787499985658,
+    "total_seconds": 20.57814437500201,
+    "metrics": {
+      "queue_seconds": 7.450000339304097e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07671027499964111,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 3.5115141529995526,
+      "exit_code": 137
+    }
+  },
+  {
+    "group": "fault-v2-state",
+    "attempt": "b494d272bb584463b2dbe09c255c749b",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/c6a7231bad404087810d11330d9b3c4b",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "b494d272bb584463b2dbe09c255c749b",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 5.028791583958082,
+    "transfer_seconds": 2.9523692909860983,
+    "total_seconds": 65.76365049998276,
+    "metrics": {
+      "queue_seconds": 6.839999514340889e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07781947700004821,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 25.016629810000268,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.773412"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "fault-v2-state",
+    "attempt": "61dc088a7e3e45debe487781d1c731ea",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/c0b1617bfad64c309d2719c72e04b97c",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "61dc088a7e3e45debe487781d1c731ea",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 5.22135804197751,
+    "transfer_seconds": 3.3822319169994444,
+    "total_seconds": null,
+    "metrics": {
+      "queue_seconds": 320.0088495199998,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08379287299976568,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 25.580906893000247,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.747535"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "parent-fault-state",
+    "attempt": "c762bd7525e24278bd631c362cf64309",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "selectors": [
+      "pandora-lifecycle.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/parent-fault-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/0be8e16ea49944578cb22debf044a2c6",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "c762bd7525e24278bd631c362cf64309",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 4.815482125035487,
+    "transfer_seconds": 2.825237708981149,
+    "total_seconds": 143.54326279100496,
+    "metrics": {
+      "queue_seconds": 100.00247365399991,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08481180000035238,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 24.941879369000162,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "16.758619000000003"
+    },
+    "sentinels": [
+      "pandora lifecycle sentinel"
+    ]
+  },
+  {
+    "group": "pipeline-state",
+    "attempt": "67906cb2ca2548a4952e4165e02901c2",
+    "source_digest": "f4eb73c1f55a1a7430801de7f5d06ad07f46b67e97f8bc3b0c0acd4bb852053b",
+    "selectors": [
+      "pandora-pipeline-failure.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/pipeline-state/2861b5bdc75e196813569db5a296b44fa97748ba4e546c5c67eebb4f2cb0d215/71573915bd5c40c39efaa54f98aa5e6f",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "67906cb2ca2548a4952e4165e02901c2",
+      "exit_code": 1,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 5.566505583003163,
+    "transfer_seconds": 7.218373875017278,
+    "total_seconds": 33.07401370804291,
+    "metrics": {
+      "queue_seconds": 8.10999972600257e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07940619200053334,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 9.647453163999671,
+      "exit_code": 1
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "1",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.7405979999999999"
+    },
+    "sentinels": []
+  },
+  {
+    "group": "pipeline-state",
+    "attempt": "4684a75517c049538094c03b751168a6",
+    "source_digest": "f4eb73c1f55a1a7430801de7f5d06ad07f46b67e97f8bc3b0c0acd4bb852053b",
+    "selectors": [
+      "pandora-pipeline-failure.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/pipeline-state/2861b5bdc75e196813569db5a296b44fa97748ba4e546c5c67eebb4f2cb0d215/96149d543a05491aa418e1e51f5db9a1",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "4684a75517c049538094c03b751168a6",
+      "exit_code": 1,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 4.7534254170022905,
+    "transfer_seconds": 2.649941499985289,
+    "total_seconds": 25.218923792010173,
+    "metrics": {
+      "queue_seconds": 8.49899970489787e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.08082360400021571,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 9.567657737000445,
+      "exit_code": 1
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "1",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.809871"
+    },
+    "sentinels": []
+  },
+  {
+    "group": "environment-state",
+    "attempt": "f8666c02814f47989fad3bc8e93b23ff",
+    "source_digest": "2e39244c3ad843d472d1ae4a0550a6b74b5b5d0fce77173618b5a3f0e9fd19b3",
+    "selectors": [
+      "pandora-environment.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/environment-state/d8a94f2a409959090f762cda6d547713f6818007d25bb53975d962368308e532/618c78e949474311b888a8a638bfdfac",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "f8666c02814f47989fad3bc8e93b23ff",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 4.868044125032611,
+    "transfer_seconds": 2.6096526670153253,
+    "total_seconds": 26.311457542004064,
+    "metrics": {
+      "queue_seconds": 7.34999957785476e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07572082600017893,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 9.79110238300018,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.7291370000000001"
+    },
+    "sentinels": [
+      "environment compatibility sentinel"
+    ]
+  },
+  {
+    "group": "final-state",
+    "attempt": "3fc43c6bbb14422bb7bbab010bcf0111",
+    "source_digest": "2e39244c3ad843d472d1ae4a0550a6b74b5b5d0fce77173618b5a3f0e9fd19b3",
+    "selectors": [
+      "pandora-environment.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/final-state/d8a94f2a409959090f762cda6d547713f6818007d25bb53975d962368308e532/e065d145310e4bc8bae05d7e1fa5251a",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "3fc43c6bbb14422bb7bbab010bcf0111",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 4.5559835829772055,
+    "transfer_seconds": 3.0125896250247024,
+    "total_seconds": 25.93095120799262,
+    "metrics": {
+      "queue_seconds": 7.5300004027667455e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07516200899954129,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 9.659594980999827,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.743474"
+    },
+    "sentinels": [
+      "environment compatibility sentinel"
+    ]
+  }
+]

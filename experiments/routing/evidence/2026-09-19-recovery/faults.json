@@ -1,0 +1,95 @@
+[
+  {
+    "case": "kill-running",
+    "attempt": "79fe8cf9f7bf43f8a9be0c1085f1e72e",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-state/94758a7be5672a973db1ed5d2301e66ebac630b0a8de7449906590067684f9f5/c5dfbab9f1cf43949518e35a725f9000",
+    "exit_code": 0,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "79fe8cf9f7bf43f8a9be0c1085f1e72e",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "download-loss",
+    "attempt": "4fe5d30daa924b8dbf140720ac1b038b",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-state/910c406db3f53a0ae7ef4428465bd60071726f76033b7d2d9193e6cdc62a9593/70a60f6a4118437a83db8895a788aa09",
+    "exit_code": 0,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "4fe5d30daa924b8dbf140720ac1b038b",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "changed-source",
+    "attempt": "ff333a99c0094496a408573b85905a1f",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-state/c80fc0c143ba380a5e5d7923ed6431a529029e52d9178e23d88559c427ce994e/5932d367b9ef4fa8b5ceaca059bfee7b",
+    "exit_code": 75,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "ff333a99c0094496a408573b85905a1f",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "network-loss-v2",
+    "attempt": "b494d272bb584463b2dbe09c255c749b",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/c6a7231bad404087810d11330d9b3c4b",
+    "exit_code": 0,
+    "connection_loss_seconds": 55,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "b494d272bb584463b2dbe09c255c749b",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "oom",
+    "attempt": "9311eaea996c4f8292701ab3ae060fed",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/5621b33da6a044a0b01a51cf4d625354",
+    "exit_code": 137,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "9311eaea996c4f8292701ab3ae060fed",
+      "exit_code": 137,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "parent-only-during-capture",
+    "attempt": "c762bd7525e24278bd631c362cf64309",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/parent-fault-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/0be8e16ea49944578cb22debf044a2c6",
+    "exit_code": 0,
+    "immediate_retry": 75,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "c762bd7525e24278bd631c362cf64309",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "new-session-recovery",
+    "attempt": "61dc088a7e3e45debe487781d1c731ea",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/c0b1617bfad64c309d2719c72e04b97c",
+    "exit_code": 0,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "61dc088a7e3e45debe487781d1c731ea",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  }
+]

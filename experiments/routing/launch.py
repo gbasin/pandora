@@ -13,6 +13,7 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--host', required=True)
 p.add_argument('--state', required=True, type=Path)
 p.add_argument('--session', default=None)
+p.add_argument('--treatment', choices=['normal', 'block', 'redirect'], default='normal')
 p.add_argument('command', nargs=argparse.REMAINDER)
 a = p.parse_args()
 command = a.command[1:] if a.command[:1] == ['--'] else a.command
@@ -23,7 +24,7 @@ if not real:
     p.error('pnpm is not available')
 env = dict(os.environ)
 env['PANDORA_REAL_CODEX'] = os.environ.get('PANDORA_REAL_CODEX') or shutil.which('codex') or ''
-env.update(PANDORA_HOST=a.host, PANDORA_STATE=str(a.state.resolve()),
+env.update(PANDORA_TREATMENT=a.treatment, PANDORA_HOST=a.host, PANDORA_STATE=str(a.state.resolve()),
            PANDORA_SESSION=a.session or uuid.uuid4().hex, PANDORA_REAL_PNPM=real)
 prefix = str(Path(__file__).resolve().parent / 'bin')
 env['PATH'] = prefix + os.pathsep + env['PATH']
