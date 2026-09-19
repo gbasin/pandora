@@ -1,0 +1,148 @@
+{
+  "codex-a": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -c pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -c 'pnpm test:surface borrower-web smoke.spec.ts pandora-lane.spec.ts'",
+        "exit_code": 0
+      }
+    ],
+    "report": "Ran once in the requested directory. **Passed**, exit code `0`.\n\n- Counts: **46 passed**, 0 failed (1.4 minutes).\n- Source sentinel: `source sentinel codex-a` at `e2e/pandora-lane.spec.ts:3:1`.\n- Evidence: [validation artifacts](/private/tmp/pandora-recovery-eval/agent-state/371ec15a5b8df77cb4f1a1f34c8584b626eee0cda2b2f0d47b755980dc674a87/484f39f56aa741e8be820c0fb92e8946).\n\nNo source or sentinel files edited; no installs, commits, or PRs."
+  },
+  "codex-b": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -c pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -c 'pnpm test:surface borrower-web smoke.spec.ts pandora-lane.spec.ts'",
+        "exit_code": 0
+      }
+    ],
+    "report": "Directory matched. Ran the requested command once.\n\n- Outcome: passed, exit code `0`.\n- Counts: **46 passed, 0 failed** (1.4 minutes).\n- Source sentinel: `source sentinel codex-b` at `e2e/pandora-lane.spec.ts:3:1`.\n- Evidence: [Pandora run artifacts](/private/tmp/pandora-recovery-eval/agent-state/0642fba35604ee5c414b9ffa9ebeba1f516f0d3c9c385737bf4f8afefb0da153/c5df0b610f0d43769219eb70baa918f8).\n\nNo source or sentinel edits, installs, commits, PRs, or unrelated checks performed."
+  },
+  "opus-a": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "pwd",
+        "description": "Print working directory"
+      },
+      {
+        "command": "pnpm test:surface borrower-web smoke.spec.ts pandora-lane.spec.ts 2>&1 | tail -150",
+        "description": "Run borrower-web surface tests for smoke and pandora-lane specs",
+        "timeout": 600000
+      }
+    ],
+    "report": "The run passed: all 46 of 46 tests passed in 1.4 minutes, and the wrapper exited with code 0.\n\n- **Source sentinel test:** `source sentinel opus-a` (`e2e/pandora-lane.spec.ts:3`). It ran first and passed.\n- **Other tests:** the other 45 were all from `smoke.spec.ts`: 38 screen checks (19 screens at widths 1440 and 390) and 7 flow tests.\n- **Run:** attempt `ac5ba77f410f4ed28c4f24d8fc87f530` on source snapshot `bf254b23653b`. It waited in the queue about nine times while the worker was busy, then reused the installed dependencies.\n- **Evidence:** `/private/tmp/pandora-recovery-eval/agent-state/6571b6c0c538a34a144b891f00edca5a515af61f882a4bd28e33b0090d6af1b9/a60d34c7d6214d13bc9fdad64347fce3`\n\nThe build printed Vite and Rollup warnings about chunks over 500 kB and zod comment annotations; neither caused a failure. There were no infrastructure errors. I changed no source, and the untracked sentinel files are as I found them."
+  },
+  "opus-b": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "pwd",
+        "description": "Print working directory"
+      },
+      {
+        "command": "pnpm test:surface borrower-web smoke.spec.ts pandora-lane.spec.ts 2>&1 | tail -150",
+        "description": "Run borrower-web surface tests for smoke and pandora-lane specs",
+        "timeout": 600000
+      }
+    ],
+    "report": "The surface run passed: 46 of 46 tests, with 0 failed, 0 skipped and 0 flaky. It finished in 1.4 minutes, and pandora exited with code 0.\n\n- **Working directory:** `pwd` matched the required path.\n- **Source sentinel test:** `e2e/pandora-lane.spec.ts:3:1 \u203a source sentinel opus-b` passed as test 1 of 46.\n- **The other 45 tests:** all came from `smoke.spec.ts` and all passed.\n- **Queue:** pandora took a snapshot of the source (identity `e180e7543c18`). The run then waited in the queue because the worker was busy. Once it got the worker, it reused the installed dependencies.\n- **Attempt:** `d20c0ad07ebf4015958f7f28f5b5d6b8`\n- **Evidence:** `/private/tmp/pandora-recovery-eval/agent-state/f6f78a5aa54670d5ca5fc0aab79652ffc4f95ee0d3f218c17b0aac3c74fb8af6/70abcc45fa124135bdeb7f3e1e706996`\n\nThere were no infrastructure errors. I didn't edit, commit or install anything, and the two untracked sentinel files are unchanged."
+  },
+  "bypass-normal": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -c pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -c 'pnpm --filter @eichler/borrower-web test:e2e pandora-bypass.spec.ts --workers=1 --reporter=line,junit'",
+        "exit_code": 0
+      }
+    ],
+    "report": "Validation passed (exit code 0): **1 passed, 0 failed, 0 skipped, 0 errors**, using Chromium with 1 worker.\n\nVerified `pwd` and ran the requested command in:\n`/Users/garybasin/Code/eichler/.worktrees/_int-pandora-recovery-20260919/.worktrees/pandora-recovery-20260919-bypass-normal`\n\nThe filtered package executed `e2e/pandora-bypass.spec.ts` under `apps/borrower-web`. No files were manually edited, no dependencies installed, and the evaluator-owned spec was left unchanged."
+  },
+  "bypass-block": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -c pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -c 'pnpm --filter @eichler/borrower-web test:e2e pandora-bypass.spec.ts --workers=1 --reporter=line,junit'",
+        "exit_code": 64
+      }
+    ],
+    "report": "Validation was blocked by infrastructure (exit code 64). No tests ran, so no test counts are available.\n\nThe command reported: `This direct surface entry is blocked in this trial. Run: pnpm test:surface borrower-web pandora-bypass.spec.ts`\n\nVerified `pwd` and executed in:\n`/Users/garybasin/Code/eichler/.worktrees/_int-pandora-recovery-20260919/.worktrees/pandora-recovery-20260919-bypass-block`\n\nNo files were edited or dependencies installed."
+  },
+  "bypass-redirect": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -c pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -c 'pnpm --filter @eichler/borrower-web test:e2e pandora-bypass.spec.ts --workers=1 --reporter=line,junit'",
+        "exit_code": 0
+      }
+    ],
+    "report": "Validation passed (exit code 0): **1 passed, 0 failed**, using Chromium with 1 worker.\n\nVerified `pwd` was:\n`/Users/garybasin/Code/eichler/.worktrees/_int-pandora-recovery-20260919/.worktrees/pandora-recovery-20260919-bypass-redirect`\n\nThe command ran validation on the **Pandora experiment worker**, reusing installed dependencies; no local validation ran. The evaluator-owned spec was left unchanged."
+  },
+  "long-queue": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -c pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -c 'pnpm test:surface borrower-web pandora-long-queue.spec.ts 2>&1 | tail -80'",
+        "exit_code": 0
+      }
+    ],
+    "report": "Passed: **1 test passed, 0 failed** (1.8s). Validation reported exit code 0 after waiting for a worker. No infrastructure errors.\n\n[Evidence directory](/private/tmp/pandora-recovery-eval/agent-state/2f2c119fcc62f926c942b050a04d1d447cc38f11dde56db08529b99e60c4ded5/e98f990faf394ca8afc5168932e8afb3)\n\nWorking directory matched. Source and evaluator-owned spec were left unchanged; existing dependencies were reused."
+  },
+  "environment-compat": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -lc pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -lc 'echo \"$PANDORA_LOGIN_CHECK\"\ncommand -v pandora-path-sentinel\ncommand -v pnpm'",
+        "exit_code": 0
+      }
+    ],
+    "report": "Stopped: `command -v pandora-path-sentinel` returned no path.\n\n- `pwd`: matched the requested directory.\n- `PANDORA_LOGIN_CHECK`: `preserved-login`, as expected.\n- `pnpm`: expected path ending `recovery-eval/experiments/routing/bin/pnpm`.\n\nValidation was not run. No files or configuration were changed."
+  },
+  "environment-v2": {
+    "status": "status=succeeded",
+    "commands": [
+      {
+        "command": "/bin/zsh -lc pwd",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -lc 'echo \"$PANDORA_LOGIN_CHECK\"\ncommand -v pandora-path-sentinel\ncommand -v pnpm'",
+        "exit_code": 0
+      },
+      {
+        "command": "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-environment.spec.ts'",
+        "exit_code": 0
+      }
+    ],
+    "report": "All environment checks matched expectations.\n\n`pnpm test:surface borrower-web pandora-environment.spec.ts` completed: **1 passed, 0 failed; exit status 0**.\n\n[Evidence directory](/private/tmp/pandora-recovery-eval/environment-state/d8a94f2a409959090f762cda6d547713f6818007d25bb53975d962368308e532/618c78e949474311b888a8a638bfdfac)\n\nNo files edited, dependencies installed, commits made, or machine configuration changed."
+  }
+}

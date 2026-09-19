@@ -1,0 +1,83 @@
+{
+  "queued": [
+    {
+      "state": {
+        "state": "terminal",
+        "output": "/private/tmp/pandora-recovery-eval/cancel-state/b921dd570cd40c42dd39dcd8e14eedfdb641aeab967aadd832bc62e23e7756d2/f8fd3481a89147b1aac4705938141d8c",
+        "command": [
+          "test:surface",
+          "borrower-web",
+          "smoke.spec.ts"
+        ],
+        "host": "ubuntu@40.160.93.34",
+        "session": "cancel-regression",
+        "attempt": "dbe09b1ed0384527aecc725604e392a7",
+        "terminal": {
+          "state": "terminal",
+          "attempt": "dbe09b1ed0384527aecc725604e392a7",
+          "exit_code": 130,
+          "cleanup_verified": true,
+          "registered": true,
+          "offsets": [
+            179,
+            0
+          ],
+          "stdout": "[pandora] source verified; waiting for the experiment worker\n[pandora] queued; worker occupied; no local validation started\n[pandora] cancellation received; stopping this attempt\n",
+          "stderr": ""
+        }
+      },
+      "submission": {
+        "attempt": "dbe09b1ed0384527aecc725604e392a7",
+        "source_digest": "cd07f8d493f5dc8d9ddcb0402a51ec686f9c5c86ca4f3fe68f4782f39fb1bd50",
+        "excluded": [],
+        "selectors": [
+          "smoke.spec.ts"
+        ],
+        "require_warm": true,
+        "snapshot_seconds": 6.073654624982737,
+        "transfer_seconds": 4.571523333026562
+      }
+    }
+  ],
+  "running": [
+    {
+      "state": {
+        "state": "terminal",
+        "output": "/private/tmp/pandora-recovery-eval/cancel-state/b921dd570cd40c42dd39dcd8e14eedfdb641aeab967aadd832bc62e23e7756d2/1dc94fd72efa4ac89c3dad34b64f9a3d",
+        "command": [
+          "test:surface",
+          "borrower-web",
+          "smoke.spec.ts"
+        ],
+        "host": "ubuntu@40.160.93.34",
+        "session": "cancel-regression",
+        "attempt": "bc35cb32352e47258e5c54c186c0438b",
+        "terminal": {
+          "state": "terminal",
+          "attempt": "bc35cb32352e47258e5c54c186c0438b",
+          "exit_code": 130,
+          "cleanup_verified": true,
+          "registered": true,
+          "offsets": [
+            410,
+            1186
+          ],
+          "more_logs": false,
+          "stdout": "[pandora] source verified; waiting for the experiment worker\n[pandora] worker acquired; preparing dependencies\n[pandora] running surface validation; installed dependencies reused\n\u001b[36mvite v7.3.6 \u001b[32mbuilding client environment for production...\u001b[36m\u001b[39m\ntransforming...\n\u001b[32m\u2713\u001b[39m 381 modules transformed.\n[pandora] cancellation received; stopping this attempt\nrendering chunks...\ncomputing gzip size...\n",
+          "stderr": "$ vite build && vite build --mode e2e && playwright test smoke.spec.ts --workers=1 --reporter=line,junit\n\u001b[33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment\n\n\"// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle.\"\n\nin \"../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js\" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.\u001b[39m\n\u001b[33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment\n\n\"/** Anchors a pattern source. The interpolation lives here rather than at the call site because\n * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it\n * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */\"\n\nin \"../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js\" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.\u001b[39m\n"
+        }
+      },
+      "submission": {
+        "attempt": "bc35cb32352e47258e5c54c186c0438b",
+        "source_digest": "cd07f8d493f5dc8d9ddcb0402a51ec686f9c5c86ca4f3fe68f4782f39fb1bd50",
+        "excluded": [],
+        "selectors": [
+          "smoke.spec.ts"
+        ],
+        "require_warm": true,
+        "snapshot_seconds": 6.405103125027381,
+        "transfer_seconds": 2.805270584009122
+      }
+    }
+  ]
+}

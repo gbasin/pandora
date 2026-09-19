@@ -39,5 +39,23 @@ class EvidenceTests(unittest.TestCase):
                 validate_evidence(root, 'a' * 32)
 
 
+class StreamTests(unittest.TestCase):
+    def test_follow_preserves_stderr_and_reports_original_exit(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from transport import follow
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'submission.json').write_text(json.dumps({'attempt': 'a' * 32}))
+            stdout, stderr = io.StringIO(), io.StringIO()
+            state = {'stdout': 'test output\n', 'stderr': 'test error\n', 'offsets': [12, 11], 'cleanup_verified': True}
+            with patch('transport.query', return_value=state), patch('transport.retrieve', return_value={'exit_code': 1}), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                self.assertEqual(follow('unused', root), 1)
+            self.assertIn('test output', stdout.getvalue())
+            self.assertNotIn('test error', stdout.getvalue())
+            self.assertEqual(stderr.getvalue(), 'test error\n')
+
+
 if __name__ == '__main__':
     unittest.main()

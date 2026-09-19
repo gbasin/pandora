@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tarfile
 import time
-from snapshot import encode, verify
+from snapshot import encode, verify, digest
 
 
 def run(*args, heartbeat=None, **kwargs):
@@ -188,7 +188,7 @@ if __name__ == '__main__':
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
                  Path('metrics.json'), *Path('results').rglob('*')]:
         if item.is_file() and not item.is_symlink():
-            artifacts[str(item)] = hashlib.sha256(item.read_bytes()).hexdigest()
+            artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
                 'cleanup_verified': check.returncode == 0 and not check.stdout.strip()}

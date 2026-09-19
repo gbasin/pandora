@@ -64,5 +64,32 @@
       "exit_code": 137,
       "cleanup_verified": true
     }
+  },
+  {
+    "case": "parent-only-during-capture",
+    "attempt": "c762bd7525e24278bd631c362cf64309",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/parent-fault-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/0be8e16ea49944578cb22debf044a2c6",
+    "exit_code": 0,
+    "immediate_retry": 75,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "c762bd7525e24278bd631c362cf64309",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "new-session-recovery",
+    "attempt": "61dc088a7e3e45debe487781d1c731ea",
+    "source_digest": "0a83cbad3e475ae3078c00fccc46b160349e4238dde1b75893cf35e4836b00b1",
+    "output": "/private/tmp/pandora-recovery-eval/fault-v2-state/79acbd6d2bfceb624ad459f04bd321e24c1badb808a56501265494adb3f1ca63/c0b1617bfad64c309d2719c72e04b97c",
+    "exit_code": 0,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "61dc088a7e3e45debe487781d1c731ea",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
   }
 ]

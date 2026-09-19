@@ -33,6 +33,21 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(result.stdout.splitlines(), [str(ROOT / 'bin/pnpm'), 'original', 'loaded', 'alternate'])
             self.assertEqual((zdot / '.zshenv').read_text(), f'export PATH="{alternate}:$PATH"\nexport PANDORA_TEST_STARTUP=loaded\n')
 
+    def test_login_only_initialization_is_absent_in_nonlogin_shell(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            zdot = root / 'zdot'
+            zdot.mkdir()
+            (zdot / '.zprofile').write_text('export PANDORA_TEST_LOGIN_ONLY=loaded\n')
+            env = {k: v for k, v in os.environ.items() if not k.startswith('PANDORA_')}
+            env['ZDOTDIR'] = str(zdot)
+            launch = ['python3', str(ROOT / 'launch.py'), '--host', 'unused', '--state', str(root / 'state'), '--']
+            probe = 'echo "${PANDORA_TEST_LOGIN_ONLY-unset}"'
+            normal = subprocess.check_output([*launch, 'zsh', '-c', probe], env=env, text=True)
+            login = subprocess.check_output([*launch, 'zsh', '-lc', probe], env=env, text=True)
+            self.assertEqual(normal.strip(), 'unset')
+            self.assertEqual(login.strip(), 'loaded')
+
 
 if __name__ == '__main__':
     unittest.main()

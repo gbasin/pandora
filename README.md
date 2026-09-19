@@ -46,29 +46,38 @@ worker and a 20-minute container deadline. One heavy run executes at a time.
 Extra requests wait and report worker occupancy. Admission is not FIFO.
 
 The original shell invocation stays open until completion. Logs and known test
-artifacts return locally. A repeated request from the same session/worktree
+artifacts return locally. A repeated request from the same worktree and state directory
 reports the active request and returns 75, even if source or selectors changed.
 It does not replace or submit another run. Unknown cleanup state blocks a new
-request in that session/worktree.
+request in that worktree. Retrying after client loss recovers the existing attempt
+and verifies its artifacts. A changed local source produces a stale-result notice
+and exit 75, rather than a pass for newer edits.
 
 ## Current evidence
 
-The [September 19 agent trial](notes/remote-surface-2026-09-19-agent-trials.md)
-records outcomes, failed setup attempts, and limitations. The
-[machine-readable evidence](experiments/routing/evidence/2026-09-19.json)
-contains timings and run identities.
+The [recovery and contention trial](notes/remote-surface-2026-09-19-recovery-and-contention.md)
+records the latest results. The [initial agent trial](notes/remote-surface-2026-09-19-agent-trials.md)
+preserves earlier setup failures and outcomes.
 
-- Claude Opus completed the normal command with ordinary instructions: 45 passed.
-- Codex waited approximately 100 seconds for the slot, then reported 45 passed.
-- Opus correctly reported an evaluator-controlled test failure and exit 1.
-- Scripted probes verified duplicate rejection and explicit queued/running cancellation.
-- Warm successful commands took approximately 115 seconds without queueing,
-  including approximately 85 seconds of tests.
+- Abrupt client death, interrupted artifact retrieval, and a 55-second SSH outage
+  recovered the original attempt. Changed source was not reported as newly tested.
+- A container OOM returned 137 with verified cleanup.
+- Two Codex and two Claude Opus agents each reported 46 passed, including distinct
+  source sentinels. Queue waits ranged from zero to 290 seconds.
+- A Codex agent waited 700 seconds with live output hidden by `tail`, then reported
+  the passing result without replacing or cancelling its run.
+- For one direct command, normal wrapping allowed local execution, blocking made
+  Codex stop, and an exact redirect completed remotely.
 
-These are a few scenarios, not a reliability estimate. Three Codex routing
-preflights failed before launcher fixes. The successful queued run did not need
-human intervention, but initial integration did. Mac responsiveness under twelve
-agents has not been established.
+These are small controlled scenarios, not reliability estimates. Workload samples
+and prompts are documented in the notes. No twelve-agent or interactive Mac
+responsiveness claim follows from them.
+
+The launcher still changes executable precedence. It preserves the existing
+Codex login-shell policy and avoids a forced Codex PATH setting, which discarded
+login-profile additions in a compatibility probe. Manual PATH overrides and
+absolute executable paths can bypass routing. Ordinary pnpm delegation uses the
+executable selected at launcher start. See the [environment details](experiments/routing/README.md#environment-compatibility).
 
 ## Try the pilot
 
@@ -105,20 +114,17 @@ workloads, is necessary to stop its instance billing.
 
 ## Next evaluation
 
-The next bounded change should make interrupted execution recoverable, then
-measure agent behavior under more contention:
+Recovery, four-agent contention, and the first bypass comparison are implemented
+and evaluated. The next adoption boundary is a small opt-in daily-use pilot:
 
-1. Inject abrupt CLI death, SSH loss, OOM, and interrupted artifact download.
-   Verify truthful status, bounded remote execution, and no duplicate submissions.
-2. Add a recovery path that retrieves the original result and artifacts without
-   requiring the agent to diagnose infrastructure. Resolve the client-loss policy
-   from these tests: a bounded reconnect window or cancellation, not indefinite work.
-3. Run four agents against one slot. Include waits beyond harness watchdog limits,
-   piped output, repeated requests, and per-worktree source/result sentinels.
-4. Compare normal command wrapping with blocking or redirecting recognized bypasses.
-   Measure intervention, incorrect retries, local heavy execution, and correct outcomes.
-5. Add deadline/cancellation coverage for cold image builds, bounded retention,
-   repeatable worker setup, and verified Agentboard integration before daily use.
+- Verify Agentboard integration and shell configuration on the actual daily agent
+  profiles. Keep routing preflight checks; this is not universal interception.
+- Add deadline/cancellation coverage for cold image builds, bounded retention,
+  repeatable worker setup, and recovery for missing worker terminal records.
+- Repeat the bypass treatments with more tasks and both harnesses. The first
+  comparison favors exact redirects, but used only one Codex agent per treatment.
+- Preserve failing status through pipelines, or consume verified terminal evidence.
+  A plain `command | tail` can hide failure in its shell exit code.
 
 Advance toward twelve agents only after these checks pass. Generalize to journeys
 or another repository afterward. There is no commitment yet to Pueue, a CI control

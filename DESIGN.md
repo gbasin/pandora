@@ -100,7 +100,7 @@ because the remote is busy or unavailable.
 
 Normal invocation blocks with concise accepted/queued/running/terminal feedback.
 The agent may wait; it need not invent other work. Quiet stdout is not failure.
-An equivalent active request from the same trial session/worktree reconnects or
+An equivalent active request from the same worktree and local state directory reconnects or
 reports the existing job. A changed request while one is queued reports that
 fact; it does not submit or replace automatically. A deliberate rerun after a
 terminal result creates a new attempt. Preserve identity through ambiguous
@@ -108,8 +108,9 @@ network acknowledgements. This is duplicate prevention, not result caching.
 
 Explicit cancellation stops the owned workload and verifies cleanup. A tool
 yield with a continuing handle is not cancellation. Abrupt client loss is a
-separate test: its default policy remains unresolved. Evaluate the backend's
-behavior against a bounded reconnect grace period followed by cancellation.
+separate case. The selected pilot policy lets the existing attempt finish within
+its deadline and recovers the same attempt on retry. Explicit cancellation still
+stops the owned workload. The worker lifetime is independent of SSH.
 Never infer remote termination from CLI death, or start another execution while
 the previous one is unresolved.
 

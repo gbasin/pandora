@@ -13,6 +13,8 @@ def classify(argv, treatment='normal'):
             return 'local', [], ''
         # Only known ordinary selectors and exact trial runner flags are recognized.
         selectors = [x for x in command[3:] if x not in {'--workers=1', '--reporter=line,junit'}]
+        if any(x.startswith('-') for x in selectors):
+            return 'reject', [], 'This trial supports file selectors only. No validation started.'
         alternative = shlex.join(['pnpm', 'test:surface', 'borrower-web', *selectors])
         if treatment == 'block':
             return 'reject', [], 'This direct surface entry is blocked in this trial. Run: ' + alternative

@@ -7,7 +7,8 @@ transfer, and reusable installed dependencies. It is the scripted layer used by 
 ## Run
 
 Prepare the disposable worker with the corrected image from `../surface/`.
-Install Python 3, rsync, Docker, and systemd on that worker. Use Python 3.9 or
+Install Python 3, rsync, Docker, and systemd on that worker. The current worker
+preset assumes the SSH user is `ubuntu`, with UID 1000 and passwordless sudo. Use Python 3.9 or
 newer, rsync, and SSH on the Mac.
 
 ```sh

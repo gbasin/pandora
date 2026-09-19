@@ -1,11 +1,12 @@
 """Reconnect to one immutable attempt and verify its returned evidence."""
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+from snapshot import digest
 import time
 import uuid
 
@@ -35,7 +36,7 @@ def validate_evidence(stage, attempt):
         target = stage / path
         if target.is_symlink() or not target.is_file():
             raise ValueError('Missing or nonregular artifact: ' + name)
-        if hashlib.sha256(target.read_bytes()).hexdigest() != expected:
+        if digest(target) != expected:
             raise ValueError('Artifact checksum mismatch: ' + name)
     if terminal['exit_code'] == 0:
         if not {'results/exit-code', 'results/junit.xml'} <= set(manifest):
@@ -102,9 +103,11 @@ def follow(host, output, reconnect_seconds=45):
         unavailable = None
         for index, key in enumerate(['stdout', 'stderr']):
             if state.get(key):
-                print(state[key], end='', flush=True)
+                print(state[key], end='', file=sys.stderr if key == 'stderr' else sys.stdout, flush=True)
             offsets[index] = state.get('offsets', offsets)[index]
         if state.get('cleanup_verified'):
+            if state.get('more_logs'):
+                continue
             try:
                 terminal = retrieve(host, output, attempt)
             except (OSError, ValueError, subprocess.SubprocessError) as error:

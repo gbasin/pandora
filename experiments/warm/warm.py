@@ -17,6 +17,12 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def write_metadata(path, metadata):
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(metadata, indent=2) + '\n')
+    temporary.replace(path)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--host', required=True)
@@ -42,7 +48,7 @@ def main():
     (output / 'manifest.json').write_bytes(encode(manifest))
     metadata = {'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
-    (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    write_metadata(output / 'submission.json', metadata)
     scripts = Path(__file__).resolve().parent
     ssh = ['ssh', *SSH_OPTIONS, args.host]
     home = run(*ssh, 'pwd', capture_output=True, text=True).stdout.strip()
@@ -50,7 +56,7 @@ def main():
         raise RuntimeError('Unsupported remote home path')
     root = home + '/pandora-warm'
     remote = root + '/runs/' + attempt
-    run(*ssh, f'mkdir -p {remote}/source')
+    run(*ssh, f'mkdir -p {root}/runs && mkdir {remote} && mkdir {remote}/source')
     cached = run(*ssh, f'readlink -f {root}/latest || true', capture_output=True,
                  text=True).stdout.strip()
     options = ['--link-dest=' + cached] if cached else []
@@ -62,7 +68,7 @@ def main():
                  capture_output=True, text=True)
     (output / 'transfer.log').write_text(result.stdout + result.stderr)
     metadata['transfer_seconds'] = time.monotonic() - transfer
-    (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    write_metadata(output / 'submission.json', metadata)
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
         str(scripts / 'snapshot.py'), str(scripts / 'worker.py'),
         str(scripts / 'in-container.sh'), f'{args.host}:{remote}/')
@@ -83,7 +89,7 @@ def main():
     status = follow(args.host, output)
     metadata['total_seconds'] = time.monotonic() - started
     metadata['exit_code'] = status
-    (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    write_metadata(output / 'submission.json', metadata)
     return status
 
 

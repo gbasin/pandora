@@ -25,7 +25,7 @@ PATH overrides can bypass it. It is not OS-level enforcement.
 No target-repo files or global shell configuration are modified. The launcher
 exports its own session identity, host, state directory, and original executable
 paths. The private Codex shim passes explicit shell-environment settings and
-disables login-shell startup for this session. Session-specific ZDOTDIR files
+retains the existing login-shell policy. Session-specific ZDOTDIR files
 load the original startup files and restore the trial prefix afterward; global
 dotfiles are unchanged. Put the settings on `codex exec`
 when using that subcommand. Harness supervisors may reset inherited PATH, so
@@ -108,8 +108,12 @@ expectations and must not be described as completely transparent.
 
 Session-only zsh files source the original startup files and then restore the
 wrapper prefix. They do not edit those original files. Codex receives explicit
-PATH and Pandora environment overrides, and login-shell startup is disabled for
-that session. Other Codex settings are retained. Explicit conflicting CLI config
+Pandora and ZDOTDIR environment overrides, without setting PATH through Codex
+configuration. That explicit PATH setting discarded a tested login-profile PATH
+addition; removing it preserved both the addition and routing. The earlier pilot forced non-login
+shells, which could omit `.zprofile` or `.zlogin` setup. The recovery revision
+removes that override and retains the existing login-shell policy. Other Codex
+settings are retained. Explicit conflicting CLI config
 or a shell command that changes PATH can still bypass routing. Claude inherits
 the environment; its shell behavior must be tested separately.
 

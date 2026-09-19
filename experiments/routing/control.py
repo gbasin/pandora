@@ -38,6 +38,7 @@ def main():
         result = {'state': 'active-or-unresolved'}
     result['registered'] = (path / 'worker.json').exists()
     result['offsets'] = offsets
+    result['more_logs'] = False
     for index, name in enumerate(['stdout', 'stderr']):
         log = path / (name + '.log')
         if log.exists():
@@ -45,6 +46,7 @@ def main():
                 stream.seek(offsets[index])
                 result[name] = stream.read(65536).decode('utf-8', errors='replace')
                 result['offsets'][index] = stream.tell()
+                result['more_logs'] = result['more_logs'] or stream.tell() < log.stat().st_size
     print(json.dumps(result))
 
 
