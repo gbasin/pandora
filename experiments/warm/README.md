@@ -1,8 +1,8 @@
 # Warm surface experiment
 
 This extends the clean-commit baseline with dirty-source capture, incremental
-transfer, and reusable installed dependencies. It is a scripted experiment,
-not yet the normal-command routing or agent evaluation.
+transfer, and reusable installed dependencies. It is the scripted layer used by the
+[session router](../routing/README.md). See the root README for agent trial results.
 
 ## Run
 
@@ -71,7 +71,8 @@ artifacts, cgroup metrics, and terminal Docker state. Successful containers are
 removed after collection. Failed containers are stopped and retained for manual
 diagnosis. This is file retention, not live process retention.
 
-Cancellation, client loss, interrupted transfers, disk quotas, retention sweeps,
-and dependency-cache corruption still need fault tests before agent use. A
+Explicit cancellation was tested through the session router. Abrupt client loss,
+interrupted transfers, disk quotas, retention sweeps, and dependency-cache
+corruption still need fault tests before broader use. A
 failed preparation can leave partial evidence. Do not interpret a missing test
 result as a pass. This harness does not manage billable cloud resources.
