@@ -632,5 +632,43 @@
     "sentinels": [
       "environment compatibility sentinel"
     ]
+  },
+  {
+    "group": "final-state",
+    "attempt": "3fc43c6bbb14422bb7bbab010bcf0111",
+    "source_digest": "2e39244c3ad843d472d1ae4a0550a6b74b5b5d0fce77173618b5a3f0e9fd19b3",
+    "selectors": [
+      "pandora-environment.spec.ts"
+    ],
+    "local_output": "/tmp/pandora-recovery-eval/final-state/d8a94f2a409959090f762cda6d547713f6818007d25bb53975d962368308e532/e065d145310e4bc8bae05d7e1fa5251a",
+    "terminal": {
+      "state": "terminal",
+      "attempt": "3fc43c6bbb14422bb7bbab010bcf0111",
+      "exit_code": 0,
+      "cleanup_verified": true
+    },
+    "snapshot_seconds": 4.5559835829772055,
+    "transfer_seconds": 3.0125896250247024,
+    "total_seconds": 25.93095120799262,
+    "metrics": {
+      "queue_seconds": 7.5300004027667455e-06,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.07516200899954129,
+      "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+      "execution_seconds": 9.659594980999827,
+      "exit_code": 0
+    },
+    "junit": {
+      "id": "",
+      "name": "",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "1.743474"
+    },
+    "sentinels": [
+      "environment compatibility sentinel"
+    ]
   }
 ]
