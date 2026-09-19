@@ -1,0 +1,70 @@
+#0 building with "pandora-probe-862374327bee" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 473B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#2 DONE 0.4s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [internal] load build context
+#4 transferring context: 108B done
+#4 DONE 0.0s
+
+#5 [stage-0 1/6] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#5 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#5 sha256:a0498254f698ab1b2c7d0d1ce51ebdea22c1f01e620433118a5c764fab93a3dc 445B / 445B 0.0s done
+#5 sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b 0B / 1.71MB 0.2s
+#5 sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164 15.73MB / 50.86MB 0.2s
+#5 sha256:eab09f3e3981ba4ceab089988dd081db334f2221594d7873f6b9e123f32d2105 3.31kB / 3.31kB 0.3s done
+#5 sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150 0B / 28.24MB 0.2s
+#5 sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b 1.71MB / 1.71MB 0.4s done
+#5 sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164 33.55MB / 50.86MB 0.3s
+#5 sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164 50.86MB / 50.86MB 0.6s done
+#5 sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150 6.29MB / 28.24MB 0.5s
+#5 sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150 28.24MB / 28.24MB 0.7s done
+#5 extracting sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150
+#5 extracting sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150 1.0s done
+#5 DONE 1.7s
+
+#5 [stage-0 1/6] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#5 extracting sha256:eab09f3e3981ba4ceab089988dd081db334f2221594d7873f6b9e123f32d2105 done
+#5 extracting sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164
+#5 extracting sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164 1.4s done
+#5 DONE 3.1s
+
+#5 [stage-0 1/6] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#5 extracting sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b 0.0s done
+#5 extracting sha256:a0498254f698ab1b2c7d0d1ce51ebdea22c1f01e620433118a5c764fab93a3dc done
+#5 DONE 3.2s
+
+#6 [stage-0 2/6] WORKDIR /app
+#6 DONE 0.2s
+
+#7 [stage-0 3/6] COPY deps /app/deps
+#7 DONE 0.0s
+
+#8 [stage-0 4/6] RUN --mount=type=cache,target=/probe-cache if test -f /probe-cache/marker; then echo PROBE_STORE_WARM; else echo PROBE_STORE_COLD; fi; touch /probe-cache/marker
+#8 0.056 PROBE_STORE_COLD
+#8 DONE 0.1s
+
+#9 [stage-0 5/6] COPY source.js /app/source.js
+#9 DONE 0.0s
+
+#10 [stage-0 6/6] RUN node --check source.js && mkdir -p dist && cp source.js dist/result.js
+#10 DONE 0.1s
+
+#11 exporting to oci image format
+#11 exporting layers 0.1s done
+#11 exporting manifest sha256:29bb00faca0ba8690bb207c6d648d042103c49efadada683c5576139cefe37f4 done
+#11 exporting config sha256:ab416c217ba2c702a0e9b4e085a1061c79eaac43f8a5ed08097fcfc41d2131f5 done
+#11 sending tarball
+#11 sending tarball 0.6s done
+#11 DONE 0.7s
+
+#12 importing to docker
+#12 DONE 0.0s

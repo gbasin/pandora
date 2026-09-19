@@ -1,0 +1,5 @@
+{
+  "candidate": "compare-then-replace",
+  "concurrent_edit_lost": true,
+  "deployed_workspace_writeback_tested": false
+}

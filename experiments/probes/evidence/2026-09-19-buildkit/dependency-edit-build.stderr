@@ -1,0 +1,47 @@
+#0 building with "pandora-probe-862374327bee" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 473B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/6] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#4 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 72B done
+#5 DONE 0.0s
+
+#6 [stage-0 2/6] WORKDIR /app
+#6 CACHED
+
+#7 [stage-0 3/6] COPY deps /app/deps
+#7 DONE 0.0s
+
+#8 [stage-0 4/6] RUN --mount=type=cache,target=/probe-cache if test -f /probe-cache/marker; then echo PROBE_STORE_WARM; else echo PROBE_STORE_COLD; fi; touch /probe-cache/marker
+#8 0.045 PROBE_STORE_WARM
+#8 DONE 0.1s
+
+#9 [stage-0 5/6] COPY source.js /app/source.js
+#9 DONE 0.0s
+
+#10 [stage-0 6/6] RUN node --check source.js && mkdir -p dist && cp source.js dist/result.js
+#10 DONE 0.1s
+
+#11 exporting to oci image format
+#11 exporting layers 0.0s done
+#11 exporting manifest sha256:52b4e3ad57a3a4215f4eba0563f9a8b877ec4b54bc7c07c9bf30bed768509fd9 done
+#11 exporting config sha256:98d0ca7db557e2ac7041dcfbb7803b9cb98d6f189998c384fba6b90a6d15591a done
+#11 sending tarball
+#11 sending tarball 0.6s done
+#11 DONE 0.6s
+
+#12 importing to docker
+#12 DONE 0.0s

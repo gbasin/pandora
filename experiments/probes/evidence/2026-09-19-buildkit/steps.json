@@ -1,0 +1,87 @@
+[
+  {
+    "label": "create-builder",
+    "seconds": 0.056,
+    "exit_code": 0
+  },
+  {
+    "label": "bootstrap-builder",
+    "seconds": 2.67,
+    "exit_code": 0
+  },
+  {
+    "label": "builder-limits",
+    "seconds": 0.016,
+    "exit_code": 0
+  },
+  {
+    "label": "cold-build",
+    "seconds": 4.821,
+    "exit_code": 0
+  },
+  {
+    "label": "run-a",
+    "seconds": 0.178,
+    "exit_code": 0
+  },
+  {
+    "label": "identical-build",
+    "seconds": 0.75,
+    "exit_code": 0
+  },
+  {
+    "label": "source-edit-build",
+    "seconds": 0.866,
+    "exit_code": 0
+  },
+  {
+    "label": "run-b",
+    "seconds": 0.172,
+    "exit_code": 0
+  },
+  {
+    "label": "rerun-a",
+    "seconds": 0.168,
+    "exit_code": 0
+  },
+  {
+    "label": "dependency-edit-build",
+    "seconds": 0.896,
+    "exit_code": 0
+  },
+  {
+    "label": "failed-rebuild",
+    "seconds": 0.218,
+    "exit_code": 1
+  },
+  {
+    "label": "old-tag-after-failure",
+    "seconds": 0.18,
+    "exit_code": 0
+  },
+  {
+    "label": "mount-obscures-image",
+    "seconds": 0.173,
+    "exit_code": 1
+  },
+  {
+    "label": "cleanup-run",
+    "seconds": 0.012,
+    "exit_code": 0
+  },
+  {
+    "label": "cleanup-image-0",
+    "seconds": 0.021,
+    "exit_code": 0
+  },
+  {
+    "label": "cleanup-image-1",
+    "seconds": 0.021,
+    "exit_code": 0
+  },
+  {
+    "label": "cleanup-builder",
+    "seconds": 0.308,
+    "exit_code": 0
+  }
+]

@@ -1,0 +1,6 @@
+#1 [internal] booting buildkit
+#1 pulling image moby/buildkit:buildx-stable-1
+#1 pulling image moby/buildkit:buildx-stable-1 2.2s done
+#1 creating container buildx_buildkit_pandora-probe-862374327bee0
+#1 creating container buildx_buildkit_pandora-probe-862374327bee0 0.4s done
+#1 DONE 2.6s
