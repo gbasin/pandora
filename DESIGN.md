@@ -1,6 +1,7 @@
 # Pandora: remote validation MVP and evaluation
 
-Design status: scoped experiment, 2026-09-19. No execution service is implemented.
+Design status: SSH pilot implemented and initially evaluated, 2026-09-19.
+See [README.md](README.md) for current behavior, evidence, and remaining gaps.
 The earlier v2 architecture remains in Git history at `0621e3f`; local POC notes
 remain under `tmp/poc/`. Those probes do not establish an integrated system.
 
@@ -129,21 +130,17 @@ must enter reproducible repository setup before clean final validation.
 | GitHub Actions with owned runner | Familiar control plane, queue, run IDs, artifacts | Dirty-source submission, local wrapper, disposable bounded execution |
 | Buildkite Preflight with owned agent | Dirty snapshot commits, submission, agent-facing watcher | Experimental CLI, new account/setup, isolation and local result handling |
 
-Provisional first-path preference: GitHub Actions with a dedicated experimental
-workflow and an owned Linux runner. Eichler already has a working Linux surface
-recipe and GitHub access. This is not a migration of ordinary CI. Host the
-workflow in the experiment's control repository and consume a private source
-bundle or temporary ref. Keep source-access credentials outside test containers.
-Do not dispatch Eichler's broad existing CI on every iteration.
+The selected first path is the small SSH harness, as requested for the initial
+agent trial. It provides frozen-source submission, warm dependencies, a one-slot
+worker lock, bounded containers, streamed logs, and artifact return. The launcher
+routes selected normal commands without changing the target repository. This
+choice evaluates routing, waiting, and cancellation; it does not evaluate a CI
+control plane.
 
-Verify exact source delivery, selectors, prompt acceptance, useful progress,
-run correlation, cancellation cleanup, and artifact return. If live feedback or
-snapshot transport requires a substantial new service, favor a bounded Crabbox
-proof instead. Buildkite remains an alternative if it can be evaluated without a
-paid commitment within the cap. Implement one path, not three; add another only
-when a measured limitation justifies it. Backend and routing failures are scored
-separately. Account access and workflow feasibility must be confirmed before
-selecting the live path.
+GitHub Actions with owned runners, Crabbox, and Buildkite remain alternatives.
+Reconsider them if measured reliability or maintenance gaps justify the change.
+Do not implement another backend before establishing the current pilot's failure
+behavior. Initial evidence and untested cases are linked from the README.
 
 ## Evaluation protocol
 
@@ -221,8 +218,8 @@ Extend the window only within the remaining cap. Never delete unrelated resource
 
 Deliver a Pandora-owned profile, session launcher, pinned worker setup, and
 scripted smoke/fault harness before agent evaluation. Produce an evidence report
-and recommend adoption, refinement, or abandonment. This specification does not
-claim that provisioning or evaluation has already happened.
+and recommend adoption, refinement, or abandonment. The first worker and agent evaluation are complete; the full fault matrix and
+broader adoption evaluation remain incomplete. See the README for the boundary.
 
 Deferred: learned admission, automatic command classification, universal shell
 rewriting, continuous sync, general source write-back, microVMs, multi-host
