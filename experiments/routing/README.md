@@ -25,7 +25,9 @@ PATH overrides can bypass it. It is not OS-level enforcement.
 No target-repo files or global shell configuration are modified. The launcher
 exports its own session identity, host, state directory, and original executable
 paths. The private Codex shim passes explicit shell-environment settings and
-disables login-shell startup for this session. Put the settings on `codex exec`
+disables login-shell startup for this session. Session-specific ZDOTDIR files
+load the original startup files and restore the trial prefix afterward; global
+dotfiles are unchanged. Put the settings on `codex exec`
 when using that subcommand. Harness supervisors may reset inherited PATH, so
 launch routing inside the supervisor at its actual Codex entry point.
 
@@ -70,3 +72,15 @@ The Claude helper runs the user's subscribed `opus` alias with shell/read tools
 and a validation-only brief. It retains ordinary account authentication. The
 Codex trial uses the existing subscribed CLI and the agent-fanout watchdog.
 Neither helper configures a model API key or changes the default model globally.
+
+## Supervised Codex trial
+
+The installed agent-fanout controller does not forward a Codex executable
+override through its `start` command. Create a private adapter directory with
+`fanout-adapter.py`, then use its printed `agent-fanout` path for Codex starts.
+It selects the bundled native watchdog through a session launcher and passes
+its supported `--codex-bin` option explicitly. The original skill scripts remain
+unchanged. Status, logs, collection, and cancellation still use agent-fanout.
+
+The adapter relies on the controller resolving its launch helpers relative to
+its invocation directory. Pin or recheck this behavior if the skill changes.
