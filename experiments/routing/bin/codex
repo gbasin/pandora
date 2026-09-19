@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Session-only Codex config: preserve routing in shell tools."""
+import json
+import os
+from pathlib import Path
+import sys
+
+real = os.environ['PANDORA_REAL_CODEX']
+overrides = ['-c', 'allow_login_shell=false']
+os.environ['PATH'] = str(Path(__file__).resolve().parent) + os.pathsep + os.environ['PATH']
+for key in ['PATH', 'PANDORA_HOST', 'PANDORA_STATE', 'PANDORA_SESSION',
+            'PANDORA_REAL_PNPM', 'PANDORA_REAL_CODEX', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
+    overrides += ['-c', 'shell_environment_policy.set.' + key + '=' + json.dumps(os.environ[key])]
+command = sys.argv[1:]
+if command[:1] == ['exec']:
+    command = ['exec', *overrides, *command[1:]]
+else:
+    command = [*overrides, *command]
+os.execv(real, [real, *command])

@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
+import traceback
 import subprocess
 import sys
 import time
@@ -37,6 +39,8 @@ def main():
     submitted = json.loads((attempt / 'submission.json').read_text())
     if hashlib.sha256(encode(manifest)).hexdigest() != submitted['source_digest']:
         raise RuntimeError('Manifest identity mismatch')
+    if (attempt / 'cancel.request').exists():
+        return 130
     verify(attempt / 'source', manifest)
     print('[pandora] source verified; waiting for the experiment worker', flush=True)
     lock = (root / 'worker.lock').open('w')
@@ -63,6 +67,8 @@ def main():
     exists = subprocess.run(['sudo', 'docker', 'image', 'inspect', image],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
     metrics['dependency_cache_hit'] = exists
+    if not exists and submitted.get('require_warm'):
+        raise RuntimeError('Dependency image is not prepared for these inputs; this agent trial requires a warm image. No tests started.')
     if not exists:
         context = attempt / 'deps-context'
         (context / 'files').mkdir(parents=True)
@@ -126,5 +132,36 @@ def main():
     return status
 
 
+def cancelled(signum, frame):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    print('[pandora] cancellation received; stopping this attempt', flush=True)
+    raise KeyboardInterrupt
+
+
 if __name__ == '__main__':
-    raise SystemExit(main())
+    signal.signal(signal.SIGTERM, cancelled)
+    signal.signal(signal.SIGINT, cancelled)
+    signal.signal(signal.SIGHUP, cancelled)
+    registration = {'pid': os.getpid(),
+                    'start_ticks': Path(f'/proc/{os.getpid()}/stat').read_text().split()[21]}
+    Path('worker.json.tmp').write_text(json.dumps(registration))
+    Path('worker.json.tmp').replace('worker.json')
+    try:
+        status = main()
+    except KeyboardInterrupt:
+        status = 130
+    except Exception:
+        traceback.print_exc()
+        status = 70
+    # A terminal record is usable for another submission only when the owned
+    # container is absent or stopped. Unknown Docker state cannot clear a job.
+    name = 'pandora-warm-' + Path.cwd().name
+    check = subprocess.run(['sudo', 'docker', 'ps', '--filter', 'name=^/' + name + '$',
+                            '--format', '{{.Names}}'], capture_output=True, text=True)
+    terminal = {'state': 'terminal', 'exit_code': status,
+                'cleanup_verified': check.returncode == 0 and not check.stdout.strip()}
+    Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
+    Path('terminal.json.tmp').replace('terminal.json')
+    raise SystemExit(status)

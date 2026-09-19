@@ -1,0 +1,214 @@
+{
+  "runs": [
+    {
+      "scenario": "fresh-opus",
+      "attempt": "380a273ef6df470395fc4613de4dc3bb",
+      "model": "claude-opus-5",
+      "submission": {
+        "attempt": "380a273ef6df470395fc4613de4dc3bb",
+        "source_digest": "cd07f8d493f5dc8d9ddcb0402a51ec686f9c5c86ca4f3fe68f4782f39fb1bd50",
+        "excluded": [],
+        "selectors": [
+          "smoke.spec.ts"
+        ],
+        "require_warm": true,
+        "snapshot_seconds": 5.399193541961722,
+        "transfer_seconds": 3.194276958005503,
+        "total_seconds": 116.91637366701616,
+        "exit_code": 0
+      },
+      "metrics": {
+        "queue_seconds": 1.9130000055156415e-05,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.08340121699984593,
+        "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+        "execution_seconds": 94.08139749700013,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "exit_code": 0,
+        "cleanup_verified": true
+      },
+      "junit": {
+        "id": "",
+        "name": "",
+        "tests": "45",
+        "failures": "0",
+        "skipped": "0",
+        "errors": "0",
+        "time": "86.277561"
+      },
+      "memory_peak_bytes": 1453117440,
+      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/380a273ef6df470395fc4613de4dc3bb"
+    },
+    {
+      "scenario": "informed-codex",
+      "attempt": "2f00c49fd73249afb566937045236205",
+      "model": "gpt-6-astra",
+      "submission": {
+        "attempt": "2f00c49fd73249afb566937045236205",
+        "source_digest": "cd07f8d493f5dc8d9ddcb0402a51ec686f9c5c86ca4f3fe68f4782f39fb1bd50",
+        "excluded": [],
+        "selectors": [
+          "smoke.spec.ts"
+        ],
+        "require_warm": true,
+        "snapshot_seconds": 5.266309916973114,
+        "transfer_seconds": 3.4032101670163684,
+        "total_seconds": 215.91244779201224,
+        "exit_code": 0
+      },
+      "metrics": {
+        "queue_seconds": 100.00473543199996,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.07555586199987374,
+        "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+        "execution_seconds": 94.33364887900007,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "exit_code": 0,
+        "cleanup_verified": true
+      },
+      "junit": {
+        "id": "",
+        "name": "",
+        "tests": "45",
+        "failures": "0",
+        "skipped": "0",
+        "errors": "0",
+        "time": "86.528491"
+      },
+      "memory_peak_bytes": 1451380736,
+      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/2f00c49fd73249afb566937045236205"
+    },
+    {
+      "scenario": "informed-opus",
+      "attempt": "8c223c579d60434aa743989b6504eefa",
+      "model": "claude-opus-5",
+      "submission": {
+        "attempt": "8c223c579d60434aa743989b6504eefa",
+        "source_digest": "cd07f8d493f5dc8d9ddcb0402a51ec686f9c5c86ca4f3fe68f4782f39fb1bd50",
+        "excluded": [],
+        "selectors": [
+          "smoke.spec.ts"
+        ],
+        "require_warm": true,
+        "snapshot_seconds": 4.737978000019211,
+        "transfer_seconds": 2.7507721669971943,
+        "total_seconds": 114.75725191598758,
+        "exit_code": 0
+      },
+      "metrics": {
+        "queue_seconds": 1.5409000297950115e-05,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.08075157200028116,
+        "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+        "execution_seconds": 93.23391137599992,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "exit_code": 0,
+        "cleanup_verified": true
+      },
+      "junit": {
+        "id": "",
+        "name": "",
+        "tests": "45",
+        "failures": "0",
+        "skipped": "0",
+        "errors": "0",
+        "time": "85.513072"
+      },
+      "memory_peak_bytes": 1463181312,
+      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/8c223c579d60434aa743989b6504eefa"
+    },
+    {
+      "scenario": "failure-opus",
+      "attempt": "9b7d39bbf1984a09917b34d56e632fd1",
+      "model": "claude-opus-5",
+      "submission": {
+        "attempt": "9b7d39bbf1984a09917b34d56e632fd1",
+        "source_digest": "526e6dab30deb8759590d1e933f256bb20fe73220386f8847c8783f7ee6bd9f5",
+        "excluded": [],
+        "selectors": [
+          "pandora-eval-failure.spec.ts"
+        ],
+        "require_warm": true,
+        "snapshot_seconds": 4.009559000027366,
+        "transfer_seconds": 2.529584000003524,
+        "total_seconds": 68.8606200000504,
+        "exit_code": 1
+      },
+      "metrics": {
+        "queue_seconds": 40.002059014000224,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.07408161900002597,
+        "image_id": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+        "execution_seconds": 9.25468840900021,
+        "exit_code": 1
+      },
+      "terminal": {
+        "state": "terminal",
+        "exit_code": 1,
+        "cleanup_verified": true
+      },
+      "junit": {
+        "id": "",
+        "name": "",
+        "tests": "1",
+        "failures": "1",
+        "skipped": "0",
+        "errors": "0",
+        "time": "1.77119"
+      },
+      "memory_peak_bytes": 596561920,
+      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/9b7d39bbf1984a09917b34d56e632fd1"
+    }
+  ],
+  "resource_samples": [
+    {
+      "timestamp": 1789851069.596427,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 64%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851075.743894,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 65%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851081.386394,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 65%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851087.053186,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 65%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851092.850304,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 65%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851098.604536,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 65%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851104.282201,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 65%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    },
+    {
+      "timestamp": 1789851110.06284,
+      "mac_memory_pressure": "The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 66%",
+      "remote": "pandora-warm-380a273ef6df470395fc4613de4dc3bb\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=50962\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=47551"
+    }
+  ]
+}
