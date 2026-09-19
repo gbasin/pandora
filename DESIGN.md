@@ -5,6 +5,14 @@ See [README.md](README.md) for current behavior, evidence, and remaining gaps.
 The earlier v2 architecture remains in Git history at `0621e3f`; local POC notes
 remain under `tmp/poc/`. Those probes do not establish an integrated system.
 
+## Relationship to v0.1
+
+This document describes the original surface pilot and its evaluation. The
+[v0.1 contract](notes/v0.1-contract.md) defines the subsequent proposed scope.
+In that scope, a service-backed workflow is required before daily use, selected
+Docker commands are routed, and declared outputs return with conflict checks.
+Those capabilities are not implemented by the pilot described below.
+
 ## Objective and boundaries
 
 Determine whether local coding agents can use remote validation without human

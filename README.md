@@ -114,22 +114,18 @@ workloads, is necessary to stop its instance billing.
 
 ## Next evaluation
 
-Recovery, four-agent contention, and the first bypass comparison are implemented
-and evaluated. The next adoption boundary is a small opt-in daily-use pilot:
+The next milestone is a controlled full coding-loop evaluation before daily use.
+The [v0.1 contract and evaluation matrix](notes/v0.1-contract.md) records the
+agreed scope and proposed command semantics. It requires local edit/test/fix
+iteration, one service-backed workflow, specific Docker build/run patterns,
+worktree-scoped image tags, and conflict-checked return of declared outputs.
+These features are not implemented by the surface pilot.
 
-- Verify Agentboard integration and shell configuration on the actual daily agent
-  profiles. Keep routing preflight checks; this is not universal interception.
-- Add deadline/cancellation coverage for cold image builds, bounded retention,
-  repeatable worker setup, and recovery for missing worker terminal records.
-- Repeat the bypass treatments with more tasks and both harnesses. The first
-  comparison favors exact redirects, but used only one Codex agent per treatment.
-- Preserve failing status through pipelines, or consume verified terminal evidence.
-  A plain `command | tail` can hide failure in its shell exit code.
+Evaluate source consistency, cache invalidation, output recovery, and parallel
+worktree isolation before increasing concurrency. Include Codex and Claude Opus.
+Warm-image reuse alone does not establish compiled-build performance. The matrix
+requires cold builds, identical reruns, source edits, and dependency changes.
 
-Advance toward twelve agents only after these checks pass. Generalize to journeys
-or another repository afterward. There is no commitment yet to Pueue, a CI control
-plane, multi-host scheduling, learned admission, or a general sandbox platform.
-
-[DESIGN.md](DESIGN.md) describes the evaluation design and deferred choices.
+The current [pilot design](DESIGN.md) documents the narrower implemented trial.
 The dated notes preserve what happened in each experiment; later merges do not
 rewrite their historical claims.
