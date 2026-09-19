@@ -10,6 +10,7 @@ import signal
 import traceback
 import subprocess
 import sys
+import tarfile
 import time
 from snapshot import encode, verify
 
@@ -50,6 +51,9 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             break
         except BlockingIOError:
+            if time.monotonic() - queued >= 900:
+                print('[pandora] Queue deadline reached; no tests started', flush=True)
+                return 75
             print('[pandora] queued; worker occupied; no local validation started', flush=True)
             time.sleep(10)
     metrics = {'queue_seconds': time.monotonic() - queued}
@@ -103,7 +107,20 @@ def main():
                '--init', '-e', 'CI=true', image_id, 'bash', '/tmp/pandora-run.sh',
                *submitted['selectors'], stdout=subprocess.DEVNULL)
         created = True
-        docker('cp', '-a', str(attempt / 'source') + '/.', name + ':/workspace/source')
+        # Installation inputs already exist byte-for-byte in the keyed image.
+        # Preserve their timestamps: pnpm's patch freshness check uses mtime.
+        install_paths = {e['path'] for e in dep_entries}
+        overlay = attempt / 'source-overlay.tar'
+        with tarfile.open(overlay, 'w') as archive:
+            for directory in sorted((attempt / 'source').rglob('*')):
+                if directory.is_dir() and not directory.is_symlink():
+                    archive.add(directory, arcname=str(directory.relative_to(attempt / 'source')), recursive=False)
+            for item in manifest:
+                if item['path'] not in install_paths:
+                    archive.add(attempt / 'source' / item['path'], arcname=item['path'], recursive=False)
+        with overlay.open('rb') as archive:
+            docker('cp', '-a', '-', name + ':/workspace/source', stdin=archive)
+        overlay.unlink()
         docker('cp', str(attempt / 'in-container.sh'), name + ':/tmp/pandora-run.sh')
         # docker cp writes root-owned input; dependencies retain node ownership.
         # No writable host source mount is exposed to the test process.
@@ -144,6 +161,13 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, cancelled)
     signal.signal(signal.SIGINT, cancelled)
     signal.signal(signal.SIGHUP, cancelled)
+    attempt_lock = Path('attempt.lock').open('a')
+    try:
+        fcntl.flock(attempt_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(75)
+    if Path('worker.json').exists():
+        raise SystemExit(75)  # A crashed attempt is never re-executed.
     registration = {'pid': os.getpid(),
                     'start_ticks': Path(f'/proc/{os.getpid()}/stat').read_text().split()[21]}
     Path('worker.json.tmp').write_text(json.dumps(registration))
@@ -160,7 +184,13 @@ if __name__ == '__main__':
     name = 'pandora-warm-' + Path.cwd().name
     check = subprocess.run(['sudo', 'docker', 'ps', '--filter', 'name=^/' + name + '$',
                             '--format', '{{.Names}}'], capture_output=True, text=True)
-    terminal = {'state': 'terminal', 'exit_code': status,
+    artifacts = {}
+    for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
+                 Path('metrics.json'), *Path('results').rglob('*')]:
+        if item.is_file() and not item.is_symlink():
+            artifacts[str(item)] = hashlib.sha256(item.read_bytes()).hexdigest()
+    Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
+    terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
                 'cleanup_verified': check.returncode == 0 and not check.stdout.strip()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')

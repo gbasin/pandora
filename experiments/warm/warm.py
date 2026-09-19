@@ -10,6 +10,7 @@ import subprocess
 import time
 import uuid
 from snapshot import encode, freeze
+from transport import follow, SSH_OPTIONS
 
 
 def run(*args, **kwargs):
@@ -40,7 +41,7 @@ def main():
                 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
     (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
     scripts = Path(__file__).resolve().parent
-    ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', args.host]
+    ssh = ['ssh', *SSH_OPTIONS, args.host]
     home = run(*ssh, 'pwd', capture_output=True, text=True).stdout.strip()
     if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
         raise RuntimeError('Unsupported remote home path')
@@ -66,29 +67,21 @@ def main():
     run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
         f'mv -Tf {root}/latest-{attempt} {root}/latest')
     print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
-    status = 70
-    try:
-        command = (f'cd {remote} || exit 70; : > stdout.log; : > stderr.log; '
-                   'python3 -u worker.py >stdout.log 2>stderr.log & worker=$!; '
-                   'tail --pid=$worker -n +1 -F stdout.log & out=$!; '
-                   'tail --pid=$worker -n +1 -F stderr.log >&2 & err=$!; '
-                   'trap \'kill -TERM "$worker" 2>/dev/null; wait "$worker"\' HUP INT TERM; '
-                   'wait "$worker"; status=$?; wait "$out" "$err"; exit "$status"')
-        status = subprocess.run([*ssh, 'bash -c ' + shlex.quote(command)]).returncode
-    finally:
-        result = subprocess.run(['scp', '-q', '-r', f'{args.host}:{remote}/results',
-                                 f'{args.host}:{remote}/container.json',
-                                 f'{args.host}:{remote}/metrics.json',
-                                 f'{args.host}:{remote}/terminal.json',
-                                 f'{args.host}:{remote}/stdout.log',
-                                 f'{args.host}:{remote}/stderr.log', str(output)])
-        if result.returncode and status == 0:
-            status = 70
-        metadata['total_seconds'] = time.monotonic() - started
-        metadata['exit_code'] = status
-        (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
-    print(f'[pandora] exit={status}; evidence={output}', flush=True)
-    return status if status >= 0 else 128 - status
+    # systemd owns the worker independently of this SSH connection. Never retry
+    # this start after ambiguous acknowledgement; reconnect by the same attempt.
+    worker_command = 'exec python3 -u worker.py >stdout.log 2>stderr.log'
+    command = (f'sudo systemd-run --quiet --collect --unit=pandora-worker-{attempt} '
+               f'--uid=ubuntu --working-directory={remote} '
+               '--property=RuntimeMaxSec=40m --property=TimeoutStopSec=30s '
+               '--property=KillMode=control-group /bin/bash -c ' + shlex.quote(worker_command))
+    launched = subprocess.run([*ssh, command])
+    if launched.returncode:
+        print('[pandora] Start acknowledgement unavailable; checking the existing attempt only.', flush=True)
+    status = follow(args.host, output)
+    metadata['total_seconds'] = time.monotonic() - started
+    metadata['exit_code'] = status
+    (output / 'submission.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    return status
 
 
 if __name__ == '__main__':

@@ -9,7 +9,10 @@ import sys
 
 
 def main():
-    attempt, action = sys.argv[1:]
+    attempt, action = sys.argv[1:3]
+    offsets = [int(x) for x in sys.argv[3:5]] or [0, 0]
+    if len(offsets) != 2 or any(x < 0 for x in offsets):
+        raise ValueError('Invalid log offsets')
     if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel'}:
         raise ValueError('Invalid attempt/action')
     path = Path.home() / 'pandora-warm/runs' / attempt
@@ -25,14 +28,24 @@ def main():
                 os.kill(pid, signal.SIGTERM)
     terminal = path / 'terminal.json'
     if terminal.exists():
-        print(terminal.read_text())
+        result = json.loads(terminal.read_text())
     elif not (path / 'worker.json').exists() and (path / 'cancel.request').exists():
         # Registration precedes the worker's cancel-marker check. A late worker
         # therefore exits before preparation/execution even if no PID exists yet.
-        print(json.dumps({'exit_code': 130, 'cleanup_verified': True,
-                          'state': 'cancelled-before-start'}))
+        result = {'exit_code': 130, 'cleanup_verified': True,
+                  'state': 'cancelled-before-start'}
     else:
-        print(json.dumps({'state': 'active-or-unresolved'}))
+        result = {'state': 'active-or-unresolved'}
+    result['registered'] = (path / 'worker.json').exists()
+    result['offsets'] = offsets
+    for index, name in enumerate(['stdout', 'stderr']):
+        log = path / (name + '.log')
+        if log.exists():
+            with log.open('rb') as stream:
+                stream.seek(offsets[index])
+                result[name] = stream.read(65536).decode('utf-8', errors='replace')
+                result['offsets'][index] = stream.tell()
+    print(json.dumps(result))
 
 
 if __name__ == '__main__':
