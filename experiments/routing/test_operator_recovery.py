@@ -97,6 +97,42 @@ class OperatorRecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'submission digest mismatch'):
                 validate_operator_result(output, attempt)
 
+    def test_legacy_local_follow_metadata_uses_accepted_immutable_submission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp); attempt = 'a' * 32
+            original = submission(attempt)
+            (output / 'submission.json').write_text(json.dumps(original))
+            receipt(output, attempt)
+            (output / 'accepted-submission.json').write_bytes((output / 'submission.json').read_bytes())
+            # Older warm clients appended these follow-up fields after upload.
+            (output / 'submission.json').write_text(json.dumps(original | {'total_seconds': 12.5, 'exit_code': 70}))
+            self.assertEqual(validate_operator_result(output, attempt)['attempt'], attempt)
+            (output / 'submission.json').write_text(json.dumps(original | {'untrusted_extra': 'changed'}))
+            with self.assertRaisesRegex(ValueError, 'differs from local request'):
+                validate_operator_result(output, attempt)
+
+    def test_retrieval_accepts_only_legacy_client_only_submission_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); attempt = 'a' * 32
+            remote_root = root / 'remote'; remote = remote_root / 'runs' / attempt; remote.mkdir(parents=True)
+            (remote / 'attempt.lock').touch()
+            (remote / 'submission.json').write_text(json.dumps(submission(attempt)))
+            (remote / 'admission-cleanup.json').write_text(json.dumps({'attempt': attempt, 'cleanup_verified': True}))
+            acknowledged = writer.acknowledge_missing_result(remote_root, attempt, 'worker-lost', now=lambda: 1.0,
+                                                              list_resources=lambda args: [])
+            local = root / 'local'; local.mkdir()
+            (local / 'submission.json').write_text(json.dumps(submission(attempt) | {'total_seconds': 5.0, 'exit_code': 70}))
+
+            def rsync(command, **kwargs):
+                stage = Path(command[-1])
+                (stage / 'operator-result.json').write_bytes((remote / 'operator-result.json').read_bytes())
+                (stage / 'submission.json').write_bytes((remote / 'submission.json').read_bytes())
+
+            with patch('transport.subprocess.run', side_effect=rsync):
+                self.assertEqual(transport.retrieve_operator_result('unused', local, attempt), acknowledged)
+            self.assertEqual((local / 'accepted-submission.json').read_bytes(), (remote / 'submission.json').read_bytes())
+            self.assertEqual(validate_operator_result(local, attempt), acknowledged)
+
     def test_acknowledgement_rejects_unknown_cleanup(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp); attempt = 'a' * 32
