@@ -1,0 +1,14 @@
+[
+  {
+    "case": "cancel",
+    "attempt": "30a42b656bde441dadfdc292537d494e",
+    "cleanup_verified": true,
+    "exit_code": 130
+  },
+  {
+    "case": "disconnect",
+    "attempt": "d8a877970bfe4953bc3a133a67630785",
+    "cleanup_verified": true,
+    "exit_code": 0
+  }
+]

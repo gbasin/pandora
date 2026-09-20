@@ -9,8 +9,14 @@ import sys
 from snapshot import digest
 import time
 import uuid
+import atexit
+import tempfile
 
-SSH_OPTIONS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+# Per-client private socket; persistence covers sequential SSH/scp/rsync calls.
+SSH_DIRECTORY = tempfile.mkdtemp(prefix='pandora-ssh-', dir='/tmp')
+atexit.register(shutil.rmtree, SSH_DIRECTORY, ignore_errors=True)
+SSH_OPTIONS = ['-o', 'ControlMaster=auto', '-o', 'ControlPersist=60',
+               '-o', 'ControlPath=' + SSH_DIRECTORY + '/%C','-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
                '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2']
 
 

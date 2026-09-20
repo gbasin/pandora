@@ -12,6 +12,7 @@ import uuid
 from snapshot import encode, freeze
 from retention import PROFILE
 from source_cache import repository_key
+from worker_bundle import bundle
 from transport import follow, SSH_OPTIONS
 
 
@@ -65,9 +66,6 @@ def main():
     write_metadata(output / 'submission.json', metadata)
     scripts = Path(__file__).resolve().parent
     ssh = ['ssh', *SSH_OPTIONS, args.host]
-    home = run(*ssh, 'pwd', capture_output=True, text=True).stdout.strip()
-    if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
-        raise RuntimeError('Unsupported remote home path')
     if args.workflow == 'docker' and metadata['docker']['request']['kind'] == 'run':
         spec = metadata['docker']
         resolved = subprocess.run([*ssh, 'python3 - ' + shlex.quote(spec['worktree_key']) + ' ' + shlex.quote(spec['request']['tag']) + ' ' + attempt],
@@ -80,33 +78,39 @@ def main():
             return 64 if resolved.returncode == 64 else 75
         spec['image'] = json.loads(resolved.stdout)
         print(f'[pandora] pinned {spec["request"]["tag"]} to {spec["image"]["image_id"]}; built source {spec["image"]["source_digest"][:12]}', flush=True)
+    bundle_id, payload = bundle(scripts)
+    metadata['worker_bundle'] = bundle_id
+    request = {'identity': bundle_id, 'attempt_id': attempt, 'repo_key': cache_key}
+    def prepare_remote(request):
+        command = 'python3 - ' + shlex.quote(json.dumps(request))
+        return json.loads(run(*ssh, command, input=(scripts / 'worker_bundle.py').read_text(),
+                              capture_output=True, text=True).stdout)
+    prepared = prepare_remote(request)
+    metadata['worker_bundle_cache_hit'] = not prepared['missing']
+    if prepared['missing']:
+        # Payload travels over stdin, never in shell argv (large bundles can exceed ARG_MAX).
+        script = (scripts / 'worker_bundle.py').read_text().split("if __name__ == '__main__':")[0]
+        script += '\nprint(json.dumps(prepare(Path.home() / "pandora-warm", **' + repr(request | {'payload': payload}) + ')))\n'
+        prepared = json.loads(run(*ssh, 'python3 -', input=script, capture_output=True, text=True).stdout)
+    home = prepared['home']
+    if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
+        raise RuntimeError('Unsupported remote home path')
     root = home + '/pandora-warm'
     remote = root + '/runs/' + attempt
-    run(*ssh, f'mkdir -p {root}/runs && mkdir {remote} && mkdir {remote}/source')
-    cached = ''
-    if uses_source:
-        cached = run(*ssh, f'python3 - prepare {cache_key} {attempt}',
-                     input=(scripts / 'source_cache.py').read_text(),
-                     capture_output=True, text=True).stdout.strip()
+    cached = prepared['cached']
     options = ['--link-dest=' + cached] if cached else []
     print(f'[pandora] transferring changed source; frozen identity {identity[:12]}', flush=True)
     transfer = time.monotonic()
     result = run('rsync', '-rlpc', '--delete', '--stats',
-                 '-e', 'ssh -o BatchMode=yes -o ConnectTimeout=15', *options,
+                 '-e', 'ssh ' + ' '.join(SSH_OPTIONS), *options,
                  str(output / 'source') + '/', f'{args.host}:{remote}/source/',
                  capture_output=True, text=True)
     (output / 'transfer.log').write_text(result.stdout + result.stderr)
     metadata['transfer_seconds'] = time.monotonic() - transfer
     write_metadata(output / 'submission.json', metadata)
-    run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
-        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'), str(scripts / 'source_cache.py'),
-        str(scripts / 'in-container.sh'), str(scripts / 'journey.py'),
-        str(scripts / 'service_cleanup.py'), str(scripts / 'journey.mjs'),
-        str(scripts / 'docker_workflow.py'), str(scripts / 'docker_cleanup.py'), str(scripts / 'docker_images.py'), str(scripts / 'image_gc.py'), f'{args.host}:{remote}/')
-    run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
+    run('scp', *SSH_OPTIONS, '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
+        f'{args.host}:{remote}/')
     # All links reference complete immutable source directories, never containers.
-    if uses_source:
-        run(*ssh, f'python3 {remote}/source_cache.py publish {cache_key} {attempt}')
     print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
     # systemd owns the worker independently of this SSH connection. Never retry
     # this start after ambiguous acknowledgement; reconnect by the same attempt.
@@ -116,6 +120,8 @@ def main():
                '--property=RuntimeMaxSec=40m --property=TimeoutStopSec=30s '
                '--property=KillMode=control-group '
                f'--property=ExecStopPost={shlex.quote("/usr/bin/python3 " + remote + "/service_cleanup.py " + remote)} /bin/bash -c ' + shlex.quote(worker_command))
+    if uses_source:
+        command = f'python3 {remote}/source_cache.py publish {cache_key} {attempt} && ' + command
     launched = subprocess.run([*ssh, command])
     if launched.returncode:
         print('[pandora] Start acknowledgement unavailable; checking the existing attempt only.', flush=True)
