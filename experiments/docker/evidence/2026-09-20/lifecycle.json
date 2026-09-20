@@ -1,0 +1,70 @@
+[
+  {
+    "case": "run-cancel",
+    "attempt": "bea77007411c4451bce36bb33bf5d02e",
+    "cleanup": true,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "bea77007411c4451bce36bb33bf5d02e",
+      "exit_code": 130,
+      "workflow": "docker",
+      "cleanup_verified": true,
+      "registered": true,
+      "offsets": [
+        267,
+        0
+      ],
+      "more_logs": false
+    }
+  },
+  {
+    "case": "build-cancel",
+    "attempt": "4f841a099232417f9a3f98c312dd1f4e",
+    "cleanup": true,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "4f841a099232417f9a3f98c312dd1f4e",
+      "exit_code": 130,
+      "workflow": "docker",
+      "cleanup_verified": true,
+      "registered": true,
+      "offsets": [
+        260,
+        1419
+      ],
+      "more_logs": false
+    }
+  },
+  {
+    "case": "disconnect",
+    "attempt": "a4eb1e64f8c44900933b59cb34b2cbea",
+    "cleanup": true,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "a4eb1e64f8c44900933b59cb34b2cbea",
+      "exit_code": 0,
+      "workflow": "docker",
+      "cleanup_verified": true,
+      "registered": true,
+      "offsets": [
+        339,
+        0
+      ],
+      "more_logs": false
+    }
+  },
+  {
+    "case": "build-worker-kill",
+    "attempt": "cd65a6319b124156b01c155b2f979ef3",
+    "cleanup": true,
+    "terminal": {
+      "state": "active-or-unresolved",
+      "registered": true,
+      "offsets": [
+        142,
+        1255
+      ],
+      "more_logs": false
+    }
+  }
+]

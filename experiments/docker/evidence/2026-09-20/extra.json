@@ -1,0 +1,14 @@
+[
+  {
+    "case": "image-only-ignores-local-symlink",
+    "exit": 0
+  },
+  {
+    "case": "named-user-build",
+    "exit": 0
+  },
+  {
+    "case": "named-user-mount",
+    "exit": 0
+  }
+]

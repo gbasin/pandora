@@ -166,3 +166,13 @@ Systemd removes owned resources after worker death, but a missing terminal remai
 unresolved. Do not delete an active record to work around that condition. Host
 reboot, unavailable Docker, and generalized operator reconciliation are not yet
 covered by an automatic recovery service.
+
+## Docker profile
+
+Add `--docker-profile /absolute/path/profile.json` to the session launcher to
+route the bounded Docker grammar. The profile remains outside the target repo.
+The private `docker` executable never delegates unsupported commands locally,
+including Docker read commands and sessions without a selected profile. A run
+without a mount uses its pinned image and captures no local source. See
+[the Docker pilot](../docker/README.md) for supported flags, source ownership,
+image retention, outputs, and the evaluated repair loop.

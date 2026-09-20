@@ -1,0 +1,6 @@
+{
+  "dockerfiles": ["Dockerfile"],
+  "mounts": ["/workspace"],
+  "outputs": [{"container": "/workspace/dist", "workspace": "dist"}],
+  "network": "none"
+}

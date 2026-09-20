@@ -57,9 +57,14 @@ def complete(active, record, output, terminal):
         print(f'[pandora] Retention sweep deferred: {error}', file=sys.stderr)
 
 
-def main():
+def main(tool='pnpm'):
     argv = sys.argv[1:]
-    action, selectors, message = classify(argv, os.environ.get('PANDORA_TREATMENT', 'normal'))
+    docker_request = None
+    config = None
+    if tool == 'docker':
+        action, selectors, message = 'docker', [], ''
+    else:
+        action, selectors, message = classify(argv, os.environ.get('PANDORA_TREATMENT', 'normal'))
     if action == 'local':
         os.execv(os.environ['PANDORA_REAL_PNPM'], [os.environ['PANDORA_REAL_PNPM'], *argv])
     if action == 'reject':
@@ -69,6 +74,16 @@ def main():
     if Path.cwd().resolve() != repo.resolve():
         print('[pandora] Run this validation command from the repository root. No validation started.', file=sys.stderr)
         return 64
+    if tool == 'docker':
+        try:
+            from docker_commands import profile, classify as classify_docker
+            if 'PANDORA_DOCKER_PROFILE_JSON' not in os.environ:
+                raise ValueError('Docker routing needs a human-selected external profile via launch.py --docker-profile. No local command ran.')
+            config = profile(os.environ['PANDORA_DOCKER_PROFILE_JSON'])
+            docker_request = classify_docker(argv, repo, config)
+        except (ValueError, TypeError, KeyError) as error:
+            print('[pandora] ' + str(error), file=sys.stderr)
+            return 64
     key = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()
     state = Path(os.environ['PANDORA_STATE']) / key
     state.mkdir(parents=True, exist_ok=True)
@@ -85,7 +100,7 @@ def main():
         record = json.loads(active.read_text()) if active.exists() else None
         recovering = record is not None and record['state'] == 'active'
         if recovering:
-            if record.get('host') != os.environ['PANDORA_HOST'] or record['command'] != argv:
+            if record.get('host') != os.environ['PANDORA_HOST'] or record['command'] != argv or record.get('tool', 'pnpm') != tool:
                 print('[pandora] A different request is active. Retry its original command and worker; no replacement submitted.', file=sys.stderr)
                 return 75
             output = Path(record['output'])
@@ -104,12 +119,14 @@ def main():
         else:
             attempt = uuid.uuid4().hex
             output = state / attempt
-            record = {'state': 'active', 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt}
+            record = {'state': 'active', 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt}
             write(active, record)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
                        '--output', str(output), '--attempt', record['attempt'],
-                       '--workflow', 'journey' if action == 'journey' else 'surface', *selectors]
+                       '--workflow', action if action in ('journey', 'docker') else 'surface', *selectors]
+            if docker_request is not None:
+                command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
         child = None
 
         def interrupted(signum, frame):
@@ -154,12 +171,16 @@ def main():
             try:
                 terminal = validate_evidence(output, record['attempt'])
                 submitted = json.loads((output / 'submission.json').read_text())
-                if current_digest(repo) != submitted['source_digest']:
+                request = submitted.get('docker', {}).get('request', {})
+                checks_source = submitted.get('workflow') != 'docker' or request.get('kind') == 'build' or request.get('mount')
+                if checks_source and current_digest(repo) != submitted['source_digest']:
                     complete(active, record, output, terminal)
                     print('[pandora] Result applies to earlier source. Run again to validate current source; inspect retained outputs before using them. Evidence: ' + str(output), file=sys.stderr)
                     return 75
                 if terminal['exit_code'] == 0 and submitted.get('workflow', 'surface') == 'surface':
                     deliver(repo, output)
+                if terminal['exit_code'] == 0 and request.get('kind') == 'run':
+                    deliver(repo, output, outputs=tuple(x['workspace'] for x in submitted['docker']['config']['outputs']))
                 complete(active, record, output, terminal)
                 status = terminal['exit_code']
             except (OSError, ValueError, subprocess.SubprocessError) as error:

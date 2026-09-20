@@ -1,0 +1,386 @@
+[
+  {
+    "case": "build-alpha",
+    "lane": "alpha",
+    "argv": [
+      "build",
+      "-t",
+      "app:test",
+      "."
+    ],
+    "seconds": 14.2,
+    "exit_code": 0,
+    "attempt": "4c78bc6e69ec4ac3b9946889e2df53ed",
+    "report": {
+      "kind": "build",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "image_source_digest": null,
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "build-beta",
+    "lane": "beta",
+    "argv": [
+      "build",
+      "-t",
+      "app:test",
+      "."
+    ],
+    "seconds": 12.27,
+    "exit_code": 0,
+    "attempt": "8f64cc83958c49a3805435e7d9c7d0a7",
+    "report": {
+      "kind": "build",
+      "tag": "app:test",
+      "image_id": "sha256:3027f7e60e37fae7c3fd4d1a66af5b3c4c8e2ad8eac662d58080335f4632836b",
+      "exit_code": 0,
+      "worktree_key": "bf5b91a8e5d7bcb190418c041fc5bc40dbdc616976e8bace27dcebcfea27a6e3",
+      "source_digest": "6e4fe276616cd3a6eda9d8414979b13320f6befa61b4f285eb25f1646962d58e",
+      "image_source_digest": null,
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "run-alpha",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 13.55,
+    "exit_code": 0,
+    "attempt": "cced98e7aaa342f3aaeab4eeb8d00d4c",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "image_source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "run-beta",
+    "lane": "beta",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 14.11,
+    "exit_code": 0,
+    "attempt": "4cc64e643952407bb1fa0335f5ddeaaa",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:3027f7e60e37fae7c3fd4d1a66af5b3c4c8e2ad8eac662d58080335f4632836b",
+      "exit_code": 0,
+      "worktree_key": "bf5b91a8e5d7bcb190418c041fc5bc40dbdc616976e8bace27dcebcfea27a6e3",
+      "source_digest": "6e4fe276616cd3a6eda9d8414979b13320f6befa61b4f285eb25f1646962d58e",
+      "image_source_digest": "6e4fe276616cd3a6eda9d8414979b13320f6befa61b4f285eb25f1646962d58e",
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "image-source-unchanged",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 14.13,
+    "exit_code": 0,
+    "attempt": "3b61a81d9fc549398d1649dad09344af",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "mount-current-source",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "-v",
+      "/Users/garybasin/.local/state/pandora/docker-semantics-2/alpha:/workspace",
+      "app:test"
+    ],
+    "seconds": 16.69,
+    "exit_code": 0,
+    "attempt": "94ff8e6ae6404953bed6971ea11c48bf",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "readonly-mount",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "-v",
+      "/Users/garybasin/.local/state/pandora/docker-semantics-2/alpha:/workspace:ro",
+      "app:test"
+    ],
+    "seconds": 14.37,
+    "exit_code": 1,
+    "attempt": "7d5e0d839b5a4b7a8a0146334d01d0d7",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 1,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "failed-output-retained",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test",
+      "node",
+      "-e",
+      "require('fs').mkdirSync('dist');require('fs').writeFileSync('dist/result.json',JSON.stringify({value:'failed-output'}));process.exit(7)"
+    ],
+    "seconds": 12.05,
+    "exit_code": 7,
+    "attempt": "b835a5ba77a24e5baa4f2691d2c18911",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 7,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "failed-rebuild",
+    "lane": "alpha",
+    "argv": [
+      "build",
+      "-t",
+      "app:test",
+      "."
+    ],
+    "seconds": 14.44,
+    "exit_code": 1,
+    "attempt": "8586fa7347a24ec287fee2a60f85de0d",
+    "report": {
+      "kind": "build",
+      "tag": "app:test",
+      "image_id": null,
+      "exit_code": 1,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "68a80b3ee4dda599bc849201a84e18077d1c5625f1c921f06308536bbb4e3435",
+      "image_source_digest": null,
+      "platform": "linux/amd64"
+    }
+  },
+  {
+    "case": "old-tag-survives",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 14.85,
+    "exit_code": 0,
+    "attempt": "0293cfaa98d840afa54f9e33d36e8b57",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "68a80b3ee4dda599bc849201a84e18077d1c5625f1c921f06308536bbb4e3435",
+      "image_source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+      "platform": "linux/amd64",
+      "builder": null
+    }
+  },
+  {
+    "case": "rebuild-edited-source",
+    "lane": "alpha",
+    "argv": [
+      "build",
+      "-t",
+      "app:test",
+      "."
+    ],
+    "seconds": 13.4,
+    "exit_code": 0,
+    "attempt": "abaac60f64454e3a9c0e9e4f868fbd85",
+    "report": {
+      "kind": "build",
+      "tag": "app:test",
+      "image_id": "sha256:3d94c96708931fc07575399a1234c9d08a8ce6f2b82c53ee3452c94e0f128390",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    }
+  },
+  {
+    "case": "identical-build",
+    "lane": "alpha",
+    "argv": [
+      "build",
+      "-t",
+      "app:test",
+      "."
+    ],
+    "seconds": 13.58,
+    "exit_code": 0,
+    "attempt": "794ef5c65ec94885a8e1ec4789252030",
+    "report": {
+      "kind": "build",
+      "tag": "app:test",
+      "image_id": "sha256:3d94c96708931fc07575399a1234c9d08a8ce6f2b82c53ee3452c94e0f128390",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    }
+  },
+  {
+    "case": "new-tag-source",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 11.95,
+    "exit_code": 0,
+    "attempt": "d7db9ca3ab66486c9489ca5e6915b842",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:3d94c96708931fc07575399a1234c9d08a8ce6f2b82c53ee3452c94e0f128390",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "platform": "linux/amd64",
+      "builder": null
+    }
+  },
+  {
+    "case": "unsupported-detached",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "-d",
+      "app:test"
+    ],
+    "seconds": 0.14,
+    "exit_code": 64,
+    "attempt": "d7db9ca3ab66486c9489ca5e6915b842",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:3d94c96708931fc07575399a1234c9d08a8ce6f2b82c53ee3452c94e0f128390",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "platform": "linux/amd64",
+      "builder": null
+    }
+  },
+  {
+    "case": "remove-mapping",
+    "lane": "alpha",
+    "argv": [
+      "image",
+      "rm",
+      "app:test"
+    ],
+    "seconds": 10.93,
+    "exit_code": 0,
+    "attempt": "775e27e78b3445f3a3e968526e178ed8",
+    "report": {
+      "kind": "remove",
+      "tag": "app:test",
+      "image_id": "sha256:3d94c96708931fc07575399a1234c9d08a8ce6f2b82c53ee3452c94e0f128390",
+      "exit_code": 0,
+      "worktree_key": "2c6319c527d8b2ffaba9d2b86b1f4e910481c8a61d6f1d4b498e9c5a562e2cd0",
+      "source_digest": "6dc8680b80a6e58977c45a9a4aa766df67ba9a9852258b64a93cd6f0f4835efe",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": null
+    }
+  },
+  {
+    "case": "removed-image-feedback",
+    "lane": "alpha",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 1.52,
+    "exit_code": 64,
+    "attempt": "1bcf623eb97b49e7baf233409cefc0e8",
+    "report": null
+  },
+  {
+    "case": "other-worktree-survives",
+    "lane": "beta",
+    "argv": [
+      "run",
+      "--rm",
+      "app:test"
+    ],
+    "seconds": 13.71,
+    "exit_code": 0,
+    "attempt": "bb6028e5702f422191f74684565c52dd",
+    "report": {
+      "kind": "run",
+      "tag": "app:test",
+      "image_id": "sha256:3027f7e60e37fae7c3fd4d1a66af5b3c4c8e2ad8eac662d58080335f4632836b",
+      "exit_code": 0,
+      "worktree_key": "bf5b91a8e5d7bcb190418c041fc5bc40dbdc616976e8bace27dcebcfea27a6e3",
+      "source_digest": "6e4fe276616cd3a6eda9d8414979b13320f6befa61b4f285eb25f1646962d58e",
+      "image_source_digest": "6e4fe276616cd3a6eda9d8414979b13320f6befa61b4f285eb25f1646962d58e",
+      "platform": "linux/amd64",
+      "builder": null
+    }
+  }
+]

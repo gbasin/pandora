@@ -2,7 +2,8 @@
 
 Pandora is an opt-in experiment for running heavy validation remotely while coding
 agents, edits, and worktrees stay on a local Mac. The current SSH pilot runs one
-Eichler borrower-web surface workflow and the service-backed S0-01 journey on a dedicated Linux VM. It is not ready
+Eichler borrower-web surface validation, the service-backed S0-01 journey, and
+a scoped Docker build/run profile on a dedicated Linux VM. It is not ready
 for unattended daily use or twelve-agent concurrency.
 
 ## How it works
@@ -35,6 +36,13 @@ pnpm validate journey S0-01
 The same forms with `pnpm run` work. Surface flags, other journey IDs, journey flags, and the plural journeys command are rejected. There is no
 automatic local fallback, source write-back, Mutagen session, or CI dispatch.
 Required target-repo CI remains unchanged.
+
+With a human-selected external `--docker-profile`, the same launcher also routes
+`docker build -t TAG .`, foreground `docker run --rm TAG`, one declared worktree
+mount, and `docker image rm TAG`. Tags are worktree-private and survive launcher
+restarts. Unsupported Docker commands stop with feedback, including when no
+profile is selected. See the [Docker pilot](experiments/docker/README.md) for the
+exact grammar, source semantics, output declaration, and limits.
 
 Each invocation captures dirty tracked files and nonignored untracked files,
 with explicit exclusions for credentials and local dependencies. These exclusions
@@ -77,6 +85,14 @@ the same command finishes delivery without running tests again. The local state
 and worktree must be on the same filesystem supporting directory exchange.
 
 ## Current evidence
+
+The [Docker coding-loop trial](notes/remote-docker-2026-09-20-routing.md) verified
+separate build/run calls, same-tag worktree isolation, mounted source, failed
+rebuild preservation, output delivery, cancellation, and transport recovery.
+Codex and Opus each repaired and rebuilt a failing image without queue coaching.
+A subsequent four-agent pass completed all 16 build/run requests with isolated tags
+and correct outputs.
+Physical Docker image garbage collection remains manual.
 
 The [integrated journey trial](notes/remote-journey-2026-09-20-integrated.md) ran
 Codex and Opus through failure, local repair, queued rerun, and report inspection.
@@ -172,7 +188,8 @@ iteration, one service-backed workflow, specific Docker build/run patterns,
 worktree-scoped image tags, and conflict-checked return of declared outputs.
 The surface pilot now covers the edit/test/fix loop and publishes two generated
 build directories. The S0-01 journey now uses the same routing and recovery path.
-Direct Docker command routing remains unimplemented.
+The bounded Docker build/run profile is implemented and evaluated on a fixture.
+Broader Docker compatibility and compiled application builds remain unevaluated.
 
 Evaluate source consistency, cache invalidation, output recovery, and parallel
 worktree isolation before increasing concurrency. Include Codex and Claude Opus.
