@@ -35,3 +35,23 @@ class QueueTimeoutArgumentTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class JourneyUpdateArgumentTests(unittest.TestCase):
+    def test_private_update_flag_records_explicit_selector(self):
+        class Captured(Exception):
+            pass
+        captured = []
+        def capture(path, metadata):
+            captured.append(metadata)
+            raise Captured
+        with tempfile.TemporaryDirectory() as temp:
+            argv = ['warm.py', '--host', 'unused', '--repo', temp,
+                    '--output', str(Path(temp) / 'output'), '--workflow', 'journey',
+                    '--journey-update', 'S0-01']
+            with patch.object(sys, 'argv', argv), patch.object(warm, 'repository_key', return_value='k'), \
+                 patch.object(warm, 'freeze', return_value=([], [])), \
+                 patch.object(warm, 'write_metadata', side_effect=capture):
+                with self.assertRaises(Captured):
+                    warm.main()
+            self.assertEqual(captured[0]['selectors'], ['S0-01', '--update'])

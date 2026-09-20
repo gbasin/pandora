@@ -16,6 +16,44 @@ SERVICES = [
      ['LISTEN_PORT=:5433', 'ALLOW_ADDR_REGEX=^pgbouncer:6432$', 'APPEND_PORT=', 'LOG_TRAFFIC=false', 'LOG_CONN_INFO=false'], '128m'),
 ]
 
+SUPPORTED_SELECTORS = (['S0-01'], ['S0-01', '--update'])
+
+
+def journey_config(submitted):
+    """Return the sole supported journey invocation and its explicit mode."""
+    selectors = submitted.get('selectors')
+    if selectors == SUPPORTED_SELECTORS[0]:
+        return {'id': 'S0-01', 'update': False}
+    if selectors == SUPPORTED_SELECTORS[1]:
+        return {'id': 'S0-01', 'update': True}
+    raise ValueError('Unsupported journey selection')
+
+
+def journey_command(config):
+    """Build the isolated child command without changing the container-wide CI mode."""
+    command = ['sudo', 'docker', 'exec', '-e',
+               'PANDORA_JOURNEY_CONFIG=' + json.dumps(config, separators=(',', ':'))]
+    command.extend(['-w', '/workspace/source/packages/scenarios',
+                    'pandora-warm-' + config['attempt']])
+    if config['update']:
+        # The scenario CLI rejects updates when CI is set. Keep CI for the image,
+        # services and ordinary invocation; remove it for this child alone.
+        command.extend(['env', '-u', 'CI'])
+    command.extend(['node', '--import', 'tsx', '/workspace/source/pandora-journey.mjs'])
+    return command
+
+
+def mark_cleanup_failure(attempt):
+    """Ensure a report cannot advertise a successful run with failed cleanup."""
+    report_path = attempt / 'results' / 'journey.json'
+    if not report_path.is_file():
+        return
+    report = json.loads(report_path.read_text())
+    report['status'] = 'fail'
+    detail = report.get('detail', '')
+    report['detail'] = (detail + '\n' if detail else '') + 'Attempt-owned service cleanup failed'
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
+
 
 def docker(*args, **kwargs):
     return subprocess.run(['sudo', 'docker', *args], check=True, timeout=120, **kwargs)
@@ -23,8 +61,7 @@ def docker(*args, **kwargs):
 
 def execute(attempt, image, manifest, dep_entries, metrics):
     submitted = json.loads((attempt / 'submission.json').read_text())
-    if submitted['selectors'] != ['S0-01']:
-        raise ValueError('Unsupported journey selection')
+    config = journey_config(submitted) | {'attempt': attempt.name}
     name = 'pandora-warm-' + attempt.name
     label = 'pandora.attempt=' + attempt.name
     status = 70
@@ -81,8 +118,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                 else:
                     raise RuntimeError('Database readiness deadline reached')
         docker('exec', name, 'node', 'tools/check-worktree-deps.mjs')
-        child = subprocess.Popen(['sudo', 'docker', 'exec', '-w', '/workspace/source/packages/scenarios',
-                                  name, 'node', '--import', 'tsx', '/workspace/source/pandora-journey.mjs'])
+        child = subprocess.Popen(journey_command(config))
         while True:
             try:
                 status = child.wait(timeout=10)
@@ -105,6 +141,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
         verified = cleanup(attempt)
         if not verified:
             status = 70
+            mark_cleanup_failure(attempt)
         metrics['execution_seconds'] = time.monotonic() - started
         metrics['exit_code'] = status
         (attempt / 'metrics.json').write_text(json.dumps(metrics, indent=2) + '\n')
