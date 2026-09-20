@@ -36,6 +36,7 @@ def worker(root, boot, invocation, attempt, image, label, events, release):
     scheduler = Scheduler(root, CONFIG, boot_id=boot)
     lease = None
     created = False
+    succeeded = False
     with (path / 'attempt.lock').open('a') as owner:
         fcntl.flock(owner, fcntl.LOCK_EX)
         try:
@@ -56,11 +57,12 @@ def worker(root, boot, invocation, attempt, image, label, events, release):
                         'cpu_millis': 500, 'memory_mib': 128, 'queue_seconds': lease.queue_seconds})
             if not release.wait(20):
                 raise TimeoutError('Probe controller did not release task')
+            succeeded = True
         finally:
             if created:
                 docker('rm', '-f', name)
             if lease is not None:
-                write(path / 'terminal.json', {'attempt': attempt, 'cleanup_verified': True, 'exit_code': 0})
+                write(path / 'terminal.json', {'attempt': attempt, 'cleanup_verified': True, 'exit_code': 0 if succeeded else 70})
                 scheduler.settle(attempt)
                 lease.close()
         events.put({'event': 'finished', 'attempt': attempt, 'time': time.monotonic()})
@@ -101,6 +103,7 @@ def main():
                 assert sum(row['memory_mib'] for row in running) <= 256
                 live = docker('ps', '--filter', 'label=pandora.resource-probe=' + label, '--format', '{{.Names}}').stdout.splitlines()
                 assert len(live) <= 2
+                item['live_containers'] = live
             if item['event'] == event:
                 if item['attempt'] not in pending:
                     raise AssertionError(('unexpected dispatch order', item, pending))
@@ -111,6 +114,7 @@ def main():
         start('suite1', 'suite'); until('queued', ['suite1'])
         start('suite2', 'suite'); until('queued', ['suite2'])
         until('running', ['suite1', 'suite2'])
+        assert len(docker('ps', '--filter', 'label=pandora.resource-probe=' + label, '--format', '{{.Names}}').stdout.splitlines()) == 2
         start('suite3', 'suite'); until('queued', ['suite3'])
         scheduler.register(groups['focus'])
         start('focused', 'focus'); until('queued', ['focused'])

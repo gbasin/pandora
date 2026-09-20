@@ -92,6 +92,19 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(sum(row['memory_mib'] for row in running), 1024)
         self.assertEqual({row['attempt'] for row in running}, {second, focused})
 
+    def test_another_invocations_running_shard_does_not_pause_my_budget(self):
+        self.scheduler.register(A)
+        first = self.queue(1, demand={'cpu_millis': 1000, 'memory_mib': 1024})
+        self.claim(first)
+        self.scheduler.register(B, queue_budget=3)
+        waiting = self.queue(2, B)
+        self.now = 4
+        with self.assertRaises(InvocationStopped): self.claim(waiting)
+        self.assertEqual(self.group(B)['stopped'], 'queue-timeout')
+        self.assertIsNone(self.group(A)['stopped'])
+        self.assertEqual(self.group(A)['waited'], 0)
+        self.assertEqual(self.scheduler.snapshot()['requests'][0]['phase'], 'running')
+
     def test_dead_owner_retains_reservation_until_cleanup_without_inventing_result(self):
         self.scheduler.register(A, max_parallel=2)
         first, second = self.queue(1), self.queue(2)
