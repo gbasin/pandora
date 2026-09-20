@@ -45,7 +45,7 @@
 #5 DONE 2.1s
 
 #6 [stage-0 2/7] RUN npm install -g pnpm@12.3.4 --loglevel=error
-#6 1.494 
+#6 1.494
 #6 1.494 added 2 packages in 1s
 #6 1.497 npm notice
 #6 1.497 npm notice New major version of npm available! 11.19.0 -> 12.0.2
@@ -73,13 +73,13 @@
 #9 0.969 Packages: +2
 #9 0.969 ++
 #9 0.970 Progress: resolved 2, reused 0, downloaded 2, added 2, done
-#9 0.977 
+#9 0.977
 #9 0.977 dependencies:
 #9 0.977 + zod 3.23.8
-#9 0.977 
+#9 0.977
 #9 0.977 devDependencies:
 #9 0.977 + typescript 5.6.3
-#9 0.977 
+#9 0.977
 #9 0.977 Done in 913ms using pnpm v12.3.4
 #9 DONE 1.0s
 

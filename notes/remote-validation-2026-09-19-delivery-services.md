@@ -103,7 +103,8 @@ The scripts live under experiments/delivery, experiments/dependencies, and
 experiments/services. Selected raw logs, reports, source-override digests, and
 container resource summaries live under
 [experiments/evidence/2026-09-19-v01](../experiments/evidence/2026-09-19-v01).
-The initial failed baseline is retained alongside successful attempts.
+The initial failed baseline is retained alongside successful attempts. Trailing
+whitespace was removed from copied dependency-build stderr logs.
 
 All probe containers, dedicated builders, and private networks were removed.
 Downloaded images, Buildx, and evidence remain on the authorized VM. The original
