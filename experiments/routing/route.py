@@ -14,7 +14,8 @@ import uuid
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
 from commands import classify
-from transport import query
+from transport import query, validate_evidence
+from delivery import deliver
 from snapshot import names, excluded, entry, encode
 
 
@@ -86,12 +87,13 @@ def main():
         command = [sys.executable, '-B', str(ROOT.parent / 'warm/transport.py'),
                    os.environ['PANDORA_HOST'], str(output)]
     else:
-        output = state / uuid.uuid4().hex
-        record = {'state': 'active', 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': uuid.uuid4().hex}
+        attempt = uuid.uuid4().hex
+        output = state / attempt
+        record = {'state': 'active', 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt}
         write(active, record)
         command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                    '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
-                   '--output', str(output), '--require-warm', '--attempt', record['attempt'], *selectors]
+                   '--output', str(output), '--attempt', record['attempt'], *selectors]
     child = None
 
     def interrupted(signum, frame):
@@ -100,8 +102,13 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
-        child = subprocess.Popen(command, start_new_session=True, pass_fds=(lock.fileno(),))
-        status = child.wait()
+        if recovering and (output / 'terminal.json').exists():
+            # Verified remote completion can outlive interrupted local delivery.
+            # Do not download over publication state or submit another execution.
+            status = 75  # Validated below before any publication or state change.
+        else:
+            child = subprocess.Popen(command, start_new_session=True, pass_fds=(lock.fileno(),))
+            status = child.wait()
     except KeyboardInterrupt:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -128,15 +135,22 @@ def main():
         return 130
     terminal_path = output / 'terminal.json'
     if terminal_path.exists():
-        terminal = json.loads(terminal_path.read_text())
-        if terminal.get('cleanup_verified'):
+        try:
+            terminal = validate_evidence(output, record['attempt'])
+            submitted = json.loads((output / 'submission.json').read_text())
+            if current_digest(repo) != submitted['source_digest']:
+                record.update(state='terminal', terminal=terminal)
+                write(active, record)
+                print('[pandora] Result applies to earlier source. Outputs were not published. Run again to validate current source. Evidence: ' + str(output), file=sys.stderr)
+                return 75
+            if terminal['exit_code'] == 0:
+                deliver(repo, output)
             record.update(state='terminal', terminal=terminal)
             write(active, record)
-            if recovering:
-                submitted = json.loads((output / 'submission.json').read_text())
-                if current_digest(repo) != submitted['source_digest']:
-                    print('[pandora] Recovered result applies to earlier source. Local source changed; run again to validate current source.', file=sys.stderr)
-                    return 75
+            status = terminal['exit_code']
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            print(f'[pandora] Local delivery incomplete: {error}. Retry the same command to recover this run; no new tests will start. Evidence: {output}', file=sys.stderr)
+            return 75
     else:
         if not (output / 'submission.json').exists():
             # The preparer has exited and remote launch cannot precede metadata.

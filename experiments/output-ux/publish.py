@@ -53,13 +53,13 @@ def verify(directory, manifest):
         raise ValueError('Artifact set or digest mismatch')
 
 
-def publish(root, artifacts, manifest, fault=lambda point: None):
-    """Caller holds the worktree publication lock. Only root/dist is supported."""
+def publish(root, artifacts, manifest, fault=lambda point: None, *, source=None, destination=None):
+    """Caller holds the worktree lock and validates any explicit output paths."""
     root, artifacts = Path(root), Path(artifacts)
-    source = artifacts / 'dist'
+    source = Path(source) if source is not None else artifacts / 'dist'
     stage = artifacts / 'generation'
     journal = artifacts / 'publication.json'
-    destination = root / 'dist'
+    destination = Path(destination) if destination is not None else root / 'dist'
     verify(source, manifest)
     if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise ValueError('Output destination must be a regular directory')

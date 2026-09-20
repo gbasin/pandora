@@ -13,6 +13,7 @@ import sys
 import tarfile
 import time
 from snapshot import encode, verify, digest
+from dependencies import prepare
 
 
 def run(*args, heartbeat=None, **kwargs):
@@ -56,17 +57,21 @@ def main():
                 return 75
             print('[pandora] queued; worker occupied; no local validation started', flush=True)
             time.sleep(10)
+    from dependencies import CONTAINER
+    running_builder = docker('ps', '--filter', 'name=^/' + CONTAINER + '$',
+                             '--format', '{{.Names}}', capture_output=True, text=True)
+    if running_builder.stdout.strip():
+        raise RuntimeError('Dependency builder still active without its worker lease; operator cleanup required. No tests started.')
     metrics = {'queue_seconds': time.monotonic() - queued}
     print('[pandora] worker acquired; preparing dependencies', flush=True)
     started = time.monotonic()
-    base = docker('image', 'inspect', 'pandora-surface:smoke', '--format', '{{.Id}}',
-                  capture_output=True, text=True).stdout.strip()
+    recipe = (attempt / 'runtime.Dockerfile').read_text()
     # Includes all workspace package manifests, installation settings and patches.
     dep_entries = [e for e in manifest if Path(e['path']).name == 'package.json'
                    or e['path'] in {'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc',
                                     '.pnpmfile.cjs', 'pnpmfile.cjs'}
                    or e['path'].startswith('patches/')]
-    key = hashlib.sha256(b'deps-recipe-v2' + base.encode() + encode(dep_entries)).hexdigest()
+    key = hashlib.sha256(b'deps-recipe-v3' + recipe.encode() + encode(dep_entries)).hexdigest()
     image = 'pandora-deps:' + key
     exists = subprocess.run(['sudo', 'docker', 'image', 'inspect', image],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
@@ -82,15 +87,25 @@ def main():
             destination = context / 'files' / e['path']
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(attempt / 'source' / e['path'], destination)
-        (context / 'Dockerfile').write_text(
-            f'FROM {base}\nUSER root\nRUN mkdir -p /workspace/source && chown -R node:node /workspace\nUSER node\nWORKDIR /workspace/source\nENV CI=true\n'
+        (context / 'Dockerfile').write_text(recipe +
+            '\nUSER root\nRUN mkdir -p /workspace/source && chown -R node:node /workspace\n'
+            'USER node\nWORKDIR /workspace/source\nENV CI=true\n'
             'COPY --chown=node:node files/ /workspace/source/\n'
-            'RUN pnpm install --frozen-lockfile\n')
-        # Classic Docker builder honors these limits for RUN containers.
-        docker('build', '--force-rm', '--memory=6g', '--memory-swap=6g', '--cpu-period=100000',
-               '--cpu-quota=200000', '-t', image, str(context),
-               env={**os.environ, 'DOCKER_BUILDKIT': '0'},
-               heartbeat='[pandora] preparing dependency image; worker remains occupied')
+            'RUN --mount=type=cache,target=/pnpm/store,uid=1000,gid=1000 '
+            'pnpm install --frozen-lockfile --store-dir=/pnpm/store\n')
+        (context / 'buildkitd.toml').write_text(
+            '[worker.oci]\n  gc = true\n  reservedSpace = "2GB"\n  maxUsedSpace = "12GB"\n  minFreeSpace = "10GB"\n')
+        pending = attempt / 'dependency-cleanup.pending'
+        pending.touch()
+        try:
+            prepare(context, image)
+        finally:
+            from dependencies import CONTAINER
+            state = subprocess.run(['sudo', 'docker', 'ps', '--filter', 'name=^/' + CONTAINER + '$',
+                                    '--format', '{{.Names}}'], capture_output=True, text=True)
+            if state.returncode == 0 and not state.stdout.strip():
+                pending.unlink()
+
     metrics['dependency_seconds'] = time.monotonic() - started
     image_id = docker('image', 'inspect', image, '--format', '{{.Id}}',
                       capture_output=True, text=True).stdout.strip()
@@ -191,7 +206,7 @@ if __name__ == '__main__':
             artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
-                'cleanup_verified': check.returncode == 0 and not check.stdout.strip()}
+                'cleanup_verified': check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
     raise SystemExit(status)

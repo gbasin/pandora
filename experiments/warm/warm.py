@@ -70,8 +70,9 @@ def main():
     metadata['transfer_seconds'] = time.monotonic() - transfer
     write_metadata(output / 'submission.json', metadata)
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
-        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'),
+        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'),
         str(scripts / 'in-container.sh'), f'{args.host}:{remote}/')
+    run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
     # All links reference complete immutable source directories, never containers.
     run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
         f'mv -Tf {root}/latest-{attempt} {root}/latest')
