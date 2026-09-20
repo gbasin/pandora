@@ -1,0 +1,44 @@
+[
+  {
+    "case": "queued-disconnect",
+    "attempt": "9efc3fd1a19944be8e10fb417c8eef37",
+    "duplicate_exit": 75,
+    "changed_request_exit": 75,
+    "lost_client_exit": 137,
+    "retry_exit": 0,
+    "same_attempt": true,
+    "metrics": {
+      "queue_seconds": 120.39117719100614,
+      "execution_seconds": 30.426205248993938,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "9efc3fd1a19944be8e10fb417c8eef37",
+      "exit_code": 0,
+      "workflow": "docker",
+      "cleanup_verified": true
+    }
+  },
+  {
+    "case": "running-disconnect",
+    "attempt": "c52546c667d54719aa63d53dddc31d47",
+    "duplicate_exit": 75,
+    "changed_request_exit": 75,
+    "lost_client_exit": 137,
+    "retry_exit": 0,
+    "same_attempt": true,
+    "metrics": {
+      "queue_seconds": 0.4026712589984527,
+      "execution_seconds": 30.43232406998868,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "c52546c667d54719aa63d53dddc31d47",
+      "exit_code": 0,
+      "workflow": "docker",
+      "cleanup_verified": true
+    }
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "samples": 116,
+  "elapsed_seconds": 434.1548728942871,
+  "free_percentage_min": 44,
+  "free_percentage_max": 54,
+  "max_simultaneous_owners": 1,
+  "initial_invalid_container_samples": 12
+}

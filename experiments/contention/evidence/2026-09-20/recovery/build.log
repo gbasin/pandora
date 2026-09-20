@@ -1,0 +1,62 @@
+[pandora] freezing current tracked and nonignored source
+[pandora] transferring changed source; frozen identity 70068d024042
+[pandora] accepted f6fe4f78dc814793bd7afc14edefe2b9; source transfer 0.5s
+[pandora] source verified; waiting for the experiment worker
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] queued; worker occupied; no local validation started
+[pandora] building app:test remotely; previous mapping stays valid until success
+#0 building with "pandora-docker-builds-v1" instance using docker-container driver
+
+#1 [internal] booting buildkit
+#1 starting container buildx_buildkit_pandora-docker-builds-v10
+#1 starting container buildx_buildkit_pandora-docker-builds-v10 0.2s done
+[pandora] built app:test -> sha256:eeea1243b72b74241b5ab3fe1394b6767e51023c371acd1cab1917c78ac9cbce; worktree 0fe059b2d19b
+#1 DONE 0.2s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 211B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#3 DONE 0.2s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 76B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 78B done
+#5 DONE 0.0s
+
+#6 [1/3] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#6 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#6 DONE 0.0s
+
+#7 [2/3] WORKDIR /workspace
+#7 CACHED
+
+#8 [3/3] COPY check.mjs value.txt ./
+#8 DONE 0.0s
+
+#9 exporting to oci image format
+#9 exporting layers 0.0s done
+#9 exporting manifest sha256:eeea1243b72b74241b5ab3fe1394b6767e51023c371acd1cab1917c78ac9cbce done
+#9 exporting config sha256:7233554129db1d79884201e06f98a216a70bc2775ec6af57ef3ca22c12f0c23a done
+#9 sending tarball
+#9 sending tarball 0.6s done
+#9 DONE 0.7s
+
+#10 importing to docker
+#10 DONE 0.0s
+
+#11 resolving provenance for metadata file
+#11 DONE 0.0s
+[pandora] attempt=f6fe4f78dc814793bd7afc14edefe2b9; exit=0; evidence=/Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/f6fe4f78dc814793bd7afc14edefe2b9
+[pandora] Docker report: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/f6fe4f78dc814793bd7afc14edefe2b9/results/docker.json

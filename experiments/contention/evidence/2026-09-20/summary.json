@@ -1,0 +1,663 @@
+{
+  "agents": {
+    "codex-1": {
+      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-codex-1",
+      "runs": [
+        {
+          "attempt": "49f9ba9be1ae47a09b83a868022ecfe2",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 125.76282429101411,
+          "local_request_created_at": 1789923552.509458,
+          "metrics": {
+            "queue_seconds": 90.41470921499422,
+            "execution_seconds": 30.427393341000425,
+            "exit_code": 1
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "49f9ba9be1ae47a09b83a868022ecfe2",
+            "exit_code": 1,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:b2731bee8385f9d88aa4717bada17341d0b3a65f38942ffea45a9fd7742f5c1f",
+            "exit_code": 1,
+            "worktree_key": "32c8ef727c5a69f45317befe8b58369a3e385a1859f3b904024c9373e32cd7b0",
+            "source_digest": null,
+            "image_source_digest": "4888d37b0160c4385860812121b30bcccbdf2477a75725a38993d99dbc7ada69",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        },
+        {
+          "attempt": "8773956111d6446f99de8ed8415c1187",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "90d0849019abc39bb074bcbb1eea15541669ad7379ecd8c243128e39e105a6ae",
+          "total_seconds": 5.550572957959957,
+          "local_request_created_at": 1789923684.1741803,
+          "metrics": {
+            "queue_seconds": 0.5189936259994283,
+            "execution_seconds": 1.678545035989373,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "8773956111d6446f99de8ed8415c1187",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:e646f03028248c509470c818fd7d1483901afbcf3efbbc23ecefdcbcaaf8d82a",
+            "exit_code": 0,
+            "worktree_key": "32c8ef727c5a69f45317befe8b58369a3e385a1859f3b904024c9373e32cd7b0",
+            "source_digest": "90d0849019abc39bb074bcbb1eea15541669ad7379ecd8c243128e39e105a6ae",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        },
+        {
+          "attempt": "a22385cad2ce4a7baa7abe1fae0d758a",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "4888d37b0160c4385860812121b30bcccbdf2477a75725a38993d99dbc7ada69",
+          "total_seconds": 67.8705508330022,
+          "local_request_created_at": 1789923480.7437618,
+          "metrics": {
+            "queue_seconds": 60.383984154992504,
+            "execution_seconds": 1.5673587130004307,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "a22385cad2ce4a7baa7abe1fae0d758a",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:b2731bee8385f9d88aa4717bada17341d0b3a65f38942ffea45a9fd7742f5c1f",
+            "exit_code": 0,
+            "worktree_key": "32c8ef727c5a69f45317befe8b58369a3e385a1859f3b904024c9373e32cd7b0",
+            "source_digest": "4888d37b0160c4385860812121b30bcccbdf2477a75725a38993d99dbc7ada69",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        },
+        {
+          "attempt": "abd36017b5c24fc0a883fe9765258574",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 64.51536670798669,
+          "local_request_created_at": 1789923694.6670423,
+          "metrics": {
+            "queue_seconds": 30.378053339009057,
+            "execution_seconds": 30.4354426409991,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "abd36017b5c24fc0a883fe9765258574",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:e646f03028248c509470c818fd7d1483901afbcf3efbbc23ecefdcbcaaf8d82a",
+            "exit_code": 0,
+            "worktree_key": "32c8ef727c5a69f45317befe8b58369a3e385a1859f3b904024c9373e32cd7b0",
+            "source_digest": null,
+            "image_source_digest": "90d0849019abc39bb074bcbb1eea15541669ad7379ecd8c243128e39e105a6ae",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        }
+      ],
+      "local_output": {
+        "value": "codex-1"
+      }
+    },
+    "codex-2": {
+      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-codex-2",
+      "runs": [
+        {
+          "attempt": "128bfc8d0dd043c0b2a6eb6d59713521",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "13be50723c2d41baf484c07d4eb0fe30912506927f14499509ef2cf3a7326995",
+          "total_seconds": 55.92747937497916,
+          "local_request_created_at": 1789923485.5201974,
+          "metrics": {
+            "queue_seconds": 50.29795559600461,
+            "execution_seconds": 1.5590705149952555,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "128bfc8d0dd043c0b2a6eb6d59713521",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:00488479758241a8becbbab61d09dabd01b62a35b73ea393f3c6d66ca8648610",
+            "exit_code": 0,
+            "worktree_key": "039975ec69023e06766d5cb800036db8cb641b892a0d0aeae0fbb96df3c44c38",
+            "source_digest": "13be50723c2d41baf484c07d4eb0fe30912506927f14499509ef2cf3a7326995",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        },
+        {
+          "attempt": "780a9926399646359e30a305d2eb326b",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "f33fdd5120957f288971bc2b867d3a2c643c4d6b4aacfc9807fe9b0fa893d6ec",
+          "total_seconds": 65.7182187080034,
+          "local_request_created_at": 1789923620.3001418,
+          "metrics": {
+            "queue_seconds": 60.49272039800417,
+            "execution_seconds": 1.6589087559987092,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "780a9926399646359e30a305d2eb326b",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:278ed1308c468b6c404007357ebaf400730bfb56971b39e4b4865eabf65d1972",
+            "exit_code": 0,
+            "worktree_key": "039975ec69023e06766d5cb800036db8cb641b892a0d0aeae0fbb96df3c44c38",
+            "source_digest": "f33fdd5120957f288971bc2b867d3a2c643c4d6b4aacfc9807fe9b0fa893d6ec",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        },
+        {
+          "attempt": "e4f3a4915a6f462a8ac52d6d26e20726",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 35.62177791702561,
+          "local_request_created_at": 1789923690.058861,
+          "metrics": {
+            "queue_seconds": 0.38569683500099927,
+            "execution_seconds": 30.421825283003272,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "e4f3a4915a6f462a8ac52d6d26e20726",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:278ed1308c468b6c404007357ebaf400730bfb56971b39e4b4865eabf65d1972",
+            "exit_code": 0,
+            "worktree_key": "039975ec69023e06766d5cb800036db8cb641b892a0d0aeae0fbb96df3c44c38",
+            "source_digest": null,
+            "image_source_digest": "f33fdd5120957f288971bc2b867d3a2c643c4d6b4aacfc9807fe9b0fa893d6ec",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        },
+        {
+          "attempt": "ff1f442f11a046c29202b6f3f991af10",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 56.71492604195373,
+          "local_request_created_at": 1789923557.1312888,
+          "metrics": {
+            "queue_seconds": 20.4290979399957,
+            "execution_seconds": 30.436472943998524,
+            "exit_code": 1
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "ff1f442f11a046c29202b6f3f991af10",
+            "exit_code": 1,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:00488479758241a8becbbab61d09dabd01b62a35b73ea393f3c6d66ca8648610",
+            "exit_code": 1,
+            "worktree_key": "039975ec69023e06766d5cb800036db8cb641b892a0d0aeae0fbb96df3c44c38",
+            "source_digest": null,
+            "image_source_digest": "13be50723c2d41baf484c07d4eb0fe30912506927f14499509ef2cf3a7326995",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        }
+      ],
+      "local_output": {
+        "value": "codex-2"
+      }
+    },
+    "opus-1": {
+      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-1",
+      "runs": [
+        {
+          "attempt": "075c1d49bd064db1aa39dbd66b406fba",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "fd952c216061057d216f6baef66f0c01b22416bcc13a59f8187d00bf7593d820",
+          "total_seconds": 27.89070604200242,
+          "local_request_created_at": 1789923657.6135054,
+          "metrics": {
+            "queue_seconds": 20.458778322994476,
+            "execution_seconds": 1.7881794790009735,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "075c1d49bd064db1aa39dbd66b406fba",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:5839b71dcbba985fd193009354e3210fe204c61c9c89b0c592bd2912e85af5d3",
+            "exit_code": 0,
+            "worktree_key": "fd30f0fd0c77fccf9fbbe79a70714b300722a78c4727a5f835a89af0df055b6d",
+            "source_digest": "fd952c216061057d216f6baef66f0c01b22416bcc13a59f8187d00bf7593d820",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        },
+        {
+          "attempt": "380805fad264464a88d23322fd97efaf",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 105.880420957983,
+          "local_request_created_at": 1789923690.3747015,
+          "metrics": {
+            "queue_seconds": 70.39409944499494,
+            "execution_seconds": 30.427475899996352,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "380805fad264464a88d23322fd97efaf",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:5839b71dcbba985fd193009354e3210fe204c61c9c89b0c592bd2912e85af5d3",
+            "exit_code": 0,
+            "worktree_key": "fd30f0fd0c77fccf9fbbe79a70714b300722a78c4727a5f835a89af0df055b6d",
+            "source_digest": null,
+            "image_source_digest": "fd952c216061057d216f6baef66f0c01b22416bcc13a59f8187d00bf7593d820",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        },
+        {
+          "attempt": "c6479c9c8d59466ca3c1c8928ddaa91e",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 95.09265562501969,
+          "local_request_created_at": 1789923550.4835489,
+          "metrics": {
+            "queue_seconds": 60.547721552997245,
+            "execution_seconds": 30.432734430010896,
+            "exit_code": 1
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "c6479c9c8d59466ca3c1c8928ddaa91e",
+            "exit_code": 1,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:eee9f071b0abce7c98be1adb7dccf3a93dc8c7b0fc70de32b66cd3e1df43ff40",
+            "exit_code": 1,
+            "worktree_key": "fd30f0fd0c77fccf9fbbe79a70714b300722a78c4727a5f835a89af0df055b6d",
+            "source_digest": null,
+            "image_source_digest": "cc7f04ad6da55f962ab441427db58e736485245f3ea2cfbfce4980b5874fb4db",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        },
+        {
+          "attempt": "d44af9355ba94323a6629de24e69ae11",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "cc7f04ad6da55f962ab441427db58e736485245f3ea2cfbfce4980b5874fb4db",
+          "total_seconds": 47.06578820798313,
+          "local_request_created_at": 1789923490.9234996,
+          "metrics": {
+            "queue_seconds": 40.41185688099358,
+            "execution_seconds": 1.5737600480060792,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "d44af9355ba94323a6629de24e69ae11",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:eee9f071b0abce7c98be1adb7dccf3a93dc8c7b0fc70de32b66cd3e1df43ff40",
+            "exit_code": 0,
+            "worktree_key": "fd30f0fd0c77fccf9fbbe79a70714b300722a78c4727a5f835a89af0df055b6d",
+            "source_digest": "cc7f04ad6da55f962ab441427db58e736485245f3ea2cfbfce4980b5874fb4db",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        }
+      ],
+      "local_output": {
+        "value": "opus-1"
+      }
+    },
+    "opus-2": {
+      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-2",
+      "runs": [
+        {
+          "attempt": "11cffeefd5c44d69a5892d073fb3534e",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 44.14852912502829,
+          "local_request_created_at": 1789923536.5098147,
+          "metrics": {
+            "queue_seconds": 10.327323028002866,
+            "execution_seconds": 30.432416045005084,
+            "exit_code": 1
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "11cffeefd5c44d69a5892d073fb3534e",
+            "exit_code": 1,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:b3501cc6ca1bce9384bd0024b38642afdd57215be2557be099e4c91313ffd678",
+            "exit_code": 1,
+            "worktree_key": "0bc914bebe72caac47ab8e7eeccde9397005e78ade1d9ce9b04893948c9b073f",
+            "source_digest": null,
+            "image_source_digest": "6d0407bc09d8a310752022f22b0e10a848937f35208ce10c3d02447dca9db7c3",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        },
+        {
+          "attempt": "5efe4d4be1c24d76acb54b439f50cf36",
+          "request": {
+            "kind": "run",
+            "tag": "app:test",
+            "mount": null,
+            "command": []
+          },
+          "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "total_seconds": 34.848990667029284,
+          "local_request_created_at": 1789923881.869934,
+          "metrics": {
+            "queue_seconds": 0.4222868110082345,
+            "execution_seconds": 30.43426781600283,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "5efe4d4be1c24d76acb54b439f50cf36",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "run",
+            "tag": "app:test",
+            "image_id": "sha256:ac2003af7c63f5a46e9eb466bf7c4e735966b460185da50c50b2d09c11785e21",
+            "exit_code": 0,
+            "worktree_key": "0bc914bebe72caac47ab8e7eeccde9397005e78ade1d9ce9b04893948c9b073f",
+            "source_digest": null,
+            "image_source_digest": "2f4ffee6d9aaa21e4afe172ab7cce0e93df3f2896f94479027ea07ba3cad3f95",
+            "platform": "linux/amd64",
+            "builder": null
+          }
+        },
+        {
+          "attempt": "bae961745dc949e4abdfcec2130be533",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "6d0407bc09d8a310752022f22b0e10a848937f35208ce10c3d02447dca9db7c3",
+          "total_seconds": 46.87571475002915,
+          "local_request_created_at": 1789923485.5201817,
+          "metrics": {
+            "queue_seconds": 40.34608533199935,
+            "execution_seconds": 1.8224397050071275,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "bae961745dc949e4abdfcec2130be533",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:b3501cc6ca1bce9384bd0024b38642afdd57215be2557be099e4c91313ffd678",
+            "exit_code": 0,
+            "worktree_key": "0bc914bebe72caac47ab8e7eeccde9397005e78ade1d9ce9b04893948c9b073f",
+            "source_digest": "6d0407bc09d8a310752022f22b0e10a848937f35208ce10c3d02447dca9db7c3",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        },
+        {
+          "attempt": "e7859ed709a545b4a3218df11331fbc2",
+          "request": {
+            "kind": "build",
+            "tag": "app:test",
+            "dockerfile": "Dockerfile"
+          },
+          "source_digest": "2f4ffee6d9aaa21e4afe172ab7cce0e93df3f2896f94479027ea07ba3cad3f95",
+          "total_seconds": 288.8894832499791,
+          "local_request_created_at": 1789923589.395307,
+          "metrics": {
+            "queue_seconds": 280.39925549100735,
+            "execution_seconds": 1.7414557800075272,
+            "exit_code": 0
+          },
+          "terminal": {
+            "state": "terminal",
+            "attempt": "e7859ed709a545b4a3218df11331fbc2",
+            "exit_code": 0,
+            "workflow": "docker",
+            "cleanup_verified": true
+          },
+          "report": {
+            "kind": "build",
+            "tag": "app:test",
+            "image_id": "sha256:ac2003af7c63f5a46e9eb466bf7c4e735966b460185da50c50b2d09c11785e21",
+            "exit_code": 0,
+            "worktree_key": "0bc914bebe72caac47ab8e7eeccde9397005e78ade1d9ce9b04893948c9b073f",
+            "source_digest": "2f4ffee6d9aaa21e4afe172ab7cce0e93df3f2896f94479027ea07ba3cad3f95",
+            "image_source_digest": null,
+            "platform": "linux/amd64",
+            "builder": "pandora-docker-builds-v1"
+          }
+        }
+      ],
+      "local_output": {
+        "value": "opus-2"
+      }
+    }
+  },
+  "journeys": [
+    {
+      "attempt": "af88e3e15d4a49c38a9a398ce088ea16",
+      "terminal": {
+        "state": "terminal",
+        "attempt": "af88e3e15d4a49c38a9a398ce088ea16",
+        "exit_code": 0,
+        "workflow": "journey",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 0.5087076099880505,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04718424299790058,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 50.30362710398913,
+        "exit_code": 0
+      },
+      "total_seconds": 62.759804208006244,
+      "report": {
+        "journey": "S0-01",
+        "status": "pass",
+        "detail": ""
+      }
+    }
+  ],
+  "recovery": [
+    {
+      "case": "queued-disconnect",
+      "attempt": "9efc3fd1a19944be8e10fb417c8eef37",
+      "duplicate_exit": 75,
+      "changed_request_exit": 75,
+      "lost_client_exit": 137,
+      "retry_exit": 0,
+      "same_attempt": true,
+      "metrics": {
+        "queue_seconds": 120.39117719100614,
+        "execution_seconds": 30.426205248993938,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "9efc3fd1a19944be8e10fb417c8eef37",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "case": "running-disconnect",
+      "attempt": "c52546c667d54719aa63d53dddc31d47",
+      "duplicate_exit": 75,
+      "changed_request_exit": 75,
+      "lost_client_exit": 137,
+      "retry_exit": 0,
+      "same_attempt": true,
+      "metrics": {
+        "queue_seconds": 0.4026712589984527,
+        "execution_seconds": 30.43232406998868,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "c52546c667d54719aa63d53dddc31d47",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    }
+  ],
+  "recovery_accepted_attempts": [
+    "9efc3fd1a19944be8e10fb417c8eef37",
+    "c52546c667d54719aa63d53dddc31d47",
+    "f6fe4f78dc814793bd7afc14edefe2b9"
+  ]
+}

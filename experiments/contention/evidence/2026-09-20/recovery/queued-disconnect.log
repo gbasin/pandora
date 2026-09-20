@@ -1,0 +1,7 @@
+[pandora] image-only request; local source is not captured or injected
+[pandora] pinned app:test to sha256:eeea1243b72b74241b5ab3fe1394b6767e51023c371acd1cab1917c78ac9cbce; built source 70068d024042
+[pandora] transferring changed source; frozen identity 4f53cda18c2b
+[pandora] accepted 9efc3fd1a19944be8e10fb417c8eef37; source transfer 0.3s
+[pandora] source verified; waiting for the experiment worker
+[pandora] queued; worker occupied; no local validation started
+[pandora] No verified terminal evidence; retry the same command to recover. No replacement was submitted.

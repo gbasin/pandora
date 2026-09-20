@@ -1,0 +1,12 @@
+[pandora] Recovering existing request, without resubmitting source. Evidence: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/c52546c667d54719aa63d53dddc31d47
+[pandora] source verified; waiting for the experiment worker
+[pandora] running app:test at pinned image sha256:eeea1243b72b74241b5ab3fe1394b6767e51023c371acd1cab1917c78ac9cbce; worktree 0fe059b2d19b
+CHECK_STARTED recovery
+[pandora] Docker run active; no local container started
+[pandora] Docker run active; no local container started
+[pandora] Docker run active; no local container started
+Validated recovery
+[pandora] attempt=c52546c667d54719aa63d53dddc31d47; exit=0; evidence=/Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/c52546c667d54719aa63d53dddc31d47
+[pandora] Docker report: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/c52546c667d54719aa63d53dddc31d47/results/docker.json
+[pandora] output ready: /Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-recovery/dist
+[pandora] previous output retained: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/c52546c667d54719aa63d53dddc31d47/publication/0/generation
