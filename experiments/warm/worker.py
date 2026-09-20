@@ -38,6 +38,27 @@ def docker(*args, **kwargs):
     return run('sudo', 'docker', *args, **kwargs)
 
 
+def interruption_status(attempt=Path('.')):
+    return 124 if Path(attempt, 'deadline.request').exists() else 130
+
+
+def mark_deadline_report(attempt=Path('.')):
+    """Keep an already-written suite shard receipt consistent with terminal exit 124."""
+    path = Path(attempt, 'results', 'suite-shard.json')
+    if not path.is_file():
+        return False
+    report = json.loads(path.read_text())
+    errors = report.get('errors') if isinstance(report, dict) else None
+    if (not isinstance(errors, dict) or type(errors.get('infrastructureFailures')) is not int or
+            not isinstance(report.get('detail'), str) or 'exit_code' not in report):
+        return False
+    report['exit_code'] = 124
+    errors['infrastructureFailures'] += 1
+    report['detail'] = (report['detail'] + '\n' if report['detail'] else '') + 'Attempt deadline reached'
+    path.write_text(json.dumps(report, indent=2) + '\n')
+    return True
+
+
 def main():
     global resource_lease
     attempt = Path.cwd()
@@ -217,7 +238,7 @@ if __name__ == '__main__':
     try:
         status = main()
     except KeyboardInterrupt:
-        status = 130
+        status = interruption_status()
     except (QueueTimeout, QueueUnavailable) as error:
         print(f'[pandora] {error}', flush=True)
         status = 75
@@ -241,6 +262,8 @@ if __name__ == '__main__':
         if item.is_symlink() or not (item.is_file() or item.is_dir()):
             print('[pandora] unsupported generated output file type: ' + str(item), flush=True)
             status = 70
+    if status == 124:
+        mark_deadline_report()
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
                  Path('metrics.json'), Path('queue.json'), Path('children.json'), Path('suite-state.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:

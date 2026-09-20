@@ -24,7 +24,7 @@ def receipt(path, metadata, result, action, code):
 
 
 class ParentTests(unittest.TestCase):
-    def run_suite(self, root, keep_going=False, fail=0, budget=20, plan_fail=False):
+    def run_suite(self, root, keep_going=False, fail=0, budget=20, plan_fail=False, plan_deadline=False, shard_deadline=False):
         parent = root / 'runs' / ('f' * 32)
         parent.mkdir(parents=True)
         (parent / 'source').mkdir()
@@ -45,7 +45,9 @@ class ParentTests(unittest.TestCase):
             self.assertEqual(metadata['queue_timeout_seconds'], budget - 3 * len(seen))
             seen.append(child.name)
             task = metadata['suite']
-            code = 70 if plan_fail and task['action'] == 'plan' else 1 if task.get('shard') == fail else 0
+            code = (124 if (plan_deadline and task['action'] == 'plan') or
+                    (shard_deadline and task.get('shard') == 1) else
+                    70 if plan_fail and task['action'] == 'plan' else 1 if task.get('shard') == fail else 0)
             result = frozen if task['action'] == 'plan' else report(frozen, task['shard'], code=code, status='fail' if code else 'pass')
             receipt(child, metadata, result, task['action'], code)
             return None
@@ -94,6 +96,22 @@ class ParentTests(unittest.TestCase):
             (parent / 'results/suite-error.json').unlink()
             with self.assertRaises((OSError, ValueError)):
                 validate_result(parent, submitted, terminal, artifacts)
+
+    def test_deadline_in_planning_is_a_deadline_not_a_planning_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent, submitted, terminal, artifacts, seen = self.run_suite(Path(temp), plan_deadline=True)
+            self.assertEqual((terminal['exit_code'], len(seen)), (75, 1))
+            self.assertEqual(json.loads((parent / 'suite-state.json').read_text())['stop_reason'], 'deadline')
+            self.assertEqual(json.loads((parent / 'results/suite-error.json').read_text())['reason'], 'deadline')
+            for forged in (1, 70):
+                with self.assertRaisesRegex(ValueError, 'exit 75'):
+                    validate_result(parent, submitted, {'exit_code': forged}, artifacts)
+
+    def test_deadline_child_report_stops_the_suite_as_a_deadline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent, _, terminal, _, seen = self.run_suite(Path(temp), shard_deadline=True)
+            self.assertEqual((terminal['exit_code'], len(seen)), (75, 2))
+            self.assertEqual(json.loads((parent / 'results/suite-run.json').read_text())['stop_reason'], 'deadline')
 
     def test_queue_budget_cannot_be_reset_in_child_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
