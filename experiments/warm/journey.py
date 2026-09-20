@@ -56,6 +56,13 @@ def journey_command(config):
 
 def mark_cleanup_failure(attempt):
     """Ensure a report cannot advertise a successful run with failed cleanup."""
+    suite_report = attempt / 'results/suite-shard.json'
+    if suite_report.is_file():
+        report = json.loads(suite_report.read_text())
+        report['exit_code'] = 70
+        report['errors']['infrastructureFailures'] += 1
+        report['detail'] = 'Attempt-owned service cleanup failed'
+        suite_report.write_text(json.dumps(report, indent=2) + '\n')
     report_path = attempt / 'results' / 'journey.json'
     if not report_path.is_file():
         return
@@ -72,7 +79,18 @@ def docker(*args, **kwargs):
 
 def execute(attempt, image, manifest, dep_entries, metrics):
     submitted = json.loads((attempt / 'submission.json').read_text())
-    config = journey_config(submitted) | {'attempt': attempt.name}
+    is_suite = submitted.get('workflow') == 'suite'
+    if is_suite:
+        from suite import suite_config, suite_command
+        config = suite_config(submitted) | {'attempt': attempt.name}
+        command = suite_command(config)
+        adapter = 'suite.mjs'
+        label_text = 'suite ' + config['action']
+    else:
+        config = journey_config(submitted) | {'attempt': attempt.name}
+        command = journey_command(config)
+        adapter = 'journey.mjs'
+        label_text = 'journey ' + config['id']
     name = 'pandora-warm-' + attempt.name
     label = 'pandora.attempt=' + attempt.name
     status = 70
@@ -110,7 +128,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
         docker('cp', str(overlay), name + ':/tmp/source.tar')
         docker('exec', name, 'tar', 'xf', '/tmp/source.tar', '-C', '/workspace/source')
         overlay.unlink()
-        docker('cp', str(attempt / 'journey.mjs'), name + ':/workspace/source/pandora-journey.mjs')
+        docker('cp', str(attempt / adapter), name + ':/workspace/source/pandora-' + adapter)
         print('[pandora] starting isolated database, pooler and proxy; no host ports', flush=True)
         for short, service_image, env, memory in SERVICES:
             docker('run', '-d', '--name', name + '-' + short, '--label', label,
@@ -129,13 +147,13 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                 else:
                     raise RuntimeError('Database readiness deadline reached')
         docker('exec', name, 'node', 'tools/check-worktree-deps.mjs')
-        child = subprocess.Popen(journey_command(config))
+        child = subprocess.Popen(command)
         while True:
             try:
                 status = child.wait(timeout=10)
                 break
             except subprocess.TimeoutExpired:
-                print('[pandora] journey ' + config['id'] + ' running; services owned by this attempt', flush=True)
+                print('[pandora] ' + label_text + ' running; services owned by this attempt', flush=True)
         states = []
         for suffix in ('', '-db', '-pool', '-proxy'):
             raw = docker('inspect', name + suffix, '--format', '{{json .State}}', capture_output=True, text=True)
