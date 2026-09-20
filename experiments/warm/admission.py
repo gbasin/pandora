@@ -100,6 +100,8 @@ def acquire(attempt, timeout=900, *, poll=1, report=print):
     attempt = Path(attempt)
     root = attempt.parent.parent
     started = time.monotonic()
+    (attempt / 'queue-start.json.tmp').write_text(json.dumps({'monotonic': started}) + '\n')
+    (attempt / 'queue-start.json.tmp').replace(attempt / 'queue-start.json')
     ticket = enqueue(attempt)
     report(f'[pandora] admitted to FIFO queue; ticket {ticket}; queue limit {timeout}s', flush=True)
     last_message = float('-inf')
@@ -109,6 +111,8 @@ def acquire(attempt, timeout=900, *, poll=1, report=print):
             raise KeyboardInterrupt
         waited = time.monotonic() - started
         if waited >= timeout:
+            (attempt / 'queue.json.tmp').write_text(json.dumps({'waited': waited, 'acquired': False}) + '\n')
+            (attempt / 'queue.json.tmp').replace(attempt / 'queue.json')
             raise QueueTimeout(f'Queue deadline reached after {timeout}s; no tests started')
         handle = None
         try:

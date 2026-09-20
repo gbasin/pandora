@@ -13,7 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
-from commands import classify, selected_surface
+from commands import classify, selected_surface, suite_request
 from workflow_options import surface_outputs
 from transport import query, validate_evidence
 from delivery import deliver
@@ -31,6 +31,28 @@ def queue_timeout_seconds(value):
 def effective_queue_timeout(default, tool, config):
     value = config.get('queue_timeout_seconds', default) if tool == 'docker' and config else default
     return queue_timeout_seconds(value)
+
+
+def suite_shard_count(value):
+    if isinstance(value, bool):
+        raise ValueError('Suite shards must be an integer from 1 through 32')
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        raise ValueError('Suite shards must be an integer from 1 through 32') from None
+    if not 1 <= count <= 32:
+        raise ValueError('Suite shards must be an integer from 1 through 32')
+    return count
+
+
+def suite_environment_error(environment):
+    names = ('JOURNEY_FILTER', 'JOURNEY_SHARD', 'JOURNEY_CONCURRENCY',
+             'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'IKE_WORLD')
+    active = [name for name in names if environment.get(name)]
+    if active:
+        return ('Unset ' + ', '.join(active) +
+                ' before pnpm journeys; routed suites currently support only pnpm journeys [--keep-going]. No validation started.')
+    return None
 
 
 def write(path, value):
@@ -83,6 +105,17 @@ def main(tool='pnpm'):
     if action == 'reject':
         print('[pandora] ' + message, file=sys.stderr)
         return 64
+    suite = None
+    if action == 'suite-run':
+        error = suite_environment_error(os.environ)
+        if error:
+            print('[pandora] ' + error, file=sys.stderr)
+            return 64
+        try:
+            suite = suite_request(argv, suite_shard_count(os.environ.get('PANDORA_SUITE_SHARDS', '4')))
+        except ValueError as error:
+            print('[pandora] ' + str(error), file=sys.stderr)
+            return 64
     repo = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
     if Path.cwd().resolve() != repo.resolve():
         print('[pandora] Run this validation command from the repository root. No validation started.', file=sys.stderr)
@@ -142,17 +175,24 @@ def main(tool='pnpm'):
                 print('[pandora] ' + str(error), file=sys.stderr)
                 return 64
             record = {'state': 'active', 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt, 'queue_timeout_seconds': timeout}
+            suite_request_path = None
+            if suite is not None:
+                suite_request_path = state / (attempt + '.suite-request.json')
+                write(suite_request_path, suite)
+                record['suite_request'] = str(suite_request_path)
             write(active, record)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
                        '--output', str(output), '--attempt', record['attempt'],
-                       '--workflow', action if action in ('journey', 'docker') else 'surface',
+                       '--workflow', action if action in ('journey', 'docker', 'suite-run') else 'surface',
                        '--queue-timeout-seconds', str(record['queue_timeout_seconds']),
                        '--selectors-json=' + json.dumps(selectors)]
             if action == 'remote':
                 command += ['--surface-app', selected_surface(argv)]
             if docker_request is not None:
                 command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
+            if suite_request_path is not None:
+                command += ['--suite-request', str(suite_request_path)]
         child = None
 
         def interrupted(signum, frame):

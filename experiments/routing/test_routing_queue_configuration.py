@@ -54,6 +54,21 @@ class QueueConfigurationTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2)
                     self.assertIn('Queue timeout', result.stderr)
 
+    def test_launcher_exports_bounded_suite_shard_count(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / 'environment.py'
+            target.write_text('import os\nprint(os.environ["PANDORA_SUITE_SHARDS"])\n')
+            env = dict(os.environ, PANDORA_REAL_PNPM='/bin/true')
+            command = ['python3', str(ROOT / 'launch.py'), '--host', 'unused', '--state', str(root / 'state')]
+            self.assertEqual(subprocess.check_output([*command, '--', 'python3', str(target)], env=env, text=True).strip(), '4')
+            self.assertEqual(subprocess.check_output([*command, '--suite-shards', '12', '--', 'python3', str(target)], env=env, text=True).strip(), '12')
+            for value in ('0', '33'):
+                with self.subTest(value=value):
+                    result = subprocess.run([*command, '--suite-shards', value, '--', 'true'], env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn('Suite shards', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()
