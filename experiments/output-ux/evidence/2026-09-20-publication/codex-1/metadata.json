@@ -1,0 +1,9 @@
+{
+  "model": "Codex CLI default",
+  "foundation": "b375c23",
+  "human_interventions": 0,
+  "remote_builds": 1,
+  "canonical_output_correct": true,
+  "previous_output_retained": true,
+  "raw_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-20-publication"
+}

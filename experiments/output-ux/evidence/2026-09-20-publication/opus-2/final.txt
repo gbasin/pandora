@@ -1,0 +1,40 @@
+Done.
+
+## What changed
+
+`experiments/output-ux/fixture/src/schema.json` — one field, `"title":"Draft"` → `"title":"Ready"`. That is the only tracked modification (`git status` shows `M src/schema.json` and nothing else). No generated output was edited by hand; `dist/` is gitignored and was written only by the build.
+
+## Build result
+
+`pnpm build` succeeded (exit 0). It ran remotely (run `d215b0081fa9416b862fb8b27b6c9c5e`) and published into `dist/` via the atomic directory exchange.
+
+**`dist/report.json`**
+- SHA-256: `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+- title: `Ready`
+
+```json
+{
+  "title": "Ready",
+  "currency": "USD",
+  "totalCents": 1350
+}
+```
+
+## Validation
+
+I checked the on-disk file against the publisher's own records rather than trusting the success message alone:
+
+- The digest I computed with `shasum -a 256` matches the manifest in `.pandora-artifacts/<run>/publication.json` exactly — so the bytes in `dist/` are the artifact the build verified, not a stale or partially-exchanged copy.
+- `publication.json` reads `"phase": "published"`, and `delivery.json` is gone from `.pandora-artifacts/`, meaning the delivery completed rather than parking in the recoverable-retry state.
+- `events.jsonl` records `remote_exit: 0`, `local_exit: 0`, `recovered_delivery: false` — a fresh remote build, not a replayed prior result.
+- The retained-previous directory the build pointed at does hold the old `"title": "Draft"` output, confirming the exchange moved the right directory in each direction.
+
+## Unresolved problem
+
+One cosmetic discrepancy, worth noting but not a defect in your change. The build prints:
+
+```
+[pandora] Previous output retained: .../<run>/generation
+```
+
+The name `generation` is misleading at that point. `publish()` builds that directory as the *incoming* staged generation, then swaps it with `dist` using `renamex_np`/`renameat2` in exchange mode (`publish.py:93`). After the swap the path holds the **previous** contents — which I confirmed above. The message's wording is correct; the directory name contradicts it, so anyone inspecting `.pandora-artifacts/<run>/generation/` expecting the new build will find the old one. Renaming it would mean touching supporting tooling, which was out of scope here, so I left it alone.

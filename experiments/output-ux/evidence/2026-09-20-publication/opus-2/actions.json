@@ -1,0 +1,80 @@
+[
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pwd",
+      "description": "Print working directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la experiments/output-ux/fixture",
+      "description": "List fixture directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd experiments/output-ux/fixture && cat package.json .gitignore src/schema.json && ls -R src fixtures dist",
+      "description": "Show fixture config and sources"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux && cat bridge.py; echo \"--- dist/report.json ---\"; cat fixture/dist/report.json; echo; echo \"--- fixtures/receipt.json ---\"; cat fixture/fixtures/receipt.json",
+      "description": "Show build bridge and current outputs"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/publish.py"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture/src/schema.json"
+    }
+  },
+  {
+    "tool": "Edit",
+    "input": {
+      "replace_all": false,
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture/src/schema.json",
+      "old_string": "{\"title\":\"Draft\",",
+      "new_string": "{\"title\":\"Ready\","
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture && pnpm build; echo \"EXIT=$?\"",
+      "description": "Run the fixture build",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "shasum -a 256 dist/report.json && echo \"--- contents ---\" && cat dist/report.json",
+      "description": "Hash and print built report"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cat .pandora-artifacts/d215b0081fa9416b862fb8b27b6c9c5e/publication.json; echo \"--- delivery pending? ---\"; ls .pandora-artifacts/; echo \"--- events ---\"; cat .pandora-artifacts/events.jsonl",
+      "description": "Show publication journal and event log"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "echo \"--- retained previous ---\" && cat .pandora-artifacts/d215b0081fa9416b862fb8b27b6c9c5e/generation/report.json && echo \"--- git status ---\" && git status --short",
+      "description": "Check retained previous output and git status"
+    }
+  }
+]

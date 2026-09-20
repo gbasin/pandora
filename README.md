@@ -81,7 +81,10 @@ executable selected at launcher start. See the [environment details](experiments
 
 The [output UX trial](notes/remote-output-2026-09-20-agent-ux.md) separately tests
 returned build artifacts and generated source with Codex and Opus. Its fixture
-is evaluator-only and does not extend the production routing commands.
+is evaluator-only and does not extend the production routing commands. The
+[generation-publication follow-up](notes/remote-output-2026-09-20-generation-publication.md)
+tests automatic replacement of existing generated outputs with three fresh
+samples per agent and delivery-recovery probes.
 
 ## Try the pilot
 

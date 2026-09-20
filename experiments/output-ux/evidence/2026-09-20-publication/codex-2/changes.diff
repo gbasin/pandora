@@ -1,0 +1,7 @@
+diff --git a/experiments/output-ux/fixture/src/schema.json b/experiments/output-ux/fixture/src/schema.json
+index 500c3b3..a87f2b7 100644
+--- a/experiments/output-ux/fixture/src/schema.json
++++ b/experiments/output-ux/fixture/src/schema.json
+@@ -1 +1 @@
+-{"title":"Draft","currency":"USD","subtotalCents":1250,"taxCents":100}
++{"title":"Ready","currency":"USD","subtotalCents":1250,"taxCents":100}

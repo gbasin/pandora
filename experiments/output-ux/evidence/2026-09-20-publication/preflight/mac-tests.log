@@ -1,0 +1,12 @@
+test_corrupt_download_leaves_previous_output (test_publish.Publication.test_corrupt_download_leaves_previous_output) ... ok
+test_destination_replaced_before_exchange_stops (test_publish.Publication.test_destination_replaced_before_exchange_stops) ... ok
+test_existing_directory_replaced_and_retained (test_publish.Publication.test_existing_directory_replaced_and_retained) ... ok
+test_first_publication (test_publish.Publication.test_first_publication) ... ok
+test_open_writer_survives_in_retained_generation (test_publish.Publication.test_open_writer_survives_in_retained_generation) ... ok
+test_process_exit_before_and_after_exchange (test_publish.Publication.test_process_exit_before_and_after_exchange) ... ok
+test_symlink_destination_is_rejected (test_publish.Publication.test_symlink_destination_is_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.037s
+
+OK

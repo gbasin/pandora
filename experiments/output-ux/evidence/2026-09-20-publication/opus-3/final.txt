@@ -1,0 +1,46 @@
+## Result
+
+**`dist/report.json`**
+- **SHA-256:** `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+- **Title:** `Ready`
+
+Full contents:
+```json
+{
+  "title": "Ready",
+  "currency": "USD",
+  "totalCents": 1350
+}
+```
+
+## What changed
+
+One tracked file, one field:
+
+`experiments/output-ux/fixture/src/schema.json:1` — `"title":"Draft"` → `"title":"Ready"`
+
+`git status` shows `M experiments/output-ux/fixture/src/schema.json` and nothing else. `dist/` is gitignored, so the rebuilt output is untracked. I did not touch `dist/`, `bridge.py`, `publish.py`, or any other tooling, and did not commit or open a PR.
+
+## Validation
+
+`pnpm build` exited 0. Run id `4699a9ce0164487f812749b5a05547e8`.
+
+I verified the published file is genuinely the build product rather than a stale or locally-mutated file, by hashing the report string as the remote returned it in `result.json` and comparing to the on-disk file:
+
+- remote-returned `dist/report.json` → `e4b39c0e…a84970`
+- on-disk `dist/report.json` → `e4b39c0e…a84970`
+- `publication.json` manifest → `e4b39c0e…a84970`
+
+All three agree, so the bytes on disk are byte-identical to what the build produced.
+
+Pre-build state was clean (no `.pandora-artifacts/`, so no pending delivery to recover, and the recovery path in `bridge.py:34` was not exercised). Post-build, `delivery.json` is absent — the publish completed and unlinked it, leaving no pending delivery for a later run to trip over.
+
+The previous `Draft` output was retained, not destroyed, at `.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/generation/report.json`.
+
+## Unresolved problems
+
+None blocking. Two things to be aware of:
+
+**The build is not local.** `pnpm build` runs `bridge.py`, which SSHes to `ubuntu@40.160.93.34` and executes `remote.py` there, sending the contents of `src/schema.json` and `fixtures/receipt.json` as the request payload. The hash above is therefore only reproducible while that host is reachable and serving the same build logic — a later `pnpm build` on an unchanged tree would hit the recovery path or re-submit remotely, not rebuild locally. I ran it because running `pnpm build` was the explicit instruction, but flagging it since "run the build" reads as a local operation and here it egresses fixture content to an external host.
+
+**`fixtures/receipt.json` still reads `"title": "Legacy"`.** It is an input to the build's cache key, not an output, and the `generate` action (the one that would update it) is a separate command that doesn't write to the workspace anyway. I left it alone as outside the requested scope — noting it only in case the `Draft`→`Ready` rename was meant to propagate there too.

@@ -1,0 +1,32 @@
+[
+  {
+    "crash": "after_prepare",
+    "remote_builds": 1,
+    "old_generation_retained": true,
+    "obsolete_output_removed": true,
+    "node_read": "Ready",
+    "http_read": "Ready",
+    "output_sha256": "e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970",
+    "retry_without_remote_build": true
+  },
+  {
+    "crash": "after_exchange",
+    "remote_builds": 1,
+    "old_generation_retained": true,
+    "obsolete_output_removed": true,
+    "node_read": "Ready",
+    "http_read": "Ready",
+    "output_sha256": "e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970",
+    "retry_without_remote_build": true
+  },
+  {
+    "crash": null,
+    "remote_builds": 1,
+    "old_generation_retained": true,
+    "obsolete_output_removed": true,
+    "node_read": "Ready",
+    "http_read": "Ready",
+    "output_sha256": "e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970",
+    "retry_without_remote_build": false
+  }
+]

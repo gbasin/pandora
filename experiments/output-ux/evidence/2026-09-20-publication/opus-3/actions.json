@@ -1,0 +1,80 @@
+[
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pwd",
+      "description": "Print working directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la experiments/output-ux/fixture",
+      "description": "List fixture directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd experiments/output-ux/fixture && cat package.json .gitignore pnpm-lock.yaml && echo \"--- tree ---\" && ls -R src dist fixtures node_modules",
+      "description": "Show fixture config and file tree"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/src/schema.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/bridge.py"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cat dist/report.json && echo \"--- receipt ---\" && cat fixtures/receipt.json && echo \"--- artifacts ---\" && ls -la .pandora-artifacts 2>&1",
+      "description": "Show current built output and fixture state"
+    }
+  },
+  {
+    "tool": "Edit",
+    "input": {
+      "replace_all": false,
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/src/schema.json",
+      "old_string": "{\"title\":\"Draft\",",
+      "new_string": "{\"title\":\"Ready\","
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pnpm build; echo \"EXIT=$?\"",
+      "description": "Run the fixture build",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "echo \"=== dist/report.json ===\" && cat dist/report.json && echo \"=== sha256 ===\" && shasum -a 256 dist/report.json && echo \"=== title (parsed) ===\" && python3 -c \"import json;print(repr(json.load(open('dist/report.json'))['title']))\"",
+      "description": "Show built report contents, hash, and title"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "echo \"=== remote-returned report sha ===\" && python3 -c \"\nimport json,hashlib\nr=json.load(open('.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/result.json'))\nprint(hashlib.sha256(r['files']['dist/report.json'].encode()).hexdigest())\n\" && echo \"=== artifacts tree ===\" && find .pandora-artifacts -maxdepth 3 | sort && echo \"=== retained generation ===\" && ls -la .pandora-artifacts/4699a9ce0164487f812749b5a05547e8/generation 2>&1",
+      "description": "Verify published hash against remote result and inspect artifacts"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3 && echo \"=== git status ===\" && git status --short && echo \"=== git diff ===\" && git diff && echo \"=== retained previous contents ===\" && cat experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/generation/report.json && echo \"=== publication.json ===\" && cat experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/publication.json",
+      "description": "Show repo diff and publication metadata"
+    }
+  }
+]
