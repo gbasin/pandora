@@ -1,8 +1,8 @@
 # Pandora
 
 Pandora is an opt-in experiment for running heavy validation remotely while coding
-agents, edits, and worktrees stay on a local Mac. The current SSH pilot runs one
-Eichler borrower-web surface validation, the service-backed S0-01 journey, and
+agents, edits, and worktrees stay on a local Mac. The current SSH pilot supports
+Eichler borrower-web and Desk surface validation, focused service-backed journeys, and
 a scoped Docker build/run profile on a dedicated Linux VM. It is not ready
 for unattended daily use or twelve-agent concurrency.
 
@@ -27,14 +27,17 @@ No tracked target-repo files or global shell settings change.
 Supported commands, from the target repository root:
 
 ```sh
-pnpm test:surface borrower-web [file selectors]
-pnpm validate surface borrower-web [file selectors]
-pnpm journey S0-01
-pnpm validate journey S0-01
+pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN]
+pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]
+pnpm journey <id> [--fault dropped] [--update]
+pnpm validate journey <id> [--fault dropped] [--update]
 ```
 
-The same forms with `pnpm run` work. Surface flags, other journey IDs, journey flags, and the plural journeys command are rejected. There is no
-automatic local fallback, source write-back, Mutagen session, or CI dispatch.
+The same forms with `pnpm run` work. Other flags and the plural `journeys` command
+are rejected. Focused `--update` returns only the selected ledger and its route
+manifest change. Offline-only journeys have no ledger and return only their route
+manifest change. There is no automatic local fallback, general source writeback,
+Mutagen session, or CI dispatch.
 Required target-repo CI remains unchanged.
 
 With a human-selected external `--docker-profile`, the same launcher also routes
@@ -78,8 +81,8 @@ request in that worktree. Retrying after client loss recovers the existing attem
 and verifies its artifacts. A changed local source produces a stale-result notice
 and exit 75, rather than a pass for newer edits.
 
-Successful surface validation publishes `apps/borrower-web/dist` and
-`apps/borrower-web/e2e/dist` at their normal local paths. Each directory is
+Successful surface validation publishes `apps/<app>/dist` and
+`apps/<app>/e2e/dist` at their normal local paths. Each directory is
 replaced atomically, with its previous generation retained in the attempt's
 `publication/` directory. These are exclusively managed generated outputs, not
 source writeback. The two replacements are individually atomic, not one
@@ -245,8 +248,9 @@ rewrite their historical claims.
 The [command contract](notes/v0.1-contract.md) now prioritizes long-running Eichler
 tests: focused/full journeys, both browser surfaces, internal shard scheduling,
 and declared tracked expectation return for `--update`. These additions are
-implementation targets. Current routing still supports borrower-web surfaces,
-S0-01 including `--update`, and the bounded Docker grammar described above.
+implementation targets. Current routing supports both browser surfaces with file and `--grep` selectors,
+focused catalog journeys including dropped replay and `--update`, and the bounded
+Docker grammar described above. Full-suite planning and shard execution remain unimplemented.
 
 The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
 reuse and a focused remote update POC, plus synthetic publication recovery. It
@@ -259,3 +263,8 @@ The [integrated focused update](notes/journey-update-2026-09-20.md) returns S0-0
 expectations directly into the local worktree, preserves unrelated route entries,
 and recovers interrupted local publication. See the
 [update instructions](experiments/routing/README.md#focused-journey-expectation-updates).
+
+The [expanded workflow trial](notes/workflow-coverage-2026-09-20.md) verifies
+focused S0-02 replay and update, offline SX-20 update, and both browser surfaces
+with `--grep`. Eight sequential VM runs passed with warm dependencies and
+automatic output return. Full-suite sharding remains the next implementation.

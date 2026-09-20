@@ -47,22 +47,40 @@ def main():
     p.add_argument('--docker-request')
     p.add_argument('--attempt', default=None)
     p.add_argument('--journey-update', action='store_true')
+    p.add_argument('--selectors-json')
+    p.add_argument('--surface-app', choices=['borrower-web', 'desk'], default='borrower-web')
     p.add_argument('--queue-timeout-seconds', type=int, default=900)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.@-]*', args.host):
         p.error('Invalid SSH destination')
-    if any(s.startswith('-') for s in args.selectors):
-        p.error('Only file selectors are supported in this experiment')
+    if args.selectors_json is not None:
+        if args.selectors:
+            p.error('Do not combine positional selectors and --selectors-json')
+        try:
+            args.selectors = json.loads(args.selectors_json)
+        except ValueError:
+            p.error('Invalid selectors JSON')
+        if not isinstance(args.selectors, list) or any(not isinstance(x, str) for x in args.selectors):
+            p.error('Selectors must be a list of strings')
     spec = json.loads(args.docker_request) if args.workflow == 'docker' else None
     try:
         timeout = effective_queue_timeout(args.queue_timeout_seconds, spec)
     except ValueError as error:
         p.error(str(error))
     if args.journey_update:
-        if args.workflow != 'journey' or args.selectors != ['S0-01']:
-            p.error('--journey-update requires the S0-01 journey workflow')
+        if args.workflow != 'journey':
+            p.error('--journey-update requires a journey workflow')
         args.selectors.append('--update')
+    try:
+        if args.workflow == 'journey':
+            from journey import journey_config
+            journey_config({'selectors': args.selectors})
+        elif args.workflow == 'surface':
+            from workflow_options import surface_selectors
+            surface_selectors(args.selectors)
+    except ValueError as error:
+        p.error(str(error))
     attempt = args.attempt or uuid.uuid4().hex
     if not re.fullmatch('[0-9a-f]{32}', attempt):
         p.error('Invalid attempt identity')
@@ -83,6 +101,8 @@ def main():
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'repository_key': cache_key, 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm,
                 'queue_timeout_seconds': timeout, 'snapshot_seconds': time.monotonic() - started}
+    if args.workflow == 'surface':
+        metadata['surface_app'] = args.surface_app
     if args.workflow == 'docker':
         metadata['docker'] = spec
     write_metadata(output / 'submission.json', metadata)

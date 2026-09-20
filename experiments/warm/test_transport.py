@@ -12,6 +12,24 @@ class EvidenceTests(unittest.TestCase):
         (root / 'artifacts.json').write_text(json.dumps({'stdout.log': hashlib.sha256(b'one failure\n').hexdigest()}))
         (root / 'terminal.json').write_text(json.dumps({'attempt': 'a' * 32, 'exit_code': status, 'cleanup_verified': True}))
 
+    def prepare_success(self, root, workflow, report, submitted):
+        self.prepare(root, 0)
+        terminal = json.loads((root / 'terminal.json').read_text()) | {'workflow': workflow}
+        (root / 'terminal.json').write_text(json.dumps(terminal))
+        results = root / 'results'
+        results.mkdir(exist_ok=True)
+        (results / 'exit-code').write_text('0')
+        report_path = results / ('journey.json' if workflow == 'journey' else 'surface.json')
+        report_path.write_text(json.dumps(report))
+        files = ['results/exit-code', str(report_path.relative_to(root))]
+        if workflow == 'surface':
+            (results / 'junit.xml').write_text('<testsuites/>')
+            files.append('results/junit.xml')
+        (root / 'artifacts.json').write_text(json.dumps({
+            name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files
+        }))
+        return submitted
+
     def test_failed_result_is_valid_but_tampering_is_not(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -30,24 +48,35 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'identity'):
                 validate_evidence(root, 'b' * 32)
 
-    def test_journey_report_must_match_success(self):
+    def test_journey_report_must_match_submitted_id_and_modes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            self.prepare(root, 0)
-            terminal = json.loads((root / 'terminal.json').read_text())
-            terminal['workflow'] = 'journey'
-            (root / 'terminal.json').write_text(json.dumps(terminal))
-            (root / 'results').mkdir()
-            (root / 'results/exit-code').write_text('0')
-            for state in ('fail', 'pass'):
-                (root / 'results/journey.json').write_text(json.dumps({'journey': 'S0-01', 'status': state}))
-                files = ['results/exit-code', 'results/journey.json']
-                (root / 'artifacts.json').write_text(json.dumps({n: hashlib.sha256((root / n).read_bytes()).hexdigest() for n in files}))
-                if state == 'fail':
-                    with self.assertRaisesRegex(ValueError, 'Journey evidence'):
-                        validate_evidence(root, 'a' * 32)
-                else:
-                    self.assertEqual(validate_evidence(root, 'a' * 32)['exit_code'], 0)
+            submitted = self.prepare_success(
+                root, 'journey',
+                {'journey': 'S0-02', 'status': 'pass', 'update': True, 'fault': 'dropped'},
+                {'workflow': 'journey', 'selectors': ['S0-02', '--fault', 'dropped', '--update']},
+            )
+            self.assertEqual(validate_evidence(root, 'a' * 32, submitted)['exit_code'], 0)
+            for report in (
+                {'journey': 'S0-02', 'status': 'fail', 'update': True, 'fault': 'dropped'},
+                {'journey': 'S0-01', 'status': 'pass', 'update': True, 'fault': 'dropped'},
+                {'journey': 'S0-02', 'status': 'pass', 'update': False, 'fault': 'dropped'},
+                {'journey': 'S0-02', 'status': 'pass', 'update': True, 'fault': None},
+            ):
+                self.prepare_success(root, 'journey', report, submitted)
+                with self.assertRaisesRegex(ValueError, 'Journey evidence'):
+                    validate_evidence(root, 'a' * 32, submitted)
+
+    def test_surface_report_must_match_submitted_app_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            submitted = self.prepare_success(
+                root, 'surface', {'app': 'desk'}, {'workflow': 'surface', 'surface_app': 'desk'},
+            )
+            self.assertEqual(validate_evidence(root, 'a' * 32, submitted)['exit_code'], 0)
+            self.prepare_success(root, 'surface', {'app': 'borrower-web'}, submitted)
+            with self.assertRaisesRegex(ValueError, 'Surface evidence'):
+                validate_evidence(root, 'a' * 32, submitted)
 
     def test_artifact_cannot_escape_staging(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -11,10 +11,12 @@ smoke.spec.ts`. Run from a bootstrapped trial worktree. A missing dependency
 image is prepared automatically on the worker under its exclusive admission
 lock and bounded BuildKit resources.
 
-Only these command forms route:
+These pnpm command forms route:
 
-- `pnpm test:surface borrower-web [file selectors]`
-- `pnpm validate surface borrower-web [file selectors]`
+- `pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN]`
+- `pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]`
+- `pnpm journey <id> [--fault dropped] [--update]`
+- `pnpm validate journey <id> [--fault dropped] [--update]`
 - The same forms with `pnpm run`.
 
 Other commands delegate to the original pnpm executable. Unsupported surface
@@ -127,7 +129,7 @@ routing, not a tamper-resistant policy boundary.
 
 Cold dependencies are now prepared automatically by the bounded BuildKit worker.
 A successful command verifies returned artifacts and publishes the two declared
-borrower-web build directories at their normal paths. Previous directories are
+the selected app’s build directories at their normal paths. Previous directories are
 retained under `<state>/<worktree-key>/<attempt>/publication/<output-index>/generation`.
 Only ignored directories with no tracked files qualify. Symlink output paths are
 rejected. No source files are replaced.
@@ -146,9 +148,10 @@ separately grants pnpm-store access. The launcher does not disable the sandbox.
 
 ## Service-backed journey
 
-Run `pnpm journey S0-01` or `pnpm validate journey S0-01` from the repository root.
-The same forms with `pnpm run` work. S0-01 also accepts `--update` as described below.
-Other journey IDs, flags, and the plural
+Run `pnpm journey <id>` or `pnpm validate journey <id>` from the repository root.
+The same forms with `pnpm run` work. Append `--fault dropped` for replay and
+`--update` for expectation return. Either flag order works. The selected ID
+must exist in the frozen catalog. Other flags and the plural
 `journeys` command stop with feedback. Direct package commands can still bypass
 this opt-in wrapper.
 
@@ -207,9 +210,10 @@ code uses only the resource lock and cannot honor the new ticket ordering.
 
 ## Focused journey expectation updates
 
-`pnpm journey S0-01 --update` and `pnpm validate journey S0-01 --update` return
-S0-01's ledger and its route-manifest update automatically to the local worktree.
-The corresponding `pnpm run` forms work. Other journey IDs and catalog updates
+`pnpm journey <id> --update` and `pnpm validate journey <id> --update` return
+the selected ledger and its route-manifest update automatically to the local worktree.
+Offline-only journeys return the route manifest without creating a ledger.
+The corresponding `pnpm run` forms work. Catalog updates
 remain implementation targets.
 
 Wait for the command before editing those expectation files. Review the resulting

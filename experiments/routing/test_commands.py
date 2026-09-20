@@ -4,15 +4,37 @@ from commands import classify
 
 class CommandsTests(unittest.TestCase):
     def test_journey_scope(self):
-        for args in (['journey', 'S0-01'], ['run', 'journey', 'S0-01'], ['validate', 'journey', 'S0-01']):
-            self.assertEqual(classify(args)[:2], ('journey', ['S0-01']))
-        for args in (['journeys'], ['journey', 'S0-02'], ['journey', 'S0-01', '--update', '--update']):
+        for prefix in ([], ['run'], ['validate'], ['run', 'validate']):
+            for selectors in (
+                ['S0-01'],
+                ['S0-02'],
+                ['S0-01', '--update'],
+                ['S0-02', '--fault', 'dropped'],
+                ['S0-02', '--fault', 'dropped', '--update'],
+                ['S0-02', '--update', '--fault', 'dropped'],
+            ):
+                self.assertEqual(classify([*prefix, 'journey', *selectors])[:2],
+                                 ('journey', selectors))
+        for args in (
+            ['journeys'],
+            ['journey'],
+            ['journey', 'S0-01', '--update', '--update'],
+            ['journey', 'S0-02', '--fault'],
+            ['journey', 'S0-02', '--fault', 'other'],
+            ['journey', 'S0-02', '--fault', 'dropped', 'extra'],
+        ):
             self.assertEqual(classify(args)[0], 'reject')
 
-    def test_focused_update_aliases(self):
-        for prefix in ([], ['run'], ['validate'], ['run', 'validate']):
-            self.assertEqual(classify([*prefix, 'journey', 'S0-01', '--update'])[:2],
-                             ('journey', ['S0-01', '--update']))
+    def test_surface_preserves_exact_file_and_grep_argv_for_each_app(self):
+        for command, expected in (
+            (['test:surface', 'borrower-web', 'smoke.spec.ts', '--grep', 'income'],
+             ['smoke.spec.ts', '--grep', 'income']),
+            (['test:surface', 'desk', '--grep', 'assign loan', 'tasks.spec.ts'],
+             ['--grep', 'assign loan', 'tasks.spec.ts']),
+            (['validate', 'surface', 'desk', 'pipeline.spec.ts', '--grep', 'review'],
+             ['pipeline.spec.ts', '--grep', 'review']),
+        ):
+            self.assertEqual(classify(command)[:2], ('remote', expected))
 
     def test_three_treatments(self):
         direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1']
@@ -23,7 +45,15 @@ class CommandsTests(unittest.TestCase):
         self.assertEqual(classify(direct, 'redirect')[:2], ('remote', ['smoke.spec.ts']))
 
     def test_unsupported_flags_never_silently_change_a_remote_run(self):
-        self.assertEqual(classify(['test:surface', 'borrower-web', '--update-snapshots'])[0], 'reject')
+        for command in (
+            ['test:surface', 'borrower-web', '--update-snapshots'],
+            ['test:surface', 'desk', '--ui'],
+            ['test:surface', 'ops', 'smoke.spec.ts'],
+            ['validate', 'surface', 'ops', 'smoke.spec.ts'],
+            ['test:surface', 'desk', '--grep'],
+            ['test:surface', 'borrower-web', '--grep', 'first', '--grep', 'second'],
+        ):
+            self.assertEqual(classify(command)[0], 'reject')
         self.assertEqual(classify(['--filter', '@eichler/borrower-web', 'test:e2e', '--ui'], 'redirect')[0], 'reject')
         self.assertEqual(classify(['install', '--frozen-lockfile'], 'block')[0], 'local')
 

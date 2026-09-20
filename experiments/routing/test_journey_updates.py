@@ -48,6 +48,45 @@ class JourneyUpdates(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unrelated'):
             updates.declarations(self.output)
 
+    def test_other_journey_uses_its_own_ledger_and_preserves_other_routes(self):
+        # Rename only the selected ledger; the other route entry must survive.
+        new_id = 'S2-03'
+        old_name = updates.PATHS[0]
+        new_name = updates.FIXTURES + new_id + '.ledger.jsonl'
+        for root in (self.output / 'source', self.output / 'results/updates'):
+            (root / old_name).rename(root / new_name)
+        manifest = json.loads((self.output / 'manifest.json').read_text())
+        for record in manifest:
+            if record['path'] == old_name:
+                record['path'] = new_name
+        (self.output / 'manifest.json').write_text(json.dumps(manifest))
+        self.submitted['selectors'] = [new_id, '--update']
+        (self.output / 'submission.json').write_text(json.dumps(self.submitted))
+        (self.output / 'results/journey.json').write_text(json.dumps({'journey':new_id,'status':'pass','update':True}))
+        target = self.output / 'results/updates' / updates.PATHS[1]
+        target.write_text(json.dumps({'S0-01':['old'], 'S0-02':['keep'], new_id:['new']}))
+        self.hash_artifacts()
+        changes = updates.declarations(self.output)
+        self.assertEqual(set(changes), {new_name, updates.PATHS[1]})
+        target.write_text(json.dumps({'S0-01':['changed'], 'S0-02':['keep'], new_id:['new']}))
+        self.hash_artifacts()
+        with self.assertRaisesRegex(ValueError, 'unrelated'):
+            updates.declarations(self.output)
+
+    def test_api_less_update_returns_routes_only_but_cannot_omit_existing_ledger(self):
+        report_path = self.output / 'results/journey.json'
+        report = json.loads(report_path.read_text()) | {'ledger_expected': False}
+        report_path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'omitted an existing ledger'):
+            updates.declarations(self.output)
+        ledger = updates.PATHS[0]
+        manifest = [e for e in json.loads((self.output / 'manifest.json').read_text()) if e['path'] != ledger]
+        (self.output / 'manifest.json').write_text(json.dumps(manifest))
+        (self.output / 'source' / ledger).unlink()
+        (self.output / 'results/updates' / ledger).unlink()
+        self.hash_artifacts()
+        self.assertEqual(set(updates.declarations(self.output)), {updates.PATHS[1]})
+
     def test_non_output_source_still_invalidates_update(self):
         changes = updates.declarations(self.output)
         self.assertTrue(updates.source_is_current(self.repo,self.output,self.submitted,changes))
