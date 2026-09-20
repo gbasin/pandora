@@ -1,0 +1,3362 @@
+{
+  "buildx.build.provenance": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/node@24-bookworm-slim?digest=sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6\u0026platform=linux%2Famd64",
+        "digest": {
+          "sha256": "0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Pandora.Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ]
+      },
+      "environment": {
+        "dockerfileVersion": "1.26.0",
+        "platform": "linux/amd64"
+      }
+    },
+    "buildConfig": {
+      "llbDefinition": [
+        {
+          "id": "step0",
+          "op": {
+            "Op": {
+              "source": {
+                "identifier": "docker-image://docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          }
+        },
+        {
+          "id": "step1",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": -1,
+                    "output": 0,
+                    "Action": {
+                      "mkdir": {
+                        "path": "/workspace",
+                        "mode": 493,
+                        "makeParents": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step0:0"
+          ]
+        },
+        {
+          "id": "step2",
+          "op": {
+            "Op": {
+              "exec": {
+                "meta": {
+                  "args": [
+                    "/bin/sh",
+                    "-c",
+                    "npm install --global pnpm@12.3.4"
+                  ],
+                  "env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "NODE_VERSION=24.21.0",
+                    "YARN_VERSION=1.22.22"
+                  ],
+                  "cwd": "/",
+                  "removeMountStubsRecursive": true
+                },
+                "mounts": [
+                  {
+                    "dest": "/"
+                  }
+                ]
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step0:0"
+          ]
+        },
+        {
+          "id": "step3",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": -1,
+                    "output": 0,
+                    "Action": {
+                      "mkdir": {
+                        "path": "/workspace",
+                        "mode": 493,
+                        "makeParents": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step2:0"
+          ]
+        },
+        {
+          "id": "step4",
+          "op": {
+            "Op": {
+              "source": {
+                "identifier": "local://context",
+                "attrs": {
+                  "local.sharedkeyhint": "context"
+                }
+              }
+            },
+            "constraints": {}
+          }
+        },
+        {
+          "id": "step5",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/agent/package.json",
+                        "dest": "/workspace/apps/agent/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step3:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step6",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/api/package.json",
+                        "dest": "/workspace/apps/api/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step5:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step7",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/borrower-web/package.json",
+                        "dest": "/workspace/apps/borrower-web/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step6:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step8",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/borrower/package.json",
+                        "dest": "/workspace/apps/borrower/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step7:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step9",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/brand-tour/package.json",
+                        "dest": "/workspace/apps/brand-tour/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step8:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step10",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/brief/package.json",
+                        "dest": "/workspace/apps/brief/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step9:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step11",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/desk/package.json",
+                        "dest": "/workspace/apps/desk/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step10:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step12",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/film/package.json",
+                        "dest": "/workspace/apps/film/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step11:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step13",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/mockup/package.json",
+                        "dest": "/workspace/apps/mockup/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step12:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step14",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/progress/package.json",
+                        "dest": "/workspace/apps/progress/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step13:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step15",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/static-docs/package.json",
+                        "dest": "/workspace/apps/static-docs/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step14:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step16",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/apps/web/package.json",
+                        "dest": "/workspace/apps/web/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step15:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step17",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/apps/blueprint-viewer/package.json",
+                        "dest": "/workspace/legacy/apps/blueprint-viewer/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step16:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step18",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/apps/ike-api/package.json",
+                        "dest": "/workspace/legacy/apps/ike-api/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step17:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step19",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/apps/ike-web/package.json",
+                        "dest": "/workspace/legacy/apps/ike-web/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step18:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step20",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/apps/intake-lab/package.json",
+                        "dest": "/workspace/legacy/apps/intake-lab/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step19:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step21",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/apps/journey/package.json",
+                        "dest": "/workspace/legacy/apps/journey/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step20:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step22",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/packages/blueprint/package.json",
+                        "dest": "/workspace/legacy/packages/blueprint/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step21:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step23",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/packages/core/package.json",
+                        "dest": "/workspace/legacy/packages/core/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step22:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step24",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/legacy/packages/ike-ui/package.json",
+                        "dest": "/workspace/legacy/packages/ike-ui/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step23:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step25",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/package.json",
+                        "dest": "/workspace/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step24:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step26",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/packages/client/package.json",
+                        "dest": "/workspace/packages/client/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step25:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step27",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/packages/design/package.json",
+                        "dest": "/workspace/packages/design/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step26:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step28",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/packages/domain/package.json",
+                        "dest": "/workspace/packages/domain/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step27:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step29",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/packages/scenarios/package.json",
+                        "dest": "/workspace/packages/scenarios/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step28:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step30",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/packages/vendors/package.json",
+                        "dest": "/workspace/packages/vendors/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step29:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step31",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/packages/web-ui/package.json",
+                        "dest": "/workspace/packages/web-ui/package.json",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step30:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step32",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/patches/decode-uri-component@0.5.0.patch",
+                        "dest": "/workspace/patches/decode-uri-component@0.5.0.patch",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step31:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step33",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/pnpm-lock.yaml",
+                        "dest": "/workspace/pnpm-lock.yaml",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step32:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step34",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/pnpm-workspace.yaml",
+                        "dest": "/workspace/pnpm-workspace.yaml",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step33:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step35",
+          "op": {
+            "Op": {
+              "exec": {
+                "meta": {
+                  "args": [
+                    "/bin/sh",
+                    "-c",
+                    "pnpm install --frozen-lockfile --store-dir=/pnpm/store"
+                  ],
+                  "env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "NODE_VERSION=24.21.0",
+                    "YARN_VERSION=1.22.22",
+                    "CI=true"
+                  ],
+                  "cwd": "/workspace",
+                  "removeMountStubsRecursive": true
+                },
+                "mounts": [
+                  {
+                    "dest": "/"
+                  },
+                  {
+                    "input": -1,
+                    "dest": "/pnpm/store",
+                    "output": -1,
+                    "mountType": 3,
+                    "cacheOpt": {
+                      "ID": "/pandora-compiled-pnpm"
+                    }
+                  }
+                ]
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step34:0"
+          ],
+          "resourceUsage": {
+            "samples": [
+              {
+                "timestamp": "2026-09-20T14:40:49.191039813Z",
+                "cpuStat": {
+                  "usageNanos": 3875265000,
+                  "userNanos": 501271000,
+                  "systemNanos": 3373993000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1488415
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 839277
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 98336768,
+                  "file": 1094434816,
+                  "kernelStack": 589824,
+                  "pageTables": 610304,
+                  "sock": 2621440,
+                  "shmem": 0,
+                  "fileMapped": 32768,
+                  "fileDirty": 1003896832,
+                  "fileWriteback": 0,
+                  "slab": 181838320,
+                  "pgscan": 0,
+                  "pgsteal": 0,
+                  "pgfault": 28283,
+                  "pgmajfault": 0,
+                  "peak": 1379074048,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 95
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 85
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 80416768,
+                  "writeBytes": 6074368,
+                  "discardBytes": 0,
+                  "readIOs": 7482,
+                  "writeIOs": 1486,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 239277
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 39806
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 36
+                }
+              },
+              {
+                "timestamp": "2026-09-20T14:40:51.191888979Z",
+                "cpuStat": {
+                  "usageNanos": 7008982000,
+                  "userNanos": 1672901000,
+                  "systemNanos": 5336080000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 13.22,
+                      "avg60": 2.38,
+                      "avg300": 0.49,
+                      "total": 2002166
+                    },
+                    "full": {
+                      "avg10": 7.42,
+                      "avg60": 1.34,
+                      "avg300": 0.28,
+                      "total": 1039577
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 288772096,
+                  "file": 1682423808,
+                  "kernelStack": 671744,
+                  "pageTables": 1024000,
+                  "sock": 1335296,
+                  "shmem": 0,
+                  "fileMapped": 32768,
+                  "fileDirty": 146374656,
+                  "fileWriteback": 0,
+                  "slab": 259864704,
+                  "pgscan": 0,
+                  "pgsteal": 0,
+                  "pgfault": 81959,
+                  "pgmajfault": 0,
+                  "peak": 2234527744,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 97
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 87
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 160743424,
+                  "writeBytes": 1405190144,
+                  "discardBytes": 0,
+                  "readIOs": 16398,
+                  "writeIOs": 81776,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 2.35,
+                      "avg60": 0.42,
+                      "avg300": 0.08,
+                      "total": 622074
+                    },
+                    "full": {
+                      "avg10": 0.54,
+                      "avg60": 0.09,
+                      "avg300": 0.02,
+                      "total": 196406
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 41
+                }
+              },
+              {
+                "timestamp": "2026-09-20T14:40:53.191931117Z",
+                "cpuStat": {
+                  "usageNanos": 9822369000,
+                  "userNanos": 3740214000,
+                  "systemNanos": 6082154000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 15.35,
+                      "avg60": 3.12,
+                      "avg300": 0.66,
+                      "total": 2154322
+                    },
+                    "full": {
+                      "avg10": 7.71,
+                      "avg60": 1.59,
+                      "avg300": 0.34,
+                      "total": 1078805
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 636260352,
+                  "file": 1907806208,
+                  "kernelStack": 671744,
+                  "pageTables": 1769472,
+                  "sock": 0,
+                  "shmem": 0,
+                  "fileMapped": 32768,
+                  "fileDirty": 433332224,
+                  "fileWriteback": 0,
+                  "slab": 262189232,
+                  "pgscan": 15105,
+                  "pgsteal": 15097,
+                  "pgfault": 184030,
+                  "pgmajfault": 0,
+                  "peak": 2845499392,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 11539
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 9439
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 160743424,
+                  "writeBytes": 1405190144,
+                  "discardBytes": 0,
+                  "readIOs": 16398,
+                  "writeIOs": 81776,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 5,
+                      "avg60": 0.96,
+                      "avg300": 0.2,
+                      "total": 622079
+                    },
+                    "full": {
+                      "avg10": 1.53,
+                      "avg60": 0.29,
+                      "avg300": 0.06,
+                      "total": 196409
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 41
+                }
+              },
+              {
+                "timestamp": "2026-09-20T14:40:53.93462367Z",
+                "cpuStat": {
+                  "usageNanos": 10687167000,
+                  "userNanos": 4195662000,
+                  "systemNanos": 6491505000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 13.84,
+                      "avg60": 3.25,
+                      "avg300": 0.71,
+                      "total": 2217070
+                    },
+                    "full": {
+                      "avg10": 6.49,
+                      "avg60": 1.57,
+                      "avg300": 0.34,
+                      "total": 1100442
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 0,
+                  "file": 2188337152,
+                  "kernelStack": 0,
+                  "pageTables": 1675264,
+                  "sock": 0,
+                  "shmem": 0,
+                  "fileMapped": 0,
+                  "fileDirty": 613367808,
+                  "fileWriteback": 0,
+                  "slab": 271986728,
+                  "pgscan": 15105,
+                  "pgsteal": 15097,
+                  "pgfault": 208409,
+                  "pgmajfault": 0,
+                  "peak": 3204726784,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 11876
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 9777
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 267038720,
+                  "writeBytes": 1418952704,
+                  "discardBytes": 0,
+                  "readIOs": 17021,
+                  "writeIOs": 84996,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 4.1,
+                      "avg60": 0.93,
+                      "avg300": 0.2,
+                      "total": 631697
+                    },
+                    "full": {
+                      "avg10": 1.25,
+                      "avg60": 0.28,
+                      "avg300": 0.06,
+                      "total": 204617
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 0
+                }
+              }
+            ],
+            "sysCPUStat": {
+              "user": 4.31,
+              "nice": 0,
+              "system": 8.14,
+              "idle": 13.14,
+              "iowait": 0.79,
+              "irq": 0,
+              "softirq": 0.24,
+              "steal": 0.01,
+              "guest": 0,
+              "guestNice": 0
+            }
+          }
+        },
+        {
+          "id": "step36",
+          "op": {
+            "Op": {
+              "exec": {
+                "meta": {
+                  "args": [
+                    "/bin/sh",
+                    "-c",
+                    "node /inputs/pandora-copy-source.cjs \u0026\u0026 pnpm --filter @eichler/borrower-web build"
+                  ],
+                  "env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "NODE_VERSION=24.21.0",
+                    "YARN_VERSION=1.22.22",
+                    "CI=true"
+                  ],
+                  "cwd": "/workspace",
+                  "removeMountStubsRecursive": true
+                },
+                "mounts": [
+                  {
+                    "dest": "/"
+                  },
+                  {
+                    "input": 1,
+                    "dest": "/inputs",
+                    "output": -1,
+                    "readonly": true
+                  }
+                ]
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step35:0",
+            "step4:0"
+          ],
+          "resourceUsage": {
+            "samples": [
+              {
+                "timestamp": "2026-09-20T14:40:57.061718987Z",
+                "cpuStat": {
+                  "usageNanos": 1587163000,
+                  "userNanos": 668385000,
+                  "systemNanos": 918777000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 55292
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 23060
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 137687040,
+                  "file": 804937728,
+                  "kernelStack": 606208,
+                  "pageTables": 3379200,
+                  "sock": 0,
+                  "shmem": 0,
+                  "fileMapped": 4505600,
+                  "fileDirty": 3239936,
+                  "fileWriteback": 0,
+                  "slab": 26296816,
+                  "pgscan": 0,
+                  "pgsteal": 0,
+                  "pgfault": 41406,
+                  "pgmajfault": 32,
+                  "peak": 973651968,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1323
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1323
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 412082176,
+                  "writeBytes": 389611520,
+                  "discardBytes": 0,
+                  "readIOs": 5652,
+                  "writeIOs": 4801,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 447617
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 447370
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 37
+                }
+              },
+              {
+                "timestamp": "2026-09-20T14:40:59.061858096Z",
+                "cpuStat": {
+                  "usageNanos": 5174288000,
+                  "userNanos": 3885398000,
+                  "systemNanos": 1288889000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0.54,
+                      "avg60": 0.09,
+                      "avg300": 0.02,
+                      "total": 358201
+                    },
+                    "full": {
+                      "avg10": 0.18,
+                      "avg60": 0.03,
+                      "avg300": 0,
+                      "total": 136797
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 520880128,
+                  "file": 804950016,
+                  "kernelStack": 622592,
+                  "pageTables": 13664256,
+                  "sock": 0,
+                  "shmem": 0,
+                  "fileMapped": 4505600,
+                  "fileDirty": 3239936,
+                  "fileWriteback": 0,
+                  "slab": 27101784,
+                  "pgscan": 0,
+                  "pgsteal": 0,
+                  "pgfault": 155922,
+                  "pgmajfault": 32,
+                  "peak": 1375305728,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1323
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1323
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 412090368,
+                  "writeBytes": 389611520,
+                  "discardBytes": 0,
+                  "readIOs": 5654,
+                  "writeIOs": 4801,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 3.8,
+                      "avg60": 0.68,
+                      "avg300": 0.14,
+                      "total": 447685
+                    },
+                    "full": {
+                      "avg10": 3.8,
+                      "avg60": 0.68,
+                      "avg300": 0.14,
+                      "total": 447370
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 38
+                }
+              },
+              {
+                "timestamp": "2026-09-20T14:40:59.187851904Z",
+                "cpuStat": {
+                  "usageNanos": 5301235000,
+                  "userNanos": 3941043000,
+                  "systemNanos": 1360191000,
+                  "nrPeriods": 0,
+                  "nrThrottled": 0,
+                  "throttledNanos": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 2.98,
+                      "avg60": 0.55,
+                      "avg300": 0.11,
+                      "total": 361765
+                    },
+                    "full": {
+                      "avg10": 1.05,
+                      "avg60": 0.19,
+                      "avg300": 0.04,
+                      "total": 138309
+                    }
+                  }
+                },
+                "memoryStat": {
+                  "swapBytes": 0,
+                  "anon": 0,
+                  "file": 806998016,
+                  "kernelStack": 0,
+                  "pageTables": 897024,
+                  "sock": 0,
+                  "shmem": 0,
+                  "fileMapped": 0,
+                  "fileDirty": 5292032,
+                  "fileWriteback": 0,
+                  "slab": 26451560,
+                  "pgscan": 0,
+                  "pgsteal": 0,
+                  "pgfault": 163953,
+                  "pgmajfault": 32,
+                  "peak": 1406758912,
+                  "pressure": {
+                    "some": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1494
+                    },
+                    "full": {
+                      "avg10": 0,
+                      "avg60": 0,
+                      "avg300": 0,
+                      "total": 1494
+                    }
+                  }
+                },
+                "ioStat": {
+                  "readBytes": 412102656,
+                  "writeBytes": 389611520,
+                  "discardBytes": 0,
+                  "readIOs": 5657,
+                  "writeIOs": 4801,
+                  "discardIOs": 0,
+                  "pressure": {
+                    "some": {
+                      "avg10": 3.11,
+                      "avg60": 0.66,
+                      "avg300": 0.14,
+                      "total": 447855
+                    },
+                    "full": {
+                      "avg10": 3.11,
+                      "avg60": 0.66,
+                      "avg300": 0.14,
+                      "total": 447439
+                    }
+                  }
+                },
+                "pidsStat": {
+                  "current": 0
+                }
+              }
+            ],
+            "sysCPUStat": {
+              "user": 3.96,
+              "nice": 0,
+              "system": 1.52,
+              "idle": 10.25,
+              "iowait": 0.59,
+              "irq": 0,
+              "softirq": 0.01,
+              "steal": 0.01,
+              "guest": 0,
+              "guestNice": 0
+            }
+          }
+        },
+        {
+          "id": "step37",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/workspace/apps/borrower-web/dist",
+                        "dest": "/workspace/dist",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step1:0",
+            "step36:0"
+          ]
+        },
+        {
+          "id": "step38",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/pandora-check-build.cjs",
+                        "dest": "/workspace/check.cjs",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step37:0",
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step39",
+          "op": {
+            "Op": {}
+          },
+          "inputs": [
+            "step38:0"
+          ]
+        }
+      ],
+      "digestMapping": {
+        "sha256:0478bd4fea3d8abcb0baee550463aa8fe23b30d875313c0b1357a9ff5400e9af": "step4",
+        "sha256:0c4beb3da7dd38731f551960fb34d9b13dfda170e391623801ff0ee401635a84": "step27",
+        "sha256:12007c6c757152f0e5afced0b6db84f76b7c9a29720a05fa2ecb340030be468f": "step34",
+        "sha256:13755fcf34e33cf71060179485922a7d4a6168917213f4e247cc0c1edd6ad38f": "step36",
+        "sha256:186b0aa4f25437494a733729daee01c8b39e28aad5eef0bb42e00dd68d1c85a3": "step0",
+        "sha256:1bb3a1828d245d40ce5a26936945995dc1b5ffa11112b6edb4c30f7059bb7b86": "step35",
+        "sha256:2125055c35b8a8cb729f3bcbeacb839fba35e4d1aa47b5bf0ffebfe78106c5ce": "step8",
+        "sha256:30d16d86da8aff771893310eb21851a5b327753125042a9357d420514baa85f1": "step5",
+        "sha256:3b42f4f1dd280192baba62d4cfb5cbada9640e626ddc41c22bb4923c7ed0f1e7": "step11",
+        "sha256:44f31f3784f8d9a32b176fc305a12f308c574d0c7a18d4f38e5dcc06ec7658e5": "step18",
+        "sha256:4a36806f68ba7d7dbb2ca3bd46c3c5b02d991b64d201185c1b040351d6418cf8": "step10",
+        "sha256:4b43d1ab6aaf9c0e574cdbb1c3bab4d1b8d01d92b83feb6d89d0b11d1fe91922": "step6",
+        "sha256:55cfd6052ba4cab5388210cf63368d34dada80dfe267defddb993680961e7b72": "step1",
+        "sha256:5c0f6ac3b8c3eed6ac7fc6b9d0558727e28707e6e7d7db52493b486d00cc978d": "step9",
+        "sha256:60df69fb8fa67d58dea83ffa69d1a629db7e9fed494d246ca69a77f7252a4b81": "step14",
+        "sha256:61b07a4ea5f7f5e6fe6f9cacd6ed49e9cb41dc4451c746579df8c8f3b802440a": "step25",
+        "sha256:61c8dd7bdc06c07fa5a5eb5690ad9daf2e755833567b54e698133057d9c42454": "step38",
+        "sha256:64fa0a213f2925480272c48478b9671e2d135233a243c4090850f55b7005ccb8": "step21",
+        "sha256:6b71edbe1180cc38d934515e5497eb37747235796a4d000113dcec804e8b68c3": "step39",
+        "sha256:6e58178e1d97b17ea34624540fa3538c8a75bebe8d99261f944609394ed2a3ff": "step16",
+        "sha256:709457635c6dbcc95bfe0250ad72dd74fb0e61613a39f718d5637f8fc2b53188": "step22",
+        "sha256:717383d51993f8a0cfdb042248fb4e52ca76faf4ba647ae0de1ad24f348baa32": "step13",
+        "sha256:736be1b4bcdb4060f8471771069b091088ec88c7d45ef214d031af58f15cec92": "step7",
+        "sha256:79dacf8b39b096c6ea90f46d9fd3feec4d96d2cf3aaae17fbcb5177c6f8dff3f": "step37",
+        "sha256:7e646198b72aba8cfa98c8bce97a5152a19588fb7e9d5405f5c83f98a62a13a7": "step17",
+        "sha256:81ea97a98a88ebfe6766c27ed670aba57e5b6806dbfa42630a9c2796938c8080": "step31",
+        "sha256:8ce89f0bc96b17416e4cb6c87d40d65572bdeaf9fc51350c56df71cdd513f0af": "step26",
+        "sha256:92acf4018a673ae9837268bdf79be47359eba2a922ae931cad1051d667b2d312": "step3",
+        "sha256:99767320335d5c96629b12e947f9f41db94fd16de4f1e14bb8536c3a5bffe68a": "step24",
+        "sha256:9df954e1819cab49e4bccb05a1a5c8373e44bdac4c073f40f4d9625b8824d2ed": "step33",
+        "sha256:aaa33c07e075d93af1e3783b8badd8e2ffa8c922e9ca434edf9528c89290417c": "step23",
+        "sha256:b21e5e4d70de1802b8abfdc55278e41b09d6cf3fff1d1d924afabb6e4f53adb3": "step20",
+        "sha256:c93652b4ca0c6d91db493b4b53f42050d0973439e8a444ab72c75c9fbfced0c0": "step32",
+        "sha256:ce81ec5f4463e5e43a5052f083e99bf22cf0e8748a38d51a86e3eccd09a6c4a6": "step29",
+        "sha256:d88cc235997aa384d3e283ec0258dd07bbb2525d81773a33ac25b978e14bba2e": "step30",
+        "sha256:eb67bfd391d5d7e205bade98050530b32959f22da0a4c51b6e83251e4578b73a": "step2",
+        "sha256:f017d169b0015f8bf582918c862b8fafbb8f2110da6cec78f3a64d7185c41f68": "step15",
+        "sha256:f257aa567697be4ff98288c7d335c901c9a4c9e81d15334e596c6f6b21c64818": "step12",
+        "sha256:f5d1157531622cd82a50436295221a36e588d7400b9e3ee3513b32caa7176ff4": "step19",
+        "sha256:f5faa46a647ea1e7557028f5b8d8b402224b653cff97ef319ad7f36aef19826a": "step28"
+      }
+    },
+    "metadata": {
+      "buildInvocationID": "uzmqqqs2huylyce8l433upgtd",
+      "buildStartedOn": "2026-09-20T14:40:46.643333017Z",
+      "buildFinishedOn": "2026-09-20T14:40:59.888452198Z",
+      "completeness": {
+        "parameters": true,
+        "environment": true,
+        "materials": false
+      },
+      "reproducible": false,
+      "https://mobyproject.org/buildkit@v1#metadata": {
+        "source": {
+          "locations": {
+            "step0": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 38
+                      },
+                      "end": {
+                        "line": 38
+                      }
+                    }
+                  ]
+                },
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 1
+                      },
+                      "end": {
+                        "line": 1
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step1": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 39
+                      },
+                      "end": {
+                        "line": 39
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step10": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 10
+                      },
+                      "end": {
+                        "line": 10
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step11": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 11
+                      },
+                      "end": {
+                        "line": 11
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step12": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 12
+                      },
+                      "end": {
+                        "line": 12
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step13": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 13
+                      },
+                      "end": {
+                        "line": 13
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step14": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 14
+                      },
+                      "end": {
+                        "line": 14
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step15": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 15
+                      },
+                      "end": {
+                        "line": 15
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step16": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 16
+                      },
+                      "end": {
+                        "line": 16
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step17": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 17
+                      },
+                      "end": {
+                        "line": 17
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step18": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 18
+                      },
+                      "end": {
+                        "line": 18
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step19": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 19
+                      },
+                      "end": {
+                        "line": 19
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step2": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 2
+                      },
+                      "end": {
+                        "line": 2
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step20": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 20
+                      },
+                      "end": {
+                        "line": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step21": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 21
+                      },
+                      "end": {
+                        "line": 21
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step22": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 22
+                      },
+                      "end": {
+                        "line": 22
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step23": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 23
+                      },
+                      "end": {
+                        "line": 23
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step24": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 24
+                      },
+                      "end": {
+                        "line": 24
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step25": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 25
+                      },
+                      "end": {
+                        "line": 25
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step26": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 26
+                      },
+                      "end": {
+                        "line": 26
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step27": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 27
+                      },
+                      "end": {
+                        "line": 27
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step28": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 28
+                      },
+                      "end": {
+                        "line": 28
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step29": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 29
+                      },
+                      "end": {
+                        "line": 29
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step3": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 3
+                      },
+                      "end": {
+                        "line": 3
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step30": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 30
+                      },
+                      "end": {
+                        "line": 30
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step31": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 31
+                      },
+                      "end": {
+                        "line": 31
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step32": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 32
+                      },
+                      "end": {
+                        "line": 32
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step33": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 33
+                      },
+                      "end": {
+                        "line": 33
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step34": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 34
+                      },
+                      "end": {
+                        "line": 34
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step35": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 35
+                      },
+                      "end": {
+                        "line": 35
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step36": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 37
+                      },
+                      "end": {
+                        "line": 37
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step37": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 40
+                      },
+                      "end": {
+                        "line": 40
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step38": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 41
+                      },
+                      "end": {
+                        "line": 41
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step4": {},
+            "step5": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 5
+                      },
+                      "end": {
+                        "line": 5
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step6": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 6
+                      },
+                      "end": {
+                        "line": 6
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step7": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 7
+                      },
+                      "end": {
+                        "line": 7
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step8": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 8
+                      },
+                      "end": {
+                        "line": 8
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step9": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 9
+                      },
+                      "end": {
+                        "line": 9
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "infos": [
+            {
+              "filename": "Pandora.Dockerfile",
+              "language": "Dockerfile",
+              "data": "RlJPTSBub2RlOjI0LWJvb2t3b3JtLXNsaW1Ac2hhMjU2OjBlMGZmNDBjMzliYzA4Nzg0NWJmYjI3NDY1YTBkZjRlYTQxOTUyMDA5NGJjMzU4NDJmZjgzZGQ4Y2JlNmY5YjYgQVMgYnVpbGQKUlVOIG5wbSBpbnN0YWxsIC0tZ2xvYmFsIHBucG1AMTIuMy40CldPUktESVIgL3dvcmtzcGFjZQpFTlYgQ0k9dHJ1ZQpDT1BZIFsiYXBwcy9hZ2VudC9wYWNrYWdlLmpzb24iLCAiLi9hcHBzL2FnZW50L3BhY2thZ2UuanNvbiJdCkNPUFkgWyJhcHBzL2FwaS9wYWNrYWdlLmpzb24iLCAiLi9hcHBzL2FwaS9wYWNrYWdlLmpzb24iXQpDT1BZIFsiYXBwcy9ib3Jyb3dlci13ZWIvcGFja2FnZS5qc29uIiwgIi4vYXBwcy9ib3Jyb3dlci13ZWIvcGFja2FnZS5qc29uIl0KQ09QWSBbImFwcHMvYm9ycm93ZXIvcGFja2FnZS5qc29uIiwgIi4vYXBwcy9ib3Jyb3dlci9wYWNrYWdlLmpzb24iXQpDT1BZIFsiYXBwcy9icmFuZC10b3VyL3BhY2thZ2UuanNvbiIsICIuL2FwcHMvYnJhbmQtdG91ci9wYWNrYWdlLmpzb24iXQpDT1BZIFsiYXBwcy9icmllZi9wYWNrYWdlLmpzb24iLCAiLi9hcHBzL2JyaWVmL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJhcHBzL2Rlc2svcGFja2FnZS5qc29uIiwgIi4vYXBwcy9kZXNrL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJhcHBzL2ZpbG0vcGFja2FnZS5qc29uIiwgIi4vYXBwcy9maWxtL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJhcHBzL21vY2t1cC9wYWNrYWdlLmpzb24iLCAiLi9hcHBzL21vY2t1cC9wYWNrYWdlLmpzb24iXQpDT1BZIFsiYXBwcy9wcm9ncmVzcy9wYWNrYWdlLmpzb24iLCAiLi9hcHBzL3Byb2dyZXNzL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJhcHBzL3N0YXRpYy1kb2NzL3BhY2thZ2UuanNvbiIsICIuL2FwcHMvc3RhdGljLWRvY3MvcGFja2FnZS5qc29uIl0KQ09QWSBbImFwcHMvd2ViL3BhY2thZ2UuanNvbiIsICIuL2FwcHMvd2ViL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJsZWdhY3kvYXBwcy9ibHVlcHJpbnQtdmlld2VyL3BhY2thZ2UuanNvbiIsICIuL2xlZ2FjeS9hcHBzL2JsdWVwcmludC12aWV3ZXIvcGFja2FnZS5qc29uIl0KQ09QWSBbImxlZ2FjeS9hcHBzL2lrZS1hcGkvcGFja2FnZS5qc29uIiwgIi4vbGVnYWN5L2FwcHMvaWtlLWFwaS9wYWNrYWdlLmpzb24iXQpDT1BZIFsibGVnYWN5L2FwcHMvaWtlLXdlYi9wYWNrYWdlLmpzb24iLCAiLi9sZWdhY3kvYXBwcy9pa2Utd2ViL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJsZWdhY3kvYXBwcy9pbnRha2UtbGFiL3BhY2thZ2UuanNvbiIsICIuL2xlZ2FjeS9hcHBzL2ludGFrZS1sYWIvcGFja2FnZS5qc29uIl0KQ09QWSBbImxlZ2FjeS9hcHBzL2pvdXJuZXkvcGFja2FnZS5qc29uIiwgIi4vbGVnYWN5L2FwcHMvam91cm5leS9wYWNrYWdlLmpzb24iXQpDT1BZIFsibGVnYWN5L3BhY2thZ2VzL2JsdWVwcmludC9wYWNrYWdlLmpzb24iLCAiLi9sZWdhY3kvcGFja2FnZXMvYmx1ZXByaW50L3BhY2thZ2UuanNvbiJdCkNPUFkgWyJsZWdhY3kvcGFja2FnZXMvY29yZS9wYWNrYWdlLmpzb24iLCAiLi9sZWdhY3kvcGFja2FnZXMvY29yZS9wYWNrYWdlLmpzb24iXQpDT1BZIFsibGVnYWN5L3BhY2thZ2VzL2lrZS11aS9wYWNrYWdlLmpzb24iLCAiLi9sZWdhY3kvcGFja2FnZXMvaWtlLXVpL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJwYWNrYWdlLmpzb24iLCAiLi9wYWNrYWdlLmpzb24iXQpDT1BZIFsicGFja2FnZXMvY2xpZW50L3BhY2thZ2UuanNvbiIsICIuL3BhY2thZ2VzL2NsaWVudC9wYWNrYWdlLmpzb24iXQpDT1BZIFsicGFja2FnZXMvZGVzaWduL3BhY2thZ2UuanNvbiIsICIuL3BhY2thZ2VzL2Rlc2lnbi9wYWNrYWdlLmpzb24iXQpDT1BZIFsicGFja2FnZXMvZG9tYWluL3BhY2thZ2UuanNvbiIsICIuL3BhY2thZ2VzL2RvbWFpbi9wYWNrYWdlLmpzb24iXQpDT1BZIFsicGFja2FnZXMvc2NlbmFyaW9zL3BhY2thZ2UuanNvbiIsICIuL3BhY2thZ2VzL3NjZW5hcmlvcy9wYWNrYWdlLmpzb24iXQpDT1BZIFsicGFja2FnZXMvdmVuZG9ycy9wYWNrYWdlLmpzb24iLCAiLi9wYWNrYWdlcy92ZW5kb3JzL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJwYWNrYWdlcy93ZWItdWkvcGFja2FnZS5qc29uIiwgIi4vcGFja2FnZXMvd2ViLXVpL3BhY2thZ2UuanNvbiJdCkNPUFkgWyJwYXRjaGVzL2RlY29kZS11cmktY29tcG9uZW50QDAuNS4wLnBhdGNoIiwgIi4vcGF0Y2hlcy9kZWNvZGUtdXJpLWNvbXBvbmVudEAwLjUuMC5wYXRjaCJdCkNPUFkgWyJwbnBtLWxvY2sueWFtbCIsICIuL3BucG0tbG9jay55YW1sIl0KQ09QWSBbInBucG0td29ya3NwYWNlLnlhbWwiLCAiLi9wbnBtLXdvcmtzcGFjZS55YW1sIl0KUlVOIC0tbW91bnQ9dHlwZT1jYWNoZSxpZD1wYW5kb3JhLWNvbXBpbGVkLXBucG0sdGFyZ2V0PS9wbnBtL3N0b3JlIHBucG0gaW5zdGFsbCAtLWZyb3plbi1sb2NrZmlsZSAtLXN0b3JlLWRpcj0vcG5wbS9zdG9yZQojIFByZXNlcnZlIGRlcGVuZGVuY3kgaW5wdXQgdGltZXN0YW1wcyB3aGlsZSBvdmVybGF5aW5nIGN1cnJlbnQgYXBwbGljYXRpb24gc291cmNlLgpSVU4gLS1tb3VudD10eXBlPWJpbmQsc291cmNlPS4sdGFyZ2V0PS9pbnB1dHMgbm9kZSAvaW5wdXRzL3BhbmRvcmEtY29weS1zb3VyY2UuY2pzICYmIHBucG0gLS1maWx0ZXIgQGVpY2hsZXIvYm9ycm93ZXItd2ViIGJ1aWxkCkZST00gbm9kZToyNC1ib29rd29ybS1zbGltQHNoYTI1NjowZTBmZjQwYzM5YmMwODc4NDViZmIyNzQ2NWEwZGY0ZWE0MTk1MjAwOTRiYzM1ODQyZmY4M2RkOGNiZTZmOWI2CldPUktESVIgL3dvcmtzcGFjZQpDT1BZIC0tZnJvbT1idWlsZCAvd29ya3NwYWNlL2FwcHMvYm9ycm93ZXItd2ViL2Rpc3QgL3dvcmtzcGFjZS9kaXN0CkNPUFkgcGFuZG9yYS1jaGVjay1idWlsZC5janMgL3dvcmtzcGFjZS9jaGVjay5janMKQ01EIFsibm9kZSIsICJjaGVjay5janMiXQo=",
+              "llbDefinition": [
+                {
+                  "id": "step0",
+                  "op": {
+                    "Op": {
+                      "source": {
+                        "identifier": "local://dockerfile",
+                        "attrs": {
+                          "local.differ": "none",
+                          "local.followpaths": "[\"Pandora.Dockerfile\",\"Pandora.Dockerfile.dockerignore\"]",
+                          "local.sharedkeyhint": "dockerfile"
+                        }
+                      }
+                    },
+                    "constraints": {}
+                  }
+                },
+                {
+                  "id": "step1",
+                  "op": {
+                    "Op": {}
+                  },
+                  "inputs": [
+                    "step0:0"
+                  ]
+                }
+              ],
+              "digestMapping": {
+                "sha256:b875d4e97ddd7ac63e01dfce10b2a187fd18966811cde9835e0673d3af5ee66b": "step1",
+                "sha256:fa8576b8b9edba2fb79a12734bbeb48cba49aa53b2192182943733d1cfd913f8": "step0"
+              }
+            }
+          ]
+        },
+        "layers": {
+          "step0:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150",
+                "size": 28238443
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:eab09f3e3981ba4ceab089988dd081db334f2221594d7873f6b9e123f32d2105",
+                "size": 3309
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164",
+                "size": 50860465
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b",
+                "size": 1713025
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:a0498254f698ab1b2c7d0d1ce51ebdea22c1f01e620433118a5c764fab93a3dc",
+                "size": 445
+              }
+            ]
+          ],
+          "step1:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150",
+                "size": 28238443
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:eab09f3e3981ba4ceab089988dd081db334f2221594d7873f6b9e123f32d2105",
+                "size": 3309
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164",
+                "size": 50860465
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b",
+                "size": 1713025
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:a0498254f698ab1b2c7d0d1ce51ebdea22c1f01e620433118a5c764fab93a3dc",
+                "size": 445
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:45d865e37c11353e9ec9099a4ac45ce18601da46a8bd79726f7f415f76e8f68d",
+                "size": 99
+              }
+            ]
+          ],
+          "step37:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150",
+                "size": 28238443
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:eab09f3e3981ba4ceab089988dd081db334f2221594d7873f6b9e123f32d2105",
+                "size": 3309
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164",
+                "size": 50860465
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b",
+                "size": 1713025
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:a0498254f698ab1b2c7d0d1ce51ebdea22c1f01e620433118a5c764fab93a3dc",
+                "size": 445
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:45d865e37c11353e9ec9099a4ac45ce18601da46a8bd79726f7f415f76e8f68d",
+                "size": 99
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:0ce9ca9bc362d15a5102afdf20a7b0b5a0fbd43cc77171fac63a4cad9cbe03d5",
+                "size": 228740
+              }
+            ]
+          ],
+          "step38:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:774043ccc8ccd0d0833a9ee0792142ab7ad93df971e59dd248fbf82db16d0150",
+                "size": 28238443
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:eab09f3e3981ba4ceab089988dd081db334f2221594d7873f6b9e123f32d2105",
+                "size": 3309
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1c473ca5523b8180b93f87dd2961339837b4d84db4d4998197a64984462b5164",
+                "size": 50860465
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:2a11efab31915186066efa212f7ba10e7ff63c5d49d21d07c4a8377a2993e70b",
+                "size": 1713025
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:a0498254f698ab1b2c7d0d1ce51ebdea22c1f01e620433118a5c764fab93a3dc",
+                "size": 445
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:45d865e37c11353e9ec9099a4ac45ce18601da46a8bd79726f7f415f76e8f68d",
+                "size": 99
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:0ce9ca9bc362d15a5102afdf20a7b0b5a0fbd43cc77171fac63a4cad9cbe03d5",
+                "size": 228740
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:04d9b882d95692bd10f62ece90c36d6b7d3f5589e98188b69b3110717169c7be",
+                "size": 395
+              }
+            ]
+          ]
+        },
+        "sysUsage": [
+          {
+            "timestamp": "2026-09-20T14:40:48.668497898Z",
+            "cpuStat": {
+              "user": 3639.23,
+              "nice": 82.96,
+              "system": 1731.4,
+              "idle": 263341.78,
+              "iowait": 88.36,
+              "irq": 0,
+              "softirq": 52.01,
+              "steal": 9.65,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62654858,
+              "processCreated": 372832,
+              "processesRunning": 9
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 179956,
+              "available": 14843820,
+              "buffers": 663352,
+              "cached": 11852488,
+              "active": 758964,
+              "inactive": 12082096,
+              "swap": 0,
+              "dirty": 673940,
+              "writeback": 0,
+              "slab": 2852984
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 4.41,
+                "avg60": 2.95,
+                "avg300": 2.38,
+                "total": 327582006
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 2326957
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 2025556
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 1.23,
+                "avg60": 0.74,
+                "avg300": 0.38,
+                "total": 37724076
+              },
+              "full": {
+                "avg10": 1.05,
+                "avg60": 0.64,
+                "avg300": 0.28,
+                "total": 29137039
+              }
+            }
+          },
+          {
+            "timestamp": "2026-09-20T14:40:50.66992014Z",
+            "cpuStat": {
+              "user": 3639.9,
+              "nice": 82.96,
+              "system": 1735.37,
+              "idle": 263344.26,
+              "iowait": 89.05,
+              "irq": 0,
+              "softirq": 52.07,
+              "steal": 9.65,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62700871,
+              "processCreated": 372837,
+              "processesRunning": 4
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 258604,
+              "available": 14731908,
+              "buffers": 694836,
+              "cached": 11521100,
+              "active": 897396,
+              "inactive": 11745868,
+              "swap": 0,
+              "dirty": 163736,
+              "writeback": 5976,
+              "slab": 2975404
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 17.38,
+                "avg60": 5.34,
+                "avg300": 2.88,
+                "total": 328538305
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0.36,
+                "avg60": 0.06,
+                "avg300": 0.01,
+                "total": 2377717
+              },
+              "full": {
+                "avg10": 0.18,
+                "avg60": 0.03,
+                "avg300": 0,
+                "total": 2065566
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 4.81,
+                "avg60": 1.4,
+                "avg300": 0.53,
+                "total": 38213871
+              },
+              "full": {
+                "avg10": 1.76,
+                "avg60": 0.78,
+                "avg300": 0.32,
+                "total": 29313508
+              }
+            }
+          },
+          {
+            "timestamp": "2026-09-20T14:40:52.670962475Z",
+            "cpuStat": {
+              "user": 3642.04,
+              "nice": 82.96,
+              "system": 1736.24,
+              "idle": 263349,
+              "iowait": 89.06,
+              "irq": 0,
+              "softirq": 52.2,
+              "steal": 9.65,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62736352,
+              "processCreated": 372889,
+              "processesRunning": 3
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 583916,
+              "available": 14474140,
+              "buffers": 690292,
+              "cached": 10950692,
+              "active": 1087544,
+              "inactive": 11244392,
+              "swap": 0,
+              "dirty": 343272,
+              "writeback": 0,
+              "slab": 2971604
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 17.86,
+                "avg60": 5.82,
+                "avg300": 3,
+                "total": 328704705
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0.47,
+                "avg60": 0.09,
+                "avg300": 0.02,
+                "total": 2400793
+              },
+              "full": {
+                "avg10": 0.32,
+                "avg60": 0.06,
+                "avg300": 0.01,
+                "total": 2086384
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 5.57,
+                "avg60": 1.65,
+                "avg300": 0.58,
+                "total": 38222449
+              },
+              "full": {
+                "avg10": 2.17,
+                "avg60": 0.89,
+                "avg300": 0.34,
+                "total": 29321237
+              }
+            }
+          },
+          {
+            "timestamp": "2026-09-20T14:40:54.671184231Z",
+            "cpuStat": {
+              "user": 3643.11,
+              "nice": 82.96,
+              "system": 1737.49,
+              "idle": 263354.21,
+              "iowait": 89.37,
+              "irq": 0,
+              "softirq": 52.28,
+              "steal": 9.65,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62756959,
+              "processCreated": 372958,
+              "processesRunning": 2
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 1530708,
+              "available": 14826456,
+              "buffers": 691264,
+              "cached": 10418668,
+              "active": 599956,
+              "inactive": 10734560,
+              "swap": 0,
+              "dirty": 716,
+              "writeback": 0,
+              "slab": 2903652
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 16.07,
+                "avg60": 5.89,
+                "avg300": 3.03,
+                "total": 328856143
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0.75,
+                "avg60": 0.16,
+                "avg300": 0.03,
+                "total": 2438433
+              },
+              "full": {
+                "avg10": 0.63,
+                "avg60": 0.12,
+                "avg300": 0.02,
+                "total": 2122386
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 4.56,
+                "avg60": 1.6,
+                "avg300": 0.58,
+                "total": 38329697
+              },
+              "full": {
+                "avg10": 1.77,
+                "avg60": 0.86,
+                "avg300": 0.34,
+                "total": 29413223
+              }
+            }
+          },
+          {
+            "timestamp": "2026-09-20T14:40:56.672003578Z",
+            "cpuStat": {
+              "user": 3643.37,
+              "nice": 82.96,
+              "system": 1738.65,
+              "idle": 263360.14,
+              "iowait": 89.95,
+              "irq": 0,
+              "softirq": 52.28,
+              "steal": 9.65,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62780831,
+              "processCreated": 373014,
+              "processesRunning": 2
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 803488,
+              "available": 14878388,
+              "buffers": 695820,
+              "cached": 11183936,
+              "active": 635964,
+              "inactive": 11500236,
+              "swap": 0,
+              "dirty": 16052,
+              "writeback": 148,
+              "slab": 2913392
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 13.7,
+                "avg60": 5.8,
+                "avg300": 3.03,
+                "total": 328934476
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0.61,
+                "avg60": 0.15,
+                "avg300": 0.03,
+                "total": 2438433
+              },
+              "full": {
+                "avg10": 0.51,
+                "avg60": 0.12,
+                "avg300": 0.02,
+                "total": 2122386
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 5.91,
+                "avg60": 1.94,
+                "avg300": 0.66,
+                "total": 38870844
+              },
+              "full": {
+                "avg10": 3.44,
+                "avg60": 1.19,
+                "avg300": 0.41,
+                "total": 29920061
+              }
+            }
+          },
+          {
+            "timestamp": "2026-09-20T14:40:58.672999754Z",
+            "cpuStat": {
+              "user": 3646.49,
+              "nice": 82.96,
+              "system": 1739.17,
+              "idle": 263364.38,
+              "iowait": 89.96,
+              "irq": 0,
+              "softirq": 52.29,
+              "steal": 9.66,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62801451,
+              "processCreated": 373079,
+              "processesRunning": 5
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 333444,
+              "available": 14425248,
+              "buffers": 695904,
+              "cached": 11200420,
+              "active": 1107488,
+              "inactive": 11500460,
+              "swap": 0,
+              "dirty": 16328,
+              "writeback": 0,
+              "slab": 2913572
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 13.21,
+                "avg60": 5.97,
+                "avg300": 3.08,
+                "total": 329201174
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0.5,
+                "avg60": 0.15,
+                "avg300": 0.03,
+                "total": 2442545
+              },
+              "full": {
+                "avg10": 0.42,
+                "avg60": 0.11,
+                "avg300": 0.02,
+                "total": 2126499
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 8.28,
+                "avg60": 2.5,
+                "avg300": 0.78,
+                "total": 38871930
+              },
+              "full": {
+                "avg10": 6.08,
+                "avg60": 1.74,
+                "avg300": 0.53,
+                "total": 29921057
+              }
+            }
+          },
+          {
+            "timestamp": "2026-09-20T14:40:59.900808162Z",
+            "cpuStat": {
+              "user": 3648.08,
+              "nice": 82.96,
+              "system": 1740.23,
+              "idle": 263366.41,
+              "iowait": 90.04,
+              "irq": 0,
+              "softirq": 52.3,
+              "steal": 9.66,
+              "guest": 0,
+              "guestNice": 0
+            },
+            "procStat": {
+              "contextSwitches": 62877367,
+              "processCreated": 373105,
+              "processesRunning": 2
+            },
+            "memoryStat": {
+              "total": 15980224,
+              "free": 1624888,
+              "available": 14845488,
+              "buffers": 688156,
+              "cached": 10343276,
+              "active": 696908,
+              "inactive": 10640460,
+              "swap": 0,
+              "dirty": 836,
+              "writeback": 32,
+              "slab": 2907224
+            },
+            "cpuPressure": {
+              "some": {
+                "avg10": 14.44,
+                "avg60": 6.43,
+                "avg300": 3.2,
+                "total": 329639973
+              },
+              "full": {
+                "avg10": 0,
+                "avg60": 0,
+                "avg300": 0,
+                "total": 0
+              }
+            },
+            "memoryPressure": {
+              "some": {
+                "avg10": 0.59,
+                "avg60": 0.17,
+                "avg300": 0.04,
+                "total": 2482418
+              },
+              "full": {
+                "avg10": 0.52,
+                "avg60": 0.14,
+                "avg300": 0.03,
+                "total": 2161434
+              }
+            },
+            "ioPressure": {
+              "some": {
+                "avg10": 6.78,
+                "avg60": 2.41,
+                "avg300": 0.78,
+                "total": 38904296
+              },
+              "full": {
+                "avg10": 4.98,
+                "avg60": 1.68,
+                "avg300": 0.53,
+                "total": 29942013
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "buildx.build.ref": "pandora-docker-builds-v1/pandora-docker-builds-v10/i8ul4dec3nv5qyzd35a8gj9wo",
+  "containerimage.descriptor": {
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "digest": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+    "size": 1810,
+    "annotations": {
+      "org.opencontainers.image.created": "2026-09-20T14:40:59Z"
+    },
+    "platform": {
+      "architecture": "amd64",
+      "os": "linux"
+    }
+  },
+  "containerimage.digest": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+  "image.name": "docker.io/library/pandora-build:f68033051ce44f7fb546fedc55a5887c"
+}
