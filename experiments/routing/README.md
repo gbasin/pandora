@@ -212,6 +212,7 @@ code uses only the resource lock and cannot honor the new ticket ordering.
 
 `pnpm journey <id> --update` and `pnpm validate journey <id> --update` return
 the selected ledger and its route-manifest update automatically to the local worktree.
+Offline-only journeys return the route manifest without creating a ledger.
 The corresponding `pnpm run` forms work. Catalog updates
 remain implementation targets.
 

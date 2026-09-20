@@ -35,6 +35,7 @@ pnpm validate journey <id> [--fault dropped] [--update]
 
 The same forms with `pnpm run` work. Other flags and the plural `journeys` command
 are rejected. Focused `--update` returns only the selected ledger and its route
+manifest change. Offline-only journeys have no ledger and return only their route
 manifest change. There is no automatic local fallback, general source writeback,
 Mutagen session, or CI dispatch.
 Required target-repo CI remains unchanged.
@@ -262,3 +263,8 @@ The [integrated focused update](notes/journey-update-2026-09-20.md) returns S0-0
 expectations directly into the local worktree, preserves unrelated route entries,
 and recovers interrupted local publication. See the
 [update instructions](experiments/routing/README.md#focused-journey-expectation-updates).
+
+The [expanded workflow trial](notes/workflow-coverage-2026-09-20.md) verifies
+focused S0-02 replay and update, offline SX-20 update, and both browser surfaces
+with `--grep`. Eight sequential VM runs passed with warm dependencies and
+automatic output return. Full-suite sharding remains the next implementation.
