@@ -80,6 +80,10 @@ def main(tool='pnpm'):
             if 'PANDORA_DOCKER_PROFILE_JSON' not in os.environ:
                 raise ValueError('Docker routing needs a human-selected external profile via launch.py --docker-profile. No local command ran.')
             config = profile(os.environ['PANDORA_DOCKER_PROFILE_JSON'])
+            if argv[:1] == ['run'] and config['outputs']:
+                paths = ', '.join(x['container'] + ' -> ' + str(repo / x['workspace']) for x in config['outputs'])
+                print('[pandora] After a successful run, declared outputs return automatically: ' + paths +
+                      '. No output-directory mount is needed; use docker run --rm TAG for an image-only test.', flush=True)
             docker_request = classify_docker(argv, repo, config)
         except (ValueError, TypeError, KeyError) as error:
             print('[pandora] ' + str(error), file=sys.stderr)

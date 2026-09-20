@@ -88,8 +88,9 @@ and worktree must be on the same filesystem supporting directory exchange.
 
 The [longer contention trial](notes/contention-2026-09-20.md) completed four agent
 repair loops and recovered queued and running requests after client loss. It also
-exposed a 280-second non-FIFO queue wait and confusing Docker source/output
-feedback. This is four-agent waiting evidence, not twelve-agent capacity evidence.
+exposed a 280-second non-FIFO queue wait. Docker feedback now clarifies image-only
+inputs and automatic outputs. This is four-agent waiting evidence, not twelve-agent
+capacity evidence.
 
 The [manifest-directed transfer experiment](notes/manifest-transfer-2026-09-20.md)
 did not establish a speed improvement and exposed an input-admission race during
