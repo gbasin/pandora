@@ -58,7 +58,8 @@ with multiple active children remain parent-dispatcher integration work.
 
 ## Evidence
 
-Sixteen focused tests passed: nine durable-admission tests and seven policy tests.
+Nineteen focused tests passed: nine durable-admission tests, seven policy tests,
+and three probe failure-path tests. The complete worker test suite passed all 98 tests.
 They cover CPU/RAM/slot bounds, per-invocation caps, fair turns and strict FIFO,
 queue-clock pause/resume and recovery, fail-fast with live siblings, dead-owner
 barriers, duplicate identities, legacy lock exclusion, and malformed clocks,
@@ -69,9 +70,14 @@ with enforced 0.5 CPU and 128 MiB limits overlapped. A later focused request was
 admitted before the waiting third suite task. A deliberately killed worker left
 its container alive and blocked the next request. Removing that container and
 publishing cleanup released the blocker without creating a test terminal.
-All probe containers were removed afterward.
+A second independent probe using `dd5cd13` repeated these checks and directly
+verified two simultaneously live containers. All probe containers were removed
+afterward. A subsequent review fixed the probe cleanup path for failed container
+creation: verified absence records failure, while unknown cleanup retains the
+admission barrier. Three tests cover those paths.
 
 The local evidence is under
-`~/.local/state/pandora/resource-admission-20260920/first-result.json`. This probe
+`~/.local/state/pandora/resource-admission-20260920/first-result.json` and
+`second-result.json` in the same directory. This probe
 uses a separate ledger and small Node processes. It does not establish concurrent
 journey performance, production integration, or twelve-agent readiness.

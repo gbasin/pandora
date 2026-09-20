@@ -23,6 +23,15 @@ def docker(*args):
     return subprocess.run(['sudo', 'docker', *args], check=True, capture_output=True, text=True, timeout=30)
 
 
+def remove_container(name):
+    removed = subprocess.run(['sudo', 'docker', 'rm', '-f', name],
+                             capture_output=True, text=True, timeout=30)
+    if removed.returncode and 'No such container' not in removed.stderr:
+        raise RuntimeError('Probe container removal is unresolved: ' + removed.stderr)
+    if docker('ps', '-a', '--filter', 'name=^/' + name + '$', '--format', '{{.Names}}').stdout.strip():
+        raise RuntimeError('Probe container still exists after removal')
+
+
 def write(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value))
@@ -59,12 +68,15 @@ def worker(root, boot, invocation, attempt, image, label, events, release):
                 raise TimeoutError('Probe controller did not release task')
             succeeded = True
         finally:
-            if created:
-                docker('rm', '-f', name)
-            if lease is not None:
-                write(path / 'terminal.json', {'attempt': attempt, 'cleanup_verified': True, 'exit_code': 0 if succeeded else 70})
-                scheduler.settle(attempt)
-                lease.close()
+            try:
+                if created:
+                    remove_container(name)
+                if lease is not None:
+                    write(path / 'terminal.json', {'attempt': attempt, 'cleanup_verified': True, 'exit_code': 0 if succeeded else 70})
+                    scheduler.settle(attempt)
+            finally:
+                if lease is not None:
+                    lease.close()
         events.put({'event': 'finished', 'attempt': attempt, 'time': time.monotonic()})
 
 
