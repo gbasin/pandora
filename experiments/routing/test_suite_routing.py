@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -59,6 +60,61 @@ class SuiteRoutingTests(unittest.TestCase):
             })
             output = Path(captured[0][captured[0].index('--output') + 1])
             self.assertFalse(output.exists())
+
+    def test_suite_recovery_uses_original_request_when_shards_change(self):
+        captured = []
+
+        class Child:
+            def wait(self):
+                return 75
+
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            state_root = repo / 'state'
+            state = state_root / hashlib.sha256(str(repo).encode()).hexdigest()
+            attempt = 'a' * 32
+            output = state / attempt
+            output.mkdir(parents=True)
+            original = {'action': 'run', 'shard_count': 2, 'selection': None, 'keep_going': True}
+            request = state / (attempt + '.suite-request.json')
+            route.write(request, original)
+            (output / 'submission.json').write_text(json.dumps({
+                'attempt': attempt, 'workflow': 'suite-run', 'suite': original,
+            }))
+            route.write(state / 'active.json', {
+                'state': 'active', 'tool': 'pnpm', 'output': str(output),
+                'command': ['journeys', '--keep-going'], 'host': 'host',
+                'attempt': attempt, 'suite_request': str(request),
+            })
+            environment = {'PANDORA_HOST': 'host', 'PANDORA_STATE': str(state_root),
+                           'PANDORA_SESSION': 'session', 'PANDORA_SUITE_SHARDS': '9'}
+            with patch.object(sys, 'argv', ['route.py', 'journeys', '--keep-going']), \
+                 patch.dict(os.environ, environment, clear=True), \
+                 patch.object(route.subprocess, 'check_output', return_value=str(repo)), \
+                 patch.object(route.Path, 'cwd', return_value=repo), \
+                 patch.object(route.subprocess, 'Popen', side_effect=lambda command, **_kwargs: captured.append(command) or Child()):
+                self.assertEqual(route.main(), 75)
+            self.assertEqual(len(captured), 1)
+            self.assertIn('transport.py', str(captured[0]))
+            self.assertNotIn('warm.py', str(captured[0]))
+            self.assertEqual(json.loads(request.read_text()), original)
+            self.assertEqual(json.loads((output / 'submission.json').read_text())['suite'], original)
+            self.assertEqual(list(state.glob('*.suite-request.json')), [request])
+
+    def test_real_route_rejects_each_legacy_suite_variable_before_creating_state(self):
+        names = ('JOURNEY_FILTER', 'JOURNEY_SHARD', 'JOURNEY_CONCURRENCY',
+                 'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'IKE_WORLD')
+        for name in names:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
+                state = Path(temp) / 'state'
+                environment = {'PANDORA_HOST': 'host', 'PANDORA_STATE': str(state),
+                               'PANDORA_SESSION': 'session', 'PANDORA_SUITE_SHARDS': '4', name: 'set'}
+                with patch.object(sys, 'argv', ['route.py', 'journeys']), \
+                     patch.dict(os.environ, environment, clear=True), \
+                     patch.object(route.subprocess, 'check_output', side_effect=AssertionError('must not inspect repo')), \
+                     patch.object(route.subprocess, 'Popen', side_effect=AssertionError('must not submit')):
+                    self.assertEqual(route.main(), 64)
+                self.assertFalse(state.exists())
 
 
 if __name__ == '__main__':

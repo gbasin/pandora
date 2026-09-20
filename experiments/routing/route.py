@@ -181,6 +181,11 @@ def main(tool='pnpm'):
                 write(suite_request_path, suite)
                 record['suite_request'] = str(suite_request_path)
             write(active, record)
+            if suite is not None:
+                policy = ('continue after test failures' if suite['keep_going']
+                          else 'stop at the first test failure')
+                print(f'[pandora] Running the full suite in {suite["shard_count"]} sequential shards; {policy}.',
+                      flush=True)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
                        '--output', str(output), '--attempt', record['attempt'],
