@@ -57,7 +57,8 @@ its own writable container, capped at two CPUs and 6 GiB RAM, with one Playwrigh
 worker and a 20-minute container deadline. One heavy run executes at a time.
 Extra requests wait in FIFO order after remote input verification and report their
 queue position. The queue timeout defaults to 15 minutes and is configurable.
-See [admission and deadlines](experiments/routing/README.md#admission-and-deadlines).
+See [admission and deadlines](experiments/routing/README.md#admission-and-deadlines)
+and the [twelve-request fault test](notes/fifo-2026-09-20.md).
 
 The journey adds a private Postgres, PgBouncer, and WebSocket proxy to its run.
 Service images are pinned by digest. No host ports or Docker socket are exposed.
