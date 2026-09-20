@@ -246,10 +246,16 @@ The [command contract](notes/v0.1-contract.md) now prioritizes long-running Eich
 tests: focused/full journeys, both browser surfaces, internal shard scheduling,
 and declared tracked expectation return for `--update`. These additions are
 implementation targets. Current routing still supports borrower-web surfaces,
-S0-01 without update, and the bounded Docker grammar described above.
+S0-01 including `--update`, and the bounded Docker grammar described above.
 
 The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
 reuse and a focused remote update POC, plus synthetic publication recovery. It
 does not establish integrated tracked writeback, actual shard execution or
 multi-server recovery. [Issue #27](https://github.com/gbasin/pandora/issues/27)
 tracks the sequence and evidence. Fast standalone checks and builds stay local.
+
+
+The [integrated focused update](notes/journey-update-2026-09-20.md) returns S0-01
+expectations directly into the local worktree, preserves unrelated route entries,
+and recovers interrupted local publication. See the
+[update instructions](experiments/routing/README.md#focused-journey-expectation-updates).

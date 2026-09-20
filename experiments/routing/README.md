@@ -147,7 +147,8 @@ separately grants pnpm-store access. The launcher does not disable the sandbox.
 ## Service-backed journey
 
 Run `pnpm journey S0-01` or `pnpm validate journey S0-01` from the repository root.
-The same forms with `pnpm run` work. Other journey IDs, flags, and the plural
+The same forms with `pnpm run` work. S0-01 also accepts `--update` as described below.
+Other journey IDs, flags, and the plural
 `journeys` command stop with feedback. Direct package commands can still bypass
 this opt-in wrapper.
 
@@ -203,3 +204,29 @@ worker death can still need operator cleanup.
 
 Drain older clients and workers before deploying FIFO admission. Older worker
 code uses only the resource lock and cannot honor the new ticket ordering.
+
+## Focused journey expectation updates
+
+`pnpm journey S0-01 --update` and `pnpm validate journey S0-01 --update` return
+S0-01's ledger and its route-manifest update automatically to the local worktree.
+The corresponding `pnpm run` forms work. Other journey IDs and catalog updates
+remain implementation targets.
+
+Wait for the command before editing those expectation files. Review the resulting
+`git diff`, then run ordinary validation without `--update`. Pandora preserves
+unrelated route entries. It rejects symlink paths and currently requires regular
+0644 expectation files. Keep the state directory on the worktree's filesystem.
+
+If local delivery is interrupted, retry the identical command. Pandora resumes
+its recorded publication without running the journey again. A detected conflict
+leaves local contents intact and prints paths to proposed files and conflict
+evidence. Before retrying automatic return, restore a conflicted destination to its captured
+version under `<attempt>/source/`, preserving your edit separately. After an
+interrupted publication, an already-returned target must remain at that target.
+Do not delete the active record or its publication intent. Changes to other source make the result stale and
+retain the proposals without publishing them.
+
+Per-file backups and intent live under the attempt's `publication` directory.
+Failed remote updates retain available proposals as diagnostics and do not publish
+them. This is declared expectation return under cooperative ownership; it does
+not synchronize arbitrary source files or promise one atomic multi-file update.
