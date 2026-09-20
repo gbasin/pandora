@@ -1,0 +1,24 @@
+{
+  "platform": "Darwin",
+  "results": [
+    {
+      "window": "before-publish",
+      "retry": "published",
+      "correct_bytes": true
+    },
+    {
+      "window": "after-publish",
+      "retry": "recovered",
+      "correct_bytes": true
+    },
+    {
+      "case": "different-existing-result",
+      "rejected": true
+    },
+    {
+      "case": "symlink",
+      "rejected": true
+    }
+  ],
+  "scope": "Run artifact publication only; no workspace writeback, power-loss durability, or concurrent-writer guarantee"
+}

@@ -1,0 +1,58 @@
+{
+  "exit": 1,
+  "fault": false,
+  "source": "/home/ubuntu/pandora-warm/runs/3fc43c6bbb14422bb7bbab010bcf0111/source",
+  "namespace": "pandora-service-d545bd4e1b",
+  "records": [
+    {
+      "step": "network",
+      "seconds": 0.046,
+      "exit": 0
+    },
+    {
+      "step": "runner",
+      "seconds": 0.182,
+      "exit": 0
+    },
+    {
+      "step": "source-copy",
+      "seconds": 0.29,
+      "exit": 0
+    },
+    {
+      "step": "source-extract",
+      "seconds": 0.602,
+      "exit": 0
+    },
+    {
+      "step": "script",
+      "seconds": 0.016,
+      "exit": 0
+    },
+    {
+      "step": "start-db",
+      "seconds": 4.546,
+      "exit": 0
+    },
+    {
+      "step": "start-pool",
+      "seconds": 0.692,
+      "exit": 0
+    },
+    {
+      "step": "start-proxy",
+      "seconds": 0.82,
+      "exit": 0
+    },
+    {
+      "step": "dependency-gate",
+      "seconds": 0.089,
+      "exit": 0
+    },
+    {
+      "step": "journey",
+      "seconds": 0.089,
+      "exit": 1
+    }
+  ]
+}

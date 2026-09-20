@@ -1,0 +1,102 @@
+[
+  {
+    "step": "network",
+    "seconds": 0.04,
+    "exit": 0
+  },
+  {
+    "step": "runner",
+    "seconds": 0.156,
+    "exit": 0
+  },
+  {
+    "step": "source-copy",
+    "seconds": 0.287,
+    "exit": 0
+  },
+  {
+    "step": "source-extract",
+    "seconds": 0.577,
+    "exit": 0
+  },
+  {
+    "step": "script",
+    "seconds": 0.017,
+    "exit": 0
+  },
+  {
+    "step": "journey-source-copy",
+    "seconds": 0.016,
+    "exit": 0
+  },
+  {
+    "step": "start-db",
+    "seconds": 0.544,
+    "exit": 0
+  },
+  {
+    "step": "start-pool",
+    "seconds": 0.134,
+    "exit": 0
+  },
+  {
+    "step": "start-proxy",
+    "seconds": 0.116,
+    "exit": 0
+  },
+  {
+    "step": "dependency-gate",
+    "seconds": 0.082,
+    "exit": 0
+  },
+  {
+    "step": "journey",
+    "seconds": 42.81,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-b712c2935d-proxy",
+    "seconds": 0.014,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-b712c2935d-proxy",
+    "seconds": 0.059,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-b712c2935d-pool",
+    "seconds": 0.013,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-b712c2935d-pool",
+    "seconds": 0.05,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-b712c2935d-db",
+    "seconds": 0.015,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-b712c2935d-db",
+    "seconds": 0.097,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-b712c2935d-run",
+    "seconds": 0.014,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-b712c2935d-run",
+    "seconds": 0.328,
+    "exit": 0
+  },
+  {
+    "step": "remove-network",
+    "seconds": 0.08,
+    "exit": 0
+  }
+]

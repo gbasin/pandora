@@ -1,0 +1,6 @@
+
+added 2 packages in 2s
+Update available! 12.3.4 → 12.4.2.
+Changelog: https://pnpm.io/v/12.4.2
+To update, run: curl -fsSL https://get.pnpm.io/install.sh | sh -
+Done in 579ms using pnpm v12.3.4

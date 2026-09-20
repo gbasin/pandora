@@ -1,0 +1,49 @@
+#0 building with "pandora-deps-probe-00604ba271" instance using docker-container driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 512B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 58B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/7] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#4 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 172B done
+#5 DONE 0.0s
+
+#6 [stage-0 3/7] WORKDIR /app
+#6 CACHED
+
+#7 [stage-0 2/7] RUN npm install -g pnpm@12.3.4 --loglevel=error
+#7 CACHED
+
+#8 [stage-0 4/7] COPY package.json pnpm-lock.yaml ./
+#8 CACHED
+
+#9 [stage-0 5/7] RUN --mount=type=cache,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts --store-dir=/pnpm/store --reporter=append-only
+#9 CACHED
+
+#10 [stage-0 6/7] COPY source.ts ./
+#10 DONE 0.0s
+
+#11 [stage-0 7/7] RUN pnpm exec tsc source.ts --outDir dist --target ES2022 --module commonjs --skipLibCheck
+#11 DONE 0.6s
+
+#12 exporting to oci image format
+#12 exporting layers 0.0s done
+#12 exporting manifest sha256:748e7d6a5ce8a2aa4a57aa389b22e8823e53e6c11a9003bf5790f91ed03ff9f9 done
+#12 exporting config sha256:18e18517823f1e9437e38a82afa7266b11629b7d8d96ccdaaf87fd883f10d3c3 done
+#12 sending tarball
+#12 sending tarball 1.0s done
+#12 DONE 1.0s
+
+#13 importing to docker
+#13 DONE 0.0s

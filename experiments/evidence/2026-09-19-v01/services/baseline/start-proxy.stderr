@@ -1,0 +1,14 @@
+Unable to find image 'ghcr.io/neondatabase/wsproxy:latest' locally
+latest: Pulling from neondatabase/wsproxy
+da0842e46ffb: Pulling fs layer
+43c4264eed91: Pulling fs layer
+494c47f1e451: Pulling fs layer
+494c47f1e451: Download complete
+da0842e46ffb: Download complete
+43c4264eed91: Download complete
+bbf17b9042bc: Download complete
+43c4264eed91: Pull complete
+494c47f1e451: Pull complete
+da0842e46ffb: Pull complete
+Digest: sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb
+Status: Downloaded newer image for ghcr.io/neondatabase/wsproxy:latest

@@ -1,0 +1,30 @@
+{
+  "platform": "Darwin",
+  "results": [
+    {
+      "scenario": "unchanged",
+      "canonical": "remote",
+      "retained": "baseline",
+      "local_edit_preserved_in_place": true
+    },
+    {
+      "scenario": "edit-before-exchange",
+      "canonical": "remote",
+      "retained": "local edit",
+      "local_edit_preserved_in_place": false
+    },
+    {
+      "scenario": "open-writer-after-exchange",
+      "canonical": "remote",
+      "retained": "late local edit",
+      "local_edit_preserved_in_place": false
+    },
+    {
+      "scenario": "crash-after-exchange",
+      "canonical": "remote",
+      "retained": "baseline",
+      "local_edit_preserved_in_place": true
+    }
+  ],
+  "conclusion": "Retained old inode preserves edits, but conflict stays outside canonical path. Not a complete promotion protocol."
+}

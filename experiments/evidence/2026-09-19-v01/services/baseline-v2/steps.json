@@ -1,0 +1,97 @@
+[
+  {
+    "step": "network",
+    "seconds": 0.041,
+    "exit": 0
+  },
+  {
+    "step": "runner",
+    "seconds": 0.159,
+    "exit": 0
+  },
+  {
+    "step": "source-copy",
+    "seconds": 0.306,
+    "exit": 0
+  },
+  {
+    "step": "source-extract",
+    "seconds": 0.581,
+    "exit": 0
+  },
+  {
+    "step": "script",
+    "seconds": 0.016,
+    "exit": 0
+  },
+  {
+    "step": "start-db",
+    "seconds": 0.549,
+    "exit": 0
+  },
+  {
+    "step": "start-pool",
+    "seconds": 0.13,
+    "exit": 0
+  },
+  {
+    "step": "start-proxy",
+    "seconds": 0.119,
+    "exit": 0
+  },
+  {
+    "step": "dependency-gate",
+    "seconds": 0.079,
+    "exit": 0
+  },
+  {
+    "step": "journey",
+    "seconds": 43.208,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-08c920bb2f-proxy",
+    "seconds": 0.018,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-08c920bb2f-proxy",
+    "seconds": 0.06,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-08c920bb2f-pool",
+    "seconds": 0.014,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-08c920bb2f-pool",
+    "seconds": 0.055,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-08c920bb2f-db",
+    "seconds": 0.014,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-08c920bb2f-db",
+    "seconds": 0.099,
+    "exit": 0
+  },
+  {
+    "step": "inspect-pandora-service-08c920bb2f-run",
+    "seconds": 0.017,
+    "exit": 0
+  },
+  {
+    "step": "remove-pandora-service-08c920bb2f-run",
+    "seconds": 0.34,
+    "exit": 0
+  },
+  {
+    "step": "remove-network",
+    "seconds": 0.072,
+    "exit": 0
+  }
+]
