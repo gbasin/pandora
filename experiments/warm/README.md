@@ -94,5 +94,7 @@ Successful runs export both selected-app build directories under
 `results/outputs/`. The session router verifies and publishes them locally.
 Direct `warm.py` calls only retrieve evidence; they do not publish into a worktree.
 The dependency builder is `pandora-surface-deps-v3`. An unexpectedly running
-builder without the worker lock blocks subsequent validation until an operator
-reconciles it. The worker never starts tests on top of unresolved preparation.
+builder without recorded ownership blocks subsequent validation until an operator
+reconciles it. New dependency preparations hold a dedicated builder ownership lock
+through verified stop. Worker-death cleanup recovers only the recorded owner and
+preserves the cache volume. A delayed cleanup cannot stop a successor. The worker never starts tests on top of unresolved preparation.

@@ -135,16 +135,7 @@ def main():
             'pnpm install --frozen-lockfile --store-dir=/pnpm/store\n')
         (context / 'buildkitd.toml').write_text(
             '[worker.oci]\n  gc = true\n  reservedSpace = "2GB"\n  maxUsedSpace = "12GB"\n  minFreeSpace = "10GB"\n')
-        pending = attempt / 'dependency-cleanup.pending'
-        pending.touch()
-        try:
-            prepare(context, image)
-        finally:
-            from dependencies import CONTAINER
-            state = subprocess.run(['sudo', 'docker', 'ps', '--filter', 'name=^/' + CONTAINER + '$',
-                                    '--format', '{{.Names}}'], capture_output=True, text=True)
-            if state.returncode == 0 and not state.stdout.strip():
-                pending.unlink()
+        prepare(context, image)
 
     metrics['dependency_seconds'] = time.monotonic() - started
     image_id = docker('image', 'inspect', image, '--format', '{{.Id}}',
