@@ -235,7 +235,7 @@ def _conflicts(output, repo, declarations, *, allow_target, committed=()):
     return tuple(paths)
 
 
-def _write_target(repo, output, name, item):
+def _write_target(repo, output, name, item, fault):
     path = _regular_path(repo, name)
     backup = Path(output) / 'publication' / 'backups' / name
     if path.exists() and not backup.exists():
@@ -248,13 +248,18 @@ def _write_target(repo, output, name, item):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Check parents again after mkdir. This remains cooperative ownership, not fencing.
     _regular_path(repo, name)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + '.pandora-', dir=path.parent)
+    staging = Path(output) / 'publication' / 'staging'
+    staging.mkdir(parents=True, exist_ok=True)
+    if staging.stat().st_dev != path.parent.stat().st_dev:
+        raise ValueError('Tracked output staging must share the destination filesystem: ' + name)
+    descriptor, temporary_name = tempfile.mkstemp(prefix='tracked-output-', dir=staging)
     try:
         with os.fdopen(descriptor, 'wb') as temporary:
             temporary.write(item['target'])
             temporary.flush()
             os.fsync(temporary.fileno())
         os.chmod(temporary_name, 0o644)
+        fault('before_replace')
         os.replace(temporary_name, path)
         _fsync_directory(path.parent)
     finally:
@@ -291,7 +296,7 @@ def publish(repo, output, declarations, fault=lambda point: None):
                 _atomic_json(output / INTENT_FILE, {'version': 1, 'phase': 'applying',
                     'declarations': _encode(intent.declarations), 'committed': committed})
             continue
-        _write_target(repo, output, name, item)
+        _write_target(repo, output, name, item, fault)
         fault('after_write')
         committed.append(name)
         _atomic_json(output / INTENT_FILE, {'version': 1, 'phase': 'applying',

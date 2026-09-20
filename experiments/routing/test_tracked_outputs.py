@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -64,6 +65,21 @@ class TrackedOutputs(unittest.TestCase):
         self.assertEqual(read_intent(self.output).committed, ())
         self.assertTrue(source_matches_intent(self.repo, self.output))
         self.assertEqual(publish(self.repo, self.output, declarations).committed, ('x', 'y'))
+
+    def test_abrupt_pre_replace_staging_leftover_is_outside_repo(self):
+        declarations = {'x': {'base': None, 'target': b'X'}}
+        self.prepare(declarations)
+        pid = os.fork()
+        if pid == 0:
+            publish(self.repo, self.output, declarations,
+                    lambda point: os._exit(86) if point == 'before_replace' else None)
+            os._exit(1)
+        self.assertEqual(os.waitpid(pid, 0)[1], 86 << 8)
+        self.assertFalse((self.repo / 'x').exists())
+        self.assertFalse(list(self.repo.rglob('tracked-output-*')))
+        self.assertTrue(list((self.output / 'publication/staging').glob('tracked-output-*')))
+        self.assertTrue(source_matches_intent(self.repo, self.output))
+        self.assertEqual(publish(self.repo, self.output, declarations).committed, ('x',))
 
     def test_noop_target_is_allowed_and_receipted(self):
         (self.repo / 'route-manifest').write_bytes(b'unchanged')
