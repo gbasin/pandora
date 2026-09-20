@@ -75,6 +75,11 @@ profile caps them at 3.5 CPUs and 7.125 GiB. Every invocation starts with a fres
 pnpm caches remain warm, but database and service state do not persist. A systemd
 stop hook removes attempt-owned resources if the worker is killed. Such a kill
 cannot produce a verified test result and still requires operator reconciliation.
+The [operator recovery utility](experiments/warm/notes/operator-recovery.md)
+verifies cleanup and can explicitly acknowledge an unrecoverable result. The client
+then closes that request as an infrastructure failure, with exit 70. A subsequent
+deliberate command can start a new attempt. Acknowledgement never manufactures a
+test result or overrides valid terminal evidence.
 Journey results return as `results/journey.json` under the printed evidence path;
 they do not publish the surface workflow's build directories.
 
