@@ -1,0 +1,23 @@
+{
+  "metrics.json": {
+    "queue_seconds": 0.007236068006022833,
+    "queue_ticket": 13,
+    "dependency_cache_hit": true,
+    "dependency_seconds": 0.040808951991493814,
+    "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+    "execution_seconds": 49.0533745290013,
+    "exit_code": 0
+  },
+  "terminal.json": {
+    "state": "terminal",
+    "attempt": "581be5f194f24b6bb7f659e3aa0b27c2",
+    "exit_code": 0,
+    "workflow": "journey",
+    "cleanup_verified": true
+  },
+  "results/journey.json": {
+    "journey": "S0-01",
+    "status": "pass",
+    "detail": ""
+  }
+}

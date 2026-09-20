@@ -15,6 +15,9 @@ import time
 from snapshot import encode, verify, digest
 from dependencies import prepare
 from retention import remote as prune_remote, remember_image
+from admission import acquire, QueueTimeout, QueueUnavailable
+
+resource_lease = None
 
 
 def run(*args, heartbeat=None, **kwargs):
@@ -36,6 +39,7 @@ def docker(*args, **kwargs):
 
 
 def main():
+    global resource_lease
     attempt = Path.cwd()
     root = attempt.parent.parent
     manifest = json.loads((attempt / 'manifest.json').read_text())
@@ -46,18 +50,7 @@ def main():
         return 130
     verify(attempt / 'source', manifest)
     print('[pandora] input verification complete; waiting for the experiment worker', flush=True)
-    lock = (root / 'worker.lock').open('w')
-    queued = time.monotonic()
-    while True:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            break
-        except BlockingIOError:
-            if time.monotonic() - queued >= 900:
-                print('[pandora] Queue deadline reached; no tests started', flush=True)
-                return 75
-            print('[pandora] queued; worker occupied; no local validation started', flush=True)
-            time.sleep(10)
+    resource_lease = acquire(attempt, submitted.get('queue_timeout_seconds', 900))
     from dependencies import CONTAINER
     running_builder = docker('ps', '--filter', 'name=^/' + CONTAINER + '$',
                              '--format', '{{.Names}}', capture_output=True, text=True)
@@ -78,7 +71,7 @@ def main():
     orphaned = docker('ps', '-a', '--filter', 'label=pandora.workflow=docker', '--format', '{{.Names}}', capture_output=True, text=True)
     if orphaned.stdout.strip():
         raise RuntimeError('Previous Docker execution has unresolved cleanup; operator reconciliation required.')
-    metrics = {'queue_seconds': time.monotonic() - queued}
+    metrics = {'queue_seconds': resource_lease.waited, 'queue_ticket': resource_lease.ticket}
     if submitted.get('workflow') == 'docker':
         from docker_workflow import execute
         return execute(attempt, submitted, metrics)
@@ -216,6 +209,9 @@ if __name__ == '__main__':
         status = main()
     except KeyboardInterrupt:
         status = 130
+    except (QueueTimeout, QueueUnavailable) as error:
+        print(f'[pandora] {error}', flush=True)
+        status = 75
     except Exception:
         traceback.print_exc()
         status = 70
@@ -241,4 +237,6 @@ if __name__ == '__main__':
                 'cleanup_verified': not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
+    if resource_lease is not None:
+        resource_lease.close()
     raise SystemExit(status)

@@ -13,6 +13,7 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--host', required=True)
 p.add_argument('--state', required=True, type=Path)
 p.add_argument('--docker-profile', type=Path)
+p.add_argument('--queue-timeout-seconds', type=int, default=900)
 p.add_argument('--session', default=None)
 p.add_argument('--treatment', choices=['normal', 'block', 'redirect'], default='normal')
 p.add_argument('command', nargs=argparse.REMAINDER)
@@ -20,6 +21,11 @@ a = p.parse_args()
 command = a.command[1:] if a.command[:1] == ['--'] else a.command
 if not command:
     p.error('Specify a command after --')
+from docker_commands import queue_timeout_seconds
+try:
+    queue_timeout_seconds(a.queue_timeout_seconds)
+except ValueError as error:
+    p.error(str(error))
 real = os.environ.get('PANDORA_REAL_PNPM') or shutil.which('pnpm')
 if not real:
     p.error('pnpm is not available')
@@ -30,7 +36,9 @@ env.update(PANDORA_TREATMENT=a.treatment, PANDORA_HOST=a.host, PANDORA_STATE=str
 if a.docker_profile:
     from docker_commands import profile
     import json
-    env['PANDORA_DOCKER_PROFILE_JSON'] = json.dumps(profile(a.docker_profile.read_text()))
+    docker_profile = profile(a.docker_profile.read_text())
+    env['PANDORA_DOCKER_PROFILE_JSON'] = json.dumps(docker_profile)
+env['PANDORA_QUEUE_TIMEOUT_SECONDS'] = str(a.queue_timeout_seconds)
 prefix = str(Path(__file__).resolve().parent / 'bin')
 env['PATH'] = prefix + os.pathsep + env['PATH']
 original = env.get('PANDORA_ORIGINAL_ZDOTDIR') or env.get('ZDOTDIR') or str(Path.home())

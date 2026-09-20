@@ -1,0 +1,219 @@
+{
+  "requests": [
+    {
+      "index": 0,
+      "attempt": "240d39b4330a4bfe9fb45b4742d66e96",
+      "worker_death": true,
+      "terminal_missing": true,
+      "cleanup_receipt": true
+    },
+    {
+      "index": 1,
+      "attempt": "d9d21f3c01cc4e46a6020eaa8187bd73",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d9d21f3c01cc4e46a6020eaa8187bd73",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 10.017477953006164,
+        "queue_ticket": 3,
+        "execution_seconds": 2.3854521720058983,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 2,
+      "attempt": "5fed616bb4a14a2680ce1e991a1b7d32",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "5fed616bb4a14a2680ce1e991a1b7d32",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 13.019283632995212,
+        "queue_ticket": 4,
+        "execution_seconds": 2.342784804000985,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": true
+    },
+    {
+      "index": 3,
+      "attempt": "32c4478a8dfc4fb49d7197ec1cd378cd",
+      "exit_code": 130,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "32c4478a8dfc4fb49d7197ec1cd378cd",
+        "exit_code": 130,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": null,
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 4,
+      "attempt": "d69ab367a6f14a5db30aa1f3e902b9da",
+      "exit_code": 75,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d69ab367a6f14a5db30aa1f3e902b9da",
+        "exit_code": 75,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": null,
+      "queue_timeout_seconds": 2,
+      "recovered": false
+    },
+    {
+      "index": 5,
+      "attempt": "d63d80713baa4d8e8494d64b13cf0e3f",
+      "worker_death": true,
+      "terminal_missing": true,
+      "cleanup_receipt": true
+    },
+    {
+      "index": 6,
+      "attempt": "0c471188c7c9490eac4d462a6799caeb",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "0c471188c7c9490eac4d462a6799caeb",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 25.0289122860122,
+        "queue_ticket": 8,
+        "execution_seconds": 2.3448719479929423,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 7,
+      "attempt": "eea4c30a46634a78ab713f5c49aa7747",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "eea4c30a46634a78ab713f5c49aa7747",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 28.035078169006738,
+        "queue_ticket": 12,
+        "execution_seconds": 2.387945000009495,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 8,
+      "attempt": "7d2f3761362a4c0fbfce0e6782f3fb35",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "7d2f3761362a4c0fbfce0e6782f3fb35",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 16.02200805800385,
+        "queue_ticket": 5,
+        "execution_seconds": 2.341020877007395,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 9,
+      "attempt": "d77c786b3d07411ab5f06961a5eb8b63",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d77c786b3d07411ab5f06961a5eb8b63",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 22.024807556008454,
+        "queue_ticket": 7,
+        "execution_seconds": 2.3918583710037638,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 10,
+      "attempt": "0c80d95238cc47fc968280436c69af24",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "0c80d95238cc47fc968280436c69af24",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 7.015053203998832,
+        "queue_ticket": 2,
+        "execution_seconds": 2.3872241289936937,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    },
+    {
+      "index": 11,
+      "attempt": "a2ebc95da2fd46ac8885ae24d7f83806",
+      "exit_code": 0,
+      "terminal": {
+        "state": "terminal",
+        "attempt": "a2ebc95da2fd46ac8885ae24d7f83806",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      },
+      "metrics": {
+        "queue_seconds": 19.020726358008687,
+        "queue_ticket": 6,
+        "execution_seconds": 2.337852576994919,
+        "exit_code": 0
+      },
+      "queue_timeout_seconds": 120,
+      "recovered": false
+    }
+  ],
+  "execution_order": [
+    10,
+    1,
+    2,
+    8,
+    11,
+    9,
+    6,
+    7
+  ],
+  "strict_ticket_order": true
+}

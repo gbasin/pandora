@@ -55,7 +55,10 @@ A cache miss automatically prepares the image remotely with a bounded BuildKit
 builder and a persistent pnpm package cache. Each run gets
 its own writable container, capped at two CPUs and 6 GiB RAM, with one Playwright
 worker and a 20-minute container deadline. One heavy run executes at a time.
-Extra requests wait and report worker occupancy. Admission is not FIFO.
+Extra requests wait in FIFO order after remote input verification and report their
+queue position. The queue timeout defaults to 15 minutes and is configurable.
+See [admission and deadlines](experiments/routing/README.md#admission-and-deadlines)
+and the [twelve-request fault test](notes/fifo-2026-09-20.md).
 
 The journey adds a private Postgres, PgBouncer, and WebSocket proxy to its run.
 Service images are pinned by digest. No host ports or Docker socket are exposed.
@@ -207,14 +210,16 @@ The [native BuildKit and Mutagen comparison](notes/backend-comparison-2026-09-20
 found no clear replacement for the current backend. Native transport needed stable
 staging and did not preserve builds after client loss. Mutagen made warm sync fast
 but required Git-aware allowlists and session recreation for new source files.
-A manifest-only preparation variant suggests a smaller next experiment using
-existing rsync; production capture remains unchanged.
+The [manifest-only follow-up](notes/manifest-transfer-2026-09-20.md) did not
+justify replacing local frozen capture. Production capture remains unchanged.
 
 The next milestone is a controlled full coding-loop evaluation before daily use.
 The [v0.1 contract and evaluation matrix](notes/v0.1-contract.md) records the
-agreed scope and proposed command semantics. It requires local edit/test/fix
+agreed scope and acceptance criteria. [Issue #27](https://github.com/gbasin/pandora/issues/27)
+tracks progress and remaining gates. Readiness requires twelve actual coding-agent
+sessions with the Mac remaining responsive. It requires local edit/test/fix
 iteration, one service-backed workflow, specific Docker build/run patterns,
-worktree-scoped image tags, and conflict-checked return of declared outputs.
+worktree-scoped image tags, and automatic publication of declared generated directories.
 The surface pilot now covers the edit/test/fix loop and publishes two generated
 build directories. The S0-01 journey now uses the same routing and recovery path.
 The bounded Docker build/run profile is implemented and evaluated on a fixture.

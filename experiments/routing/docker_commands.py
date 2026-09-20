@@ -4,6 +4,8 @@ from pathlib import Path, PurePosixPath
 import re
 
 EXAMPLE = 'Supported: docker build -t app:test .; docker run --rm app:test; docker image rm app:test'
+DEFAULT_QUEUE_TIMEOUT_SECONDS = 900
+MAX_QUEUE_TIMEOUT_SECONDS = 86400
 
 
 def relative(value):
@@ -26,7 +28,7 @@ def absolute(value):
 
 def profile(value):
     data = json.loads(value)
-    if not isinstance(data, dict) or set(data) - {'dockerfiles', 'mounts', 'outputs', 'network'}:
+    if not isinstance(data, dict) or set(data) - {'dockerfiles', 'mounts', 'outputs', 'network', 'queue_timeout_seconds'}:
         raise ValueError('Unsupported Docker profile fields')
     for key in ('dockerfiles', 'mounts', 'outputs'):
         if not isinstance(data.get(key), list):
@@ -47,7 +49,15 @@ def profile(value):
         roots.append(item['workspace'])
     if data.get('network', 'none') not in ('none', 'bridge'):
         raise ValueError('Profile network must be none or bridge')
+    if 'queue_timeout_seconds' in data:
+        queue_timeout_seconds(data['queue_timeout_seconds'])
     return data
+
+
+def queue_timeout_seconds(value):
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= MAX_QUEUE_TIMEOUT_SECONDS:
+        raise ValueError(f'Queue timeout must be an integer from 1 through {MAX_QUEUE_TIMEOUT_SECONDS} seconds')
+    return value
 
 
 def tag(value):

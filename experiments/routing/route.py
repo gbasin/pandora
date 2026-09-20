@@ -20,6 +20,17 @@ from retention import local as prune_local
 from snapshot import names, excluded, entry, encode
 
 
+def queue_timeout_seconds(value):
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 86400:
+        raise ValueError('Queue timeout must be an integer from 1 through 86400 seconds')
+    return value
+
+
+def effective_queue_timeout(default, tool, config):
+    value = config.get('queue_timeout_seconds', default) if tool == 'docker' and config else default
+    return queue_timeout_seconds(value)
+
+
 def write(path, value):
     temp = path.with_suffix('.tmp')
     temp.write_text(json.dumps(value, indent=2) + '\n')
@@ -123,12 +134,18 @@ def main(tool='pnpm'):
         else:
             attempt = uuid.uuid4().hex
             output = state / attempt
-            record = {'state': 'active', 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt}
+            try:
+                timeout = effective_queue_timeout(int(os.environ.get('PANDORA_QUEUE_TIMEOUT_SECONDS', '900')), tool, config)
+            except ValueError as error:
+                print('[pandora] ' + str(error), file=sys.stderr)
+                return 64
+            record = {'state': 'active', 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt, 'queue_timeout_seconds': timeout}
             write(active, record)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
                        '--output', str(output), '--attempt', record['attempt'],
-                       '--workflow', action if action in ('journey', 'docker') else 'surface', *selectors]
+                       '--workflow', action if action in ('journey', 'docker') else 'surface',
+                       '--queue-timeout-seconds', str(record['queue_timeout_seconds']), *selectors]
             if docker_request is not None:
                 command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
         child = None

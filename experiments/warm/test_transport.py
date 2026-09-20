@@ -75,6 +75,33 @@ class StreamTests(unittest.TestCase):
             self.assertNotIn('test error', stdout.getvalue())
             self.assertEqual(stderr.getvalue(), 'test error\n')
 
+    def test_follow_uses_submitted_queue_timeout_after_recovery(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from transport import follow
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'submission.json').write_text(json.dumps({'attempt': 'a' * 32, 'queue_timeout_seconds': 1000}))
+            state = {'offsets': [0, 0], 'cleanup_verified': True}
+            # 2,446 seconds exceeded the former fixed deadline, but remains
+            # within the original accepted request's 1,000 + 1,545 seconds.
+            with patch('transport.time.monotonic', side_effect=[0, 0, 2446]), \
+                 patch('transport.query', return_value=state), \
+                 patch('transport.retrieve', return_value={'exit_code': 0}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(follow('unused', root), 0)
+
+    def test_follow_rejects_invalid_submitted_queue_timeout(self):
+        import contextlib
+        import io
+        from transport import follow
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'submission.json').write_text(json.dumps({'attempt': 'a' * 32, 'queue_timeout_seconds': True}))
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, 'queue timeout'):
+                follow('unused', root)
+
 
 if __name__ == '__main__':
     unittest.main()
