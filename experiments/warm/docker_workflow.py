@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import time
 from docker_cleanup import BUILDER, cleanup
-from docker_images import path as mapping_path, publish, resolve
+from docker_images import publish, remove
 
 
 def docker(*args, **kwargs):
@@ -139,10 +139,9 @@ def execute(attempt, submitted, metrics):
     status = 70
     image = None
     if kind == 'remove':
-        target = mapping_path(root, key, tag)
-        if target.exists():
-            image = resolve(root, key, tag)['image_id']
-            target.unlink()
+        removed = remove(root, key, tag)
+        if removed is not None:
+            image = removed['image_id']
             status = 0
             print(f'[pandora] removed worktree mapping {tag}; accepted runs keep their pinned image', flush=True)
         else:

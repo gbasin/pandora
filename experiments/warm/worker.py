@@ -63,6 +63,8 @@ def main():
                              '--format', '{{.Names}}', capture_output=True, text=True)
     if running_builder.stdout.strip():
         raise RuntimeError('Dependency builder still active without its worker lease; operator cleanup required. No tests started.')
+    from image_gc import collect
+    collect(root)
     prune_remote(root)
     if shutil.disk_usage(root).free < 10 * 1024**3:
         raise RuntimeError('Worker disk has less than 10 GiB free. No preparation or tests started; operator retention cleanup required.')
