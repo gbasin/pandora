@@ -59,7 +59,7 @@ def suite_environment_error(environment):
     active = [name for name in names if environment.get(name)]
     if active:
         return ('Unset ' + ', '.join(active) +
-                ' before pnpm journeys; routed suites currently support only pnpm journeys [--keep-going]. No validation started.')
+                ' before pnpm journeys; routed suites support pnpm journeys [--update] [--keep-going]. No validation started.')
     return None
 
 

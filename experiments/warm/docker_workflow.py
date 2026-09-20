@@ -60,6 +60,8 @@ def build(attempt, spec, submitted=None):
                 child.wait(timeout=10)
     if status:
         print('[pandora] build failed; previous worktree tag mapping preserved', flush=True)
+        print('[pandora] For a missing COPY/ADD input, check `git check-ignore -v PATH` locally. '
+              'Git-ignored inputs are not captured; make required source tracked or nonignored before retrying.', flush=True)
         return status, None
     image_id = docker('image', 'inspect', image, '--format', '{{.Id}}', capture_output=True, text=True).stdout.strip()
     return 0, image_id

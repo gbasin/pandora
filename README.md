@@ -16,7 +16,7 @@ itself still runs locally with its existing CLI authentication.
 ```text
 Local agent → normal pnpm command → frozen worktree snapshot → SSH worker
                                                             ↓
-Local exit status + logs + artifacts ← bounded test container ← one slot
+Local exit status + logs + artifacts ← bounded test container ← admitted slots
 ```
 
 This is executable wrapping, not interception of all shell commands or an OS
@@ -31,8 +31,8 @@ pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN]
 pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]
 pnpm journey <id> [--fault dropped] [--update]
 pnpm validate journey <id> [--fault dropped] [--update]
-pnpm journeys [--keep-going]
-pnpm validate journeys [--keep-going]
+pnpm journeys [--update] [--keep-going]
+pnpm validate journeys [--update] [--keep-going]
 ```
 
 The same forms with `pnpm run` work. Other flags are rejected. Suites stop
@@ -57,18 +57,21 @@ do not change submitted input.
 
 The worker reuses source files and a dependency image keyed by installation inputs.
 A cache miss automatically prepares the image remotely with a bounded BuildKit
-builder and a persistent pnpm package cache. Each run gets
-its own writable container, capped at two CPUs and 6 GiB RAM, with one Playwright
-worker and a 20-minute container deadline. One heavy run executes at a time.
-Extra requests wait in FIFO order after remote input verification and report their
-queue position. The queue timeout defaults to 15 minutes and is configurable.
+builder and a persistent pnpm package cache. Each run gets its own writable
+container and one Playwright worker. An operator-owned worker configuration sets
+CPU, RAM, disk reservations, concurrent slots, and execution deadlines. Configured
+workers admit multiple attempts within those limits, including supporting services
+and dependency preparation. Fair turns between waiting invocations are the default;
+strict FIFO is available. Unconfigured pilot workers retain their exclusive limits.
+The queue timeout defaults to 15 minutes and is configurable. A suite consumes
+one cumulative waiting budget only while it has waiting work and no admitted shard.
 See [admission and deadlines](experiments/routing/README.md#admission-and-deadlines)
 and the [twelve-request fault test](notes/fifo-2026-09-20.md).
 
 The journey adds a private Postgres, PgBouncer, and WebSocket proxy to its run.
 Service images are pinned by digest. No host ports or Docker socket are exposed.
-The full journey allocation is capped at 3.5 CPUs and 7.125 GiB across four
-containers. Every invocation starts with a fresh database. Dependency images and
+The configured reservation includes all four containers. The legacy exclusive
+profile caps them at 3.5 CPUs and 7.125 GiB. Every invocation starts with a fresh database. Dependency images and
 pnpm caches remain warm, but database and service state do not persist. A systemd
 stop hook removes attempt-owned resources if the worker is killed. Such a kill
 cannot produce a verified test result and still requires operator reconciliation.
@@ -253,7 +256,7 @@ and declared tracked expectation return for `--update`. These additions are
 implementation targets. Current routing supports both browser surfaces with file and `--grep` selectors,
 focused catalog journeys including dropped replay and `--update`, and the bounded
 Docker grammar described above. The [suite dispatcher](experiments/suite/README.md)
-freezes one plan, reserves child attempts, runs isolated shards sequentially, and
+freezes one plan, reserves child attempts, runs isolated shards within configured concurrency, and
 verifies their combined evidence behind normal `pnpm journeys` commands.
 
 The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
@@ -272,10 +275,14 @@ The [expanded workflow trial](notes/workflow-coverage-2026-09-20.md) verifies
 focused S0-02 replay and update, offline SX-20 update, and both browser surfaces
 with `--grep`. Eight sequential VM runs passed with warm dependencies and
 automatic output return. Configurable parallel shard scheduling and catalog
-expectation updates remain unimplemented.
+expectation updates now have an implementation; their final evaluation is tracked
+in issue #27.
 
 [Suite foundation evidence](notes/suite-shards-2026-09-20.md) records real shard success, failure, and incomplete-evidence rejection.
 
 [Parent invocation evidence](notes/suite-parent-2026-09-20.md) covers client-loss recovery, fail-fast, keep-going, queue exhaustion, and failed planning.
 
-The [resource admission experiment](experiments/scheduler/README.md) proves CPU/RAM reservations, fair turns, and invocation waiting clocks in isolation. It is not connected to production routing yet. [Evidence](notes/resource-admission-2026-09-20.md).
+The [resource admission foundation](experiments/scheduler/README.md) is connected
+to configured workers. [Configured resource probes](notes/multislot-resource-probes-2026-09-20.md)
+verify actual overlap, enforced memory limits, deadlines, and bounded disk failures.
+This does not establish twelve-agent readiness.

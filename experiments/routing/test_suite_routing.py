@@ -27,7 +27,7 @@ class SuiteRoutingTests(unittest.TestCase):
         }))
         message = suite_environment_error({'JOURNEY_FILTER': 'S0-*', 'IKE_WORLD': 'staging'})
         self.assertIn('JOURNEY_FILTER, IKE_WORLD', message)
-        self.assertIn('pnpm journeys [--keep-going]', message)
+        self.assertIn('pnpm journeys [--update] [--keep-going]', message)
         self.assertIn('No validation started.', message)
 
     def test_route_passes_a_private_run_request_to_warm(self):
