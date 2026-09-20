@@ -30,57 +30,7 @@ def query(host, attempt, action='status', offsets=None):
     return json.loads(result.stdout)
 
 
-def validate_evidence(stage, attempt, submitted=None):
-    if submitted is None and (stage / "submission.json").exists():
-        submitted = json.loads((stage / "submission.json").read_text())
-    terminal = json.loads((stage / 'terminal.json').read_text())
-    manifest = json.loads((stage / 'artifacts.json').read_text())
-    if terminal.get('attempt') != attempt or not terminal.get('cleanup_verified'):
-        raise ValueError('Unverified terminal identity or cleanup')
-    if submitted is not None and terminal.get('workflow', 'surface') != submitted.get('workflow', 'surface'):
-        raise ValueError('Terminal workflow disagrees with submission')
-    for name, expected in manifest.items():
-        path = Path(name)
-        if path.is_absolute() or '..' in path.parts or not path.parts:
-            raise ValueError('Unsafe artifact path')
-        target = stage / path
-        if target.is_symlink() or not target.is_file():
-            raise ValueError('Missing or nonregular artifact: ' + name)
-        if digest(target) != expected:
-            raise ValueError('Artifact checksum mismatch: ' + name)
-    if terminal.get('workflow') == 'suite':
-        from suite import validate_result
-        if submitted is None:
-            raise ValueError('Suite evidence requires its captured submission')
-        validate_result(stage, submitted, terminal, manifest)
-    if terminal['exit_code'] == 0:
-        report = {'journey': 'results/journey.json', 'docker': 'results/docker.json'}.get(terminal.get('workflow'), 'results/junit.xml')
-        if terminal.get('workflow') == 'suite':
-            report = 'results/suite-' + submitted['suite']['action'] + '.json'
-        if not {'results/exit-code', report} <= set(manifest):
-            raise ValueError('Successful run lacks test evidence')
-        if (stage / 'results/exit-code').read_text().strip() != '0':
-            raise ValueError('Test evidence disagrees with successful terminal')
-        if terminal.get('workflow') == 'docker':
-            result = json.loads((stage / report).read_text())
-            if result.get('exit_code') != 0 or result.get('kind') not in ('build', 'run', 'remove'):
-                raise ValueError('Docker evidence disagrees with successful terminal')
-        if terminal.get('workflow') == 'journey':
-            result = json.loads((stage / report).read_text())
-            from journey import journey_config
-            expected = journey_config(submitted) if submitted is not None else None
-            if (result.get('status') != 'pass' or
-                    (expected is not None and any(result.get(k, False if k == 'update' else None) != expected.get(k)
-                     for k in ('update', 'fault'))) or
-                    (expected is not None and result.get('journey') != expected['id'])):
-                raise ValueError('Journey evidence disagrees with successful terminal')
-        if terminal.get('workflow', 'surface') == 'surface' and submitted and 'surface_app' in submitted:
-            if 'results/surface.json' not in manifest:
-                raise ValueError('Successful surface lacks app identity')
-            result = json.loads((stage / 'results/surface.json').read_text())
-            if result.get('app') != submitted['surface_app']:
-                raise ValueError('Surface evidence disagrees with requested app')
-    return terminal
+from evidence import validate_evidence
 
 
 def retrieve(host, output, attempt):
@@ -126,8 +76,9 @@ def follow(host, output, reconnect_seconds=45):
     unavailable = None
     unregistered = time.monotonic()
     following = time.monotonic()
+    follow_allowance = 1665 if metadata.get('workflow') == 'suite-run' else 1545
     while True:
-        if time.monotonic() - following > queue_timeout + 1545:
+        if time.monotonic() - following > queue_timeout + follow_allowance:
             print('[pandora] Follow deadline reached; remote state remains unresolved. No replacement submitted.', flush=True)
             return 75
         try:
@@ -158,7 +109,7 @@ def follow(host, output, reconnect_seconds=45):
                 print(f'[pandora] Docker report: {output / "results/docker.json"}', flush=True)
             if terminal['exit_code'] != 0 and (output / 'results/outputs').exists():
                 print(f'[pandora] failed-run outputs retained: {output / "results/outputs"}; workspace outputs were not published', flush=True)
-            for suite_report in ('suite-plan.json', 'suite-shard.json'):
+            for suite_report in ('suite-plan.json', 'suite-shard.json', 'suite-run.json', 'suite-error.json'):
                 if (output / 'results' / suite_report).exists():
                     print(f'[pandora] suite evidence: {output / "results" / suite_report}', flush=True)
             if (output / 'results/journey.json').exists():

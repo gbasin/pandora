@@ -14,6 +14,7 @@ p.add_argument('--host', required=True)
 p.add_argument('--state', required=True, type=Path)
 p.add_argument('--docker-profile', type=Path)
 p.add_argument('--queue-timeout-seconds', type=int, default=900)
+p.add_argument('--suite-shards', type=int, default=4)
 p.add_argument('--session', default=None)
 p.add_argument('--treatment', choices=['normal', 'block', 'redirect'], default='normal')
 p.add_argument('command', nargs=argparse.REMAINDER)
@@ -26,6 +27,8 @@ try:
     queue_timeout_seconds(a.queue_timeout_seconds)
 except ValueError as error:
     p.error(str(error))
+if not 1 <= a.suite_shards <= 32:
+    p.error('Suite shards must be an integer from 1 through 32')
 real = os.environ.get('PANDORA_REAL_PNPM') or shutil.which('pnpm')
 if not real:
     p.error('pnpm is not available')
@@ -39,6 +42,7 @@ if a.docker_profile:
     docker_profile = profile(a.docker_profile.read_text())
     env['PANDORA_DOCKER_PROFILE_JSON'] = json.dumps(docker_profile)
 env['PANDORA_QUEUE_TIMEOUT_SECONDS'] = str(a.queue_timeout_seconds)
+env['PANDORA_SUITE_SHARDS'] = str(a.suite_shards)
 prefix = str(Path(__file__).resolve().parent / 'bin')
 env['PATH'] = prefix + os.pathsep + env['PATH']
 original = env.get('PANDORA_ORIGINAL_ZDOTDIR') or env.get('ZDOTDIR') or str(Path.home())

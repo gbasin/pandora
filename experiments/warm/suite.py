@@ -10,7 +10,11 @@ def suite_request(value):
     if not isinstance(value, dict):
         raise ValueError('Suite request must be an object')
     action = value.get('action')
-    if action == 'plan':
+    if action == 'run':
+        if set(value) != {'action', 'shard_count', 'selection', 'keep_going'} or type(value.get('keep_going')) is not bool:
+            raise ValueError('Suite run requires shard_count, selection and boolean keep_going')
+        suite_request({key: item for key, item in value.items() if key != 'keep_going'} | {'action': 'plan'})
+    elif action == 'plan':
         if set(value) != {'action', 'shard_count', 'selection'}:
             raise ValueError('Plan request requires action, shard_count and selection')
         count = value['shard_count']

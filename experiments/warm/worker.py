@@ -49,8 +49,13 @@ def main():
     if (attempt / 'cancel.request').exists():
         return 130
     verify(attempt / 'source', manifest)
+    if submitted.get('workflow') == 'suite-run':
+        from suite_parent import execute
+        return execute(attempt, submitted)
     print('[pandora] input verification complete; waiting for the experiment worker', flush=True)
     resource_lease = acquire(attempt, submitted.get('queue_timeout_seconds', 900))
+    (attempt / 'queue.json.tmp').write_text(json.dumps({'waited': resource_lease.waited, 'acquired': True}) + '\n')
+    (attempt / 'queue.json.tmp').replace(attempt / 'queue.json')
     from dependencies import CONTAINER
     running_builder = docker('ps', '--filter', 'name=^/' + CONTAINER + '$',
                              '--format', '{{.Names}}', capture_output=True, text=True)
@@ -219,6 +224,12 @@ if __name__ == '__main__':
     except Exception:
         traceback.print_exc()
         status = 70
+    if not Path('queue.json').exists() and Path('queue-start.json').exists():
+        started = json.loads(Path('queue-start.json').read_text())['monotonic']
+        Path('queue.json.tmp').write_text(json.dumps({'waited': max(0, time.monotonic() - started), 'acquired': False}) + '\n')
+        Path('queue.json.tmp').replace('queue.json')
+    from suite_parent_cleanup import cleanup as cleanup_suite
+    suite_clean = cleanup_suite(Path.cwd())
     # A terminal record is usable for another submission only when the owned
     # container is absent or stopped. Unknown Docker state cannot clear a job.
     name = 'pandora-warm-' + Path.cwd().name
@@ -232,13 +243,13 @@ if __name__ == '__main__':
             status = 70
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
-                 Path('metrics.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
+                 Path('metrics.json'), Path('queue.json'), Path('children.json'), Path('suite-state.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
         if item.is_file() and not item.is_symlink():
             artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
                 'workflow': json.loads(Path('submission.json').read_text()).get('workflow', 'surface'),
-                'cleanup_verified': not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
+                'cleanup_verified': suite_clean and not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
     if resource_lease is not None:

@@ -7,6 +7,25 @@ from journey import journey_config
 from workflow_options import APPS, surface_selectors
 
 
+def suite_request(argv, shard_count):
+    """Return the bounded suite request represented by a recognized pnpm argv."""
+    command = argv[1:] if argv[:1] == ['run'] else argv
+    journey = command[1:] if command[:1] == ['validate'] else command
+    if journey[:1] != ['journeys']:
+        raise ValueError('Not a suite command')
+    options = journey[1:]
+    if options == []:
+        keep_going = False
+    elif options == ['--keep-going']:
+        keep_going = True
+    elif '--update' in options:
+        raise ValueError('Suite updates are not routed. Run: pnpm journey <id> --update. No validation started.')
+    else:
+        raise ValueError('Use pnpm journeys [--keep-going]. No validation started.')
+    return {'action': 'run', 'shard_count': shard_count, 'selection': None,
+            'keep_going': keep_going}
+
+
 def classify(argv, treatment='normal'):
     command = argv[1:] if argv[:1] == ['run'] else argv
     journey = command[1:] if command[:1] == ['validate'] else command
@@ -17,7 +36,13 @@ def classify(argv, treatment='normal'):
                 return 'journey', journey[1:], ''
             except ValueError as error:
                 return 'reject', [], str(error) + '. No validation started.'
-        return 'reject', [], 'Catalog journeys are not routed yet; use pnpm journey <id>. No validation started.'
+        try:
+            # The shard count is supplied by the private launcher. Parsing it
+            # here would make ordinary `pnpm journeys` depend on environment.
+            suite_request(argv, 1)
+            return 'suite-run', [], ''
+        except ValueError as error:
+            return 'reject', [], str(error)
     if command[:1] == ['test:surface']:
         if len(command) < 2 or command[1] not in APPS:
             return 'reject', [], 'Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN].'

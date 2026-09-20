@@ -30,7 +30,8 @@ def worker(root, identity, events, release, timeout=5):
             status = 75
         except KeyboardInterrupt:
             status = 130
-        (attempt / 'terminal.json').write_text(json.dumps({'attempt': identity, 'cleanup_verified': True, 'exit_code': status}))
+        (attempt / 'terminal.json.tmp').write_text(json.dumps({'attempt': identity, 'cleanup_verified': True, 'exit_code': status}))
+        (attempt / 'terminal.json.tmp').replace(attempt / 'terminal.json')
         if lease:
             lease.close()
         events.put(('terminal', identity, status))

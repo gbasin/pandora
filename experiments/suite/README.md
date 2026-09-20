@@ -1,8 +1,8 @@
-# Frozen suite plan and shard foundation
+# Frozen suites and isolated shard evidence
 
-This private evaluation interface runs Eichler suite shards on the existing SSH
-worker. It does not enable `pnpm journeys` in agent sessions. Normal suite routing
-still rejects that command until parent-request recovery and scheduling exist.
+Normal `pnpm journeys [--keep-going]` now uses a remotely owned parent with
+sequential shard dispatch. See the [agent command instructions](../routing/README.md#sharded-suites).
+The private interfaces below also support bounded operator evaluations.
 
 A plan captures one source digest, the selected catalog, the global replay cover,
 and exact shard membership. Each shard uses the same source digest and recomputes
@@ -11,7 +11,22 @@ shard, including its database clones, clean runs, selected replays, and reports.
 Each request has fresh containers, services, and writable source. Dependency
 images and package caches remain reusable.
 
-## Operator evaluation
+## Parent evaluation
+
+Use a private request with an exact selected catalog for a bounded parent trial:
+
+```json
+{"action":"run","shard_count":2,"selection":["S0-01","S0-02"],"keep_going":false}
+```
+
+Submit it with `warm.py --workflow suite-run --suite-request REQUEST`, plus the
+same host, repo, and output arguments shown below. Set `selection` to `null` for
+the full catalog. Recover the same parent with `transport.py HOST OUTPUT`. The
+parent freezes input once, reserves all attempt identities before dispatch, and
+returns one verified summary. Its queue budget is cumulative across planning
+and shards. A failure stops new dispatch unless `keep_going` is true.
+
+## Independent attempt evaluation
 
 Create request JSON outside the target repository. A full plan uses:
 
@@ -62,7 +77,7 @@ routes do not silently become a new test gate.
 The aggregator uses the independently verified attempts explicitly supplied by
 the operator. A content-identical plan can be reused across executions. It does
 not establish that the attempts belong to one coordinated invocation. The parent
-dispatcher must persist and check the accepted attempt identity for every shard.
+dispatcher instead persists and checks the accepted attempt identity for every shard.
 
 These are independent private requests. Each retains the existing FIFO admission,
 queue deadline, and 20-minute execution limit. They do not yet implement one
@@ -71,5 +86,5 @@ waiting budget across dispatches. They do not publish fixture changes. The suite
 CLI runs without `--update`, and the adapter checks that expectations stayed
 unchanged. Full-suite update proposals require a later central publication step.
 
-The API is a foundation for normal-command routing. Agents should not be taught
-to coordinate these requests themselves.
+The independent API remains useful for operator probes. Agents use the normal
+command and should not be taught to coordinate these requests themselves.
