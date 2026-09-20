@@ -24,10 +24,10 @@ def journey_config(submitted):
     """Return one canonical focused journey invocation and its explicit mode."""
     selectors = submitted.get('selectors')
     if not isinstance(selectors, list) or not selectors or not isinstance(selectors[0], str):
-        raise ValueError('Unsupported journey selection')
+        raise ValueError('Use journey <id> [--fault dropped] [--update]; other journey options are not routed')
     journey_id = selectors[0]
     if not SCENARIO_ID_PATTERN.fullmatch(journey_id):
-        raise ValueError('Unsupported journey selection')
+        raise ValueError('Use journey <id> [--fault dropped] [--update]; other journey options are not routed')
     tail = selectors[1:]
     if tail == []:
         return {'id': journey_id, 'fault': None, 'update': False}
@@ -35,9 +35,9 @@ def journey_config(submitted):
         return {'id': journey_id, 'fault': None, 'update': True}
     if tail == ['--fault', 'dropped']:
         return {'id': journey_id, 'fault': 'dropped', 'update': False}
-    if tail == ['--fault', 'dropped', '--update']:
+    if tail in (['--fault', 'dropped', '--update'], ['--update', '--fault', 'dropped']):
         return {'id': journey_id, 'fault': 'dropped', 'update': True}
-    raise ValueError('Unsupported journey selection')
+    raise ValueError('Use journey <id> [--fault dropped] [--update]; other journey options are not routed')
 
 
 def journey_command(config):

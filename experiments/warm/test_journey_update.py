@@ -30,7 +30,7 @@ class JourneyUpdateTests(unittest.TestCase):
             [], ['S7-01'], ['S0-1'], ['s0-01'], ['S0-01', '--update', 'extra'],
             ['--update', 'S0-01'], ['S0-01', '--fault', 'dropped', '--update', 'extra'],
         ):
-            with self.assertRaisesRegex(ValueError, 'Unsupported'):
+            with self.assertRaisesRegex(ValueError, 'other journey options'):
                 journey_config({'selectors': selectors})
 
     def test_update_clears_ci_only_for_the_journey_child(self):

@@ -11,6 +11,7 @@ class CommandsTests(unittest.TestCase):
                 ['S0-01', '--update'],
                 ['S0-02', '--fault', 'dropped'],
                 ['S0-02', '--fault', 'dropped', '--update'],
+                ['S0-02', '--update', '--fault', 'dropped'],
             ):
                 self.assertEqual(classify([*prefix, 'journey', *selectors])[:2],
                                  ('journey', selectors))

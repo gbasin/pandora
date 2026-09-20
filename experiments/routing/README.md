@@ -150,7 +150,7 @@ separately grants pnpm-store access. The launcher does not disable the sandbox.
 
 Run `pnpm journey <id>` or `pnpm validate journey <id>` from the repository root.
 The same forms with `pnpm run` work. Append `--fault dropped` for replay and
-`--update` for expectation return, in that order when combined. The selected ID
+`--update` for expectation return. Either flag order works. The selected ID
 must exist in the frozen catalog. Other flags and the plural
 `journeys` command stop with feedback. Direct package commands can still bypass
 this opt-in wrapper.
