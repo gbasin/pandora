@@ -48,8 +48,15 @@ def validate_evidence(stage, attempt, submitted=None):
             raise ValueError('Missing or nonregular artifact: ' + name)
         if digest(target) != expected:
             raise ValueError('Artifact checksum mismatch: ' + name)
+    if terminal.get('workflow') == 'suite':
+        from suite import validate_result
+        if submitted is None:
+            raise ValueError('Suite evidence requires its captured submission')
+        validate_result(stage, submitted, terminal, manifest)
     if terminal['exit_code'] == 0:
         report = {'journey': 'results/journey.json', 'docker': 'results/docker.json'}.get(terminal.get('workflow'), 'results/junit.xml')
+        if terminal.get('workflow') == 'suite':
+            report = 'results/suite-' + submitted['suite']['action'] + '.json'
         if not {'results/exit-code', report} <= set(manifest):
             raise ValueError('Successful run lacks test evidence')
         if (stage / 'results/exit-code').read_text().strip() != '0':
@@ -151,6 +158,9 @@ def follow(host, output, reconnect_seconds=45):
                 print(f'[pandora] Docker report: {output / "results/docker.json"}', flush=True)
             if terminal['exit_code'] != 0 and (output / 'results/outputs').exists():
                 print(f'[pandora] failed-run outputs retained: {output / "results/outputs"}; workspace outputs were not published', flush=True)
+            for suite_report in ('suite-plan.json', 'suite-shard.json'):
+                if (output / 'results' / suite_report).exists():
+                    print(f'[pandora] suite evidence: {output / "results" / suite_report}', flush=True)
             if (output / 'results/journey.json').exists():
                 print(f'[pandora] journey report: {output / "results/journey.json"}', flush=True)
             if (output / 'results/junit.xml').exists():

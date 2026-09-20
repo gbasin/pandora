@@ -250,7 +250,9 @@ tests: focused/full journeys, both browser surfaces, internal shard scheduling,
 and declared tracked expectation return for `--update`. These additions are
 implementation targets. Current routing supports both browser surfaces with file and `--grep` selectors,
 focused catalog journeys including dropped replay and `--update`, and the bounded
-Docker grammar described above. Full-suite planning and shard execution remain unimplemented.
+Docker grammar described above. A [private suite foundation](experiments/suite/README.md) now provides frozen plans,
+isolated shard execution, and verified aggregation. Normal `pnpm journeys` routing
+awaits the parent dispatcher.
 
 The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
 reuse and a focused remote update POC, plus synthetic publication recovery. It
@@ -267,4 +269,7 @@ and recovers interrupted local publication. See the
 The [expanded workflow trial](notes/workflow-coverage-2026-09-20.md) verifies
 focused S0-02 replay and update, offline SX-20 update, and both browser surfaces
 with `--grep`. Eight sequential VM runs passed with warm dependencies and
-automatic output return. Full-suite sharding remains the next implementation.
+automatic output return. The next slice adds the suite parent dispatcher and
+operator-configured scheduling.
+
+[Suite foundation evidence](notes/suite-shards-2026-09-20.md) records real shard success, failure, and incomplete-evidence rejection.

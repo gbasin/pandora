@@ -42,9 +42,10 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
-    p.add_argument('--workflow', choices=['surface', 'journey', 'docker'], default='surface')
+    p.add_argument('--workflow', choices=['surface', 'journey', 'docker', 'suite'], default='surface')
     p.add_argument('--require-warm', action='store_true')
     p.add_argument('--docker-request')
+    p.add_argument('--suite-request', type=Path, help='Private plan/shard request JSON; suite routing remains experimental')
     p.add_argument('--attempt', default=None)
     p.add_argument('--journey-update', action='store_true')
     p.add_argument('--selectors-json')
@@ -68,6 +69,17 @@ def main():
         timeout = effective_queue_timeout(args.queue_timeout_seconds, spec)
     except ValueError as error:
         p.error(str(error))
+    suite = None
+    if args.workflow == 'suite':
+        if args.suite_request is None or args.selectors:
+            p.error('Suite workflow requires --suite-request and no positional selectors')
+        try:
+            from suite import suite_request
+            suite = suite_request(json.loads(args.suite_request.read_text()))
+        except (OSError, ValueError) as error:
+            p.error(str(error))
+    elif args.suite_request is not None:
+        p.error('--suite-request requires --workflow suite')
     if args.journey_update:
         if args.workflow != 'journey':
             p.error('--journey-update requires a journey workflow')
@@ -101,6 +113,10 @@ def main():
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'repository_key': cache_key, 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm,
                 'queue_timeout_seconds': timeout, 'snapshot_seconds': time.monotonic() - started}
+    if suite is not None:
+        metadata['suite'] = suite
+        from suite import suite_config
+        suite_config(metadata)  # Reject changed source before any remote submission.
     if args.workflow == 'surface':
         metadata['surface_app'] = args.surface_app
     if args.workflow == 'docker':
