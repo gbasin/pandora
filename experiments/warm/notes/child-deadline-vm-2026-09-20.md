@@ -22,4 +22,4 @@ MiB for PgBouncer, and 11.24% and 7.484 MiB for the proxy. This one sample does
 not establish a safe lower resource profile.
 
 The retained local artifact directory is
-`/tmp/pandora-child-deadline-vm-20260920-1`.
+`~/.local/state/pandora/child-deadline-20260920`.
