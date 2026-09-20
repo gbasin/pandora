@@ -37,6 +37,12 @@ class SuiteParentCleanupTests(unittest.TestCase):
         path.mkdir()
         return path
 
+    def terminal(self, child, *, cleanup=True, identity=None):
+        (child / 'terminal.json').write_text(json.dumps({
+            'attempt': child.name if identity is None else identity,
+            'cleanup_verified': cleanup,
+        }))
+
     def test_validate_registry_requires_exact_unique_nonparent_ids(self):
         child = 'b' * 32
         self.assertEqual(suite_parent_cleanup.validate_registry(self.parent, self.registry([child])), [child])
@@ -63,10 +69,11 @@ class SuiteParentCleanupTests(unittest.TestCase):
         self.assertTrue(ready.wait(3))
         try:
             with patch('suite_parent_cleanup.service_cleanup.cleanup') as services, \
-                    patch('suite_parent_cleanup.docker_cleanup.cleanup') as containers:
+                    patch('suite_parent_cleanup.docker_cleanup.cleanup') as containers, \
+                    patch('suite_parent_cleanup.admission.record_cleanup', return_value=True):
                 self.assertFalse(suite_parent_cleanup.cleanup(self.parent))
-            services.assert_not_called()
-            containers.assert_not_called()
+            services.assert_called_once_with(stopped)
+            containers.assert_called_once_with(stopped)
             self.assertTrue((live / 'cancel.request').exists())
             self.assertTrue((stopped / 'cancel.request').exists())
             self.assertTrue((self.parent / 'suite-cleanup.pending').exists())
@@ -77,6 +84,8 @@ class SuiteParentCleanupTests(unittest.TestCase):
     def test_nonlive_children_are_cleaned_and_parent_pending_clears_only_when_all_receipts_verify(self):
         first, second = self.child('b' * 32), self.child('c' * 32)
         self.registry([first.name, second.name])
+        self.terminal(first)
+        self.terminal(second)
         with patch('suite_parent_cleanup.service_cleanup.cleanup', return_value=True) as services, \
                 patch('suite_parent_cleanup.docker_cleanup.cleanup', return_value=True) as containers, \
                 patch('suite_parent_cleanup.admission.record_cleanup', side_effect=[True, False]) as receipts:
@@ -84,6 +93,29 @@ class SuiteParentCleanupTests(unittest.TestCase):
         self.assertEqual(services.call_args_list, [((first,),), ((second,),)])
         self.assertEqual(containers.call_args_list, [((first,),), ((second,),)])
         self.assertEqual(receipts.call_args_list, [((first, True),), ((second, True),)])
+        self.assertTrue((self.parent / 'suite-cleanup.pending').exists())
+
+    def test_staged_child_without_a_terminal_releases_resources_but_keeps_parent_pending(self):
+        child = self.child('b' * 32)
+        self.registry([child.name])
+        with patch('suite_parent_cleanup.service_cleanup.cleanup', return_value=True) as services, \
+                patch('suite_parent_cleanup.docker_cleanup.cleanup', return_value=True) as containers, \
+                patch('suite_parent_cleanup.admission.record_cleanup', return_value=True) as receipt:
+            self.assertFalse(suite_parent_cleanup.cleanup(self.parent))
+        services.assert_called_once_with(child)
+        containers.assert_called_once_with(child)
+        receipt.assert_called_once_with(child, True)
+        self.assertTrue((child / 'cancel.request').exists())
+        self.assertTrue((self.parent / 'suite-cleanup.pending').exists())
+
+    def test_invalid_child_terminal_keeps_parent_pending(self):
+        child = self.child('b' * 32)
+        self.registry([child.name])
+        self.terminal(child, identity='c' * 32)
+        with patch('suite_parent_cleanup.service_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.docker_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.admission.record_cleanup', return_value=True):
+            self.assertFalse(suite_parent_cleanup.cleanup(self.parent))
         self.assertTrue((self.parent / 'suite-cleanup.pending').exists())
 
     def test_nonexistent_reserved_child_is_safe_and_never_mints_a_terminal(self):
@@ -97,6 +129,16 @@ class SuiteParentCleanupTests(unittest.TestCase):
         containers.assert_not_called()
         receipts.assert_not_called()
         self.assertFalse((self.root / 'runs' / missing / 'terminal.json').exists())
+        self.assertFalse((self.parent / 'suite-cleanup.pending').exists())
+
+    def test_verified_terminal_and_cleanup_receipt_clear_parent_pending(self):
+        child = self.child('b' * 32)
+        self.registry([child.name])
+        self.terminal(child)
+        with patch('suite_parent_cleanup.service_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.docker_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.admission.record_cleanup', return_value=True):
+            self.assertTrue(suite_parent_cleanup.cleanup(self.parent))
         self.assertFalse((self.parent / 'suite-cleanup.pending').exists())
 
     def test_nested_parent_is_refused(self):

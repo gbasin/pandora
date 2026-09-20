@@ -24,7 +24,7 @@ def receipt(path, metadata, result, action, code):
 
 
 class ParentTests(unittest.TestCase):
-    def run_suite(self, root, keep_going=False, fail=0):
+    def run_suite(self, root, keep_going=False, fail=0, budget=20, plan_fail=False):
         parent = root / 'runs' / ('f' * 32)
         parent.mkdir(parents=True)
         (parent / 'source').mkdir()
@@ -35,17 +35,17 @@ class ParentTests(unittest.TestCase):
         (parent / 'runtime.Dockerfile').write_text('FROM unused')
         frozen = plan()
         submitted = {'attempt': parent.name, 'workflow': 'suite-run', 'source_digest': frozen['source_digest'],
-                     'queue_timeout_seconds': 10, 'suite': {'action': 'run', 'shard_count': 3,
+                     'queue_timeout_seconds': budget, 'suite': {'action': 'run', 'shard_count': 3,
                      'selection': frozen['selection'], 'keep_going': keep_going}}
         seen = []
         def child_run(owner, child, started, waited):
             metadata = json.loads((child / 'submission.json').read_text())
             self.assertEqual(metadata['source_digest'], submitted['source_digest'])
             self.assertEqual((child / 'source/input').read_text(), 'frozen bytes')
-            self.assertEqual(metadata['queue_timeout_seconds'], 10 - 3 * len(seen))
+            self.assertEqual(metadata['queue_timeout_seconds'], budget - 3 * len(seen))
             seen.append(child.name)
             task = metadata['suite']
-            code = 1 if task.get('shard') == fail else 0
+            code = 70 if plan_fail and task['action'] == 'plan' else 1 if task.get('shard') == fail else 0
             result = frozen if task['action'] == 'plan' else report(frozen, task['shard'], code=code, status='fail' if code else 'pass')
             receipt(child, metadata, result, task['action'], code)
             return None
@@ -77,6 +77,33 @@ class ParentTests(unittest.TestCase):
             parent, _, terminal, _, seen = self.run_suite(Path(temp), keep_going=True, fail=1)
             self.assertEqual((terminal['exit_code'], len(seen)), (1, 4))
             self.assertEqual(json.loads((parent / 'suite-state.json').read_text())['queue_seconds'], 12)
+
+    def test_cumulative_budget_stops_before_next_shard(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent, _, terminal, _, seen = self.run_suite(Path(temp), budget=6)
+            self.assertEqual((terminal['exit_code'], len(seen)), (75, 2))
+            result = json.loads((parent / 'results/suite-run.json').read_text())
+            self.assertEqual(result['stop_reason'], 'queue-timeout')
+            self.assertEqual(result['unrun_shards'], [2, 3])
+
+    def test_failed_planning_has_verified_receipt_and_never_starts_shards(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent, submitted, terminal, artifacts, seen = self.run_suite(Path(temp), plan_fail=True)
+            self.assertEqual((terminal['exit_code'], len(seen)), (70, 1))
+            self.assertTrue((parent / 'results/suite-error.json').exists())
+            (parent / 'results/suite-error.json').unlink()
+            with self.assertRaises((OSError, ValueError)):
+                validate_result(parent, submitted, terminal, artifacts)
+
+    def test_queue_budget_cannot_be_reset_in_child_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent, submitted, terminal, artifacts, seen = self.run_suite(Path(temp))
+            metadata_path = parent / 'results/attempts' / seen[-1] / 'submission.json'
+            metadata = json.loads(metadata_path.read_text())
+            metadata['queue_timeout_seconds'] = submitted['queue_timeout_seconds']
+            metadata_path.write_text(json.dumps(metadata))
+            with self.assertRaisesRegex(ValueError, 'reset'):
+                validate_result(parent, submitted, terminal, artifacts)
 
     def test_no_missing_child_receipt_can_become_an_intentional_skip(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -56,7 +56,10 @@ def queue_wait(child):
         return value
     path = child / 'queue-start.json'
     if path.exists():
-        return max(0, time.monotonic() - json.loads(path.read_text())['monotonic'])
+        started = json.loads(path.read_text())['monotonic']
+        if isinstance(started, bool) or not isinstance(started, (float, int)) or not math.isfinite(started) or started < 0:
+            raise ValueError('Invalid child queue start')
+        return max(0, time.monotonic() - started)
     return 0
 
 
@@ -143,7 +146,13 @@ def execute(parent, submitted):
         write(parent / 'suite-state.json', state)
         if index == 0:
             if terminal['exit_code'] != 0:
-                print('[pandora] Suite planning failed; no shards dispatched. See retained child evidence.', flush=True)
+                state['stop_reason'] = 'planning-failed'
+                write(parent / 'suite-state.json', state)
+                write(parent / 'results/suite-error.json', {
+                    'version': 1, 'parent_attempt': parent.name, 'source_digest': submitted['source_digest'],
+                    'plan_attempt': identity, 'reason': 'planning-failed', 'exit_code': terminal['exit_code']})
+                (parent / 'results/exit-code').write_text(str(terminal['exit_code']) + '\n')
+                print('[pandora] Suite planning failed; no shards dispatched. See results/attempts/' + identity, flush=True)
                 return terminal['exit_code']
             plan = json.loads((child / 'results/suite-plan.json').read_text())
             write(parent / 'results/suite-plan.json', plan)
@@ -179,9 +188,7 @@ def execute(parent, submitted):
 def validate_result(stage, submitted, terminal, manifest):
     """Bind every child receipt to the parent's reserved attempt identities."""
     if 'results/suite-run.json' not in manifest:
-        if terminal['exit_code'] == 0:
-            raise ValueError('Successful suite lacks its invocation report')
-        return
+        return validate_planning_failure(stage, submitted, terminal, manifest)
     for name in ('children.json', 'results/suite-plan.json', 'suite-state.json'):
         if name not in manifest:
             raise ValueError('Suite invocation lacks its identity registry or plan')
@@ -224,4 +231,53 @@ def validate_result(stage, submitted, terminal, manifest):
             reports.append(json.loads(path.read_text()))
         elif receipt['exit_code'] == 0 or result['stop_reason'] not in ('infrastructure', 'queue-timeout', 'deadline'):
             raise ValueError('Missing shard evidence is not explained by a failed attempt')
+    validate_queue_accounting(stage, submitted, manifest, state, identities)
     validate_summary(plan, reports, result)
+
+
+def validate_planning_failure(stage, submitted, terminal, manifest):
+    required = {'results/suite-error.json', 'children.json', 'suite-state.json', 'results/exit-code'}
+    if not required <= set(manifest):
+        raise ValueError('Suite invocation lacks completion evidence; existing work remains unresolved')
+    request = suite_request(submitted['suite'])
+    identities = validate_registry(Path(submitted['attempt']), json.loads((stage / 'children.json').read_text()))
+    if len(identities) != request['shard_count'] + 1 or terminal['exit_code'] == 0:
+        raise ValueError('Invalid failed planning invocation')
+    error = json.loads((stage / 'results/suite-error.json').read_text())
+    expected_error = {'version': 1, 'parent_attempt': submitted['attempt'], 'source_digest': submitted['source_digest'],
+                      'plan_attempt': identities[0], 'reason': 'planning-failed', 'exit_code': terminal['exit_code']}
+    state = json.loads((stage / 'suite-state.json').read_text())
+    if error != expected_error or state['completed'] != identities[:1] or state['stop_reason'] != 'planning-failed':
+        raise ValueError('Failed plan receipt does not match reserved work')
+    child = stage / 'results/attempts' / identities[0]
+    for name in ('submission.json', 'terminal.json', 'artifacts.json'):
+        if str((child / name).relative_to(stage)) not in manifest:
+            raise ValueError('Failed planning receipt is missing')
+    metadata = json.loads((child / 'submission.json').read_text())
+    expected_request = {'action': 'plan', 'shard_count': request['shard_count'], 'selection': request['selection']}
+    if (metadata.get('parent_attempt') != submitted['attempt'] or metadata.get('suite') != expected_request or
+            metadata.get('source_digest') != submitted['source_digest'] or metadata.get('workflow') != 'suite'):
+        raise ValueError('Failed plan receipt belongs to different work')
+    receipt = validate_evidence(child, identities[0], metadata)
+    if receipt['exit_code'] != terminal['exit_code']:
+        raise ValueError('Failed plan disagrees with invocation exit')
+    validate_queue_accounting(stage, submitted, manifest, state, identities)
+
+
+def validate_queue_accounting(stage, submitted, manifest, state, identities):
+    waited = 0.0
+    for identity in state['completed']:
+        child = stage / 'results/attempts' / identity
+        metadata = json.loads((child / 'submission.json').read_text())
+        remaining = submitted['queue_timeout_seconds'] - waited
+        if remaining <= 0 or metadata['queue_timeout_seconds'] != remaining:
+            raise ValueError('Child queue limit reset the cumulative invocation budget')
+        artifacts = json.loads((child / 'artifacts.json').read_text())
+        if 'queue.json' not in artifacts:
+            # Failure before admission consumed no queue time.
+            if (child / 'queue.json').exists():
+                raise ValueError('Unauthenticated child queue receipt')
+            continue
+        waited += queue_wait(child)
+    if state['queue_seconds'] != waited:
+        raise ValueError('Parent queue accounting differs from child receipts')

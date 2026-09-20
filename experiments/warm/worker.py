@@ -224,6 +224,10 @@ if __name__ == '__main__':
     except Exception:
         traceback.print_exc()
         status = 70
+    if not Path('queue.json').exists() and Path('queue-start.json').exists():
+        started = json.loads(Path('queue-start.json').read_text())['monotonic']
+        Path('queue.json.tmp').write_text(json.dumps({'waited': max(0, time.monotonic() - started), 'acquired': False}) + '\n')
+        Path('queue.json.tmp').replace('queue.json')
     from suite_parent_cleanup import cleanup as cleanup_suite
     suite_clean = cleanup_suite(Path.cwd())
     # A terminal record is usable for another submission only when the owned
