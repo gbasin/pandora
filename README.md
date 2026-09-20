@@ -2,7 +2,7 @@
 
 Pandora is an opt-in experiment for running heavy validation remotely while coding
 agents, edits, and worktrees stay on a local Mac. The current SSH pilot runs one
-Eichler borrower-web surface workflow on a dedicated Linux VM. It is not ready
+Eichler borrower-web surface workflow and the service-backed S0-01 journey on a dedicated Linux VM. It is not ready
 for unattended daily use or twelve-agent concurrency.
 
 ## How it works
@@ -28,9 +28,11 @@ Supported commands, from the target repository root:
 ```sh
 pnpm test:surface borrower-web [file selectors]
 pnpm validate surface borrower-web [file selectors]
+pnpm journey S0-01
+pnpm validate journey S0-01
 ```
 
-The same forms with `pnpm run` work. Surface flags are rejected. There is no
+The same forms with `pnpm run` work. Surface flags, other journey IDs, journey flags, and the plural journeys command are rejected. There is no
 automatic local fallback, source write-back, Mutagen session, or CI dispatch.
 Required target-repo CI remains unchanged.
 
@@ -47,6 +49,16 @@ its own writable container, capped at two CPUs and 6 GiB RAM, with one Playwrigh
 worker and a 20-minute container deadline. One heavy run executes at a time.
 Extra requests wait and report worker occupancy. Admission is not FIFO.
 
+The journey adds a private Postgres, PgBouncer, and WebSocket proxy to its run.
+Service images are pinned by digest. No host ports or Docker socket are exposed.
+The full journey allocation is capped at 3.5 CPUs and 7.125 GiB across four
+containers. Every invocation starts with a fresh database. Dependency images and
+pnpm caches remain warm, but database and service state do not persist. A systemd
+stop hook removes attempt-owned resources if the worker is killed. Such a kill
+cannot produce a verified test result and still requires operator reconciliation.
+Journey results return as `results/journey.json` under the printed evidence path;
+they do not publish the surface workflow's build directories.
+
 The original shell invocation stays open until completion. Logs and known test
 artifacts return locally. A repeated request from the same worktree and state directory
 reports the active request and returns 75, even if source or selectors changed.
@@ -55,7 +67,7 @@ request in that worktree. Retrying after client loss recovers the existing attem
 and verifies its artifacts. A changed local source produces a stale-result notice
 and exit 75, rather than a pass for newer edits.
 
-Successful validation publishes `apps/borrower-web/dist` and
+Successful surface validation publishes `apps/borrower-web/dist` and
 `apps/borrower-web/e2e/dist` at their normal local paths. Each directory is
 replaced atomically, with its previous generation retained in the attempt's
 `publication/` directory. These are exclusively managed generated outputs, not
@@ -65,6 +77,12 @@ the same command finishes delivery without running tests again. The local state
 and worktree must be on the same filesystem supporting directory exchange.
 
 ## Current evidence
+
+The [integrated journey trial](notes/remote-journey-2026-09-20-integrated.md) ran
+Codex and Opus through failure, local repair, queued rerun, and report inspection.
+Both passed. Separate probes verified explicit cancellation, same-attempt recovery
+after transport loss, and resource cleanup after forced worker death. Warm journey
+execution took about 50 seconds, excluding queue and transfer time.
 
 The [different-dependency trial](notes/remote-surface-2026-09-20-dependency-isolation.md)
 ran Codex and Opus concurrently with distinct package versions. Both prepared
@@ -153,8 +171,8 @@ agreed scope and proposed command semantics. It requires local edit/test/fix
 iteration, one service-backed workflow, specific Docker build/run patterns,
 worktree-scoped image tags, and conflict-checked return of declared outputs.
 The surface pilot now covers the edit/test/fix loop and publishes two generated
-build directories. Service-backed routing and Docker command routing remain
-unimplemented; their component probes do not establish the integrated behavior.
+build directories. The S0-01 journey now uses the same routing and recovery path.
+Direct Docker command routing remains unimplemented.
 
 Evaluate source consistency, cache invalidation, output recovery, and parallel
 worktree isolation before increasing concurrency. Include Codex and Claude Opus.

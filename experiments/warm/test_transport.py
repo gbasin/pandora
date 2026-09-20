@@ -30,6 +30,25 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'identity'):
                 validate_evidence(root, 'b' * 32)
 
+    def test_journey_report_must_match_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.prepare(root, 0)
+            terminal = json.loads((root / 'terminal.json').read_text())
+            terminal['workflow'] = 'journey'
+            (root / 'terminal.json').write_text(json.dumps(terminal))
+            (root / 'results').mkdir()
+            (root / 'results/exit-code').write_text('0')
+            for state in ('fail', 'pass'):
+                (root / 'results/journey.json').write_text(json.dumps({'journey': 'S0-01', 'status': state}))
+                files = ['results/exit-code', 'results/journey.json']
+                (root / 'artifacts.json').write_text(json.dumps({n: hashlib.sha256((root / n).read_bytes()).hexdigest() for n in files}))
+                if state == 'fail':
+                    with self.assertRaisesRegex(ValueError, 'Journey evidence'):
+                        validate_evidence(root, 'a' * 32)
+                else:
+                    self.assertEqual(validate_evidence(root, 'a' * 32)['exit_code'], 0)
+
     def test_artifact_cannot_escape_staging(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

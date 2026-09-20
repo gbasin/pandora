@@ -67,7 +67,7 @@ def main():
         return 64
     repo = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
     if Path.cwd().resolve() != repo.resolve():
-        print('[pandora] Run this surface command from the repository root. No validation started.', file=sys.stderr)
+        print('[pandora] Run this validation command from the repository root. No validation started.', file=sys.stderr)
         return 64
     key = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()
     state = Path(os.environ['PANDORA_STATE']) / key
@@ -108,7 +108,8 @@ def main():
             write(active, record)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
-                       '--output', str(output), '--attempt', record['attempt'], *selectors]
+                       '--output', str(output), '--attempt', record['attempt'],
+                       '--workflow', 'journey' if action == 'journey' else 'surface', *selectors]
         child = None
 
         def interrupted(signum, frame):
@@ -157,7 +158,7 @@ def main():
                     complete(active, record, output, terminal)
                     print('[pandora] Result applies to earlier source. Run again to validate current source; inspect retained outputs before using them. Evidence: ' + str(output), file=sys.stderr)
                     return 75
-                if terminal['exit_code'] == 0:
+                if terminal['exit_code'] == 0 and submitted.get('workflow', 'surface') == 'surface':
                     deliver(repo, output)
                 complete(active, record, output, terminal)
                 status = terminal['exit_code']

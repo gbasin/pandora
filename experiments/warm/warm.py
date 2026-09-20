@@ -29,6 +29,7 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
+    p.add_argument('--workflow', choices=['surface', 'journey'], default='surface')
     p.add_argument('--require-warm', action='store_true')
     p.add_argument('--attempt', default=None)
     p.add_argument('selectors', nargs='*')
@@ -48,7 +49,7 @@ def main():
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
-                'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
+                'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
     write_metadata(output / 'submission.json', metadata)
     scripts = Path(__file__).resolve().parent
     ssh = ['ssh', *SSH_OPTIONS, args.host]
@@ -72,7 +73,8 @@ def main():
     write_metadata(output / 'submission.json', metadata)
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
         str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'),
-        str(scripts / 'in-container.sh'), f'{args.host}:{remote}/')
+        str(scripts / 'in-container.sh'), str(scripts / 'journey.py'),
+        str(scripts / 'service_cleanup.py'), str(scripts / 'journey.mjs'), f'{args.host}:{remote}/')
     run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
     # All links reference complete immutable source directories, never containers.
     run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
@@ -84,7 +86,8 @@ def main():
     command = (f'sudo systemd-run --quiet --collect --unit=pandora-worker-{attempt} '
                f'--uid=ubuntu --working-directory={remote} '
                '--property=RuntimeMaxSec=40m --property=TimeoutStopSec=30s '
-               '--property=KillMode=control-group /bin/bash -c ' + shlex.quote(worker_command))
+               '--property=KillMode=control-group '
+               f'--property=ExecStopPost={shlex.quote("/usr/bin/python3 " + remote + "/service_cleanup.py " + remote)} /bin/bash -c ' + shlex.quote(worker_command))
     launched = subprocess.run([*ssh, command])
     if launched.returncode:
         print('[pandora] Start acknowledgement unavailable; checking the existing attempt only.', flush=True)
