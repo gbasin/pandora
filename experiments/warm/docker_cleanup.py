@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import builder_owner
+import cleanup_identity
 
 BUILDER = 'pandora-docker-builds-v1'
 BUILDER_CONTAINER = 'buildx_buildkit_' + BUILDER + '0'
@@ -27,11 +28,16 @@ def cleanup(attempt, builder_lease=None):
             errors.append('Docker builder ownership or cleanup remains unresolved')
         check = subprocess.CompletedProcess([], 0, '', '')
     elif kind == 'run':
-        removed = subprocess.run(['sudo', 'docker', 'rm', '-f', '-v', name], capture_output=True, text=True, timeout=30)
-        if removed.returncode and 'No such container' not in removed.stderr:
-            errors.append(removed.stderr)
-        command = ['sudo', 'docker', 'ps', '-a', '--filter', 'name=^/' + name + '$', '--format', '{{.Names}}']
-        check = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        removed, error = cleanup_identity.remove_container(name, {
+            'pandora.attempt': attempt.name, 'pandora.workflow': 'docker'})
+        if not removed:
+            errors.append(error)
+        absent, error = cleanup_identity.absent_container(name)
+        if error:
+            errors.append(error)
+        elif not absent:
+            errors.append('Container name remains present after cleanup: ' + name)
+        check = subprocess.CompletedProcess([], 0, '', '')
     else:
         raise ValueError("Unknown Docker cleanup kind")
     mount = attempt / 'mount'
