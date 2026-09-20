@@ -1,0 +1,613 @@
+{
+  "preparation": [
+    {
+      "mode": "copy",
+      "files": 4810,
+      "seeded": true,
+      "capture_seconds": 4.531299917027354,
+      "setup_seconds": 1.955331125005614,
+      "transfer_seconds": 2.255147332965862,
+      "remote_verify_seconds": 0.9172552920063026,
+      "local_recheck_seconds": 8.330098353326321e-07,
+      "ready_seconds": 9.659034500014968
+    },
+    {
+      "mode": "manifest",
+      "files": 4810,
+      "seeded": true,
+      "capture_seconds": 0.7109087909921072,
+      "setup_seconds": 0.7007469999953173,
+      "transfer_seconds": 3.8624770420137793,
+      "remote_verify_seconds": 1.0875047500012442,
+      "local_recheck_seconds": 0.6263717080000788,
+      "ready_seconds": 6.988009291002527
+    },
+    {
+      "mode": "manifest",
+      "files": 4810,
+      "seeded": true,
+      "capture_seconds": 0.6766727499780245,
+      "setup_seconds": 0.7715704159927554,
+      "transfer_seconds": 4.54625183402095,
+      "remote_verify_seconds": 1.1138568329624832,
+      "local_recheck_seconds": 0.6125272080535069,
+      "ready_seconds": 7.72087904100772
+    },
+    {
+      "mode": "copy",
+      "files": 4810,
+      "seeded": true,
+      "capture_seconds": 3.077928874990903,
+      "setup_seconds": 1.0086615000036545,
+      "transfer_seconds": 2.6205320830340497,
+      "remote_verify_seconds": 0.8782047500135377,
+      "local_recheck_seconds": 5.41971530765295e-07,
+      "ready_seconds": 7.5853277500136755
+    },
+    {
+      "mode": "copy",
+      "files": 4810,
+      "seeded": true,
+      "capture_seconds": 3.73923804104561,
+      "setup_seconds": 0.6989144589751959,
+      "transfer_seconds": 3.047204166010488,
+      "remote_verify_seconds": 1.3510758749907836,
+      "local_recheck_seconds": 1.374981366097927e-06,
+      "ready_seconds": 8.836433916003443
+    },
+    {
+      "mode": "manifest",
+      "files": 4810,
+      "seeded": true,
+      "capture_seconds": 0.7968645420041867,
+      "setup_seconds": 1.022054917004425,
+      "transfer_seconds": 4.4034777079941705,
+      "remote_verify_seconds": 0.8023984579485841,
+      "local_recheck_seconds": 0.6889181250007823,
+      "ready_seconds": 7.713713749952149
+    }
+  ],
+  "builds": [
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "9039e062b56848dc851c3e02c09afe16",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 0.6782965839956887,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 3.205314874998294,
+      "prelaunch_verify_seconds": 1.3535195000004023,
+      "total_seconds": 12.099313833983615,
+      "exit_code": 0,
+      "mode": "manifest",
+      "direct_cli_seconds": 12.181975583021995,
+      "metrics": {
+        "queue_seconds": 0.35457398000289686,
+        "execution_seconds": 2.02448637400812,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "9039e062b56848dc851c3e02c09afe16",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "0422395457844072984deda7580bb826",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 3.3611787499976344,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 2.1022550420020707,
+      "total_seconds": 13.18236724997405,
+      "exit_code": 0,
+      "mode": "copy",
+      "direct_cli_seconds": 13.276801250001881,
+      "metrics": {
+        "queue_seconds": 0.3298076920036692,
+        "execution_seconds": 1.944308316000388,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "0422395457844072984deda7580bb826",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "5b59159be53d48789b79013a2338d2aa",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 3.8196998750208877,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 2.5573164999950677,
+      "total_seconds": 14.028243292006664,
+      "exit_code": 0,
+      "mode": "copy",
+      "direct_cli_seconds": 14.130738667037804,
+      "metrics": {
+        "queue_seconds": 0.4613882289995672,
+        "execution_seconds": 1.9352330200053984,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "5b59159be53d48789b79013a2338d2aa",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "18a43474c80f4c02b69d340e73beec4d",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 0.7211038329987787,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 4.302619832975324,
+      "prelaunch_verify_seconds": 1.437475499988068,
+      "total_seconds": 13.91155408299528,
+      "exit_code": 0,
+      "mode": "manifest",
+      "direct_cli_seconds": 14.065566917008255,
+      "metrics": {
+        "queue_seconds": 0.5190430509974249,
+        "execution_seconds": 1.9368874989886535,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "18a43474c80f4c02b69d340e73beec4d",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "0bef2f29950a4098a8d779533c118e72",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 0.6751206660410389,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 4.180415916023776,
+      "prelaunch_verify_seconds": 1.5248771660262719,
+      "total_seconds": 13.654098291008268,
+      "exit_code": 0,
+      "mode": "manifest",
+      "direct_cli_seconds": 13.732957333035301,
+      "metrics": {
+        "queue_seconds": 0.516941866997513,
+        "execution_seconds": 1.8916267110034823,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "0bef2f29950a4098a8d779533c118e72",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "82bf9f5a091c4a3b9512d9e3ef451ab6",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 3.209514832997229,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 2.2463398330146447,
+      "total_seconds": 11.746776500018314,
+      "exit_code": 0,
+      "mode": "copy",
+      "direct_cli_seconds": 11.835206334013492,
+      "metrics": {
+        "queue_seconds": 0.3732639929949073,
+        "execution_seconds": 1.6558447209972655,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "82bf9f5a091c4a3b9512d9e3ef451ab6",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    }
+  ],
+  "pilot_builds": [
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "a2bb8cf60a1f428b94abf7060e639ea6",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 1.957652707991656,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 6.478351041965652,
+      "prelaunch_verify_seconds": 1.865754582977388,
+      "total_seconds": 18.64436554099666,
+      "exit_code": 0,
+      "direct_cli_seconds": 18.726523332996294,
+      "metrics": {
+        "queue_seconds": 0.48717592300090473,
+        "execution_seconds": 2.1185820719983894,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "a2bb8cf60a1f428b94abf7060e639ea6",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "bf43ec51e9ce49fb8ba8a51c8e26db27",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 1.8438840000308119,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 3.7404257919988595,
+      "prelaunch_verify_seconds": 1.5317505829734728,
+      "total_seconds": 13.169856666994747,
+      "exit_code": 0,
+      "direct_cli_seconds": 13.259520291991066,
+      "metrics": {
+        "queue_seconds": 0.4321303399919998,
+        "execution_seconds": 1.8861069209960988,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "bf43ec51e9ce49fb8ba8a51c8e26db27",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    },
+    {
+      "profile": "integrated-surface-v1",
+      "attempt": "8402c7f6948b4ed28a966c8ebe05d4d8",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "excluded": [],
+      "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+      "workflow": "docker",
+      "selectors": [],
+      "require_warm": false,
+      "snapshot_seconds": 2.2631961660226807,
+      "docker": {
+        "request": {
+          "kind": "build",
+          "tag": "compiled:test",
+          "dockerfile": "Pandora.Dockerfile"
+        },
+        "config": {
+          "dockerfiles": [
+            "Pandora.Dockerfile"
+          ],
+          "mounts": [],
+          "outputs": [
+            {
+              "container": "/workspace/dist",
+              "workspace": "apps/borrower-web/dist"
+            }
+          ],
+          "network": "none"
+        },
+        "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"
+      },
+      "worker_bundle": "5efacd76447ec28c3853bf88c0adc57aad8a928cd88100f8a4c320561d5e4f3b",
+      "worker_bundle_cache_hit": true,
+      "transfer_seconds": 4.264210207969882,
+      "prelaunch_verify_seconds": 1.5568910830188543,
+      "total_seconds": 15.745775624993257,
+      "exit_code": 0,
+      "direct_cli_seconds": 15.848402999981772,
+      "metrics": {
+        "queue_seconds": 0.4621458390029147,
+        "execution_seconds": 1.9193579200073145,
+        "exit_code": 0
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "8402c7f6948b4ed28a966c8ebe05d4d8",
+        "exit_code": 0,
+        "workflow": "docker",
+        "cleanup_verified": true
+      }
+    }
+  ],
+  "fixtures": [
+    {
+      "case": "unchanged-special-paths",
+      "rejected": false,
+      "rejection": null,
+      "excluded_absent": true
+    },
+    {
+      "case": "same-size-mtime",
+      "rejected": true,
+      "rejection": "CalledProcessError",
+      "excluded_absent": true
+    },
+    {
+      "case": "edit-after-transfer",
+      "rejected": true,
+      "rejection": "RuntimeError",
+      "excluded_absent": true
+    },
+    {
+      "case": "new-file",
+      "rejected": true,
+      "rejection": "RuntimeError",
+      "excluded_absent": true
+    },
+    {
+      "case": "deletion",
+      "rejected": true,
+      "rejection": "CalledProcessError",
+      "excluded_absent": true
+    },
+    {
+      "case": "symlink-change",
+      "rejected": true,
+      "rejection": "CalledProcessError",
+      "excluded_absent": true
+    },
+    {
+      "case": "mode-change",
+      "rejected": true,
+      "rejection": "CalledProcessError",
+      "excluded_absent": true
+    },
+    {
+      "case": "ignore-change",
+      "rejected": true,
+      "rejection": "RuntimeError",
+      "excluded_absent": true
+    },
+    {
+      "case": "unexpected-remote-file",
+      "rejected": true,
+      "rejection": "CalledProcessError",
+      "excluded_absent": true
+    },
+    {
+      "case": "file-becomes-directory",
+      "rejected": true,
+      "rejection": "CalledProcessError",
+      "excluded_absent": true
+    },
+    {
+      "case": "accepted-snapshot-independent",
+      "passed": true
+    }
+  ],
+  "during_transfer": {
+    "observed_active_receiver": true,
+    "rsync_exit": 0,
+    "capture_rejected": true,
+    "worker_started": false
+  },
+  "ancestor_swap": {
+    "transfer_error": false,
+    "received": "SYNTHETIC-NOT-ADMITTED",
+    "rejected_before_execution": true
+  }
+}

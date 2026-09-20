@@ -1,0 +1,11 @@
+{
+  "kind": "build",
+  "tag": "compiled:test",
+  "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+  "exit_code": 0,
+  "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+  "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+  "image_source_digest": null,
+  "platform": "linux/amd64",
+  "builder": "pandora-docker-builds-v1"
+}

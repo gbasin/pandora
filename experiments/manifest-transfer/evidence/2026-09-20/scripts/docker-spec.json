@@ -1,0 +1,1 @@
+{"request": {"kind": "build", "tag": "compiled:test", "dockerfile": "Pandora.Dockerfile"}, "config": {"dockerfiles": ["Pandora.Dockerfile"], "mounts": [], "outputs": [{"container": "/workspace/dist", "workspace": "apps/borrower-web/dist"}], "network": "none"}, "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5"}
