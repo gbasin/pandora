@@ -15,10 +15,47 @@ def digest(path):
     return result.hexdigest()
 
 
-def names(repo):
+def registered_nested_worktree_prefixes(repo):
+    """Return repository-relative prefixes for registered worktrees below repo."""
+    root = Path(repo).resolve()
+    common_dir = Path(subprocess.check_output(
+        ['git', '-C', str(root), 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+        text=True).strip()).resolve()
+    raw = subprocess.check_output(['git', '-C', str(root), 'worktree', 'list',
+                                   '--porcelain', '-z'])
+    prefixes = set()
+    for field in raw.split(b'\0'):
+        if not field.startswith(b'worktree '):
+            continue
+        worktree = Path(os.fsdecode(field[len(b'worktree '):])).resolve()
+        try:
+            relative = worktree.relative_to(root)
+        except ValueError:
+            continue
+        git_file = worktree / '.git'
+        try:
+            nested_root = Path(subprocess.check_output(
+                ['git', '-C', str(worktree), 'rev-parse', '--show-toplevel'], text=True).strip()).resolve()
+            nested_common_dir = Path(subprocess.check_output(
+                ['git', '-C', str(worktree), 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                text=True).strip()).resolve()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if (relative != Path('.') and git_file.is_file() and nested_root == worktree
+                and nested_common_dir == common_dir):
+            prefixes.add(relative.as_posix().rstrip('/') + '/')
+    return sorted(prefixes)
+
+
+def names(repo, nested_prefixes=None):
+    if nested_prefixes is None:
+        nested_prefixes = registered_nested_worktree_prefixes(repo)
     raw = subprocess.check_output(['git', '-C', str(repo), 'ls-files', '-z',
                                    '--cached', '--others', '--exclude-standard'])
-    return sorted(set(p.decode() for p in raw.split(b'\0') if p))
+    candidates = {p.decode() for p in raw.split(b'\0') if p}
+    return sorted(name for name in candidates
+                  if not any(name == prefix[:-1] or name.startswith(prefix)
+                             for prefix in nested_prefixes))
 
 
 def excluded(name):
@@ -49,8 +86,9 @@ def entry(root, name):
 
 
 def freeze(repo, destination):
-    repo = repo.resolve()
-    first_names = names(repo)
+    repo = Path(repo).resolve()
+    nested_prefixes = registered_nested_worktree_prefixes(repo)
+    first_names = names(repo, nested_prefixes)
     selected = [n for n in first_names if not excluded(n)]
     destination.mkdir(parents=True, exist_ok=False)
     manifest = []
@@ -70,9 +108,11 @@ def freeze(repo, destination):
             raise RuntimeError(f'Source changed during capture: {name}; retry explicitly')
         manifest.append(record)
     final = [e for n in selected if (e := entry(repo, n)) is not None]
-    if names(repo) != first_names or final != manifest:
+    final_nested_prefixes = registered_nested_worktree_prefixes(repo)
+    if (final_nested_prefixes != nested_prefixes
+            or names(repo, final_nested_prefixes) != first_names or final != manifest):
         raise RuntimeError('Source changed during capture; retry explicitly')
-    return manifest, [n for n in first_names if excluded(n)]
+    return manifest, [n for n in first_names if excluded(n)] + nested_prefixes
 
 
 def encode(manifest):
