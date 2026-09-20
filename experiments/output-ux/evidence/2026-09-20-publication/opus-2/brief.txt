@@ -1,0 +1,8 @@
+Worktree: /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2
+Run pwd first. If it differs from this worktree, stop and report.
+
+Work only in experiments/output-ux/fixture. This small fixture is your assigned task, not the rest of the repository.
+
+Change the report heading from Draft to Ready in src/schema.json. Run pnpm build. Inspect the built dist/report.json and report its exact SHA-256 and title. Do not edit generated build outputs directly.
+
+Do not commit or open a PR. Do not change supporting tooling. Do not run other repository test suites. Report what changed, validation, and any unresolved problem.

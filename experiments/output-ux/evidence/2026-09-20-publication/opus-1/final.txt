@@ -1,0 +1,22 @@
+Done.
+
+**What changed**
+
+- `experiments/output-ux/fixture/src/schema.json:1` — `"title":"Draft"` → `"title":"Ready"`. That is the only edit; `git status` shows exactly one modified file.
+
+**Validation**
+
+- `pnpm build` in the fixture: exit 0. The bridge dispatched remote run `f693362a4cdb469eabc6526ef6bd595f` and published `dist/` via the atomic directory exchange (previous output retained at `.pandora-artifacts/f693362a4cdb469eabc6526ef6bd595f/generation`).
+- No delivery state existed before the run (`.pandora-artifacts/` was absent), so this was a fresh build, not a recovered delivery — the event log confirms `"recovered_delivery": false`, `"remote_exit": 0`.
+- `dist/report.json` was produced by the build, not edited by hand.
+
+**Built output**
+
+- SHA-256: `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+- Title: `Ready`
+
+The publisher's own journal records the same digest in its manifest, and `publish()` verified the destination against it after the exchange, so the hash on disk is the one the build committed to.
+
+**Unresolved problems**
+
+None. One thing worth knowing rather than a problem: the build is not hermetic — `bridge.py:50` runs it over SSH to `ubuntu@40.160.93.34` with a 90s timeout. It succeeded here, but the digest is only reproducible while that host is reachable and serving the same build logic.

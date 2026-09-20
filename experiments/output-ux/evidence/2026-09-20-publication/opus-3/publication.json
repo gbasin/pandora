@@ -1,0 +1,15 @@
+{
+  "phase": "published",
+  "incoming_inode": [
+    16777229,
+    982279130
+  ],
+  "previous_inode": [
+    16777229,
+    982277613
+  ],
+  "manifest": {
+    "report.json": "e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970"
+  },
+  "retained_previous": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/generation"
+}

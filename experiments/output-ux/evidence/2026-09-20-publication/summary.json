@@ -1,0 +1,56 @@
+[
+  {
+    "lane": "codex-1",
+    "task_passed": true,
+    "remote_builds": 1,
+    "local_output_correct": true,
+    "retained_output_correct": true,
+    "human_interventions": 0,
+    "command_seconds": 1.26
+  },
+  {
+    "lane": "opus-1",
+    "task_passed": true,
+    "remote_builds": 1,
+    "local_output_correct": true,
+    "retained_output_correct": true,
+    "human_interventions": 0,
+    "command_seconds": 0.834
+  },
+  {
+    "lane": "codex-2",
+    "task_passed": true,
+    "remote_builds": 1,
+    "local_output_correct": true,
+    "retained_output_correct": true,
+    "human_interventions": 0,
+    "command_seconds": 1.163
+  },
+  {
+    "lane": "opus-2",
+    "task_passed": true,
+    "remote_builds": 1,
+    "local_output_correct": true,
+    "retained_output_correct": true,
+    "human_interventions": 0,
+    "command_seconds": 0.841
+  },
+  {
+    "lane": "codex-3",
+    "task_passed": true,
+    "remote_builds": 1,
+    "local_output_correct": true,
+    "retained_output_correct": true,
+    "human_interventions": 0,
+    "command_seconds": 0.982
+  },
+  {
+    "lane": "opus-3",
+    "task_passed": true,
+    "remote_builds": 1,
+    "local_output_correct": true,
+    "retained_output_correct": true,
+    "human_interventions": 0,
+    "command_seconds": 1.081
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "command": "/bin/zsh -lc pwd",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'ls -la experiments/output-ux/fixture && cat experiments/output-ux/fixture/src/schema.json && cat experiments/output-ux/fixture/package.json && for p in AGENTS.md experiments/AGENTS.md experiments/output-ux/AGENTS.md experiments/output-ux/fixture/AGENTS.md experiments/output-ux/fixture/src/AGENTS.md; do if [ -f \"$p\" ]; then cat \"$p\"; fi; done'",
+    "exit_code": 0
+  },
+  {
+    "id": "item_3",
+    "type": "file_change",
+    "changes": [
+      {
+        "path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-codex-3/experiments/output-ux/fixture/src/schema.json",
+        "kind": "update"
+      }
+    ],
+    "status": "completed"
+  },
+  {
+    "command": "/bin/zsh -lc 'pnpm build'",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'cat dist/report.json && shasum -a 256 dist/report.json && git diff -- src/schema.json && git status --short -- .'",
+    "exit_code": 0
+  }
+]

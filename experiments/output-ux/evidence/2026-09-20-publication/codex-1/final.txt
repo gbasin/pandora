@@ -1,0 +1,7 @@
+Changed `src/schema.json` title from `Draft` to `Ready`.
+
+- Validation: `pnpm build` succeeded.
+- Built `dist/report.json` title: `Ready`
+- SHA-256: `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+
+No unresolved problems. No direct edits to generated outputs, tooling changes, other test suites, commits, or PRs.
