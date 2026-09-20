@@ -171,7 +171,11 @@ RAM without swap. The dependency recipe assumes Eichler's installation inputs.
 
 Keep local state and returned evidence until unresolved requests are reconciled.
 New integrated runs retain ten prior completed local attempts and ten released
-remote attempts, plus protected current/latest and unresolved work. Old output
+remote attempts, plus protected current/latest and unresolved work. Source reuse
+is keyed by the canonical Git common directory, so worktrees share a cache and
+unrelated repositories do not evict each other. Each transfer takes a private
+hardlink seed before retention can delete its base snapshot. Drain older workers
+before deploying this cache protocol; the first keyed upload is cold. Old output
 generations live as long as their attempt. Three recent dependency images are
 kept, with images referenced by retained containers pinned. Earlier experiment
 data is excluded from these sweeps. These are retention targets, not hard disk
