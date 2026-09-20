@@ -6,9 +6,9 @@ transfer, and reusable installed dependencies. It is the scripted layer used by 
 
 ## Run
 
-Prepare the disposable worker with the corrected image from `../surface/`.
-Install Python 3, rsync, Docker, and systemd on that worker. The current worker
-preset assumes the SSH user is `ubuntu`, with UID 1000 and passwordless sudo. Use Python 3.9 or
+Install Python 3, rsync, Docker with Buildx, and systemd on the disposable worker.
+The runtime recipe in `../surface/Dockerfile` is built automatically. The current worker
+preset assumes the SSH user is `ubuntu`, with UID 1000 and passwordless sudo. Use Python 3.10 or
 newer, rsync, and SSH on the Mac.
 
 ```sh
@@ -39,7 +39,7 @@ attempt gets a separate source directory. The worker verifies the full manifest
 before execution. Test containers never mount or modify these source snapshots.
 The worker's single SSH user is trusted to preserve them.
 
-A dependency image is keyed by the base image ID, build-recipe version, workspace
+A dependency image is keyed by the pinned runtime recipe, build-recipe version, workspace
 package manifests, lockfile, pnpm settings, and patches. The first matching run
 installs frozen dependencies. Later runs reuse the built image. Each container
 has its own writable overlay, including node_modules, so test writes cannot alter
@@ -66,16 +66,29 @@ can still capture and transfer source concurrently.
 Test containers use the baseline's limits: two CPUs, 6 GiB RAM without swap,
 512 processes, and one Playwright worker. The dependency image builder has a
 two-CPU and 6 GiB limit. The container has a 20-minute worker deadline. The image
-build does not yet have an independently enforced deadline.
+build has a 15-minute client deadline. The dedicated BuildKit container stops
+after preparation, including on cancellation. Its cache volume persists.
+BuildKit garbage collection targets at most 12 GB of cache and 10 GB free disk;
+these targets are not hard disk quotas. Integrated runs retain ten released attempts, with the latest snapshot protected.
+Three recent dependency image tags are retained; referenced images stay pinned.
+Legacy and unresolved data is never automatically deleted. A worker with less
+than 10 GiB free refuses preparation and execution.
 
 Local evidence includes the manifest and source identity, transfer statistics,
 stage timings, cache-hit status, raw stdout/stderr, JUnit, available Playwright
 artifacts, cgroup metrics, and terminal Docker state. Successful containers are
-removed after collection. Failed containers are stopped and retained for manual
-diagnosis. This is file retention, not live process retention.
+removed after collection. Failed containers are stopped and retained for diagnosis until their
+acknowledged attempt ages out of retention. This is file retention, not live process retention.
 
 Explicit cancellation was tested through the session router. Abrupt client loss,
 interrupted transfers, disk quotas, retention sweeps, and dependency-cache
 corruption still need fault tests before broader use. A
 failed preparation can leave partial evidence. Do not interpret a missing test
 result as a pass. This harness does not manage billable cloud resources.
+
+Successful runs export both borrower-web build directories under
+`results/outputs/`. The session router verifies and publishes them locally.
+Direct `warm.py` calls only retrieve evidence; they do not publish into a worktree.
+The dependency builder is `pandora-surface-deps-v3`. An unexpectedly running
+builder without the worker lock blocks subsequent validation until an operator
+reconciles it. The worker never starts tests on top of unresolved preparation.

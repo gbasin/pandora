@@ -1,0 +1,32 @@
+{
+  "submission": {
+    "attempt": "955a013116b145ada303050961db8287",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "excluded": [],
+    "selectors": [
+      "smoke.spec.ts"
+    ],
+    "require_warm": false,
+    "snapshot_seconds": 4.52086633403087,
+    "transfer_seconds": 2.5735586669761688,
+    "total_seconds": 230.7488173340098,
+    "exit_code": 0
+  },
+  "metrics": {
+    "queue_seconds": 7.510003342758864e-06,
+    "dependency_cache_hit": false,
+    "dependency_seconds": 114.3771871200006,
+    "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+    "execution_seconds": 99.26282347199958,
+    "exit_code": 0
+  },
+  "terminal": {
+    "state": "terminal",
+    "attempt": "955a013116b145ada303050961db8287",
+    "exit_code": 0,
+    "cleanup_verified": true
+  },
+  "source_changed_after_capture": true,
+  "local_exit": 75,
+  "smoke_tests_passed": 49
+}

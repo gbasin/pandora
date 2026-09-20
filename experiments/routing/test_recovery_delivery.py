@@ -32,6 +32,7 @@ class RecoveryDelivery(unittest.TestCase):
                  patch('route.subprocess.check_output', return_value=str(repo)), \
                  patch('route.Path.cwd', return_value=repo), patch('route.current_digest', return_value='same'), \
                  patch('route.subprocess.Popen', side_effect=AssertionError('must not rerun or download')), \
+                 patch('route.control', return_value={'cleanup_verified': True}), \
                  patch('route.deliver', side_effect=[OSError('disk full'), None]) as delivery:
                 self.assertEqual(route.main(), 75)
                 self.assertEqual(json.loads((state / 'active.json').read_text())['state'], 'active')

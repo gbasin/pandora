@@ -40,7 +40,9 @@ are not a general secret scanner. The client checks for changes during capture,
 then uploads a frozen snapshot and verifies its manifest remotely. Later edits
 do not change submitted input.
 
-The worker reuses source files and a prepared dependency image. Each run gets
+The worker reuses source files and a dependency image keyed by installation inputs.
+A cache miss automatically prepares the image remotely with a bounded BuildKit
+builder and a persistent pnpm package cache. Each run gets
 its own writable container, capped at two CPUs and 6 GiB RAM, with one Playwright
 worker and a 20-minute container deadline. One heavy run executes at a time.
 Extra requests wait and report worker occupancy. Admission is not FIFO.
@@ -53,10 +55,24 @@ request in that worktree. Retrying after client loss recovers the existing attem
 and verifies its artifacts. A changed local source produces a stale-result notice
 and exit 75, rather than a pass for newer edits.
 
+Successful validation publishes `apps/borrower-web/dist` and
+`apps/borrower-web/e2e/dist` at their normal local paths. Each directory is
+replaced atomically, with its previous generation retained in the attempt's
+`publication/` directory. These are exclusively managed generated outputs, not
+source writeback. The two replacements are individually atomic, not one
+transaction. A failed publication keeps the completed attempt active; retrying
+the same command finishes delivery without running tests again. The local state
+and worktree must be on the same filesystem supporting directory exchange.
+
 ## Current evidence
 
+The [integrated repair trial](notes/remote-surface-2026-09-20-integrated-repair.md)
+records three successful diagnose/edit/rerun samples each for Codex and Opus,
+automatic dependency preparation, returned build directories, and delivery
+recovery without duplicate execution.
+
 The [recovery and contention trial](notes/remote-surface-2026-09-19-recovery-and-contention.md)
-records the latest results. The [initial agent trial](notes/remote-surface-2026-09-19-agent-trials.md)
+records the earlier recovery results. The [initial agent trial](notes/remote-surface-2026-09-19-agent-trials.md)
 preserves earlier setup failures and outcomes.
 
 - Abrupt client death, interrupted artifact retrieval, and a 55-second SSH outage
@@ -89,13 +105,12 @@ samples per agent and delivery-recovery probes.
 ## Try the pilot
 
 Use a disposable Linux x86 worker with Docker, systemd, Python 3, rsync, SSH, and
-about 16 GiB RAM. The client needs Python 3.9+, rsync, SSH, Git, pnpm, and the
+about 16 GiB RAM. The client needs Python 3.10+, rsync, SSH, Git, pnpm, and the
 selected agent CLI. This runs trusted repository code under one trusted SSH user.
 
-1. Build the pinned image using the [surface setup](experiments/surface/README.md).
+1. Install Docker with Buildx, systemd, Python 3, and rsync on the worker.
 2. Prepare a bootstrapped trial worktree with its own dependencies.
-3. Run the [warm harness](experiments/warm/README.md) once to prepare the matching dependency image.
-4. Launch a session from the target worktree using an absolute path to Pandora:
+3. Launch a session from the target worktree using an absolute path to Pandora:
 
 ```sh
 python3 /path/to/pandora/experiments/routing/launch.py \
@@ -110,13 +125,18 @@ yet validated. Check `command -v pnpm` inside the agent's shell before validatio
 It must resolve to Pandora's `experiments/routing/bin/pnpm`.
 
 See the [routing README](experiments/routing/README.md) for shell configuration,
-Codex supervisor integration, and cancellation behavior. Agent routing refuses a
-cold dependency build. When installation inputs change, an operator must prepare
-the new image. The dependency recipe currently assumes Eichler's install inputs.
+Codex supervisor integration, and cancellation behavior. Cold dependency builds
+run automatically, with a 15-minute preparation deadline, two CPUs, and 6 GiB
+RAM without swap. The dependency recipe assumes Eichler's installation inputs.
 
 Keep local state and returned evidence until unresolved requests are reconciled.
-Failed stopped containers and snapshots require manual retention cleanup. Cloud
-provisioning and deletion are manual. Deleting the VM, rather than only stopping
+New integrated runs retain ten prior completed local attempts and ten released
+remote attempts, plus protected current/latest and unresolved work. Old output
+generations live as long as their attempt. Three recent dependency images are
+kept, with images referenced by retained containers pinned. Earlier experiment
+data is excluded from these sweeps. These are retention targets, not hard disk
+quotas; low worker disk space blocks new preparation. Cloud provisioning and
+deletion are manual. Deleting the VM, rather than only stopping
 workloads, is necessary to stop its instance billing.
 
 ## Next evaluation
@@ -126,7 +146,9 @@ The [v0.1 contract and evaluation matrix](notes/v0.1-contract.md) records the
 agreed scope and proposed command semantics. It requires local edit/test/fix
 iteration, one service-backed workflow, specific Docker build/run patterns,
 worktree-scoped image tags, and conflict-checked return of declared outputs.
-These features are not implemented by the surface pilot.
+The surface pilot now covers the edit/test/fix loop and publishes two generated
+build directories. Service-backed routing and Docker command routing remain
+unimplemented; their component probes do not establish the integrated behavior.
 
 Evaluate source consistency, cache invalidation, output recovery, and parallel
 worktree isolation before increasing concurrency. Include Codex and Claude Opus.

@@ -1,0 +1,19 @@
+{
+  "records": [
+    {
+      "step": "delivery-refused",
+      "exit_code": 75,
+      "seconds": 30.34267170802923,
+      "attempt": "cd00530a4f5849d4864ab1a3a1961a9a",
+      "state": "active"
+    },
+    {
+      "step": "delivery-recovered",
+      "exit_code": 0,
+      "seconds": 1.6200834999908693,
+      "attempt": "cd00530a4f5849d4864ab1a3a1961a9a",
+      "state": "terminal"
+    }
+  ],
+  "assertions": "passed"
+}

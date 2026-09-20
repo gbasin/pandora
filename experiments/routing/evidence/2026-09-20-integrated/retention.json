@@ -1,0 +1,7 @@
+{
+  "assertions": "passed",
+  "released_runs_kept": 10,
+  "inconsistent_live_run_preserved": true,
+  "old_stopped_container_removed": true,
+  "managed_image_tags_kept": 3
+}

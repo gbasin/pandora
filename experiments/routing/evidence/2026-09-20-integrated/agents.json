@@ -1,0 +1,506 @@
+[
+  {
+    "phase": "codex-1",
+    "model": "codex",
+    "validation_commands": [
+      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'"
+    ],
+    "attempts": [
+      {
+        "attempt": "52478e318d2849fe91387e946797642a",
+        "exit_code": 1,
+        "source_digest": "110aa10ab9ff004def456be9448c4732bbfa03afebec39033f67af318b55e3d2",
+        "total_seconds": 53.131039750005584,
+        "snapshot_seconds": 4.359155542042572,
+        "transfer_seconds": 2.3744806660106406,
+        "metrics": {
+          "queue_seconds": 20.021021454998845,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04089062600178295,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 15.181239806999656,
+          "exit_code": 1
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "1",
+          "skipped": "0",
+          "errors": "0",
+          "time": "7.1529169999999995"
+        },
+        "memory_peak_bytes": 554520576,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      {
+        "attempt": "29eba9177cef46148f4965599740154b",
+        "exit_code": 0,
+        "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+        "total_seconds": 28.132965666009113,
+        "snapshot_seconds": 3.3789502080180682,
+        "transfer_seconds": 2.5764747080393136,
+        "metrics": {
+          "queue_seconds": 0.023325885998929152,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04595170199900167,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 10.979267071001232,
+          "exit_code": 0
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "0",
+          "skipped": "0",
+          "errors": "0",
+          "time": "2.3618050000000004"
+        },
+        "memory_peak_bytes": 621948928,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    ],
+    "both_outputs_correct": true,
+    "prior_outputs_retained": true,
+    "only_expected_source_change": true,
+    "human_interventions": 0
+  },
+  {
+    "phase": "codex-2",
+    "model": "codex",
+    "validation_commands": [
+      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'"
+    ],
+    "attempts": [
+      {
+        "attempt": "190db346c0264524aadccf90e8df796b",
+        "exit_code": 1,
+        "source_digest": "110aa10ab9ff004def456be9448c4732bbfa03afebec39033f67af318b55e3d2",
+        "total_seconds": 42.085553249984514,
+        "snapshot_seconds": 4.210053707996849,
+        "transfer_seconds": 2.6784447919926606,
+        "metrics": {
+          "queue_seconds": 10.024565127998358,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04885233399909339,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 15.569124507001106,
+          "exit_code": 1
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "1",
+          "skipped": "0",
+          "errors": "0",
+          "time": "7.138226"
+        },
+        "memory_peak_bytes": 563777536,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      {
+        "attempt": "739653ddd6a7433f88c7331a17d81ee9",
+        "exit_code": 0,
+        "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+        "total_seconds": 37.978215874987654,
+        "snapshot_seconds": 4.550628208031412,
+        "transfer_seconds": 2.390463334042579,
+        "metrics": {
+          "queue_seconds": 10.022047042999475,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.045440827001584694,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 11.02245032800056,
+          "exit_code": 0
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "0",
+          "skipped": "0",
+          "errors": "0",
+          "time": "2.3678920000000003"
+        },
+        "memory_peak_bytes": 603332608,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    ],
+    "both_outputs_correct": true,
+    "prior_outputs_retained": true,
+    "only_expected_source_change": true,
+    "human_interventions": 0
+  },
+  {
+    "phase": "codex-3",
+    "model": "codex",
+    "validation_commands": [
+      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'"
+    ],
+    "attempts": [
+      {
+        "attempt": "1ccbbcb7193c4f8bacda225ab88720d1",
+        "exit_code": 1,
+        "source_digest": "110aa10ab9ff004def456be9448c4732bbfa03afebec39033f67af318b55e3d2",
+        "total_seconds": 31.384650958993006,
+        "snapshot_seconds": 4.358749500010163,
+        "transfer_seconds": 2.592939499998465,
+        "metrics": {
+          "queue_seconds": 0.020585969999956433,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04450299899690435,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 15.21866112600037,
+          "exit_code": 1
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "1",
+          "skipped": "0",
+          "errors": "0",
+          "time": "7.071648"
+        },
+        "memory_peak_bytes": 586989568,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      {
+        "attempt": "766e8baec07d4968949359cdc8dd64b9",
+        "exit_code": 0,
+        "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+        "total_seconds": 29.627482915995643,
+        "snapshot_seconds": 3.97721979097696,
+        "transfer_seconds": 2.8119891670066863,
+        "metrics": {
+          "queue_seconds": 0.020967636002751533,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04807437400086201,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 11.092157620998478,
+          "exit_code": 0
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "0",
+          "skipped": "0",
+          "errors": "0",
+          "time": "2.4987799999999996"
+        },
+        "memory_peak_bytes": 607588352,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    ],
+    "both_outputs_correct": true,
+    "prior_outputs_retained": true,
+    "only_expected_source_change": true,
+    "human_interventions": 0
+  },
+  {
+    "phase": "opus-1",
+    "model": "opus",
+    "validation_commands": [
+      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -60",
+      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -30"
+    ],
+    "attempts": [
+      {
+        "attempt": "d2224eccb83347319d1b78f8b73f76be",
+        "exit_code": 1,
+        "source_digest": "110aa10ab9ff004def456be9448c4732bbfa03afebec39033f67af318b55e3d2",
+        "total_seconds": 82.80352966702776,
+        "snapshot_seconds": 4.417113792034797,
+        "transfer_seconds": 2.5673834169865586,
+        "metrics": {
+          "queue_seconds": 50.022530591999384,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04568342499987921,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 15.556449584997608,
+          "exit_code": 1
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "1",
+          "skipped": "0",
+          "errors": "0",
+          "time": "7.088607"
+        },
+        "memory_peak_bytes": 610205696,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      {
+        "attempt": "5622560400af4c56a409583622dd5290",
+        "exit_code": 0,
+        "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+        "total_seconds": 26.74622441700194,
+        "snapshot_seconds": 4.479677250026725,
+        "transfer_seconds": 2.6148023330024444,
+        "metrics": {
+          "queue_seconds": 0.02245807700091973,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04747472300005029,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 10.82785782800056,
+          "exit_code": 0
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "0",
+          "skipped": "0",
+          "errors": "0",
+          "time": "2.363537"
+        },
+        "memory_peak_bytes": 607318016,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    ],
+    "both_outputs_correct": true,
+    "prior_outputs_retained": true,
+    "only_expected_source_change": true,
+    "human_interventions": 0
+  },
+  {
+    "phase": "opus-2",
+    "model": "opus",
+    "validation_commands": [
+      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -80",
+      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -30"
+    ],
+    "attempts": [
+      {
+        "attempt": "36e787ff0a3e46a89e449b889dfd5e42",
+        "exit_code": 1,
+        "source_digest": "110aa10ab9ff004def456be9448c4732bbfa03afebec39033f67af318b55e3d2",
+        "total_seconds": 32.152304207964335,
+        "snapshot_seconds": 4.375843082962092,
+        "transfer_seconds": 2.443336042051669,
+        "metrics": {
+          "queue_seconds": 0.02077062800162821,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.044088312999519985,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 15.365436025000236,
+          "exit_code": 1
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "1",
+          "skipped": "0",
+          "errors": "0",
+          "time": "7.086283"
+        },
+        "memory_peak_bytes": 612458496,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      {
+        "attempt": "220b7c4f585b4af1a11634dc8d207713",
+        "exit_code": 0,
+        "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+        "total_seconds": 31.39195479202317,
+        "snapshot_seconds": 3.9314496250008233,
+        "transfer_seconds": 2.6051713330089115,
+        "metrics": {
+          "queue_seconds": 0.025500938998447964,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.05425586599812959,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 10.967830048000906,
+          "exit_code": 0
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "0",
+          "skipped": "0",
+          "errors": "0",
+          "time": "2.299866"
+        },
+        "memory_peak_bytes": 603381760,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    ],
+    "both_outputs_correct": true,
+    "prior_outputs_retained": true,
+    "only_expected_source_change": true,
+    "human_interventions": 0
+  },
+  {
+    "phase": "opus-3",
+    "model": "opus",
+    "validation_commands": [
+      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -60",
+      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -30"
+    ],
+    "attempts": [
+      {
+        "attempt": "05822b8f2d5544f6b0f32105cb097db4",
+        "exit_code": 1,
+        "source_digest": "110aa10ab9ff004def456be9448c4732bbfa03afebec39033f67af318b55e3d2",
+        "total_seconds": 72.4929740409716,
+        "snapshot_seconds": 4.672547916008625,
+        "transfer_seconds": 2.6880895409849472,
+        "metrics": {
+          "queue_seconds": 40.02336530100001,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.04619684600038454,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 15.119389067996963,
+          "exit_code": 1
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "1",
+          "skipped": "0",
+          "errors": "0",
+          "time": "7.143596"
+        },
+        "memory_peak_bytes": 600911872,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      {
+        "attempt": "b828fbbd20a649c482bb81db191a4d5f",
+        "exit_code": 0,
+        "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+        "total_seconds": 37.47464529197896,
+        "snapshot_seconds": 4.807212124986108,
+        "transfer_seconds": 2.5283134580240585,
+        "metrics": {
+          "queue_seconds": 10.029187230000389,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.0593203620010172,
+          "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+          "execution_seconds": 10.845885424998414,
+          "exit_code": 0
+        },
+        "junit": {
+          "id": "",
+          "name": "",
+          "tests": "1",
+          "failures": "0",
+          "skipped": "0",
+          "errors": "0",
+          "time": "2.376598"
+        },
+        "memory_peak_bytes": 590708736,
+        "memory_events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      }
+    ],
+    "both_outputs_correct": true,
+    "prior_outputs_retained": true,
+    "only_expected_source_change": true,
+    "human_interventions": 0
+  }
+]

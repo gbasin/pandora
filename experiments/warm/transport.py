@@ -114,6 +114,10 @@ def follow(host, output, reconnect_seconds=45):
                 print(f'[pandora] Evidence retrieval incomplete: {error}. Retry the same command to recover {attempt}.', flush=True)
                 return 75
             print(f'[pandora] attempt={attempt}; exit={terminal["exit_code"]}; evidence={output}', flush=True)
+            if (output / 'results/junit.xml').exists():
+                print(f'[pandora] test report: {output / "results/junit.xml"}', flush=True)
+            if (output / 'results/playwright').exists():
+                print(f'[pandora] test diagnostics: {output / "results/playwright"}', flush=True)
             return terminal['exit_code']
         if not state.get('registered') and time.monotonic() - unregistered > 30:
             print('[pandora] Submission is unresolved before worker registration. No replacement started.', flush=True)

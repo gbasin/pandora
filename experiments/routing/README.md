@@ -7,9 +7,9 @@ python3 launch.py --host ubuntu@WORKER_IP --state /tmp/pandora-trial-state -- co
 ```
 
 For a scripted check, replace `codex` with `pnpm test:surface borrower-web
-smoke.spec.ts`. Run from a bootstrapped trial worktree. The matching dependency
-image must already exist on the worker. This agent trial refuses a cold image
-build instead of letting agents modify the shared environment.
+smoke.spec.ts`. Run from a bootstrapped trial worktree. A missing dependency
+image is prepared automatically on the worker under its exclusive admission
+lock and bounded BuildKit resources.
 
 Only these command forms route:
 
@@ -51,7 +51,7 @@ Cold dependency builds remain excluded from agent routing.
 
 The current controller supports the initial informed and ordinary-command tests.
 Do not treat it as production admission control. The remote lock is not FIFO;
-source capture can occur concurrently; retention is manual; and there is no
+source capture can occur concurrently; unresolved and legacy data need operator cleanup; and there is no
 universal shell interception. Recovery and startup-race guarantees are limited to the recorded fault tests.
 Unknown terminal state still requires operator recovery.
 
@@ -121,3 +121,24 @@ The real-shell test confirms that original startup files execute, global files
 remain unchanged, ordinary pnpm uses the original executable, and a manual PATH
 prepend inside a running shell can select a different pnpm. This is opt-in command
 routing, not a tamper-resistant policy boundary.
+
+## Integrated surface outputs
+
+Cold dependencies are now prepared automatically by the bounded BuildKit worker.
+A successful command verifies returned artifacts and publishes the two declared
+borrower-web build directories at their normal paths. Previous directories are
+retained under `<state>/<worktree-key>/<attempt>/publication/<output-index>/generation`.
+Only ignored directories with no tracked files qualify. Symlink output paths are
+rejected. No source files are replaced.
+
+The request remains active through local delivery. If publication fails, correct
+the reported local problem and retry the identical command. A downloaded terminal
+result is reverified and delivered locally without another SSH execution. Do not
+remove the active record or its publication receipts to resolve a transient error.
+Source changes detected after execution produce exit 75, even on the first
+invocation. The previous result remains evidence for the submitted snapshot.
+
+The state directory must be writable by the agent's shell and on the same
+filesystem as the worktree. The evaluated Codex supervisor explicitly grants
+write access to this dedicated state directory, alongside its normal worktree
+and pnpm-store access. The launcher does not disable the agent's sandbox.

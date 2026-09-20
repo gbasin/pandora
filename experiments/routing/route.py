@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT.parent / 'warm'))
 from commands import classify
 from transport import query, validate_evidence
 from delivery import deliver
+from retention import local as prune_local
 from snapshot import names, excluded, entry, encode
 
 
@@ -41,6 +42,19 @@ def current_digest(repo):
     current = [e for name in names(repo) if not excluded(name)
                if (e := entry(repo, name)) is not None]
     return hashlib.sha256(encode(current)).hexdigest()
+
+
+def complete(active, record, output, terminal):
+    record.update(state='terminal', terminal=terminal)
+    write(active, record)
+    try:
+        write(output / 'completed.json', {'attempt': record['attempt']})
+        # Retention acknowledgement is best effort; losing it preserves data.
+        if control(output, 'release') is None:
+            print('[pandora] Remote retention acknowledgement unavailable; evidence remains pinned.', flush=True)
+        prune_local(active.parent, output)
+    except (OSError, ValueError) as error:
+        print(f'[pandora] Retention sweep deferred: {error}', file=sys.stderr)
 
 
 def main():
@@ -140,14 +154,12 @@ def main():
                 terminal = validate_evidence(output, record['attempt'])
                 submitted = json.loads((output / 'submission.json').read_text())
                 if current_digest(repo) != submitted['source_digest']:
-                    record.update(state='terminal', terminal=terminal)
-                    write(active, record)
-                    print('[pandora] Result applies to earlier source. Outputs were not published. Run again to validate current source. Evidence: ' + str(output), file=sys.stderr)
+                    complete(active, record, output, terminal)
+                    print('[pandora] Result applies to earlier source. Run again to validate current source; inspect retained outputs before using them. Evidence: ' + str(output), file=sys.stderr)
                     return 75
                 if terminal['exit_code'] == 0:
                     deliver(repo, output)
-                record.update(state='terminal', terminal=terminal)
-                write(active, record)
+                complete(active, record, output, terminal)
                 status = terminal['exit_code']
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 print(f'[pandora] Local delivery incomplete: {error}. Retry the same command to recover this run; no new tests will start. Evidence: {output}', file=sys.stderr)
@@ -157,6 +169,8 @@ def main():
                 # The preparer has exited and remote launch cannot precede metadata.
                 record.update(state='terminal', reason='capture-failed')
                 write(active, record)
+                print('[pandora] Capture failed before submission. Correct the reported problem and retry to capture source.', file=sys.stderr)
+                return status if status != 0 else 70
             print('[pandora] No verified terminal evidence; retry the same command to recover. No replacement was submitted.', file=sys.stderr)
             if status == 0:
                 status = 70

@@ -14,6 +14,7 @@ import tarfile
 import time
 from snapshot import encode, verify, digest
 from dependencies import prepare
+from retention import remote as prune_remote, remember_image
 
 
 def run(*args, heartbeat=None, **kwargs):
@@ -62,6 +63,9 @@ def main():
                              '--format', '{{.Names}}', capture_output=True, text=True)
     if running_builder.stdout.strip():
         raise RuntimeError('Dependency builder still active without its worker lease; operator cleanup required. No tests started.')
+    prune_remote(root)
+    if shutil.disk_usage(root).free < 10 * 1024**3:
+        raise RuntimeError('Worker disk has less than 10 GiB free. No preparation or tests started; operator retention cleanup required.')
     metrics = {'queue_seconds': time.monotonic() - queued}
     print('[pandora] worker acquired; preparing dependencies', flush=True)
     started = time.monotonic()
@@ -110,6 +114,7 @@ def main():
     image_id = docker('image', 'inspect', image, '--format', '{{.Id}}',
                       capture_output=True, text=True).stdout.strip()
     metrics['image_id'] = image_id
+    remember_image(root, image)
     (attempt / 'metrics.json').write_text(json.dumps(metrics, indent=2))
     name = 'pandora-warm-' + attempt.name
     created = False
@@ -199,6 +204,12 @@ if __name__ == '__main__':
     name = 'pandora-warm-' + Path.cwd().name
     check = subprocess.run(['sudo', 'docker', 'ps', '--filter', 'name=^/' + name + '$',
                             '--format', '{{.Names}}'], capture_output=True, text=True)
+    # This profile returns ordinary generated files only. Do not silently omit
+    # a symlink or special file and advertise an incomplete build as complete.
+    for item in Path('results/outputs').rglob('*'):
+        if item.is_symlink() or not (item.is_file() or item.is_dir()):
+            print('[pandora] unsupported generated output file type: ' + str(item), flush=True)
+            status = 70
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
                  Path('metrics.json'), *Path('results').rglob('*')]:
