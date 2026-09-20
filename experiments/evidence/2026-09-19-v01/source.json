@@ -1,0 +1,7 @@
+{
+  "pilot_attempt": "3fc43c6bbb14422bb7bbab010bcf0111",
+  "source_digest": "2e39244c3ad843d472d1ae4a0550a6b74b5b5d0fce77173618b5a3f0e9fd19b3",
+  "dependency_image": "pandora-deps:6deff854ef67e244ca612c50defe348881057c475c282c4acf10775e1921aec1",
+  "remote_cleanup_verified": "No pandora-service containers or networks remained after cancellation probe",
+  "remote_directory_note": "Directories named 20260920 were used for probes executed on 2026-09-19 UTC"
+}

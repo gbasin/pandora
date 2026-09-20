@@ -1,0 +1,66 @@
+{
+  "records": [
+    {
+      "step": "builder",
+      "seconds": 0.101,
+      "exit": 0
+    },
+    {
+      "step": "bootstrap",
+      "seconds": 0.79,
+      "exit": 0
+    },
+    {
+      "step": "lock-3.23.8",
+      "seconds": 2.944,
+      "exit": 0
+    },
+    {
+      "step": "cold-build",
+      "seconds": 9.931,
+      "exit": 0
+    },
+    {
+      "step": "run-original",
+      "seconds": 0.294,
+      "exit": 0
+    },
+    {
+      "step": "identical-build",
+      "seconds": 1.105,
+      "exit": 0
+    },
+    {
+      "step": "run-identical",
+      "seconds": 0.203,
+      "exit": 0
+    },
+    {
+      "step": "source-edit-build",
+      "seconds": 1.78,
+      "exit": 0
+    },
+    {
+      "step": "run-edited",
+      "seconds": 0.201,
+      "exit": 0
+    },
+    {
+      "step": "lock-3.24.2",
+      "seconds": 2.977,
+      "exit": 0
+    },
+    {
+      "step": "dependency-edit-build",
+      "seconds": 3.564,
+      "exit": 0
+    },
+    {
+      "step": "run-dependency-edit",
+      "seconds": 0.246,
+      "exit": 0
+    }
+  ],
+  "assertions": "passed",
+  "scope": "Small real TypeScript/pnpm fixture; not Eichler or long-build benchmark"
+}

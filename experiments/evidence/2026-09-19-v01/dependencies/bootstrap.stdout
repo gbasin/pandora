@@ -1,0 +1,40 @@
+Name:          pandora-deps-probe-00604ba271
+Driver:        docker-container
+Last Activity: 2026-09-19 23:55:03 +0000 UTC
+
+Nodes:
+Name:                  pandora-deps-probe-00604ba2710
+Endpoint:              unix:///var/run/docker.sock
+Driver Options:        memory-swap="2g" cpu-period="100000" cpu-quota="200000" memory="2g"
+Status:                running
+BuildKit daemon flags: --allow-insecure-entitlement=network.host
+BuildKit version:      v0.32.2
+Platforms:             linux/amd64, linux/amd64/v2, linux/amd64/v3, linux/386
+Labels:
+ org.mobyproject.buildkit.worker.executor:         oci
+ org.mobyproject.buildkit.worker.hostname:         e7f55bc1a002
+ org.mobyproject.buildkit.worker.network:          host
+ org.mobyproject.buildkit.worker.oci.process-mode: sandbox
+ org.mobyproject.buildkit.worker.selinux.enabled:  false
+ org.mobyproject.buildkit.worker.snapshotter:      overlayfs
+GC Policy rule#0:
+ All:            false
+ Filters:        type==source.local type==exec.cachemount type==source.git.checkout
+ Keep Duration:  48h0m0s
+ Max Used Space: 488.3MiB
+GC Policy rule#1:
+ All:            false
+ Keep Duration:  1440h0m0s
+ Reserved Space: 9.313GiB
+ Max Used Space: 71.71GiB
+ Min Free Space: 18.63GiB
+GC Policy rule#2:
+ All:            false
+ Reserved Space: 9.313GiB
+ Max Used Space: 71.71GiB
+ Min Free Space: 18.63GiB
+GC Policy rule#3:
+ All:            true
+ Reserved Space: 9.313GiB
+ Max Used Space: 71.71GiB
+ Min Free Space: 18.63GiB

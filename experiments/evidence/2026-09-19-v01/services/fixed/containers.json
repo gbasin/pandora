@@ -1,0 +1,70 @@
+[
+  {
+    "name": "/pandora-service-b712c2935d-db",
+    "image": "sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6",
+    "limits": {
+      "Memory": 805306368,
+      "MemorySwap": 805306368,
+      "NanoCpus": 500000000,
+      "PidsLimit": 128,
+      "NetworkMode": "container:2d0507608134a7894757b7f0f9ee6a06f154b85bf22435377f6b5e152e0c290e",
+      "PortBindings": {}
+    },
+    "state": {
+      "Status": "running",
+      "OOMKilled": false,
+      "ExitCode": 0
+    }
+  },
+  {
+    "name": "/pandora-service-b712c2935d-run",
+    "image": "sha256:f1e5818057c025ccb99e298a651139df78bf0336260a933fa8ffa8b563753cc2",
+    "limits": {
+      "Memory": 6442450944,
+      "MemorySwap": 6442450944,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 512,
+      "NetworkMode": "pandora-service-b712c2935d",
+      "PortBindings": {}
+    },
+    "state": {
+      "Status": "running",
+      "OOMKilled": false,
+      "ExitCode": 0
+    }
+  },
+  {
+    "name": "/pandora-service-b712c2935d-pool",
+    "image": "sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd",
+    "limits": {
+      "Memory": 268435456,
+      "MemorySwap": 268435456,
+      "NanoCpus": 500000000,
+      "PidsLimit": 128,
+      "NetworkMode": "container:2d0507608134a7894757b7f0f9ee6a06f154b85bf22435377f6b5e152e0c290e",
+      "PortBindings": {}
+    },
+    "state": {
+      "Status": "running",
+      "OOMKilled": false,
+      "ExitCode": 0
+    }
+  },
+  {
+    "name": "/pandora-service-b712c2935d-proxy",
+    "image": "sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb",
+    "limits": {
+      "Memory": 134217728,
+      "MemorySwap": 134217728,
+      "NanoCpus": 500000000,
+      "PidsLimit": 128,
+      "NetworkMode": "container:2d0507608134a7894757b7f0f9ee6a06f154b85bf22435377f6b5e152e0c290e",
+      "PortBindings": {}
+    },
+    "state": {
+      "Status": "running",
+      "OOMKilled": false,
+      "ExitCode": 0
+    }
+  }
+]

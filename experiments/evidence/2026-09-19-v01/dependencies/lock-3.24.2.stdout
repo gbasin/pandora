@@ -1,0 +1,8 @@
+
+added 2 packages in 2s
+? Verifying lockfile against supply-chain policies (2 entries)...
+Update available! 12.3.4 → 12.4.2.
+Changelog: https://pnpm.io/v/12.4.2
+To update, run: curl -fsSL https://get.pnpm.io/install.sh | sh -
+✓ Lockfile passes supply-chain policies (2 entries in 687ms)
+Done in 696ms using pnpm v12.3.4
