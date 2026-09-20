@@ -18,6 +18,7 @@ from workflow_options import surface_outputs
 from transport import query, validate_evidence
 from delivery import deliver
 import journey_updates
+import catalog_updates
 from tracked_outputs import PublicationConflict
 from retention import local as prune_local
 from snapshot import names, excluded, entry, encode
@@ -185,7 +186,7 @@ def main(tool='pnpm'):
             if suite is not None:
                 policy = ('continue after test failures' if suite['keep_going']
                           else 'stop at the first test failure')
-                print(f'[pandora] Running the full suite in {suite["shard_count"]} sequential shards; {policy}.',
+                print(f'[pandora] Running the full suite in {suite["shard_count"]} isolated shards under worker admission; {policy}.',
                       flush=True)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
@@ -246,8 +247,9 @@ def main(tool='pnpm'):
                 request = submitted.get('docker', {}).get('request', {})
                 checks_source = submitted.get('workflow') != 'docker' or request.get('kind') == 'build' or request.get('mount')
                 updates = None
-                if terminal['exit_code'] == 0 and journey_updates.is_update(submitted):
-                    updates = journey_updates.declarations(output)
+                update_workflow = catalog_updates if catalog_updates.is_update(submitted) else journey_updates
+                if terminal['exit_code'] == 0 and update_workflow.is_update(submitted):
+                    updates = update_workflow.declarations(output)
                 source_matches = (journey_updates.source_is_current(repo, output, submitted, updates)
                                   if updates is not None else
                                   not checks_source or current_digest(repo) == submitted['source_digest'])
@@ -260,7 +262,7 @@ def main(tool='pnpm'):
                 if terminal['exit_code'] == 0 and request.get('kind') == 'run':
                     deliver(repo, output, outputs=tuple(x['workspace'] for x in submitted['docker']['config']['outputs']))
                 if updates is not None:
-                    journey_updates.deliver(repo, output, updates)
+                    update_workflow.deliver(repo, output, updates)
                 complete(active, record, output, terminal)
                 status = terminal['exit_code']
             except PublicationConflict as error:

@@ -79,7 +79,15 @@ export const readdir=async()=>[]; export const readFile=async()=>{throw Error('u
         self.assertIn("JOURNEY_REPLAY: 'cover'", source)
         self.assertIn('delete environment.JOURNEY_TEMPLATE', source)
         self.assertIn('delete environment.IKE_WORLD', source)
-        self.assertIn("['--import', 'tsx', 'src/cli/journeys.ts']", source)
+        self.assertIn("'src/cli/journeys.ts', ...(update ? ['--update'] : [])", source)
+
+    def test_update_uses_the_plural_cli_flag_and_emits_a_delta_receipt(self):
+        source = Path(__file__).with_name('suite.mjs').read_text()
+        self.assertIn("...(update ? ['--update'] : [])", source)
+        self.assertIn('delete environment.CI', source)
+        self.assertIn("await write('suite-update.json', updateProposal)", source)
+        self.assertIn('Suite update modified an unowned route entry', source)
+        self.assertIn('Suite update modified an unowned fixture', source)
 
     def test_missing_reports_are_an_infrastructure_failure(self):
         source = Path(__file__).with_name('suite.mjs').read_text()

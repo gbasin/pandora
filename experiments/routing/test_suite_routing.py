@@ -56,7 +56,7 @@ class SuiteRoutingTests(unittest.TestCase):
             self.assertTrue(request.is_file())
             self.assertEqual(request.parent.parent, state)
             self.assertEqual(json.loads(request.read_text()), {
-                'action': 'run', 'shard_count': 6, 'selection': None, 'keep_going': True,
+                'action': 'run', 'shard_count': 6, 'selection': None, 'keep_going': True, 'update': False,
             })
             output = Path(captured[0][captured[0].index('--output') + 1])
             self.assertFalse(output.exists())

@@ -76,7 +76,7 @@ def follow(host, output, reconnect_seconds=45):
     unavailable = None
     unregistered = time.monotonic()
     following = time.monotonic()
-    follow_allowance = 1665 if metadata.get('workflow') == 'suite-run' else 1545
+    follow_allowance = metadata.get('worker_config', {}).get('execution_seconds', 1500) + 240
     while True:
         if time.monotonic() - following > queue_timeout + follow_allowance:
             print('[pandora] Follow deadline reached; remote state remains unresolved. No replacement submitted.', flush=True)

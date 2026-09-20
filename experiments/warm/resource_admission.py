@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 import re
 import sqlite3
+import shutil
 import time
 
 from admission import alive, receipt
@@ -65,7 +66,11 @@ class Scheduler:
             db.execute('''CREATE TABLE IF NOT EXISTS requests (
                 ticket INTEGER PRIMARY KEY AUTOINCREMENT, attempt TEXT UNIQUE NOT NULL,
                 invocation TEXT NOT NULL, cpu_millis INTEGER NOT NULL, memory_mib INTEGER NOT NULL,
+                disk_mib INTEGER NOT NULL DEFAULT 0, exclusive TEXT NOT NULL DEFAULT '[]',
                 phase TEXT NOT NULL CHECK(phase IN ('waiting','running','finished','cancelled')))''')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(requests)')}
+            if not {'disk_mib', 'exclusive'} <= columns:
+                raise SchedulerUnavailable('Old scheduler schema requires a drained-ledger migration; existing work retained')
             expected = {'config': json.dumps(self.config, sort_keys=True), 'boot_id': self.boot_id}
             for key, value in expected.items():
                 row = db.execute('SELECT value FROM metadata WHERE key=?', (key,)).fetchone()
@@ -151,11 +156,13 @@ class Scheduler:
                 raise InvocationStopped(group['stopped'])
             if db.execute('SELECT 1 FROM requests WHERE attempt=?', (attempt,)).fetchone():
                 raise ValueError('Attempt is already registered; no replacement ticket created')
-            return db.execute('''INSERT INTO requests(attempt,invocation,cpu_millis,memory_mib,phase)
-                VALUES (?,?,?,?,'waiting')''', (attempt,invocation,demand['cpu_millis'],demand['memory_mib'])).lastrowid
+            return db.execute('''INSERT INTO requests(attempt,invocation,cpu_millis,memory_mib,disk_mib,exclusive,phase)
+                VALUES (?,?,?,?,?,?,'waiting')''', (attempt,invocation,demand['cpu_millis'],demand['memory_mib'],demand.get('disk_mib', 0),json.dumps(demand.get('exclusive', [])))).lastrowid
 
     def rows(self, db):
         requests = [dict(row) for row in db.execute("SELECT * FROM requests WHERE phase IN ('waiting','running') ORDER BY ticket")]
+        for request in requests:
+            request['exclusive'] = json.loads(request['exclusive'])
         groups = {row['identity']: {'max_parallel': row['max_parallel'], 'turn': row['turn'],
                                     'stopped': row['stopped'] is not None}
                   for row in db.execute('SELECT * FROM invocations')}
@@ -178,6 +185,11 @@ class Scheduler:
                 blocked = [r for r in requests if r['phase'] == 'running' and not alive(self.root / 'runs' / r['attempt'])]
                 if blocked or choose(self.config, requests, groups) != attempt:
                     return None
+                if 'disk_floor_mib' in self.config:
+                    reserved = sum(r['disk_mib'] for r in requests if r['phase'] == 'running')
+                    available = shutil.disk_usage(self.root).free // (1024 * 1024)
+                    if available < self.config['disk_floor_mib'] + reserved + row['disk_mib']:
+                        return None
                 # Shared leases coexist; the old exclusive worker blocks all of
                 # them during migration or operator maintenance.
                 handle = (self.root / 'worker.lock').open('a')

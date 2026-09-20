@@ -29,7 +29,7 @@ def _identifier(value: Any, name: str) -> str:
 
 def validate_config(value: Any) -> dict[str, Any]:
     """Validate and return the immutable scheduler resource configuration."""
-    if not isinstance(value, dict) or set(value) != _CONFIG_KEYS:
+    if not isinstance(value, dict) or not _CONFIG_KEYS <= set(value) or set(value) - _CONFIG_KEYS - {"disk_mib", "disk_floor_mib"}:
         raise ValueError("config has an invalid schema")
     if type(value["version"]) is not int or value["version"] != 1:
         raise ValueError("config version must be 1")
@@ -40,18 +40,29 @@ def validate_config(value: Any) -> dict[str, Any]:
         raise ValueError("config max_running must not exceed 32")
     if not isinstance(value["policy"], str) or value["policy"] not in {"fair", "fifo"}:
         raise ValueError("config policy must be fair or fifo")
+    for key in ("disk_mib", "disk_floor_mib"):
+        if key in value:
+            _integer(value[key], "config " + key, minimum=1)
     return value
 
 
 def validate_demand(value: Any, config: Any) -> dict[str, Any]:
     """Validate one declared CPU/RAM demand against scheduler capacity."""
     checked_config = validate_config(config)
-    if not isinstance(value, dict) or set(value) != {"cpu_millis", "memory_mib"}:
+    if not isinstance(value, dict) or not {"cpu_millis", "memory_mib"} <= set(value) or set(value) - {"cpu_millis", "memory_mib", "disk_mib", "exclusive"}:
         raise ValueError("demand has an invalid schema")
     cpu = _integer(value["cpu_millis"], "demand cpu_millis", minimum=1)
     memory = _integer(value["memory_mib"], "demand memory_mib", minimum=1)
     if cpu > checked_config["cpu_millis"] or memory > checked_config["memory_mib"]:
         raise ValueError("demand exceeds scheduler capacity")
+    disk = _integer(value.get("disk_mib", 0), "demand disk_mib", minimum=0)
+    if disk > checked_config.get("disk_mib", 0):
+        raise ValueError("demand exceeds disk reservation capacity")
+    exclusive = value.get("exclusive", [])
+    if (not isinstance(exclusive, list)
+            or any(not isinstance(item, str) or item not in ("dependency-builder", "docker-builder") for item in exclusive)
+            or len(set(exclusive)) != len(exclusive)):
+        raise ValueError("Invalid exclusive resource demand")
     return value
 
 
@@ -80,7 +91,7 @@ def _requests(value: Any, config: dict[str, Any], invocations: dict[str, dict[st
     tickets: set[int] = set()
     result: list[dict[str, Any]] = []
     for request in value:
-        if not isinstance(request, dict) or set(request) != _REQUEST_KEYS:
+        if not isinstance(request, dict) or not _REQUEST_KEYS <= set(request) or set(request) - _REQUEST_KEYS - {"disk_mib", "exclusive"}:
             raise ValueError("request has an invalid schema")
         ticket = _integer(request["ticket"], "request ticket", minimum=0)
         attempt = _identifier(request["attempt"], "request attempt")
@@ -91,6 +102,7 @@ def _requests(value: Any, config: dict[str, Any], invocations: dict[str, dict[st
         memory = _integer(request["memory_mib"], "request memory_mib", minimum=1)
         if cpu > config["cpu_millis"] or memory > config["memory_mib"]:
             raise ValueError("request demand exceeds scheduler capacity")
+        validate_demand({key: request[key] for key in ("cpu_millis", "memory_mib", "disk_mib", "exclusive") if key in request}, config)
         if invocation not in invocations:
             raise ValueError("request references an unknown invocation")
         if ticket in tickets or attempt in attempts:
@@ -118,6 +130,8 @@ def choose(config: Any, requests: Any, invocations: Any) -> str | None:
         return None
     used_cpu = sum(request["cpu_millis"] for request in running)
     used_memory = sum(request["memory_mib"] for request in running)
+    used_disk = sum(request.get("disk_mib", 0) for request in running)
+    occupied = {item for request in running for item in request.get("exclusive", [])}
     running_by_invocation = {
         identifier: sum(request["invocation"] == identifier for request in running)
         for identifier in checked_invocations
@@ -131,7 +145,9 @@ def choose(config: Any, requests: Any, invocations: Any) -> str | None:
 
     def fits(request: dict[str, Any]) -> bool:
         return (used_cpu + request["cpu_millis"] <= checked_config["cpu_millis"]
-                and used_memory + request["memory_mib"] <= checked_config["memory_mib"])
+                and used_memory + request["memory_mib"] <= checked_config["memory_mib"]
+                and used_disk + request.get("disk_mib", 0) <= checked_config.get("disk_mib", 0)
+                and not occupied.intersection(request.get("exclusive", [])))
 
     if checked_config["policy"] == "fifo":
         candidate = min(waiting, key=lambda request: request["ticket"])

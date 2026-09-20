@@ -152,6 +152,9 @@ def main():
         script = (scripts / 'worker_bundle.py').read_text().split("if __name__ == '__main__':")[0]
         script += '\nprint(json.dumps(prepare(Path.home() / "pandora-warm", **' + repr(request | {'payload': payload}) + ')))\n'
         prepared = json.loads(run(*ssh, 'python3 -', input=script, capture_output=True, text=True).stdout)
+    if prepared.get('worker_config'):
+        from worker_config import validate
+        metadata['worker_config'] = validate(prepared['worker_config'])
     home = prepared['home']
     if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
         raise RuntimeError('Unsupported remote home path')
@@ -178,7 +181,7 @@ def main():
     print(f'[pandora] staged {attempt}; {phase} {metadata["transfer_seconds"]:.1f}s', flush=True)
     # systemd owns the worker independently of this SSH connection. Never retry
     # this start after ambiguous acknowledgement; reconnect by the same attempt.
-    runtime_limit = timeout + (1620 if args.workflow == 'suite-run' else 1500)
+    runtime_limit = timeout + (metadata.get('worker_config', {}).get('execution_seconds', 1500) + 180)
     worker_command = 'exec python3 -u worker.py >stdout.log 2>stderr.log'
     command = (f'sudo systemd-run --quiet --collect --unit=pandora-worker-{attempt} '
                f'--uid=ubuntu --working-directory={remote} '

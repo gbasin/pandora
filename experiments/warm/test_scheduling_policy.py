@@ -54,6 +54,17 @@ class SchedulingPolicyTests(unittest.TestCase):
                     request(3, "later-fit", "three", cpu=100)]
         self.assertIsNone(choose(config(), requests, invocations))
 
+    def test_exclusive_builders_and_disk_are_reserved_with_cpu_and_ram(self):
+        settings = config(disk_mib=1000)
+        invocations = {"one": invocation(), "two": invocation()}
+        running = request(1, "running", "one", "running") | {"exclusive": ["dependency-builder"], "disk_mib": 600}
+        pending = request(2, "pending", "two") | {"exclusive": ["dependency-builder"], "disk_mib": 300}
+        self.assertIsNone(choose(settings, [running, pending], invocations))
+        pending["exclusive"] = []
+        self.assertEqual(choose(settings, [running, pending], invocations), "pending")
+        pending["disk_mib"] = 500
+        self.assertIsNone(choose(settings, [running, pending], invocations))
+
     def test_rejects_malformed_config_and_demands_larger_than_capacity(self):
         invocations = {"one": invocation()}
         with self.assertRaisesRegex(ValueError, "schema"):
