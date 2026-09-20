@@ -29,21 +29,26 @@ try:
             path = root / 'runs' / uuid.uuid4().hex
             path.mkdir()
             (path / 'submission.json').write_text(json.dumps({'profile': PROFILE}))
-            (path / 'terminal.json').write_text('{"cleanup_verified":true}')
+            (path / 'terminal.json').write_text(json.dumps({'attempt': path.name, 'cleanup_verified': True}))
             (path / 'released').touch()
             os.utime(path / 'released', (1000 + index, 1000 + index))
             paths.append(path)
-        for path in paths[:2]:
+        for path in paths[:3]:
             name = 'pandora-warm-' + path.name
             containers.append(name)
-            docker('run', '-d', '--name', name, '--memory=32m', '--memory-swap=32m',
+            attempt = path.name if path != paths[2] else '0' * 32
+            docker('run', '-d', '--name', name, '--label', 'pandora.experiment=warm-surface',
+                   '--label', 'pandora.workflow=surface', '--label', 'pandora.attempt=' + attempt,
+                   '--memory=32m', '--memory-swap=32m',
                    '--cpus=.1', 'node:24-bookworm-slim', 'sleep', '120')
-        docker('stop', containers[1])
+        docker('stop', containers[1], containers[2])
         remote(root)
         assert paths[0].exists()  # Live process wins over an inconsistent receipt.
-        assert not paths[1].exists() and not paths[2].exists()
+        assert not paths[1].exists()
+        assert paths[2].exists()  # Exact name alone does not authorize foreign-resource removal.
         assert all(path.exists() for path in paths[3:])
         assert docker('inspect', containers[1], check=False).returncode != 0
+        assert docker('inspect', containers[2], check=False).returncode == 0
         for index in range(5):
             tag = 'pandora-deps:' + hashlib.sha256((temp + str(index)).encode()).hexdigest()
             tags.append(tag)
@@ -53,7 +58,8 @@ try:
         assert all(docker('image', 'inspect', tag, check=False).returncode != 0 for tag in tags[:2])
         (a.output / 'result.json').write_text(json.dumps({
             'assertions': 'passed', 'released_runs_kept': 10, 'inconsistent_live_run_preserved': True,
-            'old_stopped_container_removed': True, 'managed_image_tags_kept': 3}, indent=2) + '\n')
+            'foreign_stopped_container_preserved': True, 'old_stopped_container_removed': True,
+            'managed_image_tags_kept': 3}, indent=2) + '\n')
 finally:
     for name in containers:
         docker('rm', '-f', name, check=False)
