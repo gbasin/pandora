@@ -79,16 +79,20 @@ def _stopped_surface_container(name, identity):
         container = json.loads(inspected.stdout)
         container_id = container.get('Id')
         state = container.get('State')
-        labels = container.get('Config', {}).get('Labels')
+        config = container.get('Config')
+        labels = config.get('Labels') if isinstance(config, dict) else None
     except (AttributeError, TypeError, ValueError, subprocess.SubprocessError):
         return True, None
     modern = {'pandora.experiment': 'warm-surface', 'pandora.workflow': 'surface',
               'pandora.attempt': identity}
     legacy = {'pandora.experiment': 'warm-surface'}
+    managed_labels = ({key: label for key, label in labels.items()
+                       if isinstance(key, str) and key.startswith('pandora.')}
+                      if isinstance(labels, dict) else None)
     if (not isinstance(container_id, str) or not re.fullmatch('[a-f0-9]{64}', container_id) or
             not container_id.startswith(entries[0]['ID']) or
             container.get('Name') != '/' + name or not isinstance(state, dict) or
             state.get('Status') != 'exited' or state.get('Running') is not False or
-            labels not in (modern, legacy)):
+            managed_labels not in (modern, legacy)):
         return True, None
     return True, container_id
