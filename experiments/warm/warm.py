@@ -46,6 +46,7 @@ def main():
     p.add_argument('--require-warm', action='store_true')
     p.add_argument('--docker-request')
     p.add_argument('--attempt', default=None)
+    p.add_argument('--journey-update', action='store_true')
     p.add_argument('--queue-timeout-seconds', type=int, default=900)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
@@ -58,6 +59,10 @@ def main():
         timeout = effective_queue_timeout(args.queue_timeout_seconds, spec)
     except ValueError as error:
         p.error(str(error))
+    if args.journey_update:
+        if args.workflow != 'journey' or args.selectors != ['S0-01']:
+            p.error('--journey-update requires the S0-01 journey workflow')
+        args.selectors.append('--update')
     attempt = args.attempt or uuid.uuid4().hex
     if not re.fullmatch('[0-9a-f]{32}', attempt):
         p.error('Invalid attempt identity')

@@ -6,8 +6,13 @@ class CommandsTests(unittest.TestCase):
     def test_journey_scope(self):
         for args in (['journey', 'S0-01'], ['run', 'journey', 'S0-01'], ['validate', 'journey', 'S0-01']):
             self.assertEqual(classify(args)[:2], ('journey', ['S0-01']))
-        for args in (['journeys'], ['journey', 'S0-02'], ['journey', 'S0-01', '--update']):
+        for args in (['journeys'], ['journey', 'S0-02'], ['journey', 'S0-01', '--update', '--update']):
             self.assertEqual(classify(args)[0], 'reject')
+
+    def test_focused_update_aliases(self):
+        for prefix in ([], ['run'], ['validate'], ['run', 'validate']):
+            self.assertEqual(classify([*prefix, 'journey', 'S0-01', '--update'])[:2],
+                             ('journey', ['S0-01', '--update']))
 
     def test_three_treatments(self):
         direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1']
