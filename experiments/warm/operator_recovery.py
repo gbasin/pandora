@@ -79,7 +79,7 @@ def _ledger_from_connection(connection):
 def _safe_receipt(path, identity):
     try:
         return path.is_file() and not path.is_symlink() and receipt(path, identity)
-    except (OSError, ValueError): return False
+    except (OSError, ValueError, TypeError, AttributeError): return False
 
 
 def _terminal_evidence(path, identity):
@@ -106,6 +106,8 @@ def _operator_result(path, identity):
     return (set(value) == allowed
             and value["attempt"] == identity and value["state"] == "infrastructure-failed"
             and value["cleanup_verified"] is True and isinstance(value["reason"], str) and value["reason"]
+            and isinstance(value["acknowledged_at"], (int, float)) and not isinstance(value["acknowledged_at"], bool)
+            and ("terminal_sha256" not in value or isinstance(value["terminal_sha256"], str) and value["terminal_sha256"])
             and all(isinstance(value[key], str) and value[key] for key in ("submission_sha256", "source_digest", "workflow")))
 
 
@@ -118,7 +120,9 @@ def _binding(attempt):
         value = json.loads(content)
     except ValueError as error:
         raise RecoveryBlocked("Attempt submission is malformed") from error
-    if not isinstance(value.get("source_digest"), str) or not isinstance(value.get("workflow", "surface"), str):
+    if not isinstance(value, dict) or value.get("attempt") != attempt.name:
+        raise RecoveryBlocked("Attempt submission has no immutable attempt identity")
+    if not isinstance(value.get("source_digest"), str) or not value["source_digest"] or not isinstance(value.get("workflow"), str) or not value["workflow"]:
         raise RecoveryBlocked("Attempt submission has no immutable identity")
     result = {"submission_sha256": hashlib.sha256(content).hexdigest(),
               "source_digest": value["source_digest"], "workflow": value.get("workflow", "surface")}
@@ -128,6 +132,20 @@ def _binding(attempt):
             raise RecoveryBlocked("Terminal evidence is unsafe")
         result["terminal_sha256"] = hashlib.sha256(terminal.read_bytes()).hexdigest()
     return result
+
+
+def _acknowledgement_matches(attempt, identity):
+    """Return true only for the immutable receipt bound to current evidence."""
+    target = attempt / "operator-result.json"
+    if not _operator_result(target, identity):
+        return False
+    try:
+        value = json.loads(target.read_text())
+        binding = _binding(attempt)
+    except (OSError, ValueError, TypeError, AttributeError, RecoveryBlocked):
+        return False
+    required = set(binding) | {"attempt", "state", "reason", "cleanup_verified", "acknowledged_at"}
+    return set(value) == required and all(value.get(key) == expected for key, expected in binding.items())
 
 
 def _state(root, identity):
@@ -180,6 +198,8 @@ def _exact_cleanup_inventory(attempt, *, list_resources=inventory):
         submitted = json.loads((attempt / "submission.json").read_text())
     except (OSError, ValueError) as error:
         raise RecoveryBlocked("Attempt submission is unavailable for exact cleanup") from error
+    if not isinstance(submitted, dict):
+        raise RecoveryBlocked("Attempt submission is malformed for exact cleanup")
     workflow = submitted.get("workflow", "surface")
     expected = "journey" if workflow in {"journey", "suite"} else workflow
     selected = []
@@ -261,10 +281,8 @@ def acknowledge_missing_result(root, identity, reason, *, now=time.time, list_re
             raise RecoveryBlocked("Exact owned resources remain after cleanup")
         binding = _binding(attempt)
         if target.exists() or target.is_symlink():
-            if _operator_result(target, identity):
-                existing = json.loads(target.read_text())
-                if all(existing.get(key) == value for key, value in binding.items()) and set(existing) == set(binding) | {"attempt", "state", "reason", "cleanup_verified", "acknowledged_at"}:
-                    return existing
+            if _acknowledgement_matches(attempt, identity):
+                return json.loads(target.read_text())
             raise RecoveryBlocked("Operator result is immutable and already exists")
         value = {"attempt": identity, "state": "infrastructure-failed", "reason": reason,
                  "cleanup_verified": True, "acknowledged_at": now()} | binding
@@ -281,23 +299,28 @@ def acknowledge_suite_parent(root, identity, reason, *, now=time.time, run=subpr
     """Resolve a lost suite only after each staged child is independently resolved."""
     parent = _attempt(root, identity)
     registry = parent / "children.json"
+    if alive(parent):
+        raise RecoveryBlocked("Live suite parent prevents acknowledgement")
     try:
         from suite_parent_cleanup import validate_registry
         children = validate_registry(parent, json.loads(registry.read_text()))
         parent_submission = json.loads((parent / "submission.json").read_text())
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, TypeError, AttributeError) as error:
         raise RecoveryBlocked("Suite parent registry or submission is malformed") from error
-    if parent_submission.get("workflow") != "suite-run":
+    if not isinstance(parent_submission, dict) or parent_submission.get("attempt") != identity or parent_submission.get("workflow") != "suite-run":
         raise RecoveryBlocked("Parent submission is not a suite run")
     for child in children:
         attempt = _attempt(root, child)
         try: submitted = json.loads((attempt / "submission.json").read_text())
-        except (OSError, ValueError) as error: raise RecoveryBlocked("Child submission is malformed") from error
-        if submitted.get("parent_attempt") != identity:
+        except (OSError, ValueError, TypeError, AttributeError) as error: raise RecoveryBlocked("Child submission is malformed") from error
+        if not isinstance(submitted, dict) or submitted.get("attempt") != child or submitted.get("parent_attempt") != identity:
             raise RecoveryBlocked("Child submission does not belong to this suite parent")
         state = _state(root, child)
         if state["alive"]: raise RecoveryBlocked("Live suite child prevents parent acknowledgement")
-        if state["terminal_verified"]: continue
+        if state["terminal_verified"]:
+            if state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources):
+                raise RecoveryBlocked("Verified suite child still has cleanup barriers")
+            continue
         if _operator_result(attempt / "operator-result.json", child):
             # Idempotence is conditional: re-check immutable source, terminal,
             # cleanup, and ownership bindings before trusting a prior receipt.
@@ -305,26 +328,41 @@ def acknowledge_suite_parent(root, identity, reason, *, now=time.time, run=subpr
             continue
         cleanup(root, child, run=run, list_resources=list_resources)
         acknowledge_missing_result(root, child, reason, now=now, list_resources=list_resources)
-    with (Path(root) / "worker.lock").open("a") as lock:
-        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error: raise RecoveryBlocked("Worker is busy; wait before suite acknowledgement") from error
-        if alive(parent): raise RecoveryBlocked("Live suite parent prevents acknowledgement")
-        if not all(_state(root, child)["terminal_verified"] or _operator_result(_attempt(root, child) / "operator-result.json", child) for child in children):
-            raise RecoveryBlocked("Every missing suite child requires its own acknowledgement")
-        value = {"parent_attempt": identity, "children": children, "cleanup_verified": True, "acknowledged_at": now()}
-        receipt_path = parent / "operator-cleanup.json"
-        if receipt_path.exists():
-            try: existing = json.loads(receipt_path.read_text())
-            except (OSError, ValueError): existing = None
-            stable = {"parent_attempt": identity, "children": children, "cleanup_verified": True}
-            if (not receipt_path.is_file() or receipt_path.is_symlink() or not isinstance(existing, dict)
-                    or set(existing) != set(stable) | {"acknowledged_at"}
-                    or any(existing.get(key) != value for key, value in stable.items())):
-                raise RecoveryBlocked("Suite operator cleanup receipt is immutable")
-        else:
-            receipt_path.write_text(json.dumps(value, sort_keys=True) + "\n")
-        (parent / "suite-cleanup.pending").unlink(missing_ok=True)
-        (parent / "admission-cleanup.json").write_text(json.dumps({"attempt": identity, "cleanup_verified": True}) + "\n")
+    if alive(parent):
+        raise RecoveryBlocked("Live suite parent prevents acknowledgement")
+    for child in children:
+        attempt = _attempt(root, child)
+        state = _state(root, child)
+        if (state["alive"] or state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources)
+                or not (state["terminal_verified"] or _acknowledgement_matches(attempt, child))):
+            raise RecoveryBlocked("Every suite child requires resolved evidence and no cleanup barrier")
+    # This invokes the copied cleanup entrypoint. Its suite cleanup recognizes
+    # only bound child acknowledgements, then admission records parent cleanup.
+    cleanup(root, identity, run=run, list_resources=list_resources)
+    for child in children:
+        attempt = _attempt(root, child)
+        state = _state(root, child)
+        if (state["alive"] or state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources)
+                or not (state["terminal_verified"] or _acknowledgement_matches(attempt, child))):
+            raise RecoveryBlocked("Suite child cleanup changed before parent acknowledgement")
+    receipt_path = parent / "operator-cleanup.json"
+    stable = {"parent_attempt": identity, "children": children, "cleanup_verified": True}
+    if receipt_path.exists() or receipt_path.is_symlink():
+        try: existing = json.loads(receipt_path.read_text())
+        except (OSError, ValueError, TypeError, AttributeError): existing = None
+        if (not receipt_path.is_file() or receipt_path.is_symlink() or not isinstance(existing, dict)
+                or set(existing) != set(stable) | {"acknowledged_at"}
+                or not isinstance(existing.get("acknowledged_at"), (int, float)) or isinstance(existing.get("acknowledged_at"), bool)
+                or any(existing.get(key) != value for key, value in stable.items())):
+            raise RecoveryBlocked("Suite operator cleanup receipt is immutable")
+    else:
+        value = stable | {"acknowledged_at": now()}
+        temporary = parent / ("operator-cleanup." + secrets.token_hex(8) + ".tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as target:
+            target.write(json.dumps(value, sort_keys=True) + "\n")
+            target.flush(); os.fsync(target.fileno())
+        os.replace(temporary, receipt_path)
     return acknowledge_missing_result(root, identity, reason, now=now, list_resources=list_resources)
 
 
@@ -370,8 +408,8 @@ def _drained(root, ledger, ownership):
             raise RecoveryBlocked("Live attempt " + identity + " prevents migration")
         if state["pending"]:
             raise RecoveryBlocked("Pending cleanup for " + identity + " prevents migration")
-        if phase == "running" and not _safe_receipt(attempt / "terminal.json", identity):
-            if not (state["cleanup_verified"] and state["acknowledged"]):
+        if phase == "running" and not state["terminal_verified"]:
+            if not (state["cleanup_verified"] and _acknowledgement_matches(attempt, identity)):
                 raise RecoveryBlocked("Running attempt " + identity + " lacks a terminal or acknowledged cleanup")
         if phase == "waiting" and state["alive"]:
             raise RecoveryBlocked("Live waiting attempt " + identity + " prevents migration")

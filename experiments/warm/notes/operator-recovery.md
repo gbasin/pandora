@@ -27,31 +27,30 @@ foreign or unlabelled managed container or network. The existing entrypoint then
 removes the exact reserved names and writes `admission-cleanup.json` only after
 its checks succeed.
 
-`acknowledge-missing-result` requires a dead owner, no `terminal.json`, no
-pending cleanup markers, and a valid `admission-cleanup.json`. It writes one
-immutable `operator-result.json` with `state: infrastructure-failed`. It never
-writes `terminal.json` or an exit code. A client can use this receipt to report
-the lost result as infrastructure failure and clear its active recovery record;
-the next deliberate command is a new invocation.
+`acknowledge-missing-result` requires a dead owner, no valid terminal evidence,
+no pending cleanup markers, no exact owned resources, and a valid
+`admission-cleanup.json`. It writes one immutable `operator-result.json` with
+`state: infrastructure-failed`. The receipt binds the attempt, submitted source
+and workflow, and any retained unusable terminal hash. It never writes a
+terminal, exit code, or test outcome. A client reports this receipt as an
+infrastructure failure and permits the next deliberate command as a new
+invocation.
 
-For a suite parent, do not acknowledge the parent after child cleanup alone.
-`suite_parent_cleanup` intentionally leaves `suite-cleanup.pending` when any
-staged child lacks a terminal result. The smallest safe follow-up is an explicit
-operator parent action: validate `children.json`, require every staged child
-owner dead and its resource cleanup verified, acknowledge each missing child
-result separately, verify no child resource marker remains, then write a distinct
-parent cleanup receipt before removing `suite-cleanup.pending`. It must not write
-child terminals or claim test success. A parent that already has an unusable
-terminal with missing cleanup or structured suite evidence needs a separate,
-explicit acknowledgement design; this foundation does not override terminals.
+`acknowledge-suite-parent` first rejects a live parent. It validates the complete
+`children.json` registry and each staged child submission. Each child must have
+full terminal evidence or its own bound operator result after verified cleanup.
+The copied suite cleanup then accepts only those bound child results, verifies
+the parent cleanup, and removes `suite-cleanup.pending`. The utility writes a
+distinct immutable `operator-cleanup.json` before it acknowledges the parent.
+Retries validate each receipt again. The command never writes child terminals or
+claims test success.
 
 `migrate` takes the exclusive worker lock without waiting. It refuses live
 attempts, pending cleanup, unresolved managed resources, and a running row that
-has neither a verified terminal nor a verified cleanup plus acknowledgement.
-Stale terminal rows are accepted without running `Scheduler`. It archives the
-SQLite file with SQLite's backup API, then replaces it with a fresh current
-schema and clock. It writes a new durable ledger-generation marker before
-releasing the worker lock. A claimant holding an unlinked old SQLite inode checks
-that marker after commit and fails before it can return a lease. The config file
-is installed last, so interruption leaves a configuration or generation mismatch
-that fails closed until the operator resumes recovery.
+has neither full terminal evidence nor a bound operator acknowledgement after
+verified cleanup. It archives the SQLite database with SQLite's backup API. It
+then rebuilds the current schema and clock in the same SQLite transaction. This
+keeps existing connections on the same inode and removes old tickets before they
+can claim. It writes a new durable ledger-generation marker and installs the
+validated config after the transaction. An interruption fails closed until the
+operator resumes recovery.

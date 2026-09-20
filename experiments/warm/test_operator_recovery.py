@@ -29,7 +29,7 @@ class OperatorRecoveryTest(unittest.TestCase):
         self.attempt.mkdir(parents=True)
         (self.attempt / "attempt.lock").touch()
         (self.attempt / "service_cleanup.py").write_text("# copied worker cleanup\n")
-        (self.attempt / "submission.json").write_text(json.dumps({"workflow": "surface", "source_digest": "d" * 64}))
+        (self.attempt / "submission.json").write_text(json.dumps({"attempt": IDENTITY, "workflow": "surface", "source_digest": "d" * 64}))
 
     def tearDown(self): self.temp.cleanup()
 
@@ -46,7 +46,12 @@ class OperatorRecoveryTest(unittest.TestCase):
             db.close()
 
     def receipt(self, name):
-        (self.attempt / name).write_text(json.dumps({"attempt": IDENTITY, "cleanup_verified": True}))
+        if name == "terminal.json":
+            (self.attempt / "artifacts.json").write_text("{}")
+            value = {"attempt": IDENTITY, "workflow": "surface", "exit_code": 70, "cleanup_verified": True}
+        else:
+            value = {"attempt": IDENTITY, "cleanup_verified": True}
+        (self.attempt / name).write_text(json.dumps(value))
 
     def test_inspect_uses_readonly_ledger_without_creating_missing_database(self):
         value = recovery.inspect(self.root, ownership=lambda root, admitted: None)
@@ -84,11 +89,12 @@ class OperatorRecoveryTest(unittest.TestCase):
         self.assertEqual(result["terminal_sha256"], __import__("hashlib").sha256(terminal.read_bytes()).hexdigest())
         self.assertEqual(terminal.read_text(), "broken evidence\n")
         other = "b" * 32; attempt = self.root / "runs" / other; attempt.mkdir()
-        (attempt / "attempt.lock").touch(); (attempt / "submission.json").write_text(json.dumps({"workflow": "surface", "source_digest": "e" * 64}))
+        (attempt / "attempt.lock").touch(); (attempt / "submission.json").write_text(json.dumps({"attempt": other, "workflow": "surface", "source_digest": "e" * 64}))
         (attempt / "admission-cleanup.json").write_text(json.dumps({"attempt": other, "cleanup_verified": True}))
-        (attempt / "terminal.json").write_text(json.dumps({"attempt": other, "cleanup_verified": True}))
-        accepted = recovery.acknowledge_missing_result(self.root, other, "worker-loss", list_resources=lambda args: [])
-        self.assertIn("terminal_sha256", accepted)
+        (attempt / "artifacts.json").write_text("{}")
+        (attempt / "terminal.json").write_text(json.dumps({"attempt": other, "workflow": "surface", "exit_code": 70, "cleanup_verified": True}))
+        with self.assertRaisesRegex(recovery.RecoveryBlocked, "valid terminal"):
+            recovery.acknowledge_missing_result(self.root, other, "worker-loss", list_resources=lambda args: [])
 
     def test_acknowledgement_requires_cleanup_and_dead_owner(self):
         with self.assertRaisesRegex(recovery.RecoveryBlocked, "verified cleanup"):
@@ -171,6 +177,15 @@ class OperatorRecoveryTest(unittest.TestCase):
         recovery.migrate(self.root, config, boot_id="new", ownership=lambda root, admitted: None)
         self.assertTrue((self.root / "worker-config.json").exists())
 
+    def test_migration_rejects_a_shape_valid_but_unbound_acknowledgement(self):
+        self.ledger(); self.receipt("admission-cleanup.json")
+        result = recovery.acknowledge_missing_result(self.root, IDENTITY, "host-reboot", list_resources=lambda args: [])
+        result["submission_sha256"] = "0" * 64
+        (self.attempt / "operator-result.json").write_text(json.dumps(result))
+        config = self.root / "new.json"; config.write_text(json.dumps(CONFIG))
+        with self.assertRaisesRegex(recovery.RecoveryBlocked, "lacks a terminal"):
+            recovery.migrate(self.root, config, boot_id="new", ownership=lambda root, admitted: None)
+
     def test_config_install_failure_leaves_archive_and_fails_closed(self):
         self.ledger(); self.receipt("terminal.json")
         config = self.root / "new.json"; config.write_text(json.dumps(CONFIG))
@@ -184,6 +199,87 @@ class OperatorRecoveryTest(unittest.TestCase):
             self.assertEqual(dict(db.execute("SELECT key, value FROM metadata"))["boot_id"], "new")
         finally:
             db.close()
+
+    def test_binding_requires_submission_attempt_and_explicit_workflow(self):
+        self.receipt("admission-cleanup.json")
+        (self.attempt / "submission.json").write_text(json.dumps({"source_digest": "d" * 64}))
+        with self.assertRaisesRegex(recovery.RecoveryBlocked, "immutable attempt identity"):
+            recovery.acknowledge_missing_result(self.root, IDENTITY, "host-reboot", list_resources=lambda args: [])
+
+    def suite_child(self, identity, *, acknowledged=False, terminal=False):
+        path = self.root / "runs" / identity
+        path.mkdir()
+        (path / "attempt.lock").touch()
+        (path / "service_cleanup.py").write_text("# copied worker cleanup\n")
+        (path / "submission.json").write_text(json.dumps({"attempt": identity, "parent_attempt": IDENTITY,
+                                                              "workflow": "surface", "source_digest": identity * 2}))
+        if terminal:
+            (path / "artifacts.json").write_text("{}")
+            (path / "terminal.json").write_text(json.dumps({"attempt": identity, "workflow": "surface", "exit_code": 70,
+                                                               "cleanup_verified": True}))
+        if acknowledged:
+            (path / "admission-cleanup.json").write_text(json.dumps({"attempt": identity, "cleanup_verified": True}))
+            recovery.acknowledge_missing_result(self.root, identity, "host-reboot", now=lambda: 1, list_resources=lambda args: [])
+        return path
+
+    def suite_parent(self, children):
+        (self.attempt / "submission.json").write_text(json.dumps({"attempt": IDENTITY, "workflow": "suite-run", "source_digest": "d" * 64}))
+        (self.attempt / "suite-cleanup.pending").touch()
+        (self.attempt / "children.json").write_text(json.dumps({"version": 1, "parent_attempt": IDENTITY, "children": children}))
+
+    def test_suite_parent_rejects_live_parent_before_child_cleanup(self):
+        child = self.suite_child("b" * 32)
+        self.suite_parent([child.name])
+        with patch("operator_recovery.alive", side_effect=lambda attempt: Path(attempt) == self.attempt), \
+                patch("operator_recovery.cleanup") as clean:
+            with self.assertRaisesRegex(recovery.RecoveryBlocked, "Live suite parent"):
+                recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", list_resources=lambda args: [])
+        clean.assert_not_called()
+
+    def test_suite_parent_resumes_mixed_terminal_and_acknowledged_children(self):
+        terminal = self.suite_child("b" * 32, terminal=True)
+        acknowledged = self.suite_child("c" * 32, acknowledged=True)
+        self.suite_parent([terminal.name, acknowledged.name])
+        calls = []
+        def clean(root, identity, **kwargs):
+            calls.append(identity)
+            path = root / "runs" / identity
+            (path / "admission-cleanup.json").write_text(json.dumps({"attempt": identity, "cleanup_verified": True}))
+            (path / "suite-cleanup.pending").unlink(missing_ok=True)
+            return recovery._state(root, identity)
+        with patch("operator_recovery.cleanup", side_effect=clean):
+            result = recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", now=lambda: 3, list_resources=lambda args: [])
+        self.assertEqual(calls, [IDENTITY])
+        self.assertEqual(result["state"], "infrastructure-failed")
+        self.assertTrue((self.attempt / "operator-cleanup.json").exists())
+        # A retry retains each immutable receipt and performs no child cleanup.
+        with patch("operator_recovery.cleanup", side_effect=clean) as cleanup:
+            retry = recovery.acknowledge_suite_parent(self.root, IDENTITY, "different", now=lambda: 4, list_resources=lambda args: [])
+        self.assertEqual(retry, result)
+        self.assertEqual([item.args[1] for item in cleanup.call_args_list], [IDENTITY])
+
+    def test_suite_parent_resumes_after_parent_cleanup_receipt_before_acknowledgement(self):
+        child = self.suite_child("b" * 32, acknowledged=True)
+        self.suite_parent([child.name])
+        (self.attempt / "admission-cleanup.json").write_text(json.dumps({"attempt": IDENTITY, "cleanup_verified": True}))
+        (self.attempt / "suite-cleanup.pending").unlink()
+        stored = {"parent_attempt": IDENTITY, "children": [child.name], "cleanup_verified": True, "acknowledged_at": 7}
+        (self.attempt / "operator-cleanup.json").write_text(json.dumps(stored))
+        def clean(*args, **kwargs):
+            return recovery._state(self.root, IDENTITY)
+        with patch("operator_recovery.cleanup", side_effect=clean):
+            result = recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", now=lambda: 8, list_resources=lambda args: [])
+        self.assertEqual(json.loads((self.attempt / "operator-cleanup.json").read_text()), stored)
+        self.assertEqual(result["state"], "infrastructure-failed")
+
+    def test_suite_parent_rechecks_bound_child_acknowledgement(self):
+        child = self.suite_child("b" * 32, acknowledged=True)
+        self.suite_parent([child.name])
+        receipt = json.loads((child / "operator-result.json").read_text())
+        receipt["submission_sha256"] = "0" * 64
+        (child / "operator-result.json").write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(recovery.RecoveryBlocked, "immutable"):
+            recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", list_resources=lambda args: [])
 
 
 if __name__ == "__main__": unittest.main()
