@@ -162,6 +162,62 @@ order and do not change the generator model.
 - **Consent.** Speculative and cross-agent work runs tenant code nobody asked to
   run and reads dirty worktrees.
 
+## Could this be Pandora's core value?
+
+Gary's reaction to the brainstorm was that this could be a core value proposition
+rather than an add-on. The argument for:
+
+- Remote execution is a commodity. Fast, warm, isolated runs are sold by several
+  CI-runner vendors, and Pandora would compete on price with a worse cost
+  structure.
+- Pandora has three things those services lack: it sees every agent's
+  uncommitted snapshot with verified digests, it sits between the agent and the
+  test result, and its idle capacity costs nothing extra. CI sees only commits,
+  so it cannot do cross-agent conflict detection, hunk-bisect on a dirty diff,
+  triage before the agent has read the log, or memoized results for uncommitted
+  work.
+- The pitch changes from "your tests run somewhere else" to "your agents waste
+  fewer tokens and your humans review less". Token and review costs are larger
+  than compute budgets. Remote runs bring in the snapshots; the background work
+  is the reason to stay.
+
+What could undercut it:
+
+- **No evidence.** One afternoon's brainstorm, one user, one repository, no
+  measurements.
+- **Tokens saved is a belief.** That agents burn many tokens chasing failures
+  they did not cause is plausible and unmeasured. The existing trial transcripts
+  are the first data: count turns spent on failures that were flaky or already
+  present on the base SHA.
+- **Delivery carries the most risk.** Every idea produces a result nobody asked
+  for. If agents ignore those results or read them as noise, the value is zero
+  regardless of the analysis.
+- **Free compute needs a fleet.** Background work is nearly free only where idle
+  paid capacity already exists. On one hourly VM there is no free trough.
+- **It rests on v0.1's correctness contract.** Snapshots arrive only when someone
+  submits a run, so remote runs must stay worth submitting. A wrong
+  `pre-existing` label or a wrong memoized pass is a false success, the class of
+  failure v0.1 treats as adoption-blocking.
+
+## Cheapest falsifying experiment
+
+This needs no multi-tenant work and no new infrastructure. After the v0.1
+twelve-agent gate:
+
+1. Build only the first two items in the dependency order: the memo cache with
+   same-input reruns, and the baseline oracle for eichler main.
+2. Deliver their output through the existing hint channel on the agent's next
+   interactive result.
+3. Run the twelve-agent ramp with the feature on and off, with matched tasks and
+   rotated order, as the pilot's treatment comparisons already do.
+4. Compare tokens and turns per completed task, and count wrong labels and wrong
+   memoized passes as hard failures.
+
+If tokens or turns per task move, this is the core value proposition and the rest
+of this note is a roadmap. If they do not, the later ideas will not help either.
+As a zero-cost precursor, mine the existing trial transcripts for turns spent on
+flaky or pre-existing failures to size the opportunity before building anything.
+
 ## Open
 
 - Where unsolicited results are delivered: the hint channel on the next
