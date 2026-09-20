@@ -1,0 +1,32 @@
+[
+  {
+    "attempt": "16958216a1704c31866519c0b146adad",
+    "workflow": "docker",
+    "repository_key": "bc254d5043be3498eeb7448775bfe93de89eea2976a886ec5f844a9774a11c68",
+    "source_digest": "136454278be9f678369214a0906df3c314aa2222b9b77b72baf1887b231fa631",
+    "transfer_seconds": 0.8742139170062728,
+    "total_seconds": 53.80928116705036,
+    "exit_code": 0,
+    "cleanup_verified": true
+  },
+  {
+    "attempt": "ea3545e65c59423095013e8bef3365cb",
+    "workflow": "journey",
+    "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "transfer_seconds": 63.88155412499327,
+    "total_seconds": 130.48937520897016,
+    "exit_code": 0,
+    "cleanup_verified": true
+  },
+  {
+    "attempt": "460fdd49062742518e7fba80221b2539",
+    "workflow": "journey",
+    "repository_key": "ce71eef1efa123293aad43e3c3cd4e48162e9b694d06e5087fdb1c2c2279fbb4",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "transfer_seconds": 2.6700735419872217,
+    "total_seconds": 71.57506458397256,
+    "exit_code": 0,
+    "cleanup_verified": true
+  }
+]

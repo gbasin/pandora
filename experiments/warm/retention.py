@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+from source_cache import locked, protected
 
 PROFILE = 'integrated-surface-v1'
 KEEP_ATTEMPTS = 10
@@ -34,8 +35,12 @@ def local(state, current):
 
 
 def remote(root):
-    latest = (root / 'latest').resolve().parent
-    for path in candidates(root / 'runs', 'released', protected=[latest]):
+    with locked(root):
+        _remote_locked(root)
+
+
+def _remote_locked(root):
+    for path in candidates(root / 'runs', 'released', protected=protected(root)):
         name = 'pandora-warm-' + path.name
         # A terminal receipt alone must never authorize killing a live container.
         running = subprocess.run(['sudo', 'docker', 'ps', '--filter', 'name=^/' + name + '$',
