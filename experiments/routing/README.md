@@ -274,3 +274,15 @@ Legacy `JOURNEY_FILTER`, `JOURNEY_SHARD`, `JOURNEY_CONCURRENCY`, `JOURNEY_REPLAY
 `JOURNEY_TEMPLATE`, and `IKE_WORLD` overrides are rejected for routed suites.
 Their semantics are not silently discarded or forwarded to change the frozen
 plan. Use focused journeys for selected validation.
+
+## Artifact delivery limits
+
+Automatic artifact delivery defaults to 2 GiB per invocation. Set the launcher
+option `--artifact-delivery-limit-bytes` to change it. A Docker profile can set
+`artifact_delivery_limit_bytes` for its Docker workflows.
+
+When declared artifacts exceed the limit, the remote result remains available.
+Pandora does not download the artifact bodies, publish outputs, or acknowledge
+the attempt for retention. Increase the current launcher or profile limit and
+retry the identical command. The retry retrieves the same attempt without running
+the tests again. The delivery limit is independent of accepted execution settings.

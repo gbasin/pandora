@@ -22,6 +22,7 @@ import catalog_updates
 from tracked_outputs import PublicationConflict
 from retention import local as prune_local
 from snapshot import names, excluded, entry, encode
+from artifact_limits import artifact_delivery_limit
 
 
 def queue_timeout_seconds(value):
@@ -33,6 +34,11 @@ def queue_timeout_seconds(value):
 def effective_queue_timeout(default, tool, config):
     value = config.get('queue_timeout_seconds', default) if tool == 'docker' and config else default
     return queue_timeout_seconds(value)
+
+
+def effective_artifact_delivery_limit(default, tool, config):
+    value = config.get('artifact_delivery_limit_bytes', default) if tool == 'docker' and config else default
+    return artifact_delivery_limit(value)
 
 
 def suite_shard_count(value):
@@ -136,6 +142,12 @@ def main(tool='pnpm'):
         except (ValueError, TypeError, KeyError) as error:
             print('[pandora] ' + str(error), file=sys.stderr)
             return 64
+    try:
+        delivery_limit = effective_artifact_delivery_limit(
+            int(os.environ.get('PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES', '2147483648')), tool, config)
+    except ValueError as error:
+        print('[pandora] ' + str(error), file=sys.stderr)
+        return 64
     key = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()
     state = Path(os.environ['PANDORA_STATE']) / key
     state.mkdir(parents=True, exist_ok=True)
@@ -167,7 +179,8 @@ def main(tool='pnpm'):
                 return 75
             print(f'[pandora] Recovering existing request, without resubmitting source. Evidence: {output}', flush=True)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/transport.py'),
-                       os.environ['PANDORA_HOST'], str(output)]
+                       os.environ['PANDORA_HOST'], str(output),
+                       '--artifact-delivery-limit-bytes', str(delivery_limit)]
         else:
             attempt = uuid.uuid4().hex
             output = state / attempt
@@ -193,6 +206,7 @@ def main(tool='pnpm'):
                        '--output', str(output), '--attempt', record['attempt'],
                        '--workflow', action if action in ('journey', 'docker', 'suite-run') else 'surface',
                        '--queue-timeout-seconds', str(record['queue_timeout_seconds']),
+                       '--artifact-delivery-limit-bytes', str(delivery_limit),
                        '--selectors-json=' + json.dumps(selectors)]
             if action == 'remote':
                 command += ['--surface-app', selected_surface(argv)]

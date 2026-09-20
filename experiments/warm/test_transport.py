@@ -3,7 +3,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from transport import validate_evidence
+from unittest.mock import patch
+from artifact_limits import ArtifactDeliveryLimitExceeded
+from transport import retrieve, validate_evidence
 
 
 class EvidenceTests(unittest.TestCase):
@@ -130,6 +132,47 @@ class StreamTests(unittest.TestCase):
             (root / 'submission.json').write_text(json.dumps({'attempt': 'a' * 32, 'queue_timeout_seconds': True}))
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, 'queue timeout'):
                 follow('unused', root)
+
+
+class ArtifactRetrievalTests(unittest.TestCase):
+    attempt = 'a' * 32
+
+    def test_overlimit_keeps_terminal_unpromoted_and_retrying_same_attempt_with_higher_limit_succeeds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'output'
+            output.mkdir()
+            (output / 'submission.json').write_text('{}')
+            payload = b'oversized\n'
+            manifest = {'stdout.log': hashlib.sha256(payload).hexdigest()}
+            terminal = {'attempt': self.attempt, 'exit_code': 1, 'cleanup_verified': True}
+            calls = []
+            queries = []
+
+            def rsync(command, **kwargs):
+                calls.append(command)
+                stage = Path(command[-1])
+                if len(calls) in (1, 2):
+                    (stage / 'artifacts.json').write_text(json.dumps(manifest))
+                    (stage / 'terminal.json').write_text(json.dumps(terminal))
+                else:
+                    (stage / 'stdout.log').write_bytes(payload)
+
+            state = {'artifact_sizes': {'stdout.log': len(payload)},
+                     'artifact_total_bytes': len(payload)}
+            def query(host, attempt, action='status', offsets=None):
+                queries.append((attempt, action))
+                return state
+            with patch('transport.subprocess.run', side_effect=rsync), \
+                    patch('transport.query', side_effect=query):
+                with self.assertRaises(ArtifactDeliveryLimitExceeded):
+                    retrieve('unused', output, self.attempt, len(payload) - 1)
+                self.assertFalse((output / 'terminal.json').exists())
+                self.assertEqual(len(calls), 1, 'over-limit artifacts must not start bulk rsync')
+                retrieved = retrieve('unused', output, self.attempt, len(payload))
+            self.assertEqual(retrieved['attempt'], self.attempt)
+            self.assertEqual(json.loads((output / 'terminal.json').read_text())['attempt'], self.attempt)
+            self.assertEqual(len(calls), 3, 'retry must fetch the same attempt before one bulk rsync')
+            self.assertEqual(queries, [(self.attempt, 'artifact-stats'), (self.attempt, 'artifact-stats')])
 
 
 if __name__ == '__main__':
