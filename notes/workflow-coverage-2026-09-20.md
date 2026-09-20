@@ -34,7 +34,8 @@ The trial used the existing 4-CPU, 16-GiB Linux worker and Eichler snapshot base
 `fbeb008a283221bfedccc8fd47a6f6337d1ddf4d`. The evaluation worktree already had
 an S0-01 expectation edit; that edit was preserved.
 
-All eight commands exited zero with verified terminal cleanup. Every invocation
+All eight commands exited zero with verified terminal cleanup. The final VM
+check found no running Pandora units, containers, or networks. Every invocation
 hit the dependency-image cache. Times include source capture, transfer, execution,
 and evidence retrieval; these short focused tests had no material queue wait.
 
