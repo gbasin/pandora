@@ -49,7 +49,7 @@ def cleanup(parent):
     parent = Path(parent)
     registry = parent / 'children.json'
     if not registry.exists():
-        return True
+        return not (parent / 'suite-cleanup.pending').exists()
     children = validate_registry(parent, json.loads(registry.read_text()))
     root = parent.parent.parent
     attempts = []

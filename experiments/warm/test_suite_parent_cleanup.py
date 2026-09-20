@@ -55,9 +55,11 @@ class SuiteParentCleanupTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 suite_parent_cleanup.validate_registry(self.parent, value)
 
-    def test_missing_registry_is_safe_and_does_not_clear_pending(self):
-        self.assertTrue(suite_parent_cleanup.cleanup(self.parent))
+    def test_missing_registry_is_unresolved_when_ownership_is_pending(self):
+        self.assertFalse(suite_parent_cleanup.cleanup(self.parent))
         self.assertTrue((self.parent / 'suite-cleanup.pending').exists())
+        (self.parent / 'suite-cleanup.pending').unlink()
+        self.assertTrue(suite_parent_cleanup.cleanup(self.parent))
 
     def test_live_child_fails_closed_after_cancelling_every_staged_child(self):
         live, stopped = self.child('b' * 32), self.child('c' * 32)
