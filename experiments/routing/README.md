@@ -151,8 +151,8 @@ separately grants pnpm-store access. The launcher does not disable the sandbox.
 Run `pnpm journey <id>` or `pnpm validate journey <id>` from the repository root.
 The same forms with `pnpm run` work. Append `--fault dropped` for replay and
 `--update` for expectation return. Either flag order works. The selected ID
-must exist in the frozen catalog. Other flags and the plural
-`journeys` command stop with feedback. Direct package commands can still bypass
+must exist in the frozen catalog. Other focused-journey flags stop with feedback.
+Use `pnpm journeys [--keep-going]` for a sharded suite. Direct package commands can still bypass
 this opt-in wrapper.
 
 The shared worker lease covers dependency preparation, service startup, the
@@ -234,3 +234,36 @@ Per-file backups and intent live under the attempt's `publication` directory.
 Failed remote updates retain available proposals as diagnostics and do not publish
 them. This is declared expectation return under cooperative ownership; it does
 not synchronize arbitrary source files or promise one atomic multi-file update.
+
+## Sharded suites
+
+Run `pnpm journeys` from the repository root. Pandora freezes source once and
+runs a remote parent independently of the local client. The parent plans the
+catalog and submits one isolated shard at a time through FIFO admission. The
+launcher option `--suite-shards` sets the partition count (default four). It does
+not change simultaneous worker capacity, which remains one.
+
+A test failure stops new dispatch by default. Add `--keep-going` to collect test
+failures from later shards. Infrastructure failures and deadlines stop either
+mode. The final summary lists unrun journeys. No synthetic passing shard receipt
+is created for skipped work. `journeys --update` is not supported yet; focused
+`journey <id> --update` remains available.
+
+Planning and shards share one cumulative queue allowance, set by the existing
+`--queue-timeout-seconds` launcher option (default 900). Preparation, execution,
+and collection share a 25-minute allowance outside queue time, with additional
+cleanup grace. Each child also retains its existing execution limit.
+
+Retry the identical command after client loss. The retry retrieves the existing
+parent and its reserved children without freezing or submitting source again.
+A dead remote parent is unresolved and is never automatically restarted.
+
+The local attempt directory contains `results/suite-run.json`, the frozen
+`results/suite-plan.json`, and `results/attempts/<child-id>/` with each completed
+child's logs and verified receipts. Source changes after capture make the result
+stale under the same rules as focused validation.
+
+Legacy `JOURNEY_FILTER`, `JOURNEY_SHARD`, `JOURNEY_CONCURRENCY`, `JOURNEY_REPLAY`,
+`JOURNEY_TEMPLATE`, and `IKE_WORLD` overrides are rejected for routed suites.
+Their semantics are not silently discarded or forwarded to change the frozen
+plan. Use focused journeys for selected validation.

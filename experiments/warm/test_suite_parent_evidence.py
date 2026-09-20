@@ -58,6 +58,14 @@ class SuiteParentEvidenceTest(unittest.TestCase):
         value = summary(p, [partial], stop_reason="deadline")
         self.assertEqual((value["stop_reason"], value["status"], value["exit_code"]), ("deadline", "stopped", 75))
 
+    def test_deadline_during_final_collection_is_not_a_false_pass_or_missing_evidence(self):
+        p = plan()
+        reports = [report(p, 1), report(p, 2), report(p, 3)]
+        value = summary(p, reports, stop_reason="deadline")
+        self.assertEqual((value["status"], value["exit_code"], value["unrun_shards"]), ("stopped", 75, []))
+        reports[-1] = report(p, 3, code=1, status="fail")
+        self.assertEqual(summary(p, reports, stop_reason="deadline")["exit_code"], 75)
+
     def test_rejects_bad_attempts_source_duplicate_reports_and_infrastructure_continuation(self):
         p = plan()
         with self.assertRaises(ValueError): summarize(p, [report(p, 1)], parent_attempt="bad", plan_attempt=ATTEMPTS[1], shard_attempts=ATTEMPTS[2:] + ["0" * 32], keep_going=False, stop_reason="deadline")

@@ -103,7 +103,7 @@ def acquire(attempt, timeout=900, *, poll=1, report=print):
     (attempt / 'queue-start.json.tmp').write_text(json.dumps({'monotonic': started}) + '\n')
     (attempt / 'queue-start.json.tmp').replace(attempt / 'queue-start.json')
     ticket = enqueue(attempt)
-    report(f'[pandora] admitted to FIFO queue; ticket {ticket}; queue limit {timeout}s', flush=True)
+    report(f'[pandora] admitted to FIFO queue; ticket {ticket}; queue limit {timeout:g}s', flush=True)
     last_message = float('-inf')
     last_ahead = None
     while True:
@@ -113,7 +113,7 @@ def acquire(attempt, timeout=900, *, poll=1, report=print):
         if waited >= timeout:
             (attempt / 'queue.json.tmp').write_text(json.dumps({'waited': waited, 'acquired': False}) + '\n')
             (attempt / 'queue.json.tmp').replace(attempt / 'queue.json')
-            raise QueueTimeout(f'Queue deadline reached after {timeout}s; no tests started')
+            raise QueueTimeout(f'Queue deadline reached after {timeout:g}s; no tests started')
         handle = None
         try:
             with database(root) as db:
@@ -136,7 +136,7 @@ def acquire(attempt, timeout=900, *, poll=1, report=print):
                         if (attempt / 'cancel.request').exists():
                             raise KeyboardInterrupt
                         if time.monotonic() - started >= timeout:
-                            raise QueueTimeout(f'Queue deadline reached after {timeout}s; no tests started')
+                            raise QueueTimeout(f'Queue deadline reached after {timeout:g}s; no tests started')
                         db.execute("UPDATE requests SET phase = 'running' WHERE ticket = ?", (ticket,))
             if handle is not None:
                 # COMMIT has succeeded. No resource side effect can precede this point.
@@ -150,7 +150,7 @@ def acquire(attempt, timeout=900, *, poll=1, report=print):
         if ahead != last_ahead or time.monotonic() - last_message >= 10:
             suffix = f'; cleanup unresolved for {head[0]}; operator reconciliation required' if blocked else ''
             report(f'[pandora] queued; worker occupied; ticket {ticket}; {ahead} request(s) ahead; '
-                   f'waited {waited:.0f}s of {timeout}s; no local validation started{suffix}', flush=True)
+                   f'waited {waited:.0f}s of {timeout:g}s; no local validation started{suffix}', flush=True)
             last_message, last_ahead = time.monotonic(), ahead
         time.sleep(poll)
 

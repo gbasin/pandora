@@ -2,7 +2,7 @@
 
 Pandora is an opt-in experiment for running heavy validation remotely while coding
 agents, edits, and worktrees stay on a local Mac. The current SSH pilot supports
-Eichler borrower-web and Desk surface validation, focused service-backed journeys, and
+Eichler borrower-web and Desk surface validation, focused and sharded service-backed journeys, and
 a scoped Docker build/run profile on a dedicated Linux VM. It is not ready
 for unattended daily use or twelve-agent concurrency.
 
@@ -31,10 +31,12 @@ pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN]
 pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]
 pnpm journey <id> [--fault dropped] [--update]
 pnpm validate journey <id> [--fault dropped] [--update]
+pnpm journeys [--keep-going]
+pnpm validate journeys [--keep-going]
 ```
 
-The same forms with `pnpm run` work. Other flags and the plural `journeys` command
-are rejected. Focused `--update` returns only the selected ledger and its route
+The same forms with `pnpm run` work. Other flags are rejected. Suites stop
+dispatching after the first test failure unless `--keep-going` is set. Focused `--update` returns only the selected ledger and its route
 manifest change. Offline-only journeys have no ledger and return only their route
 manifest change. There is no automatic local fallback, general source writeback,
 Mutagen session, or CI dispatch.
@@ -250,9 +252,9 @@ tests: focused/full journeys, both browser surfaces, internal shard scheduling,
 and declared tracked expectation return for `--update`. These additions are
 implementation targets. Current routing supports both browser surfaces with file and `--grep` selectors,
 focused catalog journeys including dropped replay and `--update`, and the bounded
-Docker grammar described above. A [private suite foundation](experiments/suite/README.md) now provides frozen plans,
-isolated shard execution, and verified aggregation. Normal `pnpm journeys` routing
-awaits the parent dispatcher.
+Docker grammar described above. The [suite dispatcher](experiments/suite/README.md)
+freezes one plan, reserves child attempts, runs isolated shards sequentially, and
+verifies their combined evidence behind normal `pnpm journeys` commands.
 
 The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
 reuse and a focused remote update POC, plus synthetic publication recovery. It
@@ -269,7 +271,9 @@ and recovers interrupted local publication. See the
 The [expanded workflow trial](notes/workflow-coverage-2026-09-20.md) verifies
 focused S0-02 replay and update, offline SX-20 update, and both browser surfaces
 with `--grep`. Eight sequential VM runs passed with warm dependencies and
-automatic output return. The next slice adds the suite parent dispatcher and
-operator-configured scheduling.
+automatic output return. Configurable parallel shard scheduling and catalog
+expectation updates remain unimplemented.
 
 [Suite foundation evidence](notes/suite-shards-2026-09-20.md) records real shard success, failure, and incomplete-evidence rejection.
+
+[Parent invocation evidence](notes/suite-parent-2026-09-20.md) covers client-loss recovery, fail-fast, keep-going, queue exhaustion, and failed planning.

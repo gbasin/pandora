@@ -98,17 +98,15 @@ def summarize(
         first = failures[0]
         if not keep_going and first != len(reports) - 1:
             _fail("failfast must stop at the first test failure")
-        if not keep_going and requested not in (None, "test-failure"):
+        if not keep_going and requested not in (None, "test-failure", "deadline", "queue-timeout", "cancelled"):
             _fail("failfast test failure conflicts with stop_reason")
         if keep_going and unrun_shards and not external_stop:
             _fail("keep-going missing shard reports require an external stop_reason")
-        if external_stop and not unrun_shards:
-            _fail("external stop_reason requires an unrun shard")
         resolved = requested or "test-failure"
     elif requested is not None:
         if requested == "test-failure":
             _fail("test-failure stop_reason requires a test failure")
-        if not unrun_shards:
+        if not unrun_shards and not external_stop:
             _fail("stop_reason requires an unrun shard")
         resolved = requested
     elif unrun_shards:

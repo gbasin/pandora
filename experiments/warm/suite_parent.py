@@ -169,7 +169,9 @@ def execute(parent, submitted):
                     reason = reason or ('infrastructure' if infra else
                                         None if request['keep_going'] else 'test-failure')
                     print(f'[pandora] shard {index} failed; ' +
-                          ('stopping new dispatch' if reason else 'continuing because --keep-going was requested'), flush=True)
+                          ('stopping new dispatch' if reason else
+                           'no remaining shards' if index == request['shard_count'] else
+                           'continuing because --keep-going was requested'), flush=True)
         if reason:
             break
     if plan is None:
