@@ -59,6 +59,11 @@ routes do not silently become a new test gate.
 
 ## Limits
 
+The aggregator uses the independently verified attempts explicitly supplied by
+the operator. A content-identical plan can be reused across executions. It does
+not establish that the attempts belong to one coordinated invocation. The parent
+dispatcher must persist and check the accepted attempt identity for every shard.
+
 These are independent private requests. Each retains the existing FIFO admission,
 queue deadline, and 20-minute execution limit. They do not yet implement one
 parent invocation, fair scheduling between suites, or the agreed cumulative
