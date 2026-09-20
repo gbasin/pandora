@@ -40,6 +40,45 @@ def terminal_verified(attempt):
     return value.get('attempt') == attempt.name and value.get('cleanup_verified') is True
 
 
+def operator_result_verified(attempt):
+    """Accept a bounded operator resolution only when it matches child evidence."""
+    result = attempt / 'operator-result.json'
+    submission = attempt / 'submission.json'
+    if (result.is_symlink() or not result.is_file() or submission.is_symlink()
+            or not submission.is_file()):
+        return False
+    try:
+        receipt = json.loads(result.read_text())
+        content = submission.read_bytes()
+        submitted = json.loads(content)
+    except (OSError, ValueError, TypeError):
+        return False
+    if not isinstance(receipt, dict) or not isinstance(submitted, dict):
+        return False
+    import hashlib
+    expected = {
+        'attempt': attempt.name,
+        'state': 'infrastructure-failed',
+        'cleanup_verified': True,
+        'submission_sha256': hashlib.sha256(content).hexdigest(),
+        'source_digest': submitted.get('source_digest'),
+        'workflow': submitted.get('workflow'),
+    }
+    allowed = set(expected) | {'reason', 'acknowledged_at'}
+    terminal = attempt / 'terminal.json'
+    if terminal.exists():
+        if terminal.is_symlink() or not terminal.is_file():
+            return False
+        expected['terminal_sha256'] = hashlib.sha256(terminal.read_bytes()).hexdigest()
+        allowed.add('terminal_sha256')
+    return (set(receipt) == allowed and all(receipt.get(key) == value for key, value in expected.items())
+            and isinstance(receipt.get('reason'), str) and bool(receipt['reason'])
+            and isinstance(receipt.get('acknowledged_at'), (int, float))
+            and not isinstance(receipt.get('acknowledged_at'), bool)
+            and isinstance(submitted.get('source_digest'), str) and bool(submitted['source_digest'])
+            and isinstance(submitted.get('workflow'), str) and bool(submitted['workflow']))
+
+
 def cleanup(parent):
     """Release dead child resources, but close the parent only with child terminals.
 
@@ -75,7 +114,7 @@ def cleanup(parent):
         prepared = dependencies.cleanup(attempt)
         if not admission.record_cleanup(attempt, services and containers and prepared):
             verified = False
-        if not terminal_verified(attempt):
+        if not (terminal_verified(attempt) or operator_result_verified(attempt)):
             verified = False
     if verified:
         (parent / 'suite-cleanup.pending').unlink(missing_ok=True)

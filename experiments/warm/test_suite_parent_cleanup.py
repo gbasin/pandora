@@ -1,4 +1,5 @@
 import fcntl
+import hashlib
 import json
 import multiprocessing
 from pathlib import Path
@@ -142,6 +143,39 @@ class SuiteParentCleanupTests(unittest.TestCase):
                 patch('suite_parent_cleanup.admission.record_cleanup', return_value=True):
             self.assertTrue(suite_parent_cleanup.cleanup(self.parent))
         self.assertFalse((self.parent / 'suite-cleanup.pending').exists())
+
+    def test_bound_operator_result_releases_a_missing_child_result(self):
+        child = self.child('b' * 32)
+        self.registry([child.name])
+        submitted = {'attempt': child.name, 'workflow': 'surface', 'source_digest': 'd' * 64}
+        content = json.dumps(submitted).encode()
+        (child / 'submission.json').write_bytes(content)
+        (child / 'operator-result.json').write_text(json.dumps({
+            'attempt': child.name, 'state': 'infrastructure-failed', 'reason': 'host-reboot',
+            'cleanup_verified': True, 'acknowledged_at': 1,
+            'submission_sha256': hashlib.sha256(content).hexdigest(),
+            'source_digest': submitted['source_digest'], 'workflow': submitted['workflow'],
+        }))
+        with patch('suite_parent_cleanup.service_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.docker_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.admission.record_cleanup', return_value=True):
+            self.assertTrue(suite_parent_cleanup.cleanup(self.parent))
+        self.assertFalse((self.parent / 'suite-cleanup.pending').exists())
+
+    def test_unbound_operator_result_keeps_parent_pending(self):
+        child = self.child('b' * 32)
+        self.registry([child.name])
+        (child / 'submission.json').write_text(json.dumps({'attempt': child.name, 'workflow': 'surface', 'source_digest': 'd' * 64}))
+        (child / 'operator-result.json').write_text(json.dumps({
+            'attempt': child.name, 'state': 'infrastructure-failed', 'reason': 'host-reboot',
+            'cleanup_verified': True, 'acknowledged_at': 1, 'submission_sha256': '0' * 64,
+            'source_digest': 'd' * 64, 'workflow': 'surface',
+        }))
+        with patch('suite_parent_cleanup.service_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.docker_cleanup.cleanup', return_value=True), \
+                patch('suite_parent_cleanup.admission.record_cleanup', return_value=True):
+            self.assertFalse(suite_parent_cleanup.cleanup(self.parent))
+        self.assertTrue((self.parent / 'suite-cleanup.pending').exists())
 
     def test_nested_parent_is_refused(self):
         child = self.child('b' * 32)

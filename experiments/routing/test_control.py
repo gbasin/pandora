@@ -92,6 +92,23 @@ class ControlTests(unittest.TestCase):
                 self.assertEqual(len(data['stdout']), 4464)
                 self.assertEqual(data['stderr'], '')
 
+    def test_status_reports_acknowledged_infrastructure_outcome_distinctly(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); attempt = 'a' * 32
+            run = root / 'pandora-warm/runs' / attempt; run.mkdir(parents=True)
+            (run / 'terminal.json').write_text(json.dumps({'attempt': attempt, 'cleanup_verified': False}))
+            receipt = {'attempt': attempt, 'state': 'infrastructure-failed', 'cleanup_verified': True}
+            (run / 'operator-result.json').write_text(json.dumps(receipt))
+            with patch.object(Path, 'home', return_value=root), \
+                    patch.object(sys, 'argv', ['control.py', attempt, 'status']):
+                captured = io.StringIO()
+                with contextlib.redirect_stdout(captured):
+                    main()
+            result = json.loads(captured.getvalue())
+            self.assertEqual(result['state'], 'infrastructure-failed')
+            self.assertEqual(result['operator_result'], receipt)
+            self.assertNotIn('exit_code', result)
+
 
 if __name__ == '__main__':
     unittest.main()

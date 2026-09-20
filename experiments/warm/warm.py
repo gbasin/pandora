@@ -197,9 +197,11 @@ def main():
     if launched.returncode:
         print('[pandora] Start acknowledgement unavailable; checking the existing attempt only.', flush=True)
     status = follow(args.host, output, artifact_delivery_limit_bytes=artifact_limit)
-    metadata['total_seconds'] = time.monotonic() - started
-    metadata['exit_code'] = status
-    write_metadata(output / 'submission.json', metadata)
+    # submission.json is the exact request accepted by the worker. Keep local
+    # follow-up observations separate so receipt hashes remain recoverable.
+    write_metadata(output / 'client-result.json', {'attempt': attempt,
+                                                   'total_seconds': time.monotonic() - started,
+                                                   'exit_code': status})
     return status
 
 

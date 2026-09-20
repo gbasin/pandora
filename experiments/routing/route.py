@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
 from commands import classify, selected_surface, suite_request
 from workflow_options import surface_outputs
-from transport import query, validate_evidence
+from transport import query, validate_evidence, validate_operator_result
 from delivery import deliver
 import journey_updates
 import catalog_updates
@@ -100,6 +100,17 @@ def complete(active, record, output, terminal):
         print(f'[pandora] Retention sweep deferred: {error}', file=sys.stderr)
 
 
+def complete_infrastructure_failure(active, record, output, receipt):
+    """Close a dead-worker request without representing it as test evidence."""
+    record.update(state='infrastructurefailure', operator_result=receipt)
+    write(active, record)
+    try:
+        write(output / 'completed.json', {'attempt': record['attempt'],
+                                          'outcome': 'infrastructure-failed'})
+    except (OSError, ValueError) as error:
+        print(f'[pandora] Infrastructure outcome archived; completion marker deferred: {error}', file=sys.stderr)
+
+
 def main(tool='pnpm'):
     argv = sys.argv[1:]
     docker_request = None
@@ -162,6 +173,22 @@ def main(tool='pnpm'):
             return 75
         active = state / 'active.json'
         record = json.loads(active.read_text()) if active.exists() else None
+        if record is not None and record.get('state') == 'infrastructurefailure':
+            # A crash can follow the durable active-state update but precede the
+            # local completion marker. Repair that marker before allowing the
+            # next explicit command to create a new attempt.
+            try:
+                output = Path(record['output'])
+                receipt = validate_operator_result(output, record['attempt'])
+                write(output / 'completed.json', {'attempt': record['attempt'],
+                                                  'outcome': 'infrastructure-failed'})
+                record['operator_result'] = receipt
+                write(active, record)
+            except (KeyError, OSError, ValueError) as error:
+                print('[pandora] Acknowledged infrastructure outcome is incomplete locally: ' + str(error) +
+                      '. Retry this command after restoring its evidence; no replacement submitted.', file=sys.stderr)
+                return 75
+            record = None
         recovering = record is not None and record['state'] == 'active'
         if recovering:
             if record.get('host') != os.environ['PANDORA_HOST'] or record['command'] != argv or record.get('tool', 'pnpm') != tool:
@@ -287,9 +314,25 @@ def main(tool='pnpm'):
                       'review git diff, then run ordinary validation without --update.', file=sys.stderr)
                 return 75
             except (OSError, ValueError, subprocess.SubprocessError) as error:
+                try:
+                    receipt = validate_operator_result(output, record['attempt'])
+                except (OSError, ValueError):
+                    receipt = None
+                if receipt is not None:
+                    complete_infrastructure_failure(active, record, output, receipt)
+                    print('[pandora] Remote worker loss was acknowledged after verified cleanup. This request has no test result; run the command again to start a new request. Evidence: ' + str(output), file=sys.stderr)
+                    return 70
                 print(f'[pandora] Local delivery incomplete: {error}. Retry the same command to recover this run; no new tests will start. Evidence: {output}', file=sys.stderr)
                 return 75
         else:
+            try:
+                receipt = validate_operator_result(output, record['attempt'])
+            except (OSError, ValueError):
+                receipt = None
+            if receipt is not None:
+                complete_infrastructure_failure(active, record, output, receipt)
+                print('[pandora] Remote worker loss was acknowledged after verified cleanup. This request has no test result; run the command again to start a new request. Evidence: ' + str(output), file=sys.stderr)
+                return 70
             if not (output / 'submission.json').exists():
                 # The preparer has exited and remote launch cannot precede metadata.
                 record.update(state='terminal', reason='capture-failed')
