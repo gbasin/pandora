@@ -12,6 +12,7 @@ let stack;
 let result;
 let status = 1;
 let config;
+let ledgerExpected = true;
 const redact = (value) => {
   let text = String(value);
   for (const secret of stack?.secrets ?? []) text = text.split(secret).join('[redacted]');
@@ -33,7 +34,7 @@ const loadConfig = () => {
 const captureProposals = async () => {
   if (!config?.update) return [];
   const proposalPaths = [
-    `packages/scenarios/fixtures/${config.id}.ledger.jsonl`,
+    ...(ledgerExpected ? [`packages/scenarios/fixtures/${config.id}.ledger.jsonl`] : []),
     'packages/scenarios/fixtures/write-routes.json',
   ];
   const proposals = [];
@@ -52,6 +53,7 @@ try {
   config = loadConfig();
   const journey = (await loadJourneys()).find((candidate) => candidate.id === config.id);
   if (!journey) throw new Error(`Journey ${config.id} is absent from this snapshot`);
+  ledgerExpected = journey.surfaces.includes('api');
   console.log('[pandora] applying migrations and starting the local Workers runtime');
   // Startup output contains generated credentials. Do not stream it into agent logs.
   stack = await startInstance({ external: true, signal: controller.signal, output: () => {} });
@@ -92,6 +94,7 @@ try {
     detail: redact(result?.detail ?? ''),
     update: config?.update ?? false,
     fault: config?.fault ?? null,
+    ledger_expected: ledgerExpected,
     proposals,
   };
   await writeFile('/workspace/results/journey.json', JSON.stringify(report, null, 2) + '\n');

@@ -31,12 +31,19 @@ def regular_bytes(root, name, optional=False):
 def declarations(output):
     config = journey_config(json.loads((output / 'submission.json').read_text()))
     journey_id = config['id']
-    paths = (FIXTURES + journey_id + '.ledger.jsonl', FIXTURES + 'write-routes.json')
     manifest = {x['path']: x for x in json.loads((output / 'manifest.json').read_text())}
     artifacts = json.loads((output / 'artifacts.json').read_text())
     report = json.loads((output / 'results/journey.json').read_text())
     if report.get('update') is not True or report.get('journey') != journey_id or report.get('status') != 'pass':
         raise ValueError('Journey update lacks matching successful update evidence')
+    ledger = FIXTURES + journey_id + '.ledger.jsonl'
+    route_path = FIXTURES + 'write-routes.json'
+    ledger_expected = report.get('ledger_expected', True)
+    if not isinstance(ledger_expected, bool):
+        raise ValueError('Invalid ledger expectation declaration')
+    if not ledger_expected and ledger in manifest:
+        raise ValueError('Journey update omitted an existing ledger')
+    paths = (ledger, route_path) if ledger_expected else (route_path,)
     prefix = 'results/updates/'
     proposed = {p[len(prefix):] for p in artifacts if p.startswith(prefix)}
     if proposed != set(paths):
@@ -52,7 +59,7 @@ def declarations(output):
         if hashlib.sha256(target).hexdigest() != artifacts[prefix + name]:
             raise ValueError('Journey expectation checksum mismatch: ' + name)
         result[name] = {'base': base, 'target': target}
-    route = result[paths[1]]
+    route = result[route_path]
     before = json.loads(route['base']) if route['base'] is not None else {}
     after = json.loads(route['target'])
     if not isinstance(before, dict) or not isinstance(after, dict):

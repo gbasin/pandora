@@ -73,6 +73,20 @@ class JourneyUpdates(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unrelated'):
             updates.declarations(self.output)
 
+    def test_api_less_update_returns_routes_only_but_cannot_omit_existing_ledger(self):
+        report_path = self.output / 'results/journey.json'
+        report = json.loads(report_path.read_text()) | {'ledger_expected': False}
+        report_path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, 'omitted an existing ledger'):
+            updates.declarations(self.output)
+        ledger = updates.PATHS[0]
+        manifest = [e for e in json.loads((self.output / 'manifest.json').read_text()) if e['path'] != ledger]
+        (self.output / 'manifest.json').write_text(json.dumps(manifest))
+        (self.output / 'source' / ledger).unlink()
+        (self.output / 'results/updates' / ledger).unlink()
+        self.hash_artifacts()
+        self.assertEqual(set(updates.declarations(self.output)), {updates.PATHS[1]})
+
     def test_non_output_source_still_invalidates_update(self):
         changes = updates.declarations(self.output)
         self.assertTrue(updates.source_is_current(self.repo,self.output,self.submitted,changes))
