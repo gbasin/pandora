@@ -89,7 +89,7 @@ def _terminal_evidence(path, identity):
         attempt = path.parent
         validate_evidence(attempt, identity, json.loads((attempt / "submission.json").read_text()))
         return True
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError, KeyError):
         return False
 
 
@@ -100,6 +100,7 @@ def _operator_result(path, identity):
         value = json.loads(path.read_text())
     except (OSError, ValueError):
         return False
+    if not isinstance(value, dict): return False
     allowed = {"attempt", "state", "reason", "cleanup_verified", "acknowledged_at", "submission_sha256", "source_digest", "workflow"}
     if "terminal_sha256" in value: allowed.add("terminal_sha256")
     return (set(value) == allowed
@@ -297,7 +298,11 @@ def acknowledge_suite_parent(root, identity, reason, *, now=time.time, run=subpr
         state = _state(root, child)
         if state["alive"]: raise RecoveryBlocked("Live suite child prevents parent acknowledgement")
         if state["terminal_verified"]: continue
-        if _operator_result(attempt / "operator-result.json", child): continue
+        if _operator_result(attempt / "operator-result.json", child):
+            # Idempotence is conditional: re-check immutable source, terminal,
+            # cleanup, and ownership bindings before trusting a prior receipt.
+            acknowledge_missing_result(root, child, reason, now=now, list_resources=list_resources)
+            continue
         cleanup(root, child, run=run, list_resources=list_resources)
         acknowledge_missing_result(root, child, reason, now=now, list_resources=list_resources)
     with (Path(root) / "worker.lock").open("a") as lock:
@@ -309,8 +314,12 @@ def acknowledge_suite_parent(root, identity, reason, *, now=time.time, run=subpr
         value = {"parent_attempt": identity, "children": children, "cleanup_verified": True, "acknowledged_at": now()}
         receipt_path = parent / "operator-cleanup.json"
         if receipt_path.exists():
-            if (not receipt_path.is_file() or receipt_path.is_symlink()
-                    or {"parent_attempt", "children", "cleanup_verified", "acknowledged_at"} != set(json.loads(receipt_path.read_text()))):
+            try: existing = json.loads(receipt_path.read_text())
+            except (OSError, ValueError): existing = None
+            stable = {"parent_attempt": identity, "children": children, "cleanup_verified": True}
+            if (not receipt_path.is_file() or receipt_path.is_symlink() or not isinstance(existing, dict)
+                    or set(existing) != set(stable) | {"acknowledged_at"}
+                    or any(existing.get(key) != value for key, value in stable.items())):
                 raise RecoveryBlocked("Suite operator cleanup receipt is immutable")
         else:
             receipt_path.write_text(json.dumps(value, sort_keys=True) + "\n")
