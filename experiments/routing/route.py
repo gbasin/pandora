@@ -18,6 +18,7 @@ from workflow_options import surface_outputs
 from transport import query, validate_evidence
 from delivery import deliver
 import journey_updates
+from tracked_outputs import PublicationConflict
 from retention import local as prune_local
 from snapshot import names, excluded, entry, encode
 
@@ -262,6 +263,13 @@ def main(tool='pnpm'):
                     journey_updates.deliver(repo, output, updates)
                 complete(active, record, output, terminal)
                 status = terminal['exit_code']
+            except PublicationConflict as error:
+                print(f'[pandora] Local expectation publication conflicted: {error}. '
+                      f'Manually merge the declared expectation files, then run '\
+                      f'`pandora resolve-expectations {record["attempt"]} --keep-local`. '
+                      'That accepts current local contents without rerunning or validating them; '
+                      'review git diff, then run ordinary validation without --update.', file=sys.stderr)
+                return 75
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 print(f'[pandora] Local delivery incomplete: {error}. Retry the same command to recover this run; no new tests will start. Evidence: {output}', file=sys.stderr)
                 return 75
