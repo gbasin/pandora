@@ -77,26 +77,13 @@ def main():
     resource_lease = acquire(attempt, submitted.get('queue_timeout_seconds', 900))
     (attempt / 'queue.json.tmp').write_text(json.dumps({'waited': resource_lease.waited, 'acquired': True}) + '\n')
     (attempt / 'queue.json.tmp').replace(attempt / 'queue.json')
-    from dependencies import CONTAINER
-    running_builder = docker('ps', '--filter', 'name=^/' + CONTAINER + '$',
-                             '--format', '{{.Names}}', capture_output=True, text=True)
-    if running_builder.stdout.strip():
-        raise RuntimeError('Dependency builder still active without its worker lease; operator cleanup required. No tests started.')
+    from resource_ownership import check
+    check(root, {attempt.name})
     from image_gc import collect
     collect(root)
     prune_remote(root)
     if shutil.disk_usage(root).free < 10 * 1024**3:
         raise RuntimeError('Worker disk has less than 10 GiB free. No preparation or tests started; operator retention cleanup required.')
-    leftovers = docker('ps', '-a', '--filter', 'label=pandora.workflow=journey', '--format', '{{.Names}}', capture_output=True, text=True)
-    if leftovers.stdout.strip():
-        raise RuntimeError('Previous journey resources remain; operator cleanup required. No validation started.')
-    from docker_cleanup import BUILDER_CONTAINER
-    leftovers = docker('ps', '--filter', 'name=^/' + BUILDER_CONTAINER + '$', '--format', '{{.Names}}', capture_output=True, text=True)
-    if leftovers.stdout.strip():
-        raise RuntimeError('Docker build worker still active without its lease; operator cleanup required.')
-    orphaned = docker('ps', '-a', '--filter', 'label=pandora.workflow=docker', '--format', '{{.Names}}', capture_output=True, text=True)
-    if orphaned.stdout.strip():
-        raise RuntimeError('Previous Docker execution has unresolved cleanup; operator reconciliation required.')
     metrics = {'queue_seconds': resource_lease.waited, 'queue_ticket': resource_lease.ticket}
     if submitted.get('workflow') == 'docker':
         from docker_workflow import execute
@@ -156,6 +143,7 @@ def main():
     execution = time.monotonic()
     try:
         docker('create', '--name', name, '--label', 'pandora.experiment=warm-surface',
+               '--label', 'pandora.workflow=surface', '--label', 'pandora.attempt=' + attempt.name,
                '--cpus=2', '--memory=6g', '--memory-swap=6g', '--pids-limit=512',
                '--shm-size=1g', '--cap-drop=ALL', '--security-opt=no-new-privileges',
                '--init', '-e', 'CI=true', '-e', 'PANDORA_SURFACE_APP=' + surface_app, image_id, 'bash', '/tmp/pandora-run.sh',
