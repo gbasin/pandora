@@ -1,7 +1,7 @@
 # Pandora
 
 Pandora is an opt-in experiment for running heavy validation remotely while coding
-agents, edits, and worktrees stay on a local Mac. The current SSH pilot runs one
+agents, edits, and worktrees stay on a local Mac. The current SSH pilot supports
 Eichler borrower-web and Desk surface validation, focused service-backed journeys, and
 a scoped Docker build/run profile on a dedicated Linux VM. It is not ready
 for unattended daily use or twelve-agent concurrency.
