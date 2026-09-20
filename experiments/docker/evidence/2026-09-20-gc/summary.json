@@ -1,0 +1,16 @@
+{
+  "reserved": {
+    "tag": "gc:test",
+    "image_id": "sha256:c9d3f2f8971563ca0614e58e96e96fc04f004f66b562569114f239bfd527780d",
+    "source_digest": "d41c293783ad35a9d0e2fc3abf7d7ef2e067f57d9f0f6f8daee610fa4ea9fd46",
+    "attempt": "b04435ce89974b7dae83f62f6a28010e",
+    "platform": "linux/amd64"
+  },
+  "attempt": "dda3f1f79adf4cb7b4cc1f1384c21842",
+  "result": {
+    "value": "alpha-95b07cddf33d45038ce78ce57aca519a"
+  },
+  "first_gc": "[]\n",
+  "second_gc": "[pandora] collected 1 unused acknowledged build tags\n[\"pandora-build:b04435ce89974b7dae83f62f6a28010e\"]\n",
+  "collected_after_ack": true
+}

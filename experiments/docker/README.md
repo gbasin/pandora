@@ -49,11 +49,19 @@ Two worktrees can use `app:test` independently. An omitted tag means `:latest`.
 A failed build preserves the old mapping. A successful build changes it atomically
 after BuildKit cleanup. Image removal removes this worktree's mapping only.
 
-Runs pin the image ID before queueing. Physical attempt tags are retained so an
-accepted run cannot lose its image after a rebuild or mapping removal. **Physical
-image garbage collection is not implemented.** Monitor disk use; the shared worker
-refuses new work below 10 GiB free. Do not use Docker's global prune while accepted
-requests depend on retained images.
+Runs reserve the image ID under the registry lock before queueing. Rebuilding or
+removing a logical tag cannot change an accepted request's image. At admission,
+cleanup collects acknowledged build tags only when no current mapping or unresolved
+request references the image. It never force-removes images or prunes Docker globally.
+Container references can prevent removal. BuildKit retains its own layer cache.
+
+Unacknowledged builds, lost-client reservations, and unknown historical images
+remain for operator reconciliation. Physical deletion requires positive completion
+and release evidence. Retention records collectible tags before attempt directories
+are removed. Drain older clients and workers before enabling this protocol: an
+older client's resolve-before-submit gap has no durable reservation.
+
+The worker refuses new work below 10 GiB free. Retention is not a hard disk quota.
 
 ## Source and outputs
 

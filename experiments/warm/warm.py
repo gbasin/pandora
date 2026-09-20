@@ -70,7 +70,7 @@ def main():
         raise RuntimeError('Unsupported remote home path')
     if args.workflow == 'docker' and metadata['docker']['request']['kind'] == 'run':
         spec = metadata['docker']
-        resolved = subprocess.run([*ssh, 'python3 - ' + shlex.quote(spec['worktree_key']) + ' ' + shlex.quote(spec['request']['tag'])],
+        resolved = subprocess.run([*ssh, 'python3 - ' + shlex.quote(spec['worktree_key']) + ' ' + shlex.quote(spec['request']['tag']) + ' ' + attempt],
                                   input=(scripts / 'docker_images.py').read_text(), capture_output=True, text=True)
         if resolved.returncode:
             print('[pandora] ' + resolved.stderr.strip(), flush=True)
@@ -102,7 +102,7 @@ def main():
         str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'), str(scripts / 'source_cache.py'),
         str(scripts / 'in-container.sh'), str(scripts / 'journey.py'),
         str(scripts / 'service_cleanup.py'), str(scripts / 'journey.mjs'),
-        str(scripts / 'docker_workflow.py'), str(scripts / 'docker_cleanup.py'), str(scripts / 'docker_images.py'), f'{args.host}:{remote}/')
+        str(scripts / 'docker_workflow.py'), str(scripts / 'docker_cleanup.py'), str(scripts / 'docker_images.py'), str(scripts / 'image_gc.py'), f'{args.host}:{remote}/')
     run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
     # All links reference complete immutable source directories, never containers.
     if uses_source:
