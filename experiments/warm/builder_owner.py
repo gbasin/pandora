@@ -71,7 +71,7 @@ class Lease:
             self.handle.close()
 
 
-def acquire(attempt, builder, marker):
+def acquire(attempt, builder, marker, *, marker_value=None):
     if not alive(attempt):
         raise RuntimeError('Builder ownership requires the held attempt lock')
     lock, record = paths(attempt, builder)
@@ -89,7 +89,12 @@ def acquire(attempt, builder, marker):
         temporary.write_text(json.dumps({'attempt': attempt.name}) + '\n')
         temporary.replace(record)
         pending = attempt / marker
-        pending.touch()
+        if marker_value is None:
+            pending.touch()
+        else:
+            temporary = pending.with_suffix(".tmp")
+            temporary.write_text(marker_value)
+            temporary.replace(pending)
         return Lease(attempt, builder, handle, record, pending)
     except BaseException:
         handle.close()
