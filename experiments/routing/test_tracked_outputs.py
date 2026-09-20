@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tracked_outputs import PublicationConflict, publish, read_intent, source_matches_intent
+from tracked_outputs import PublicationConflict, publish, read_intent, resolve_with_local_contents, source_matches_intent
 
 
 class TrackedOutputs(unittest.TestCase):
@@ -52,8 +52,64 @@ class TrackedOutputs(unittest.TestCase):
             publish(self.repo, self.output, declarations)
         self.assertEqual((self.repo / 'a').read_bytes(), b'outside')
         self.assertFalse((self.repo / 'b').exists())
-        self.assertIsNone(read_intent(self.output))
+        self.assertEqual(read_intent(self.output).phase, 'conflicted')
         self.assertTrue(raised.exception.paths[0].exists())
+
+    def test_explicit_resolution_preserves_all_current_values_without_writing(self):
+        (self.repo / 'a').write_bytes(b'outside')
+        (self.repo / 'b').write_bytes(b'old')
+        declarations = {'a': {'base': b'old', 'target': b'new'},
+                        'b': {'base': b'old', 'target': b'new'}}
+        self.prepare(declarations)
+        with self.assertRaises(PublicationConflict):
+            publish(self.repo, self.output, declarations)
+        # The user can merge one conflict and keep a different, unconflicted
+        # declared file. Resolution must accept both current values as-is.
+        (self.repo / 'a').write_bytes(b'manual merge')
+        self.assertEqual(resolve_with_local_contents(self.repo, self.output, declarations), ('a', 'b'))
+        self.assertEqual((self.repo / 'a').read_bytes(), b'manual merge')
+        self.assertEqual((self.repo / 'b').read_bytes(), b'old')
+        self.assertEqual(read_intent(self.output).phase, 'resolved')
+        receipt = json.loads((self.output / 'publication/tracked-resolution.json').read_text())
+        self.assertEqual(receipt['kind'], 'keep-local-unvalidated')
+        with self.assertRaisesRegex(ValueError, 'resolved'):
+            publish(self.repo, self.output, declarations)
+        (self.output / 'publication/tracked-resolution.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'missing its immutable'):
+            resolve_with_local_contents(self.repo, self.output, declarations)
+
+    def test_resolution_resumes_after_receipt_or_intent_crash_without_rereading_source(self):
+        (self.repo / 'a').write_bytes(b'outside')
+        declarations = {'a': {'base': b'old', 'target': b'new'}}
+        self.prepare(declarations)
+        with self.assertRaises(PublicationConflict):
+            publish(self.repo, self.output, declarations)
+        (self.repo / 'a').write_bytes(b'accepted')
+        with self.assertRaisesRegex(OSError, 'receipt crash'):
+            resolve_with_local_contents(self.repo, self.output, declarations,
+                                        lambda point: (_ for _ in ()).throw(OSError('receipt crash'))
+                                        if point == 'after_receipt' else None)
+        # A later edit must not replace receipt evidence during recovery.
+        (self.repo / 'a').write_bytes(b'later local edit')
+        self.assertEqual(resolve_with_local_contents(self.repo, self.output, declarations), ('a',))
+        self.assertEqual(read_intent(self.output).phase, 'resolved')
+        receipt = json.loads((self.output / 'publication/tracked-resolution.json').read_text())
+        self.assertEqual(receipt['paths']['a']['accepted_sha256'], hashlib.sha256(b'accepted').hexdigest())
+
+        # A second attempt models the crash after the resolved intent write.
+        (self.repo / 'b').write_bytes(b'outside')
+        output = self.root / 'attempt-after-intent'
+        declarations = {'b': {'base': b'old', 'target': b'new'}}
+        self.output = output
+        self.prepare(declarations)
+        with self.assertRaises(PublicationConflict):
+            publish(self.repo, output, declarations)
+        with self.assertRaisesRegex(OSError, 'intent crash'):
+            resolve_with_local_contents(self.repo, output, declarations,
+                                        lambda point: (_ for _ in ()).throw(OSError('intent crash'))
+                                        if point == 'after_intent' else None)
+        self.assertEqual(read_intent(output).phase, 'resolved')
+        self.assertEqual(resolve_with_local_contents(self.repo, output, declarations), ('b',))
 
     def test_retry_after_write_before_receipt_recognizes_target(self):
         declarations = {'x': {'base': None, 'target': b'X'}, 'y': {'base': None, 'target': b'Y'}}

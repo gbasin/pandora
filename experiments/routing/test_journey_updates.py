@@ -1,4 +1,6 @@
 import hashlib
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -117,6 +119,25 @@ class JourneyUpdates(unittest.TestCase):
             self.assertEqual(json.loads(active.read_text())['state'],'active')
             self.assertEqual(route.main(),0)
             self.assertEqual(len(calls),2)
+
+    def test_conflict_prints_explicit_keep_local_resolution_command(self):
+        command = ['journey','S0-01','--update']
+        active = self.output.parent/'active.json'
+        route.write(active, {'state':'active','output':str(self.output),'command':command,
+                             'host':'unused','attempt':'a'*32})
+        (self.repo / updates.PATHS[0]).write_bytes(b'manual merge\n')
+        stderr = io.StringIO()
+        with patch.dict(os.environ, {'PANDORA_STATE':str(self.state),'PANDORA_HOST':'unused'}), \
+             patch('sys.argv',['route.py',*command]), \
+             patch('route.subprocess.check_output',return_value=str(self.repo)), \
+             patch('route.Path.cwd',return_value=self.repo), \
+             patch('route.subprocess.Popen',side_effect=AssertionError('must not rerun')), \
+             patch('route.control',return_value={'cleanup_verified':True}), \
+             patch('journey_updates.names',return_value=['app.txt',*updates.PATHS]), \
+             contextlib.redirect_stderr(stderr):
+            self.assertEqual(route.main(),75)
+        self.assertIn('pandora resolve-expectations ' + 'a'*32 + ' --keep-local', stderr.getvalue())
+        self.assertEqual(json.loads(active.read_text())['state'],'active')
 
 
 if __name__=='__main__': unittest.main()

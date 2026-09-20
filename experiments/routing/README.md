@@ -224,9 +224,16 @@ unrelated route entries. It rejects symlink paths and currently requires regular
 If local delivery is interrupted, retry the identical command. Pandora resumes
 its recorded publication without running the journey again. A detected conflict
 leaves local contents intact and prints paths to proposed files and conflict
-evidence. Before retrying automatic return, restore a conflicted destination to its captured
-version under `<attempt>/source/`, preserving your edit separately. After an
-interrupted publication, an already-returned target must remain at that target.
+evidence. Manually merge the declared expectation files, then run the printed
+`pandora resolve-expectations <attempt> --keep-local` command from the repository
+root. It accepts the current contents of every declared expectation file without
+writing them or claiming they were remotely validated. Review the resulting diff,
+then run ordinary validation without `--update`. After an interrupted publication,
+an already-returned target must remain at that target.
+The acceptance receipt is durable before Pandora closes the request, so rerunning
+the same resolution command only resumes that close. It never replaces the saved
+accepted bytes with later local edits and never writes the worktree. Later edits
+remain in the worktree for the required ordinary validation run.
 Do not delete the active record or its publication intent. Changes to other source make the result stale and
 retain the proposals without publishing them.
 
