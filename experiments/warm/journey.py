@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import time
+import re
 from service_cleanup import cleanup
 
 SERVICES = [
@@ -16,16 +17,26 @@ SERVICES = [
      ['LISTEN_PORT=:5433', 'ALLOW_ADDR_REGEX=^pgbouncer:6432$', 'APPEND_PORT=', 'LOG_TRAFFIC=false', 'LOG_CONN_INFO=false'], '128m'),
 ]
 
-SUPPORTED_SELECTORS = (['S0-01'], ['S0-01', '--update'])
+SCENARIO_ID_PATTERN = re.compile(r'^(?:S[0-6]|SX)-\d{2}\Z')
 
 
 def journey_config(submitted):
-    """Return the sole supported journey invocation and its explicit mode."""
+    """Return one canonical focused journey invocation and its explicit mode."""
     selectors = submitted.get('selectors')
-    if selectors == SUPPORTED_SELECTORS[0]:
-        return {'id': 'S0-01', 'update': False}
-    if selectors == SUPPORTED_SELECTORS[1]:
-        return {'id': 'S0-01', 'update': True}
+    if not isinstance(selectors, list) or not selectors or not isinstance(selectors[0], str):
+        raise ValueError('Unsupported journey selection')
+    journey_id = selectors[0]
+    if not SCENARIO_ID_PATTERN.fullmatch(journey_id):
+        raise ValueError('Unsupported journey selection')
+    tail = selectors[1:]
+    if tail == []:
+        return {'id': journey_id, 'fault': None, 'update': False}
+    if tail == ['--update']:
+        return {'id': journey_id, 'fault': None, 'update': True}
+    if tail == ['--fault', 'dropped']:
+        return {'id': journey_id, 'fault': 'dropped', 'update': False}
+    if tail == ['--fault', 'dropped', '--update']:
+        return {'id': journey_id, 'fault': 'dropped', 'update': True}
     raise ValueError('Unsupported journey selection')
 
 
@@ -124,7 +135,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                 status = child.wait(timeout=10)
                 break
             except subprocess.TimeoutExpired:
-                print('[pandora] journey S0-01 running; services owned by this attempt', flush=True)
+                print('[pandora] journey ' + config['id'] + ' running; services owned by this attempt', flush=True)
         states = []
         for suffix in ('', '-db', '-pool', '-proxy'):
             raw = docker('inspect', name + suffix, '--format', '{{json .State}}', capture_output=True, text=True)

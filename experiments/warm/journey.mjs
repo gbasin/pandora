@@ -12,10 +12,6 @@ let stack;
 let result;
 let status = 1;
 let config;
-const proposalPaths = [
-  'packages/scenarios/fixtures/S0-01.ledger.jsonl',
-  'packages/scenarios/fixtures/write-routes.json',
-];
 const redact = (value) => {
   let text = String(value);
   for (const secret of stack?.secrets ?? []) text = text.split(secret).join('[redacted]');
@@ -25,13 +21,21 @@ const loadConfig = () => {
   const value = process.env.PANDORA_JOURNEY_CONFIG;
   if (!value) throw new Error('Pandora journey configuration is required');
   const parsed = JSON.parse(value);
-  if (parsed?.id !== 'S0-01' || typeof parsed.update !== 'boolean') {
+  if (
+    !/^(?:S[0-6]|SX)-\d{2}$(?![\s\S])/.test(parsed?.id) ||
+    typeof parsed.update !== 'boolean' ||
+    (parsed.fault !== null && parsed.fault !== 'dropped')
+  ) {
     throw new Error('Unsupported Pandora journey configuration');
   }
   return parsed;
 };
 const captureProposals = async () => {
   if (!config?.update) return [];
+  const proposalPaths = [
+    `packages/scenarios/fixtures/${config.id}.ledger.jsonl`,
+    'packages/scenarios/fixtures/write-routes.json',
+  ];
   const proposals = [];
   for (const path of proposalPaths) {
     const source = `/workspace/source/${path}`;
@@ -46,35 +50,48 @@ const captureProposals = async () => {
 let proposals = [];
 try {
   config = loadConfig();
+  const journey = (await loadJourneys()).find((candidate) => candidate.id === config.id);
+  if (!journey) throw new Error(`Journey ${config.id} is absent from this snapshot`);
   console.log('[pandora] applying migrations and starting the local Workers runtime');
   // Startup output contains generated credentials. Do not stream it into agent logs.
   stack = await startInstance({ external: true, signal: controller.signal, output: () => {} });
-  console.log('[pandora] Workers runtime ready; running journey S0-01');
-  const journey = (await loadJourneys()).find((j) => j.id === 'S0-01');
-  if (!journey) throw new Error('Journey S0-01 is absent from this snapshot');
-  result = await runJourney(journey, { baseUrl: stack.api, printPrincipals: false, update: config.update });
+  console.log(`[pandora] Workers runtime ready; running journey ${config.id}`);
+  result = await runJourney(journey, {
+    baseUrl: stack.api,
+    printPrincipals: false,
+    update: config.update,
+    ...(config.fault ? { fault: config.fault } : {}),
+  });
   if (result.status === 'pass' && result.writeRoutes) await checkRoutes(result.id, result.writeRoutes, config.update);
   if (stack.crashed) throw new Error(`Workers runtime exited unexpectedly: ${stack.crashed}`);
   status = result.status === 'pass' ? 0 : 1;
 } catch (error) {
-  result = { id: 'S0-01', status: 'fail', detail: redact(error.stack ?? error.message) };
+  result = { id: config?.id ?? 'unknown', status: 'fail', detail: redact(error.stack ?? error.message) };
 } finally {
   if (stack) {
     try { await stack.stop(); }
-    catch (error) { status = 1; result = { id: 'S0-01', status: 'fail', detail: redact(error.message) }; }
+    catch (error) {
+      status = 1;
+      result = { id: config?.id ?? 'unknown', status: 'fail', detail: redact(error.message) };
+    }
   }
   await mkdir('/workspace/results', { recursive: true });
   try {
     proposals = await captureProposals();
   } catch (error) {
     status = 1;
-    result = { id: 'S0-01', status: 'fail', detail: redact(`Unable to capture update proposals: ${error.message}`) };
+    result = {
+      id: config?.id ?? 'unknown',
+      status: 'fail',
+      detail: redact(`Unable to capture update proposals: ${error.message}`),
+    };
   }
   const report = {
-    journey: result?.id ?? 'S0-01',
+    journey: result?.id ?? config?.id ?? 'unknown',
     status: status === 0 && result?.status === 'pass' ? 'pass' : 'fail',
     detail: redact(result?.detail ?? ''),
     update: config?.update ?? false,
+    fault: config?.fault ?? null,
     proposals,
   };
   await writeFile('/workspace/results/journey.json', JSON.stringify(report, null, 2) + '\n');
