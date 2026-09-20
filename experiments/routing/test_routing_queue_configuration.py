@@ -6,13 +6,31 @@ import tempfile
 import unittest
 
 from docker_commands import DEFAULT_QUEUE_TIMEOUT_SECONDS, MAX_QUEUE_TIMEOUT_SECONDS, profile
-from route import effective_queue_timeout
+from route import effective_artifact_delivery_limit, effective_queue_timeout
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 class QueueConfigurationTests(unittest.TestCase):
+    def test_artifact_limit_defaults_in_launcher_and_docker_profile_overrides_only_docker(self):
+        base = {'dockerfiles': [], 'mounts': [], 'outputs': []}
+        for value in (0, -1, True, 1.5, '2'):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'Artifact delivery limit'):
+                profile(json.dumps({**base, 'artifact_delivery_limit_bytes': value}))
+        config = profile(json.dumps({**base, 'artifact_delivery_limit_bytes': 123}))
+        self.assertEqual(effective_artifact_delivery_limit(456, 'docker', config), 123)
+        self.assertEqual(effective_artifact_delivery_limit(456, 'pnpm', config), 456)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / 'environment.py'
+            target.write_text('import os\nprint(os.environ["PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES"])\n')
+            env = dict(os.environ, PANDORA_REAL_PNPM='/bin/true')
+            command = ['python3', str(ROOT / 'launch.py'), '--host', 'unused', '--state', str(root / 'state')]
+            self.assertEqual(subprocess.check_output([*command, '--', 'python3', str(target)], env=env, text=True).strip(),
+                             str(2 * 1024 ** 3))
+            self.assertEqual(subprocess.check_output([*command, '--artifact-delivery-limit-bytes', '123', '--', 'python3', str(target)], env=env, text=True).strip(), '123')
+
     def test_profile_accepts_bounded_positive_integer_only(self):
         base = {'dockerfiles': [], 'mounts': [], 'outputs': []}
         for value in (0, -1, MAX_QUEUE_TIMEOUT_SECONDS + 1, True, False, 1.5, '900'):
