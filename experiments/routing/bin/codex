@@ -13,6 +13,10 @@ os.environ['PATH'] = str(Path(__file__).resolve().parent) + os.pathsep + os.envi
 for key in ['PANDORA_HOST', 'PANDORA_STATE', 'PANDORA_SESSION',
             'PANDORA_REAL_PNPM', 'PANDORA_REAL_CODEX', 'PANDORA_TREATMENT', 'PANDORA_QUEUE_TIMEOUT_SECONDS', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
     overrides += ['-c', 'shell_environment_policy.set.' + key + '=' + json.dumps(os.environ[key])]
+for key in ['PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES', 'PANDORA_SUITE_SHARDS']:
+    # These are absent when an older session launcher invokes this newer shim.
+    if key in os.environ:
+        overrides += ['-c', 'shell_environment_policy.set.' + key + '=' + json.dumps(os.environ[key])]
 if 'PANDORA_DOCKER_PROFILE_JSON' in os.environ:
     overrides += ['-c', 'shell_environment_policy.set.PANDORA_DOCKER_PROFILE_JSON=' + json.dumps(os.environ['PANDORA_DOCKER_PROFILE_JSON'])]
 command = sys.argv[1:]

@@ -10,7 +10,31 @@ ROOT = Path(__file__).resolve().parent
 
 
 class EnvironmentTests(unittest.TestCase):
-    def test_codex_grants_state_additively_without_setting_path(self):
+    def test_launcher_preserves_artifact_and_suite_settings_for_codex_shells(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = root / 'codex'
+            fake.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            fake.chmod(0o755)
+            env = dict(os.environ)
+            env['PANDORA_REAL_CODEX'] = str(fake)
+            env['PANDORA_REAL_PNPM'] = '/usr/bin/true'
+            result = subprocess.check_output([
+                'python3', str(ROOT / 'launch.py'), '--host', 'unused', '--state', str(root / 'state'),
+                '--artifact-delivery-limit-bytes', '123', '--suite-shards', '7', '--',
+                'codex', 'exec', '--add-dir', '/existing/root', 'prompt',
+            ], env=env, text=True)
+            argv = json.loads(result)
+            self.assertEqual(argv[0:2], ['exec', '--add-dir'])
+            self.assertEqual(Path(argv[2]).resolve(), (root / 'state').resolve())
+            self.assertEqual(argv[-3:], ['--add-dir', '/existing/root', 'prompt'])
+            self.assertFalse(any('shell_environment_policy.set.PATH=' in arg for arg in argv))
+            self.assertFalse(any('writable_roots' in arg for arg in argv))
+            self.assertIn('shell_environment_policy.set.PANDORA_QUEUE_TIMEOUT_SECONDS="900"', argv)
+            self.assertIn('shell_environment_policy.set.PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES="123"', argv)
+            self.assertIn('shell_environment_policy.set.PANDORA_SUITE_SHARDS="7"', argv)
+
+    def test_newer_shim_accepts_an_older_launcher_environment(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             fake = root / 'codex'
@@ -21,14 +45,12 @@ class EnvironmentTests(unittest.TestCase):
                         'PANDORA_REAL_PNPM', 'PANDORA_TREATMENT', 'PANDORA_QUEUE_TIMEOUT_SECONDS', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
                 env[key] = str(root / key)
             env['PANDORA_REAL_CODEX'] = str(fake)
-            result = subprocess.check_output(['python3', str(ROOT / 'bin/codex'), 'exec',
-                                              '--add-dir', '/existing/root', 'prompt'], env=env, text=True)
-            argv = json.loads(result)
-            self.assertEqual(argv[0:3], ['exec', '--add-dir', env['PANDORA_STATE']])
-            self.assertEqual(argv[-3:], ['--add-dir', '/existing/root', 'prompt'])
-            self.assertFalse(any('shell_environment_policy.set.PATH=' in arg for arg in argv))
-            self.assertFalse(any('writable_roots' in arg for arg in argv))
-            self.assertIn('shell_environment_policy.set.PANDORA_QUEUE_TIMEOUT_SECONDS=' + json.dumps(env['PANDORA_QUEUE_TIMEOUT_SECONDS']), argv)
+            env.pop('PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES', None)
+            env.pop('PANDORA_SUITE_SHARDS', None)
+            argv = json.loads(subprocess.check_output(
+                ['python3', str(ROOT / 'bin/codex'), 'exec', 'prompt'], env=env, text=True))
+            self.assertFalse(any('PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES' in arg for arg in argv))
+            self.assertFalse(any('PANDORA_SUITE_SHARDS' in arg for arg in argv))
 
     def test_startup_order_manual_path_and_original_pnpm(self):
         with tempfile.TemporaryDirectory() as temp:
