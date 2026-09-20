@@ -193,6 +193,13 @@ workloads, is necessary to stop its instance billing.
 
 ## Next evaluation
 
+The [native BuildKit and Mutagen comparison](notes/backend-comparison-2026-09-20.md)
+found no clear replacement for the current backend. Native transport needed stable
+staging and did not preserve builds after client loss. Mutagen made warm sync fast
+but required Git-aware allowlists and session recreation for new source files.
+A manifest-only preparation variant suggests a smaller next experiment using
+existing rsync; production capture remains unchanged.
+
 The next milestone is a controlled full coding-loop evaluation before daily use.
 The [v0.1 contract and evaluation matrix](notes/v0.1-contract.md) records the
 agreed scope and proposed command semantics. It requires local edit/test/fix

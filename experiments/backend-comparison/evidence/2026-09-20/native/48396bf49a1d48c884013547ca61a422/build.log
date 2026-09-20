@@ -1,0 +1,160 @@
+#0 building with "pandora-poc-native-stable" instance using remote driver
+
+#1 [internal] load build definition from Pandora.Dockerfile
+#1 transferring dockerfile: 2.96kB 0.1s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#2 DONE 0.4s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B 0.1s done
+#3 DONE 0.1s
+
+#4 [build  1/35] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#4 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 26.80MB 5.0s
+#5 transferring context: 56.17MB 10.1s
+#5 transferring context: 73.71MB 15.2s
+#5 transferring context: 108.56MB 20.3s
+#5 transferring context: 124.90MB 25.4s
+#5 transferring context: 149.95MB 30.4s
+#5 transferring context: 165.54MB 35.4s
+#5 transferring context: 181.31MB 40.4s
+#5 transferring context: 205.32MB 45.5s
+#5 transferring context: 222.55MB 50.7s
+#5 transferring context: 246.75MB 55.7s
+#5 transferring context: 269.89MB 60.7s
+#5 transferring context: 293.89MB 65.8s
+#5 transferring context: 312.79MB 71.4s
+#5 transferring context: 343.21MB 76.9s
+#5 transferring context: 369.68MB 81.9s
+#5 transferring context: 380.10MB 83.8s done
+#5 DONE 83.8s
+
+#6 [build 15/35] COPY [apps/web/package.json, ./apps/web/package.json]
+#6 CACHED
+
+#7 [build  5/35] COPY [apps/api/package.json, ./apps/api/package.json]
+#7 CACHED
+
+#8 [build 11/35] COPY [apps/film/package.json, ./apps/film/package.json]
+#8 CACHED
+
+#9 [build 28/35] COPY [packages/scenarios/package.json, ./packages/scenarios/package.json]
+#9 CACHED
+
+#10 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#10 CACHED
+
+#11 [build  3/35] WORKDIR /workspace
+#11 CACHED
+
+#12 [build  9/35] COPY [apps/brief/package.json, ./apps/brief/package.json]
+#12 CACHED
+
+#13 [build 27/35] COPY [packages/domain/package.json, ./packages/domain/package.json]
+#13 CACHED
+
+#14 [build 29/35] COPY [packages/vendors/package.json, ./packages/vendors/package.json]
+#14 CACHED
+
+#15 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#15 CACHED
+
+#16 [build 22/35] COPY [legacy/packages/core/package.json, ./legacy/packages/core/package.json]
+#16 CACHED
+
+#17 [build 20/35] COPY [legacy/apps/journey/package.json, ./legacy/apps/journey/package.json]
+#17 CACHED
+
+#18 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#18 CACHED
+
+#19 [build 31/35] COPY [patches/decode-uri-component@0.5.0.patch, ./patches/decode-uri-component@0.5.0.patch]
+#19 CACHED
+
+#20 [build 21/35] COPY [legacy/packages/blueprint/package.json, ./legacy/packages/blueprint/package.json]
+#20 CACHED
+
+#21 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#21 CACHED
+
+#22 [build 33/35] COPY [pnpm-workspace.yaml, ./pnpm-workspace.yaml]
+#22 CACHED
+
+#23 [build  4/35] COPY [apps/agent/package.json, ./apps/agent/package.json]
+#23 CACHED
+
+#24 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
+#24 CACHED
+
+#25 [build 16/35] COPY [legacy/apps/blueprint-viewer/package.json, ./legacy/apps/blueprint-viewer/package.json]
+#25 CACHED
+
+#26 [build  8/35] COPY [apps/brand-tour/package.json, ./apps/brand-tour/package.json]
+#26 CACHED
+
+#27 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#27 CACHED
+
+#28 [build 13/35] COPY [apps/progress/package.json, ./apps/progress/package.json]
+#28 CACHED
+
+#29 [build  2/35] RUN npm install --global pnpm@12.3.3
+#29 CACHED
+
+#30 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#30 CACHED
+
+#31 [build 10/35] COPY [apps/desk/package.json, ./apps/desk/package.json]
+#31 CACHED
+
+#32 [build 30/35] COPY [packages/web-ui/package.json, ./packages/web-ui/package.json]
+#32 CACHED
+
+#33 [build 14/35] COPY [apps/static-docs/package.json, ./apps/static-docs/package.json]
+#33 CACHED
+
+#34 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#34 CACHED
+
+#35 [build 12/35] COPY [apps/mockup/package.json, ./apps/mockup/package.json]
+#35 CACHED
+
+#36 [stage-1 2/4] WORKDIR /workspace
+#36 CACHED
+
+#37 [build 25/35] COPY [packages/client/package.json, ./packages/client/package.json]
+#37 CACHED
+
+#38 [build 24/35] COPY [package.json, ./package.json]
+#38 CACHED
+
+#39 [build 26/35] COPY [packages/design/package.json, ./packages/design/package.json]
+#39 CACHED
+
+#40 [build 32/35] COPY [pnpm-lock.yaml, ./pnpm-lock.yaml]
+#40 CACHED
+
+#41 [build 34/35] RUN --mount=type=cache,id=pandora-compiled-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
+#41 CACHED
+
+#42 [stage-1 4/4] COPY pandora-check-build.cjs /workspace/check.cjs
+#42 CACHED
+
+#43 exporting to image
+#43 exporting layers done
+#43 exporting manifest sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1 done
+#43 exporting config sha256:781f196de2540f485889cb95f7b8dcbe848d8792684e2edebcb8b6c461a35c2e done
+#43 pushing layers 0.0s done
+#43 pushing manifest for 127.0.0.1:15000/pandora-poc:compiled@sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1 done
+#43 DONE 0.0s
+
+#44 resolving provenance for metadata file
+#44 DONE 0.9s
+
+View build details: docker-desktop://dashboard/build/pandora-poc-native-stable/pandora-poc-native-stable0/ttzdzow6klk1c5nkq8nlol1d4

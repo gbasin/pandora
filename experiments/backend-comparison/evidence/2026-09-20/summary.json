@@ -1,0 +1,161 @@
+{
+  "native": [
+    {
+      "snapshot_seconds": 4.761499124986585,
+      "setup_seconds": 2.6462875829893164,
+      "build_seconds": 119.47179416700965,
+      "import_seconds": 0.16476254200097173,
+      "ready_seconds": 127.04434341698652,
+      "image": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "test": "Compiled application verified source-edit-20260920\n",
+      "id": "8909b9694d4341f68235fb4e5fec644c"
+    },
+    {
+      "stable_context": true,
+      "snapshot_seconds": 9.77291250001872,
+      "setup_seconds": 32.02711108297808,
+      "build_seconds": 86.25854916701792,
+      "import_seconds": 0.14040633296826854,
+      "ready_seconds": 128.198979082983,
+      "image": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "test": "Compiled application verified source-edit-20260920\n",
+      "id": "48396bf49a1d48c884013547ca61a422"
+    },
+    {
+      "snapshot_seconds": 6.258706458029337,
+      "setup_seconds": 1.9099574579740874,
+      "build_seconds": 106.57540283398703,
+      "import_seconds": 0.11844874999951571,
+      "ready_seconds": 114.86251549998997,
+      "image": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "test": "Compiled application verified source-edit-20260920\n",
+      "id": "d42b32e8f72748be9c16dd07298901ba"
+    },
+    {
+      "stable_context": true,
+      "source_edit_same_size_mtime": true,
+      "snapshot_seconds": 10.182174541987479,
+      "setup_seconds": 2.053488333011046,
+      "build_seconds": 8.716053624986671,
+      "import_seconds": 0.19695566699374467,
+      "ready_seconds": 21.14867216697894,
+      "image": "sha256:8160fd1a5d6edfe409673546bbdd4e2507020b7fbe080f0db4e2debf4b00b7e5",
+      "test": "Compiled application verified source-edit-20260921\n",
+      "id": "f91ff56a97f448e1ac30af37c2695704"
+    },
+    {
+      "stable_context": true,
+      "snapshot_seconds": 9.777943041990511,
+      "setup_seconds": 1.7931674160063267,
+      "build_seconds": 2.6130695000174455,
+      "import_seconds": 0.17850174999330193,
+      "ready_seconds": 14.362681708007585,
+      "image": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "test": "Compiled application verified source-edit-20260920\n",
+      "id": "22b6caf3fe4c4777a35339a02b87bb57"
+    }
+  ],
+  "mutagen": [
+    {
+      "attempt": "acbbdfcb456c466cad8e8aa9a2f4183c",
+      "capture_seconds": 4.9849518749979325,
+      "sync_seconds": 133.82521558296867,
+      "prepare_verify_seconds": 9.86981729202671,
+      "ready_seconds": 148.6799847499933,
+      "total_seconds": 211.61167704098625,
+      "session": "pandora-journey-99a44e87abc1",
+      "metrics": {
+        "queue_seconds": 10.402395527999033,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.052685964008560404,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 50.53540326200891,
+        "exit_code": 0
+      }
+    },
+    {
+      "attempt": "708b441aac754d0b89bead7895eb8a9c",
+      "manifest_only": true,
+      "capture_seconds": 0.6329967919737101,
+      "sync_seconds": 0.39282395801274106,
+      "prepare_verify_seconds": 4.658737999969162,
+      "ready_seconds": 5.684558749955613,
+      "total_seconds": 59.26858608296607,
+      "session": "pandora-journey-99a44e87abc1",
+      "metrics": {
+        "queue_seconds": 0.3533498289907584,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04825756000354886,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 49.60920083199744,
+        "exit_code": 0
+      }
+    },
+    {
+      "attempt": "c38ae7c325a146229904945017f42913",
+      "capture_seconds": 5.011239417013712,
+      "sync_seconds": 0.33902433299226686,
+      "prepare_verify_seconds": 5.495278083020821,
+      "ready_seconds": 10.8455418330268,
+      "total_seconds": 63.596621333039366,
+      "session": "pandora-journey-99a44e87abc1",
+      "metrics": {
+        "queue_seconds": 0.4727463519957382,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.05402953799057286,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 48.997785250991,
+        "exit_code": 0
+      }
+    },
+    {
+      "attempt": "f60a7920feec4dd090bd712959d8d3c3",
+      "capture_seconds": 3.2088794999872334,
+      "sync_seconds": 0.3041170419892296,
+      "prepare_verify_seconds": 4.964501792041119,
+      "ready_seconds": 8.477498334017582,
+      "total_seconds": 61.63176525000017,
+      "session": "pandora-journey-99a44e87abc1",
+      "metrics": {
+        "queue_seconds": 0.4290568229916971,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04995447999681346,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 50.06622432199947,
+        "exit_code": 0
+      }
+    }
+  ],
+  "baseline": [
+    {
+      "attempt": "9072cc957720475691063e61574b9f34",
+      "snapshot_seconds": 4.824000791995786,
+      "transfer_seconds": 3.2579126250348054,
+      "total_seconds": 61.456177959044,
+      "metrics": {
+        "queue_seconds": 0.5836429810005939,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04727601299236994,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 48.801044713996816,
+        "exit_code": 0
+      },
+      "cleanup_verified": true
+    },
+    {
+      "attempt": "fedb1a6d4ff94a10ac5134e9e73a242c",
+      "snapshot_seconds": 8.14232520799851,
+      "transfer_seconds": 2.3717819589655846,
+      "total_seconds": 65.73586995800724,
+      "metrics": {
+        "queue_seconds": 0.4776905489998171,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04461611701117363,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 49.35059757700947,
+        "exit_code": 0
+      },
+      "cleanup_verified": true
+    }
+  ]
+}

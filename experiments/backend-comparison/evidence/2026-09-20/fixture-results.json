@@ -1,0 +1,13 @@
+{
+  "isolation_and_exclusions": {
+    "frozen": "allowed\n",
+    "live": "changed\n",
+    "files": [
+      "sub/yes.txt"
+    ]
+  },
+  "new_file_after_recreation": [
+    "sub/new.txt",
+    "sub/yes.txt"
+  ]
+}

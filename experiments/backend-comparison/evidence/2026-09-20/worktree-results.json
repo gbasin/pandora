@@ -1,0 +1,16 @@
+[
+  {
+    "value": "a\n",
+    "files": [
+      ".gitignore",
+      "value.txt"
+    ]
+  },
+  {
+    "value": "b\n",
+    "files": [
+      ".gitignore",
+      "value.txt"
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+#0 building with "poc-82c9b92915684a14b517ea2b445fcd76" instance using remote driver
+
+#1 [internal] load build definition from Pandora.Dockerfile
+#1 transferring dockerfile: 214B 0.1s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#2 DONE 0.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B 0.1s done
+#3 DONE 0.1s
+
+#4 [1/2] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#4 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#4 CACHED
+
+#5 [2/2] RUN echo PANDORA_FAULT_82c9b92915684a14b517ea2b445fcd76 && sleep 30
+#5 0.048 PANDORA_FAULT_82c9b92915684a14b517ea2b445fcd76
+ERROR: failed to build: failed to solve: Unavailable: error reading from server: EOF

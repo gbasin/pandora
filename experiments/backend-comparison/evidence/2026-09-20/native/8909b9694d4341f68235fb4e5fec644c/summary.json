@@ -1,0 +1,9 @@
+{
+  "snapshot_seconds": 4.761499124986585,
+  "setup_seconds": 2.6462875829893164,
+  "build_seconds": 119.47179416700965,
+  "import_seconds": 0.16476254200097173,
+  "ready_seconds": 127.04434341698652,
+  "image": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+  "test": "Compiled application verified source-edit-20260920\n"
+}

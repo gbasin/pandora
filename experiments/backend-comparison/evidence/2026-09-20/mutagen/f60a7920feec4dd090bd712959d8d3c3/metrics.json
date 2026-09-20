@@ -1,0 +1,8 @@
+{
+  "queue_seconds": 0.4290568229916971,
+  "dependency_cache_hit": true,
+  "dependency_seconds": 0.04995447999681346,
+  "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+  "execution_seconds": 50.06622432199947,
+  "exit_code": 0
+}

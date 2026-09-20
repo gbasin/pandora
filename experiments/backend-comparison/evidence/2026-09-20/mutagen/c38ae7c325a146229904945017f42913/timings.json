@@ -1,0 +1,9 @@
+{
+  "attempt": "c38ae7c325a146229904945017f42913",
+  "capture_seconds": 5.011239417013712,
+  "sync_seconds": 0.33902433299226686,
+  "prepare_verify_seconds": 5.495278083020821,
+  "ready_seconds": 10.8455418330268,
+  "total_seconds": 63.596621333039366,
+  "session": "pandora-journey-99a44e87abc1"
+}
