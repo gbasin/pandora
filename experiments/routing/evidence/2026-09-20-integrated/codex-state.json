@@ -1,0 +1,32 @@
+{
+  "manual_writable_roots_override": false,
+  "wrapper_add_dir": true,
+  "runs": [
+    {
+      "attempt": "4656840307b94de298107559a76d45bb",
+      "exit_code": 1,
+      "metrics": {
+        "queue_seconds": 0.0401793640012329,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04754998100179364,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 15.668777571998362,
+        "exit_code": 1
+      }
+    },
+    {
+      "attempt": "c555eb626576478b86c7951ef396a234",
+      "exit_code": 0,
+      "metrics": {
+        "queue_seconds": 0.028450661000533728,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.046402514999499545,
+        "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+        "execution_seconds": 10.852265107001585,
+        "exit_code": 0
+      }
+    }
+  ],
+  "both_outputs_correct": true,
+  "human_interventions": 0
+}

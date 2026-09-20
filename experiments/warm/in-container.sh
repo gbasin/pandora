@@ -18,5 +18,12 @@ cat /sys/fs/cgroup/cpu.stat > /workspace/results/cpu-stat
 if [ -d apps/borrower-web/test-results ]; then
   cp -R apps/borrower-web/test-results /workspace/results/playwright
 fi
+if [ "$status" -eq 0 ]; then
+  for output in apps/borrower-web/dist apps/borrower-web/e2e/dist; do
+    mkdir -p "/workspace/results/outputs/$(dirname "$output")"
+    cp -R "$output" "/workspace/results/outputs/$output" || status=70
+  done
+  printf '%s\n' "$status" > /workspace/results/exit-code
+fi
 printf 'finished\n' > /workspace/results/phase
 exit "$status"

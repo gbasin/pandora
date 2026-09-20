@@ -1,0 +1,36 @@
+{
+  "submission": {
+    "profile": "integrated-surface-v1",
+    "attempt": "a39d05fde8044768a4828575efb62ef1",
+    "source_digest": "7649268c23029774cc9f462a85472b526a4cc028833a71c9a5bd722efdd07e50",
+    "excluded": [],
+    "selectors": [
+      "smoke.spec.ts"
+    ],
+    "require_warm": false,
+    "snapshot_seconds": 4.34041620901553,
+    "transfer_seconds": 2.629950959002599,
+    "total_seconds": 114.97007779200794,
+    "exit_code": 0
+  },
+  "metrics": {
+    "queue_seconds": 0.023548852997919312,
+    "dependency_cache_hit": true,
+    "dependency_seconds": 0.03905199699875084,
+    "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+    "execution_seconds": 98.0861554889998,
+    "exit_code": 0
+  },
+  "terminal": {
+    "state": "terminal",
+    "attempt": "a39d05fde8044768a4828575efb62ef1",
+    "exit_code": 0,
+    "cleanup_verified": true
+  },
+  "smoke_tests_passed": 49,
+  "local_exit": 0,
+  "publication": [
+    "published",
+    "published"
+  ]
+}

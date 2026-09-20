@@ -13,7 +13,7 @@ def main():
     offsets = [int(x) for x in sys.argv[3:5]] or [0, 0]
     if len(offsets) != 2 or any(x < 0 for x in offsets):
         raise ValueError('Invalid log offsets')
-    if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel'}:
+    if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel', 'release'}:
         raise ValueError('Invalid attempt/action')
     path = Path.home() / 'pandora-warm/runs' / attempt
     if action == 'cancel':
@@ -29,6 +29,8 @@ def main():
     terminal = path / 'terminal.json'
     if terminal.exists():
         result = json.loads(terminal.read_text())
+        if action == 'release' and result.get('cleanup_verified'):
+            (path / 'released').touch()
     elif not (path / 'worker.json').exists() and (path / 'cancel.request').exists():
         # Registration precedes the worker's cancel-marker check. A late worker
         # therefore exits before preparation/execution even if no PID exists yet.

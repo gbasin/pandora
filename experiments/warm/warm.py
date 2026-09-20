@@ -10,6 +10,7 @@ import subprocess
 import time
 import uuid
 from snapshot import encode, freeze
+from retention import PROFILE
 from transport import follow, SSH_OPTIONS
 
 
@@ -46,7 +47,7 @@ def main():
     manifest, excluded = freeze(args.repo, output / 'source')
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
-    metadata = {'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
+    metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
     write_metadata(output / 'submission.json', metadata)
     scripts = Path(__file__).resolve().parent
@@ -70,8 +71,9 @@ def main():
     metadata['transfer_seconds'] = time.monotonic() - transfer
     write_metadata(output / 'submission.json', metadata)
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
-        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'),
+        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'),
         str(scripts / 'in-container.sh'), f'{args.host}:{remote}/')
+    run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
     # All links reference complete immutable source directories, never containers.
     run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
         f'mv -Tf {root}/latest-{attempt} {root}/latest')

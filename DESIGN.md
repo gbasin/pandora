@@ -11,7 +11,10 @@ This document describes the original surface pilot and its evaluation. The
 [v0.1 contract](notes/v0.1-contract.md) defines the subsequent proposed scope.
 In that scope, a service-backed workflow is required before daily use, selected
 Docker commands are routed, and declared outputs return with conflict checks.
-Those capabilities are not implemented by the pilot described below.
+The integrated surface extension now prepares dependencies automatically and
+publishes generated build outputs with recoverable directory exchange. The
+original pilot description below predates that extension. Service-backed routing
+and Docker command routing remain unimplemented.
 
 ## Objective and boundaries
 
