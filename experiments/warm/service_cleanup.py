@@ -56,12 +56,14 @@ def cleanup(attempt):
 
 if __name__ == '__main__':
     from docker_cleanup import cleanup as cleanup_docker
+    from surface_cleanup import cleanup as cleanup_surface
     from suite_parent_cleanup import cleanup as cleanup_suite
     suite_clean = cleanup_suite(Path(sys.argv[1]))
     services = cleanup(sys.argv[1])
     containers = cleanup_docker(Path(sys.argv[1]))
+    surface = cleanup_surface(Path(sys.argv[1]))
     from dependencies import cleanup as cleanup_dependencies
     dependencies = cleanup_dependencies(Path(sys.argv[1]))
     from admission import record_cleanup
-    verified = record_cleanup(Path(sys.argv[1]), services and containers and suite_clean and dependencies)
+    verified = record_cleanup(Path(sys.argv[1]), services and containers and surface and suite_clean and dependencies)
     raise SystemExit(0 if verified else 70)
