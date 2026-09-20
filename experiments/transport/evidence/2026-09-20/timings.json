@@ -1,0 +1,77 @@
+[
+  {
+    "case": "first",
+    "attempt": "f8e8a396adb24d5db612d9e0619bdffe",
+    "snapshot_seconds": 4.324974000046495,
+    "transfer_seconds": 3.7509632500004955,
+    "request_seconds": 16.847193541005254,
+    "shell_seconds": null,
+    "bundle_cache_hit": false,
+    "metrics": {
+      "queue_seconds": 0.4356673580041388,
+      "execution_seconds": 1.8238096369896084,
+      "exit_code": 0
+    },
+    "cleanup_verified": true
+  },
+  {
+    "case": "warm-1",
+    "attempt": "66572509eb794a1d85e6e3bc3c0ce55d",
+    "snapshot_seconds": 3.8379356249934062,
+    "transfer_seconds": 2.085143791977316,
+    "request_seconds": 13.149171416996978,
+    "shell_seconds": 14.694393999991007,
+    "bundle_cache_hit": true,
+    "metrics": {
+      "queue_seconds": 0.32814930799941067,
+      "execution_seconds": 1.870027465003659,
+      "exit_code": 0
+    },
+    "cleanup_verified": true
+  },
+  {
+    "case": "warm-2",
+    "attempt": "31b9455449c34b1895b4e19986266a40",
+    "snapshot_seconds": 3.4531079580192454,
+    "transfer_seconds": 2.3472054169978946,
+    "request_seconds": 13.414275917049963,
+    "shell_seconds": 15.229073708003853,
+    "bundle_cache_hit": true,
+    "metrics": {
+      "queue_seconds": 0.41602990799583495,
+      "execution_seconds": 1.9220326189970365,
+      "exit_code": 0
+    },
+    "cleanup_verified": true
+  },
+  {
+    "case": "warm-3",
+    "attempt": "d491fbb133a5468ca8224b139865b3e4",
+    "snapshot_seconds": 3.5729776659864,
+    "transfer_seconds": 4.390166291967034,
+    "request_seconds": 15.782260290987324,
+    "shell_seconds": 17.656819958006963,
+    "bundle_cache_hit": true,
+    "metrics": {
+      "queue_seconds": 0.33967659299378283,
+      "execution_seconds": 1.8420912879955722,
+      "exit_code": 0
+    },
+    "cleanup_verified": true
+  },
+  {
+    "case": "output",
+    "attempt": "9ed11189e44547fe93f9a32ec323d92c",
+    "snapshot_seconds": 0.0006629170384258032,
+    "transfer_seconds": 0.2626937080058269,
+    "request_seconds": 5.1776595840347,
+    "shell_seconds": 6.118326292023994,
+    "bundle_cache_hit": true,
+    "metrics": {
+      "queue_seconds": 0.32525797400739975,
+      "execution_seconds": 0.38089113199384883,
+      "exit_code": 0
+    },
+    "cleanup_verified": true
+  }
+]

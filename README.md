@@ -86,6 +86,12 @@ and worktree must be on the same filesystem supporting directory exchange.
 
 ## Current evidence
 
+[Transport improvements](notes/transport-latency-2026-09-20.md) cache verified worker
+helpers and reuse SSH connections within a request. Three warm compiled builds
+took 13.1–15.8 seconds through evidence retrieval, compared with earlier 21.6–24.0
+second observations. Full shell calls took 14.7–17.7 seconds. Cancellation and
+same-attempt recovery passed again. Source and result verification remain enabled.
+
 The [Docker coding-loop trial](notes/remote-docker-2026-09-20-routing.md) verified
 separate build/run calls, same-tag worktree isolation, mounted source, failed
 rebuild preservation, output delivery, cancellation, and transport recovery.
