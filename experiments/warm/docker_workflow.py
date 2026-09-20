@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+import builder_owner
 from docker_cleanup import BUILDER, cleanup
 from docker_images import publish, remove
 
@@ -45,7 +46,17 @@ def build(attempt, spec):
             '-f', str(dockerfile), '-t', image, str(attempt / 'source')]
     print('[pandora] building ' + request['tag'] + ' remotely; previous mapping stays valid until success', flush=True)
     child = subprocess.Popen(args)
-    status = wait(child, 900, 'Docker build running; shared BuildKit cache retained')
+    try:
+        status = wait(child, 900, 'Docker build running; shared BuildKit cache retained')
+    finally:
+        # Stop/reap the client before the outer ownership lease stops the daemon.
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=10)
     if status:
         print('[pandora] build failed; previous worktree tag mapping preserved', flush=True)
         return status, None
@@ -148,9 +159,13 @@ def execute(attempt, submitted, metrics):
             print('[pandora] unknown worktree image: ' + tag, flush=True)
             status = 1
     else:
-        (attempt / 'docker-cleanup.pending').write_text(kind)
+        lease = None
         name = 'pandora-warm-' + attempt.name
         try:
+            if kind == 'build':
+                lease = builder_owner.acquire(attempt, BUILDER, 'docker-cleanup.pending', marker_value='build')
+            else:
+                (attempt / 'docker-cleanup.pending').write_text(kind)
             subprocess.run(['sudo', 'systemd-run', '--quiet', '--unit=' + name + '-deadline',
                             '--on-active=' + ('15m' if kind == 'build' else '20m'),
                             '/usr/bin/systemctl', 'stop', 'pandora-worker-' + attempt.name + '.service'],
@@ -162,7 +177,7 @@ def execute(attempt, submitted, metrics):
             else:
                 raise ValueError('Unsupported Docker workflow')
         finally:
-            if not cleanup(attempt):
+            if not cleanup(attempt, builder_lease=lease):
                 status = 70
     if status == 0 and kind == 'build':
         publish(root, key, tag, {'tag': tag, 'image_id': image, 'source_digest': submitted['source_digest'],
