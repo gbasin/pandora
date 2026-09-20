@@ -1,0 +1,8 @@
+{
+  "controller_status": "succeeded",
+  "model": [
+    "claude-opus-5"
+  ],
+  "raw_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-20-output-ux",
+  "foundation_commit": "46755e6"
+}

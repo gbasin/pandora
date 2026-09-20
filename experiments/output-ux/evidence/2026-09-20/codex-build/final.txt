@@ -1,0 +1,7 @@
+Changed `experiments/output-ux/fixture/src/schema.json` title from `Draft` to `Ready`.
+
+- `pnpm build` succeeded.
+- Built `dist/report.json` title: `Ready`
+- Exact SHA-256: `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+
+No unresolved problems. No generated outputs edited directly, tooling changes, other test suites, commits, or PRs.

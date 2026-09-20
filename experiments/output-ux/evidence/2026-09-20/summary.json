@@ -1,0 +1,44 @@
+[
+  {
+    "lane": "codex-build",
+    "outcome": "completed",
+    "remote_commands": 1,
+    "remote_seconds": 0.788,
+    "human_interventions": 0
+  },
+  {
+    "lane": "opus-build",
+    "outcome": "completed",
+    "remote_commands": 1,
+    "remote_seconds": 1.172,
+    "human_interventions": 0
+  },
+  {
+    "lane": "codex-generate",
+    "outcome": "completed",
+    "remote_commands": 2,
+    "remote_seconds": 1.951,
+    "human_interventions": 0
+  },
+  {
+    "lane": "opus-generate",
+    "outcome": "completed",
+    "remote_commands": 2,
+    "remote_seconds": 2.489,
+    "human_interventions": 0
+  },
+  {
+    "lane": "codex-repeat",
+    "outcome": "stopped with stale local output",
+    "remote_commands": 1,
+    "remote_seconds": 0.781,
+    "human_interventions": 0
+  },
+  {
+    "lane": "opus-repeat",
+    "outcome": "completed after duplicate remote build",
+    "remote_commands": 2,
+    "remote_seconds": 2.129,
+    "human_interventions": 0
+  }
+]

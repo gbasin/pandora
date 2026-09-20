@@ -1,0 +1,29 @@
+Done.
+
+## What changed
+`experiments/output-ux/fixture/src/schema.json:1` — `"title":"Draft"` → `"title":"Ready"`. That is the only tracked-file change in the worktree; `dist/` is gitignored and was not edited by hand.
+
+## Validation
+`pnpm build` in the fixture exited 0. The build runs remotely over ssh via `experiments/output-ux/bridge.py` and writes the local output itself.
+
+```
+[pandora] Running remotely; run 343dae29881a478d916aab0d199c1f3c
+[pandora] Build succeeded. Local output: .../fixture/dist/report.json
+```
+
+## Built output — `dist/report.json`
+- **SHA-256:** `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+- **title:** `Ready`
+
+```json
+{
+  "title": "Ready",
+  "currency": "USD",
+  "totalCents": 1350
+}
+```
+
+The heading propagated from source to build output, and `totalCents` 1350 matches subtotal 1250 + tax 100.
+
+## Unresolved problem
+`bridge.py:28` opens `dist/report.json` with mode `x`, so the build only writes local output when no output file exists. My run succeeded because `dist/` was absent. A second `pnpm build` will not update `dist/report.json` — it prints "Existing build output was preserved", leaves the stale file in place, and exits 75. Any further source edit in this fixture needs `dist/report.json` deleted first, or the stale local copy will silently disagree with the fresh remote artifact under `.pandora-artifacts/<run>/dist/report.json`. I left that behavior alone since the tooling was out of scope.

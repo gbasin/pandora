@@ -1,0 +1,86 @@
+[
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pwd",
+      "description": "Print working directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la experiments/output-ux/fixture",
+      "description": "List fixture directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd experiments/output-ux/fixture && cat package.json && echo \"--- .gitignore ---\" && cat .gitignore && echo \"--- src ---\" && ls -la src && echo \"--- fixtures ---\" && ls -la fixtures && echo \"--- dist ---\" && ls -la dist",
+      "description": "Show fixture config and contents"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/src/schema.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/dist/report.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/fixtures/receipt.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/bridge.py"
+    }
+  },
+  {
+    "tool": "Edit",
+    "input": {
+      "replace_all": false,
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/src/schema.json",
+      "old_string": "{\"title\":\"Draft\",",
+      "new_string": "{\"title\":\"Ready\","
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pnpm build; echo \"EXIT=$?\"",
+      "description": "Run the fixture build",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "echo \"=== new artifact ===\" && cat .pandora-artifacts/a102e3094597420a90194b98878d0206/dist/report.json && shasum -a 256 .pandora-artifacts/a102e3094597420a90194b98878d0206/dist/report.json && echo \"=== current dist ===\" && cat dist/report.json && shasum -a 256 dist/report.json && echo \"=== git status of dist ===\" && git status --porcelain --ignored dist/",
+      "description": "Compare new artifact with existing dist output"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "mv dist/report.json /tmp/pandora-stale-report-90f1e3ba.json && echo \"moved stale output to /tmp/pandora-stale-report-90f1e3ba.json\" && pnpm build; echo \"EXIT=$?\"",
+      "description": "Move stale output aside and rebuild",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cat dist/report.json && echo \"--- sha256 ---\" && shasum -a 256 dist/report.json && echo \"--- git diff ---\" && git status --porcelain && git diff",
+      "description": "Inspect built output and hash it"
+    }
+  }
+]

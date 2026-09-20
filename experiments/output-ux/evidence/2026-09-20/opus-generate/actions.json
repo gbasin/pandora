@@ -1,0 +1,91 @@
+[
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pwd",
+      "description": "Print working directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la experiments/output-ux/fixture && echo \"---\" && find experiments/output-ux/fixture -type f -not -path '*/node_modules/*' -not -path '*/.git/*' | head -50",
+      "description": "List fixture directory contents"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/package.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/fixtures/receipt.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/src/schema.json"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la experiments/output-ux/ && echo \"--- bridge.py ---\" && cat experiments/output-ux/bridge.py 2>/dev/null",
+      "description": "Inspect output-ux dir and bridge script"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/remote.py"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd experiments/output-ux/fixture && cat .gitignore && echo \"--- generate ---\" && pnpm generate; echo \"EXIT=$?\"",
+      "description": "Run generate in fixture",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/.pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/changes.patch"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/.pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/fixtures/receipt.json"
+    }
+  },
+  {
+    "tool": "Edit",
+    "input": {
+      "replace_all": false,
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/fixtures/receipt.json",
+      "old_string": "  \"title\": \"Legacy\",",
+      "new_string": "  \"title\": \"Draft\","
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "diff fixtures/receipt.json .pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/fixtures/receipt.json && echo \"IDENTICAL to generated output\" ; echo \"--- test ---\" ; pnpm test; echo \"EXIT=$?\"",
+      "description": "Compare to generated file and run test",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate && git status --short && echo \"--- diff ---\" && git diff",
+      "description": "Show working tree changes"
+    }
+  }
+]

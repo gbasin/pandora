@@ -1,0 +1,33 @@
+[
+  {
+    "command": "/bin/zsh -lc pwd",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'ls -la experiments/output-ux/fixture && cat experiments/output-ux/fixture/src/schema.json && cat experiments/output-ux/fixture/package.json'",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc \"rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!dist'\"' experiments/output-ux/fixture; for p in AGENTS.md experiments/AGENTS.md experiments/output-ux/AGENTS.md; do if [ -f \\\"\"'$p\" ]; then cat \"$p\"; fi; done'",
+    "exit_code": 0
+  },
+  {
+    "id": "item_4",
+    "type": "file_change",
+    "changes": [
+      {
+        "path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-codex-repeat/experiments/output-ux/fixture/src/schema.json",
+        "kind": "update"
+      }
+    ],
+    "status": "completed"
+  },
+  {
+    "command": "/bin/zsh -lc 'pnpm build'",
+    "exit_code": 1
+  },
+  {
+    "command": "/bin/zsh -lc \"python3 - <<'PY'\nfrom pathlib import Path\nimport hashlib,json\nfor p in [Path('dist/report.json'), Path('.pandora-artifacts/63889fac450147d584d8ca7cca1d9479/dist/report.json')]:\n    b=p.read_bytes()\n    print(str(p))\n    print('SHA-256:', hashlib.sha256(b).hexdigest())\n    print('Title:', json.loads(b)['title'])\n    print('Content:', b.decode())\nPY\"",
+    "exit_code": 0
+  }
+]

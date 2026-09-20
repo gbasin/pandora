@@ -1,0 +1,11 @@
+diff --git a/experiments/output-ux/fixture/fixtures/receipt.json b/experiments/output-ux/fixture/fixtures/receipt.json
+index 2746519..5ac0f18 100644
+--- a/experiments/output-ux/fixture/fixtures/receipt.json
++++ b/experiments/output-ux/fixture/fixtures/receipt.json
+@@ -1,5 +1,5 @@
+ {
+-  "title": "Legacy",
++  "title": "Draft",
+   "currency": "USD",
+   "totalCents": 1350,
+   "note": "Handwritten note: retain."

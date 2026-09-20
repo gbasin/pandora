@@ -1,0 +1,34 @@
+[
+  {
+    "command": "/bin/zsh -lc pwd",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc \"rg --files -g AGENTS.md -g package.json -g '*receipt*' -g '*generate*' -g '*test*' -g '*schema*' -g README.md\"",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'for p in AGENTS.md experiments/AGENTS.md experiments/output-ux/AGENTS.md experiments/output-ux/fixture/AGENTS.md; do if [ -f \"$p\" ]; then cat \"$p\"; fi; done'",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc \"git status --short -- .\ncat package.json\ncat fixtures/receipt.json\nrg --files --hidden -g '\"'!node_modules'\"' -g '\"'!.git'\"'\ncat src/schema.json\"",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'pnpm generate'",
+    "exit_code": 1
+  },
+  {
+    "command": "/bin/zsh -lc 'cat .pandora-artifacts/87392c365016486795ad86f85257f08d/changes.patch\ncat .pandora-artifacts/87392c365016486795ad86f85257f08d/fixtures/receipt.json'",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'cp .pandora-artifacts/87392c365016486795ad86f85257f08d/fixtures/receipt.json fixtures/receipt.json\npnpm test'",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'git diff -- fixtures/receipt.json\ngit status --short -- .'",
+    "exit_code": 0
+  }
+]

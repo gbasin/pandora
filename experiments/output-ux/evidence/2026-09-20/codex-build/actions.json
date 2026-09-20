@@ -1,0 +1,29 @@
+[
+  {
+    "command": "/bin/zsh -lc pwd",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'ls -la; cat src/schema.json; cat package.json'",
+    "exit_code": 0
+  },
+  {
+    "id": "item_3",
+    "type": "file_change",
+    "changes": [
+      {
+        "path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-codex-build/experiments/output-ux/fixture/src/schema.json",
+        "kind": "update"
+      }
+    ],
+    "status": "completed"
+  },
+  {
+    "command": "/bin/zsh -lc 'pnpm build'",
+    "exit_code": 0
+  },
+  {
+    "command": "/bin/zsh -lc 'cat dist/report.json\nshasum -a 256 dist/report.json'",
+    "exit_code": 0
+  }
+]

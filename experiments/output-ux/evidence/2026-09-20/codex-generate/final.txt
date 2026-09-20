@@ -1,0 +1,3 @@
+Updated `experiments/output-ux/fixture/fixtures/receipt.json` using the output from `pnpm generate`: title changed from `Legacy` to `Draft`; handwritten note preserved.
+
+`pnpm test` passed. Only the receipt fixture changed. No commits or PRs created. No unresolved problems.

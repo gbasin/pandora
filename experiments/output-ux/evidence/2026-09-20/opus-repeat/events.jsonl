@@ -1,0 +1,2 @@
+{"id": "a102e3094597420a90194b98878d0206", "action": "build", "request_sha256": "60f88b9522de45bbdb37fa9886aba12cdc749ce99f8bf064dcbd18ec25730b9b", "seconds": 1.171, "remote_exit": 0, "local_exit": 75}
+{"id": "d5ad0be967404730a5b98850a4f0814c", "action": "build", "request_sha256": "3d31ed2ce31a013433a232e772f867873733d1ac6d008d2887e30aa316ecbd7c", "seconds": 0.958, "remote_exit": 0, "local_exit": 0}
