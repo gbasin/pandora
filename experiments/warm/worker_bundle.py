@@ -8,7 +8,7 @@ import shutil
 import sys
 import tempfile
 
-NAMES = ['worker_bundle.py', 'evidence.py', 'suite_parent.py', 'suite_parent_evidence.py', 'suite_parent_cleanup.py', 'suite.py', 'suite_evidence.py', 'suite.mjs', 'workflow_options.py', 'admission.py', 'snapshot.py', 'worker.py', 'resource_ownership.py', 'deadline_stop.py', 'dependencies.py', 'builder_owner.py', 'dependency_images.py', 'retention.py', 'source_cache.py',
+NAMES = ['worker_bundle.py', 'evidence.py', 'suite_parent.py', 'suite_parent_evidence.py', 'suite_parent_cleanup.py', 'suite.py', 'suite_updates.py', 'suite_evidence.py', 'suite.mjs', 'workflow_options.py', 'admission.py', 'snapshot.py', 'worker.py', 'worker_config.py', 'worker_runtime.py', 'execution_guard.py', 'resource_admission.py', 'scheduling_policy.py', 'resource_ownership.py', 'deadline_stop.py', 'dependencies.py', 'builder_owner.py', 'dependency_images.py', 'retention.py', 'source_cache.py',
          'in-container.sh', 'journey.py', 'service_cleanup.py', 'surface_cleanup.py', 'cleanup_identity.py', 'journey.mjs',
          'docker_workflow.py', 'docker_cleanup.py', 'docker_images.py', 'image_gc.py']
 
@@ -69,7 +69,8 @@ def prepare(root, identity, attempt_id, repo_key, payload=None):
     sys.path.insert(0, str(attempt))
     from source_cache import prepare as source_seed
     cached = source_seed(root, repo_key, attempt) if repo_key else ''
-    return {'missing': False, 'home': str(root.parent), 'cached': cached}
+    from worker_config import load
+    return {'missing': False, 'home': str(root.parent), 'cached': cached, 'worker_config': load(root)}
 
 
 if __name__ == '__main__':

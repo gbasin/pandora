@@ -18,6 +18,7 @@ from retention import remote as prune_remote, remember_image
 from admission import acquire, QueueTimeout, QueueUnavailable
 
 resource_lease = None
+execution_guard = None
 
 
 def run(*args, heartbeat=None, **kwargs):
@@ -39,6 +40,8 @@ def docker(*args, **kwargs):
 
 
 def interruption_status(attempt=Path('.')):
+    if Path(attempt, 'disk-stop.request').exists():
+        return 70
     return 124 if Path(attempt, 'deadline.request').exists() else 130
 
 
@@ -60,7 +63,7 @@ def mark_deadline_report(attempt=Path('.')):
 
 
 def main():
-    global resource_lease
+    global resource_lease, execution_guard
     attempt = Path.cwd()
     root = attempt.parent.parent
     manifest = json.loads((attempt / 'manifest.json').read_text())
@@ -70,34 +73,49 @@ def main():
     if (attempt / 'cancel.request').exists():
         return 130
     verify(attempt / 'source', manifest)
+    from worker_config import load, validate, demand, docker_limits, execution_seconds
+    configured = load(root)
+    if configured != submitted.get('worker_config'):
+        raise RuntimeError('Worker configuration changed after acceptance; no work started. Reconcile configuration before retry.')
+    if configured:
+        (attempt / 'execution-config.json').write_text(json.dumps(configured, indent=2) + '\n')
     if submitted.get('workflow') == 'suite-run':
         from suite_parent import execute
         return execute(attempt, submitted)
     print('[pandora] input verification complete; waiting for the experiment worker', flush=True)
-    resource_lease = acquire(attempt, submitted.get('queue_timeout_seconds', 900))
-    (attempt / 'queue.json.tmp').write_text(json.dumps({'waited': resource_lease.waited, 'acquired': True}) + '\n')
-    (attempt / 'queue.json.tmp').replace(attempt / 'queue.json')
+    dependency = None
+    if submitted.get('workflow') != 'docker':
+        from worker_runtime import dependency_identity
+        dependency = dependency_identity(attempt, manifest)
+    if configured:
+        from worker_runtime import acquire as acquire_resources
+        cold = False
+        if dependency:
+            from dependency_images import pin
+            pin(attempt, dependency[2])
+            cold = subprocess.run(['sudo', 'docker', 'image', 'inspect', dependency[2]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30).returncode != 0
+        resource_lease = acquire_resources(attempt, submitted, demand(submitted, cold=cold))
+        from execution_guard import Guard
+        execution_guard = Guard(attempt, configured).start()
+    else:
+        resource_lease = acquire(attempt, submitted.get('queue_timeout_seconds', 900))
+        (attempt / 'queue.json.tmp').write_text(json.dumps({'waited': resource_lease.waited, 'acquired': True}) + '\n')
+        (attempt / 'queue.json.tmp').replace(attempt / 'queue.json')
     from resource_ownership import check
-    check(root, {attempt.name})
+    check(root, resource_lease.admitted if configured else {attempt.name})
     from image_gc import collect
     collect(root)
     prune_remote(root)
-    if shutil.disk_usage(root).free < 10 * 1024**3:
-        raise RuntimeError('Worker disk has less than 10 GiB free. No preparation or tests started; operator retention cleanup required.')
+    floor_mib = configured['scheduler']['disk_floor_mib'] if configured else 10240
+    if shutil.disk_usage(root).free < floor_mib * 1024**2:
+        raise RuntimeError(f'Worker disk has less than {floor_mib} MiB free. No preparation or tests started; operator retention cleanup required.')
     metrics = {'queue_seconds': resource_lease.waited, 'queue_ticket': resource_lease.ticket}
     if submitted.get('workflow') == 'docker':
         from docker_workflow import execute
         return execute(attempt, submitted, metrics)
     print('[pandora] worker acquired; preparing dependencies', flush=True)
     started = time.monotonic()
-    recipe = (attempt / 'runtime.Dockerfile').read_text()
-    # Includes all workspace package manifests, installation settings and patches.
-    dep_entries = [e for e in manifest if Path(e['path']).name == 'package.json'
-                   or e['path'] in {'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc',
-                                    '.pnpmfile.cjs', 'pnpmfile.cjs'}
-                   or e['path'].startswith('patches/')]
-    key = hashlib.sha256(b'deps-recipe-v3' + recipe.encode() + encode(dep_entries)).hexdigest()
-    image = 'pandora-deps:' + key
+    recipe, dep_entries, image = dependency
     from dependency_images import pin
     pin(attempt, image)
     exists = subprocess.run(['sudo', 'docker', 'image', 'inspect', image],
@@ -146,7 +164,7 @@ def main():
         (attempt / 'surface-cleanup.pending').touch()
         docker('create', '--name', name, '--label', 'pandora.experiment=warm-surface',
                '--label', 'pandora.workflow=surface', '--label', 'pandora.attempt=' + attempt.name,
-               '--cpus=2', '--memory=6g', '--memory-swap=6g', '--pids-limit=512',
+               *docker_limits(submitted), '--pids-limit=512',
                '--shm-size=1g', '--cap-drop=ALL', '--security-opt=no-new-privileges',
                '--init', '-e', 'CI=true', '-e', 'PANDORA_SURFACE_APP=' + surface_app, image_id, 'bash', '/tmp/pandora-run.sh',
                *submitted['selectors'], stdout=subprocess.DEVNULL)
@@ -169,7 +187,7 @@ def main():
         # docker cp writes root-owned input; dependencies retain node ownership.
         # No writable host source mount is exposed to the test process.
         run('sudo', 'systemd-run', '--quiet', '--unit=' + name + '-deadline',
-            '--on-active=20m', '/usr/bin/docker', 'stop', '--time', '10', name)
+            '--on-active=' + str(execution_seconds(submitted)) + 's', '/usr/bin/python3', str(attempt / 'deadline_stop.py'), str(attempt))
         print('[pandora] running surface validation; installed dependencies reused', flush=True)
         status = subprocess.run(['sudo', 'docker', 'start', '--attach', name]).returncode
     finally:
@@ -229,6 +247,13 @@ if __name__ == '__main__':
     except Exception:
         traceback.print_exc()
         status = 70
+    finally:
+        if execution_guard is not None:
+            try:
+                execution_guard.close()
+            except KeyboardInterrupt:
+                status = interruption_status()
+                execution_guard.close()
     if not Path('queue.json').exists() and Path('queue-start.json').exists():
         started = json.loads(Path('queue-start.json').read_text())['monotonic']
         Path('queue.json.tmp').write_text(json.dumps({'waited': max(0, time.monotonic() - started), 'acquired': False}) + '\n')
@@ -250,7 +275,7 @@ if __name__ == '__main__':
         mark_deadline_report()
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
-                 Path('metrics.json'), Path('queue.json'), Path('children.json'), Path('suite-state.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
+                 Path('metrics.json'), Path('execution-config.json'), Path('execution-stop.json'), Path('queue.json'), Path('children.json'), Path('suite-state.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
         if item.is_file() and not item.is_symlink():
             artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')

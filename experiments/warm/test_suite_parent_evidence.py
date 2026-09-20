@@ -50,6 +50,15 @@ class SuiteParentEvidenceTest(unittest.TestCase):
         with self.assertRaises(ValueError): summary(p, [report(p, 1, code=1, status="fail")], keep_going=True)
         with self.assertRaises(ValueError): summary(p, [report(p, 1, code=1, status="fail")], keep_going=True, stop_reason="test-failure")
 
+    def test_parallel_failfast_canonicalizes_out_of_order_running_sibling(self):
+        p = plan()
+        # Shard 2 fails first while shard 1 was already running.  Receipts can
+        # arrive in either order, but the aggregate always has shard order.
+        value = summary(p, [report(p, 2, code=1, status="fail"), report(p, 1)])
+        self.assertEqual((value["completed_shards"], value["unrun_shards"], value["stop_reason"]),
+                         ([1, 2], [3], "test-failure"))
+        self.assertEqual(value["unrun_journeys"], ["SX-03"])
+
     def test_reordered_plan_uses_shard_indices_and_deadline_beats_partial_infrastructure(self):
         p = plan(); p["shards"] = [p["shards"][2], p["shards"][0], p["shards"][1]]; p["plan_id"] = plan_digest(p)
         value = summary(p, [report(p, 1)], stop_reason="deadline")
@@ -72,7 +81,8 @@ class SuiteParentEvidenceTest(unittest.TestCase):
         bad = report(p, 1); bad["source_digest"] = "b" * 64
         with self.assertRaises(ValueError): summary(p, [bad], stop_reason="infrastructure")
         with self.assertRaises(ValueError): summary(p, [report(p, 1), report(p, 1)], stop_reason="deadline")
-        with self.assertRaises(ValueError): summary(p, [report(p, 1, code=2, infra=1), report(p, 2)], stop_reason="infrastructure")
+        value = summary(p, [report(p, 1, code=2, infra=1), report(p, 2)], stop_reason="infrastructure")
+        self.assertEqual((value['stop_reason'], value['exit_code']), ('infrastructure', 75))
         with self.assertRaises(ValueError): summary(p, [], stop_reason=[])
 
 

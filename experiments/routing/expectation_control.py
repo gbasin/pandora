@@ -12,6 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
 import journey_updates
+import catalog_updates
 import route
 from tracked_outputs import resolve_with_local_contents
 from transport import validate_evidence
@@ -56,9 +57,10 @@ def main():
         submitted = json.loads((output / 'submission.json').read_text())
         if submitted.get('attempt') != args.attempt:
             raise ValueError('Submission evidence does not match the active attempt')
-        if not journey_updates.is_update(submitted):
+        updates = catalog_updates if catalog_updates.is_update(submitted) else journey_updates
+        if not updates.is_update(submitted):
             raise ValueError('Attempt is not a journey expectation update')
-        changes = journey_updates.declarations(output)
+        changes = updates.declarations(output)
         resolved = resolve_with_local_contents(repo, output, changes)
         # This only acknowledges already verified terminal evidence. It never
         # contacts the worker to execute or retrieve another journey.

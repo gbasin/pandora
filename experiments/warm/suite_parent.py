@@ -1,4 +1,4 @@
-"""One remotely owned invocation, with sequential independently admitted shards."""
+"""One remotely owned invocation with independently admitted, bounded shards."""
 import json
 import math
 import os
@@ -8,6 +8,8 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from threading import Event
 
 from evidence import validate_evidence
 from suite import suite_request
@@ -34,15 +36,19 @@ def reserve(parent, count):
     return registry['children']
 
 
-def stage_child(parent, identity, submitted, request, remaining):
+def stage_child(parent, identity, submitted, request, remaining=None):
     child = parent.parent / identity
     child.mkdir()  # Existing work is never replaced or restarted.
     from worker_bundle import NAMES
     for name in NAMES + ['runtime.Dockerfile', 'manifest.json']:
         shutil.copyfile(parent / name, child / name)
     shutil.copytree(parent / 'source', child / 'source', copy_function=os.link, symlinks=True)
+    # A configured invocation owns one immutable queue budget.  Every child
+    # carries the submitted value; it is never a remaining per-child budget.
+    timeout = submitted['queue_timeout_seconds'] if submitted.get('worker_config') else remaining
     metadata = submitted | {'attempt': identity, 'workflow': 'suite', 'suite': request,
-                            'parent_attempt': parent.name, 'queue_timeout_seconds': remaining}
+                            'parent_attempt': parent.name, 'queue_timeout_seconds': timeout,
+                            'suite_update': submitted['suite'].get('update', False)}
     write(child / 'submission.json', metadata)
     return child
 
@@ -114,6 +120,8 @@ def retain(parent, child):
 
 
 def execute(parent, submitted):
+    if submitted.get('worker_config'):
+        return execute_configured(parent, submitted)
     request = suite_request(submitted['suite'])
     if request['action'] != 'run':
         raise ValueError('Parent requires a suite run request')
@@ -191,14 +199,188 @@ def execute(parent, submitted):
     state['stop_reason'] = result['stop_reason']
     write(parent / 'suite-state.json', state)
     write(parent / 'results/suite-run.json', result)
+    if result['exit_code'] == 0 and request.get('update'):
+        from suite_updates import merge
+        merge(parent, plan, [parent / 'results/attempts' / identity for identity in children[1:]])
     (parent / 'results/exit-code').write_text(str(result['exit_code']) + '\n')
     print(f'[pandora] suite {result["status"]}; {len(reports)}/{request["shard_count"]} shard reports; '
           f'not run: {", ".join(result["unrun_journeys"]) or "none"}; queue used {waited:.1f}s', flush=True)
     return result['exit_code']
 
 
+def _configured_waited(queue, invocation):
+    return next(row['waited'] for row in queue.snapshot()['invocations'] if row['identity'] == invocation)
+
+
+def _configured_child(parent, child, started, queue, invocation, execution_seconds, cancelled=None):
+    """Run one child without turning the parent into an admitted resource user."""
+    stopped, offsets = None, [0, 0]
+    with (child / 'stdout.log').open('wb') as out, (child / 'stderr.log').open('wb') as err:
+        process = subprocess.Popen([sys.executable, '-u', 'worker.py'], cwd=child, stdout=out, stderr=err)
+        def stream():
+            for index, name in enumerate(('stdout.log', 'stderr.log')):
+                with (child / name).open('rb') as log:
+                    log.seek(offsets[index]); chunk = log.read(); offsets[index] = log.tell()
+                if chunk:
+                    target = sys.stdout if index == 0 else sys.stderr
+                    target.write(chunk.decode('utf-8', errors='replace')); target.flush()
+        try:
+            while process.poll() is None:
+                stream()
+                if cancelled is not None and cancelled.is_set():
+                    stopped = 'cancelled'
+                    break
+                # Queue time is invocation wall time, and is subtracted once.
+                if time.monotonic() - started - _configured_waited(queue, invocation) >= execution_seconds:
+                    stopped = 'deadline'
+                    queue.stop(invocation, 'deadline')
+                    break
+                time.sleep(.25)
+        finally:
+            if process.poll() is None:
+                # The worker maps this marker to exit 124 and updates a partial
+                # shard receipt before publishing its terminal evidence.
+                if stopped == 'deadline':
+                    (child / 'deadline.request').touch()
+                else:
+                    (child / 'cancel.request').touch()
+                process.terminate()
+                try: process.wait(timeout=35)
+                except subprocess.TimeoutExpired: process.kill(); process.wait()
+            stream()
+    return stopped
+
+
+def execute_configured(parent, submitted):
+    """Configured suite parent: register once, then fan out admitted children."""
+    from worker_runtime import register
+    request = suite_request(submitted['suite'])
+    if request['action'] != 'run':
+        raise ValueError('Parent requires a suite run request')
+    queue = register(parent.parent.parent, submitted, parent.name)
+    children = reserve(parent, request['shard_count'])
+    state = {'version': 2, 'reserved': children, 'dispatched': [], 'completed': [],
+             'queue_seconds': 0.0, 'stop_reason': None}
+    write(parent / 'suite-state.json', state)
+    started, plan, reports, reason = time.monotonic(), None, {}, None
+
+    def stop_reason(value):
+        nonlocal reason
+        priority = {None: 0, 'test-failure': 1, 'planning-failed': 2,
+                    'infrastructure': 2, 'queue-timeout': 3, 'deadline': 4}
+        if priority[value] > priority[reason]:
+            reason = value
+            state['stop_reason'] = value
+            write(parent / 'suite-state.json', state)
+
+    def finish(identity, child, stopped):
+        nonlocal reason
+        terminal = retain(parent, child)
+        state['completed'].append(identity)
+        write(parent / 'suite-state.json', state)
+        if stopped == 'deadline' or terminal['exit_code'] == 124:
+            stop_reason('deadline')
+        return terminal
+
+    # Planning must finish before frozen shards can be defined, but it is not a
+    # parent resource lease.  Its child joins the same invocation.
+    planner = stage_child(parent, children[0], submitted,
+                         {'action': 'plan', 'shard_count': request['shard_count'], 'selection': request['selection']})
+    state['dispatched'].append(children[0]); write(parent / 'suite-state.json', state)
+    terminal = finish(children[0], planner, _configured_child(
+        parent, planner, started, queue, parent.name, submitted['worker_config']['execution_seconds']))
+    if terminal['exit_code'] != 0:
+        reason = reason or ('deadline' if terminal['exit_code'] == 124 else 'planning-failed')
+        state['stop_reason'] = reason; state['queue_seconds'] = _configured_waited(queue, parent.name)
+        write(parent / 'suite-state.json', state)
+        write(parent / 'queue.json', {'mode': 'resource', 'invocation': parent.name,
+              'waited': state['queue_seconds'], 'config_digest': __import__('worker_config').identity(submitted['worker_config'])})
+        write(parent / 'results/suite-error.json', {'version': 1, 'parent_attempt': parent.name,
+              'source_digest': submitted['source_digest'], 'plan_attempt': children[0], 'reason': reason,
+              'exit_code': terminal['exit_code']})
+        code = 75 if reason == 'deadline' else terminal['exit_code']
+        (parent / 'results/exit-code').write_text(str(code) + '\n'); return code
+    plan = json.loads((planner / 'results/suite-plan.json').read_text())
+    write(parent / 'results/suite-plan.json', plan)
+
+    next_shard, futures, cancelled = 1, {}, Event()
+    pool = ThreadPoolExecutor(max_workers=submitted['worker_config']['max_parallel'])
+    try:
+        while (next_shard <= request['shard_count'] and reason is None) or futures:
+            while reason is None and next_shard <= request['shard_count'] and len(futures) < submitted['worker_config']['max_parallel']:
+                identity = children[next_shard]
+                child = stage_child(parent, identity, submitted, {'action': 'shard', 'plan': plan, 'shard': next_shard})
+                state['dispatched'].append(identity); write(parent / 'suite-state.json', state)
+                futures[pool.submit(_configured_child, parent, child, started, queue, parent.name,
+                                     submitted['worker_config']['execution_seconds'], cancelled)] = (identity, child, next_shard)
+                next_shard += 1
+            if not futures: break
+            done, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                identity, child, index = futures.pop(future)
+                terminal = finish(identity, child, future.result())
+                report_path = child / 'results/suite-shard.json'
+                if not report_path.exists():
+                    stopped = next(row['stopped'] for row in queue.snapshot()['invocations'] if row['identity'] == parent.name)
+                    if stopped == 'test-failure' and terminal['exit_code'] == 75:
+                        stop_reason('test-failure')  # A withdrawn waiter never tested a shard.
+                    else:
+                        stop_reason('queue-timeout' if stopped == 'queue-timeout' else 'infrastructure')
+                else:
+                    report = json.loads(report_path.read_text()); reports[index] = report
+                    infra = (report['errors']['infrastructureFailures'] or report['errors']['unrunJourneys']
+                             or report['exit_code'] not in (0, 1))
+                    if infra: stop_reason('infrastructure')
+                    elif terminal['exit_code'] and not request['keep_going']:
+                        stop_reason('test-failure')
+                if reason:
+                    state['stop_reason'] = reason; write(parent / 'suite-state.json', state)
+                    if reason != 'queue-timeout' and reason != 'deadline': queue.stop(parent.name, reason)
+            if reason and not futures: break
+    except BaseException as error:
+        cancelled.set()
+        failed_reason = 'cancelled' if isinstance(error, KeyboardInterrupt) else 'infrastructure'
+        state['stop_reason'] = failed_reason
+        # Preserve the triggering exception even when the scheduler is already
+        # stopped or unavailable.  No synthetic child receipt is written here.
+        try:
+            queue.stop(parent.name, failed_reason)
+        except BaseException:
+            pass
+        try:
+            write(parent / 'suite-state.json', state)
+        except BaseException:
+            pass
+        # Futures observe the event and reap their children; do not leave the
+        # executor waiting for an execution deadline.
+        try:
+            pool.shutdown(wait=True, cancel_futures=True)
+        except BaseException:
+            pass
+        raise
+    else:
+        pool.shutdown(wait=True)
+    state['queue_seconds'] = _configured_waited(queue, parent.name)
+    write(parent / 'queue.json', {'mode': 'resource', 'invocation': parent.name,
+          'waited': state['queue_seconds'], 'config_digest': __import__('worker_config').identity(submitted['worker_config'])})
+    result = summarize(plan, list(reports.values()), parent_attempt=parent.name, plan_attempt=children[0],
+                       shard_attempts=children[1:], keep_going=request['keep_going'], stop_reason=reason)
+    state['stop_reason'] = result['stop_reason']; write(parent / 'suite-state.json', state)
+    write(parent / 'results/suite-run.json', result)
+    if result['exit_code'] == 0 and request.get('update'):
+        from suite_updates import merge
+        merge(parent, plan, [parent / 'results/attempts' / identity for identity in children[1:]])
+    (parent / 'results/exit-code').write_text(str(result['exit_code']) + '\n')
+    print(f'[pandora] suite {result["status"]}; {len(reports)}/{request["shard_count"]} shard reports; '
+          f'not run: {", ".join(result["unrun_journeys"]) or "none"}; '
+          f'invocation queue used {state["queue_seconds"]:.1f}s', flush=True)
+    return result['exit_code']
+
+
 def validate_result(stage, submitted, terminal, manifest):
     """Bind every child receipt to the parent's reserved attempt identities."""
+    if submitted.get('worker_config'):
+        return validate_configured_result(stage, submitted, terminal, manifest)
     if 'results/suite-run.json' not in manifest:
         return validate_planning_failure(stage, submitted, terminal, manifest)
     for name in ('children.json', 'results/suite-plan.json', 'suite-state.json'):
@@ -232,7 +414,7 @@ def validate_result(stage, submitted, terminal, manifest):
                     if index == 0 else {'action': 'shard', 'plan': plan, 'shard': index})
         if (metadata.get('parent_attempt') != submitted['attempt'] or metadata['suite'] != expected or
                 metadata['source_digest'] != submitted['source_digest'] or metadata['attempt'] != identity or
-                metadata.get('workflow') != 'suite'):
+                metadata.get('workflow') != 'suite' or metadata.get('suite_update', False) != request.get('update', False)):
             raise ValueError('Child receipt does not match reserved task')
         receipt = validate_evidence(child, identity, metadata)
         path = child / ('results/suite-plan.json' if index == 0 else 'results/suite-shard.json')
@@ -245,6 +427,105 @@ def validate_result(stage, submitted, terminal, manifest):
             raise ValueError('Missing shard evidence is not explained by a failed attempt')
     validate_queue_accounting(stage, submitted, manifest, state, identities)
     validate_summary(plan, reports, result)
+
+
+def validate_configured_result(stage, submitted, terminal, manifest):
+    """Validate unordered configured child completion and one invocation queue receipt."""
+    if 'results/suite-run.json' not in manifest:
+        return validate_configured_planning_failure(stage, submitted, terminal, manifest)
+    required = {'children.json', 'suite-state.json', 'results/suite-plan.json',
+                'results/suite-run.json', 'queue.json'}
+    if not required <= set(manifest):
+        raise ValueError('Configured suite invocation lacks parent evidence')
+    request = suite_request(submitted['suite'])
+    identities = validate_registry(Path(submitted['attempt']), json.loads((stage / 'children.json').read_text()))
+    state = json.loads((stage / 'suite-state.json').read_text())
+    if (state.get('version') != 2 or state.get('reserved') != identities or not isinstance(state.get('dispatched'), list)
+            or not isinstance(state.get('completed'), list) or len(set(state['dispatched'])) != len(state['dispatched'])
+            or len(set(state['completed'])) != len(state['completed']) or not set(state['completed']) <= set(state['dispatched'])
+            or not set(state['dispatched']) <= set(identities) or identities[0] not in state['completed']):
+        raise ValueError('Configured suite journal does not preserve reserved, dispatched, and completed identities')
+    result = json.loads((stage / 'results/suite-run.json').read_text())
+    plan = json.loads((stage / 'results/suite-plan.json').read_text())
+    if (len(identities) != request['shard_count'] + 1 or result.get('parent_attempt') != submitted['attempt']
+            or result.get('plan_attempt') != identities[0] or result.get('shard_attempts') != identities[1:]
+            or result.get('keep_going') != request['keep_going'] or result.get('exit_code') != terminal['exit_code']):
+        raise ValueError('Configured suite result differs from reserved invocation')
+    queue = json.loads((stage / 'queue.json').read_text())
+    from worker_config import identity as config_identity, validate
+    validate(submitted['worker_config'])
+    if (queue.get('mode') != 'resource' or queue.get('invocation') != submitted['attempt']
+            or queue.get('config_digest') != config_identity(submitted['worker_config'])
+            or type(queue.get('waited')) not in (int, float) or not math.isfinite(queue['waited']) or queue['waited'] < 0
+            or state.get('queue_seconds') != queue['waited'] or state.get('stop_reason') != result.get('stop_reason')):
+        raise ValueError('Configured suite queue receipt does not bind the invocation ledger')
+    reports = []
+    for identity in state['completed']:
+        child = stage / 'results/attempts' / identity
+        for name in ('submission.json', 'terminal.json', 'artifacts.json'):
+            if str((child / name).relative_to(stage)) not in manifest:
+                raise ValueError('Missing configured child receipt')
+        metadata = json.loads((child / 'submission.json').read_text())
+        index = identities.index(identity)
+        expected = ({'action': 'plan', 'shard_count': request['shard_count'], 'selection': request['selection']}
+                    if index == 0 else {'action': 'shard', 'plan': plan, 'shard': index})
+        if (metadata.get('parent_attempt') != submitted['attempt'] or metadata.get('attempt') != identity
+                or metadata.get('workflow') != 'suite' or metadata.get('suite') != expected
+                or metadata.get('queue_timeout_seconds') != submitted['queue_timeout_seconds']
+                or metadata.get('source_digest') != submitted['source_digest']
+                or metadata.get('worker_config') != submitted['worker_config']
+                or metadata.get('suite_update', False) != request.get('update', False)):
+            raise ValueError('Configured child changed immutable invocation metadata')
+        receipt = validate_evidence(child, identity, metadata)
+        output = child / ('results/suite-plan.json' if index == 0 else 'results/suite-shard.json')
+        if index == 0:
+            if receipt['exit_code'] or not output.exists() or json.loads(output.read_text()) != plan:
+                raise ValueError('Configured plan receipt is not verified')
+        elif output.exists():
+            reports.append(json.loads(output.read_text()))
+        elif receipt['exit_code'] == 0:
+            raise ValueError('Successful configured shard lacks result evidence')
+    validate_summary(plan, reports, result)
+
+
+def validate_configured_planning_failure(stage, submitted, terminal, manifest):
+    required = {'children.json', 'suite-state.json', 'results/suite-error.json', 'results/exit-code', 'queue.json'}
+    if not required <= set(manifest) or terminal['exit_code'] == 0:
+        raise ValueError('Configured failed planning invocation lacks receipt evidence')
+    request = suite_request(submitted['suite'])
+    identities = validate_registry(Path(submitted['attempt']), json.loads((stage / 'children.json').read_text()))
+    state = json.loads((stage / 'suite-state.json').read_text())
+    error = json.loads((stage / 'results/suite-error.json').read_text())
+    queue = json.loads((stage / 'queue.json').read_text())
+    from worker_config import identity as config_identity
+    if (len(identities) != request['shard_count'] + 1 or state.get('version') != 2
+            or state.get('reserved') != identities or state.get('dispatched') != [identities[0]]
+            or state.get('completed') != [identities[0]] or state.get('stop_reason') not in ('planning-failed', 'deadline')
+            or error != {'version': 1, 'parent_attempt': submitted['attempt'], 'source_digest': submitted['source_digest'],
+                         'plan_attempt': identities[0], 'reason': state['stop_reason'],
+                         'exit_code': 124 if state['stop_reason'] == 'deadline' else terminal['exit_code']}):
+        raise ValueError('Configured failed planning receipt differs from reserved work')
+    if (queue.get('mode') != 'resource' or queue.get('invocation') != submitted['attempt']
+            or queue.get('config_digest') != config_identity(submitted['worker_config'])
+            or type(queue.get('waited')) not in (int, float) or not math.isfinite(queue['waited'])
+            or queue['waited'] < 0 or state.get('queue_seconds') != queue['waited']):
+        raise ValueError('Configured failed planning queue receipt differs from invocation')
+    if state['stop_reason'] == 'deadline' and terminal['exit_code'] != 75:
+        raise ValueError('Configured planning deadline must exit 75')
+    child = stage / 'results/attempts' / identities[0]
+    for name in ('submission.json', 'terminal.json', 'artifacts.json'):
+        if str((child / name).relative_to(stage)) not in manifest:
+            raise ValueError('Configured planning child receipt is missing')
+    metadata = json.loads((child / 'submission.json').read_text())
+    expected = {'action': 'plan', 'shard_count': request['shard_count'], 'selection': request['selection']}
+    if (metadata.get('attempt') != identities[0] or metadata.get('parent_attempt') != submitted['attempt']
+            or metadata.get('suite') != expected or metadata.get('queue_timeout_seconds') != submitted['queue_timeout_seconds']
+            or metadata.get('source_digest') != submitted['source_digest']
+            or metadata.get('worker_config') != submitted['worker_config']):
+        raise ValueError('Configured planning child changed immutable metadata')
+    receipt = validate_evidence(child, identities[0], metadata)
+    if receipt['exit_code'] != error['exit_code']:
+        raise ValueError('Configured planning terminal differs from parent error')
 
 
 def validate_planning_failure(stage, submitted, terminal, manifest):

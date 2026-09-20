@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 import builder_owner
+from worker_config import docker_limits, execution_seconds
 from docker_cleanup import BUILDER, cleanup
 from docker_images import publish, remove
 
@@ -27,7 +28,7 @@ def wait(child, seconds, message):
             print('[pandora] ' + message, flush=True)
 
 
-def build(attempt, spec):
+def build(attempt, spec, submitted=None):
     config = attempt / 'buildkitd.toml'
     config.write_text('[worker.oci]\n  gc = true\n  reservedSpace = "2GB"\n  maxUsedSpace = "12GB"\n  minFreeSpace = "10GB"\n')
     exists = subprocess.run(['sudo', 'docker', 'buildx', 'inspect', BUILDER], capture_output=True).returncode == 0
@@ -47,7 +48,7 @@ def build(attempt, spec):
     print('[pandora] building ' + request['tag'] + ' remotely; previous mapping stays valid until success', flush=True)
     child = subprocess.Popen(args)
     try:
-        status = wait(child, 900, 'Docker build running; shared BuildKit cache retained')
+        status = wait(child, execution_seconds(submitted or {}, 900), 'Docker build running; shared BuildKit cache retained')
     finally:
         # Stop/reap the client before the outer ownership lease stops the daemon.
         if child.poll() is None:
@@ -59,6 +60,8 @@ def build(attempt, spec):
                 child.wait(timeout=10)
     if status:
         print('[pandora] build failed; previous worktree tag mapping preserved', flush=True)
+        print('[pandora] For a missing COPY/ADD input, check `git check-ignore -v PATH` locally. '
+              'Git-ignored inputs are not captured; make required source tracked or nonignored before retrying.', flush=True)
         return status, None
     image_id = docker('image', 'inspect', image, '--format', '{{.Id}}', capture_output=True, text=True).stdout.strip()
     return 0, image_id
@@ -92,7 +95,7 @@ def mount_owner(name):
     return uid + ':' + group
 
 
-def execute_run(attempt, spec):
+def execute_run(attempt, spec, submitted=None):
     request = spec['request']
     name = 'pandora-warm-' + attempt.name
     image = spec['image']['image_id']
@@ -108,13 +111,13 @@ def execute_run(attempt, spec):
     print(f'[pandora] running {request["tag"]} at pinned image {image}; worktree {spec["worktree_key"][:12]}', flush=True)
     docker('create', '--name', name, '--label', 'pandora.workflow=docker',
            '--label', 'pandora.attempt=' + attempt.name,
-           '--cpus=2', '--memory=6g', '--memory-swap=6g', '--pids-limit=512',
+           *docker_limits(submitted or {}), '--pids-limit=512',
            '--shm-size=1g', '--cap-drop=ALL', '--security-opt=no-new-privileges',
            '--network', spec['config'].get('network', 'none'), '--init',
            *mount_args, image, *request['command'], stdout=subprocess.DEVNULL)
     if request['mount']:
         subprocess.run(['sudo', 'chown', '-R', '--no-dereference', mount_owner(name), str(mount)], check=True, timeout=30)
-    status = wait(subprocess.Popen(['sudo', 'docker', 'start', '--attach', name]), 1200,
+    status = wait(subprocess.Popen(['sudo', 'docker', 'start', '--attach', name]), execution_seconds(submitted or {}),
                   'Docker run active; no local container started')
     state = json.loads(docker('inspect', name, '--format', '{{json .State}}', capture_output=True, text=True).stdout)
     (attempt / 'results/container-state.json').write_text(json.dumps(state, indent=2) + '\n')
@@ -167,13 +170,13 @@ def execute(attempt, submitted, metrics):
             else:
                 (attempt / 'docker-cleanup.pending').write_text(kind)
             subprocess.run(['sudo', 'systemd-run', '--quiet', '--unit=' + name + '-deadline',
-                            '--on-active=' + ('15m' if kind == 'build' else '20m'),
-                            '/usr/bin/systemctl', 'stop', 'pandora-worker-' + attempt.name + '.service'],
+                            '--on-active=' + str(execution_seconds(submitted, 900 if kind == 'build' else 1200)) + 's',
+                            '/usr/bin/python3', str(attempt / 'deadline_stop.py'), str(attempt)],
                            check=True, timeout=30)
             if kind == 'build':
-                status, image = build(attempt, spec)
+                status, image = build(attempt, spec, submitted)
             elif kind == 'run':
-                status, image = execute_run(attempt, spec)
+                status, image = execute_run(attempt, spec, submitted)
             else:
                 raise ValueError('Unsupported Docker workflow')
         finally:

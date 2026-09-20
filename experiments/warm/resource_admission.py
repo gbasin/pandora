@@ -1,4 +1,4 @@
-"""Experimental multi-slot admission; not wired into the validation worker yet.
+"""Resource admission for a configured multi-slot validation worker.
 
 The ledger reserves declared CPU/RAM. Callers must enforce the same ceilings on
 all execution resources and retain attempt locks through terminal publication.
@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 import re
 import sqlite3
+import shutil
 import time
 
 from admission import alive, receipt
@@ -32,6 +33,37 @@ def identity(value):
     return value
 
 
+def generation(root):
+    path = Path(root) / 'ledger-generation'
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise SchedulerUnavailable('Scheduler generation marker is unsafe; no new execution is authorized')
+    value = path.read_text().strip()
+    if not re.fullmatch('[0-9a-f]{64}', value):
+        raise SchedulerUnavailable('Scheduler generation marker is invalid; no new execution is authorized')
+    return value
+
+
+def create_schema(db):
+    db.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.execute('''CREATE TABLE IF NOT EXISTS invocations (
+        identity TEXT PRIMARY KEY, max_parallel INTEGER NOT NULL,
+        budget REAL NOT NULL, waited REAL NOT NULL DEFAULT 0,
+        turn INTEGER NOT NULL DEFAULT 0, stopped TEXT)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS requests (
+        ticket INTEGER PRIMARY KEY AUTOINCREMENT, attempt TEXT UNIQUE NOT NULL,
+        invocation TEXT NOT NULL, cpu_millis INTEGER NOT NULL, memory_mib INTEGER NOT NULL,
+        disk_mib INTEGER NOT NULL DEFAULT 0, exclusive TEXT NOT NULL DEFAULT '[]',
+        phase TEXT NOT NULL CHECK(phase IN ('waiting','running','finished','cancelled')))''')
+
+
+def initialize_ledger(db, config, boot_id, generation_value, tick):
+    create_schema(db)
+    db.execute("INSERT INTO metadata(key,value) VALUES ('config',?),('boot_id',?),('generation',?),('tick',?)",
+               (json.dumps(validate_config(config), sort_keys=True), boot_id, generation_value, str(tick)))
+
+
 class Lease:
     def __init__(self, handle, ticket, queue_seconds):
         self.handle, self.ticket, self.queue_seconds = handle, ticket, queue_seconds
@@ -50,22 +82,27 @@ class Scheduler:
         if not isinstance(boot_id, str) or not boot_id:
             raise ValueError('A worker boot identity is required')
         self.boot_id, self.clock = boot_id, clock
+        self.generation = generation(self.root)
+
+    def fenced(self):
+        if generation(self.root) != self.generation:
+            raise SchedulerUnavailable('Scheduler ledger generation changed; no new execution is authorized')
 
     @contextmanager
     def transaction(self):
+        self.fenced()
         db = sqlite3.connect(self.root / 'resources.sqlite3', timeout=5, isolation_level=None)
         db.row_factory = sqlite3.Row
         try:
             db.execute('BEGIN IMMEDIATE')
-            db.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-            db.execute('''CREATE TABLE IF NOT EXISTS invocations (
-                identity TEXT PRIMARY KEY, max_parallel INTEGER NOT NULL,
-                budget REAL NOT NULL, waited REAL NOT NULL DEFAULT 0,
-                turn INTEGER NOT NULL DEFAULT 0, stopped TEXT)''')
-            db.execute('''CREATE TABLE IF NOT EXISTS requests (
-                ticket INTEGER PRIMARY KEY AUTOINCREMENT, attempt TEXT UNIQUE NOT NULL,
-                invocation TEXT NOT NULL, cpu_millis INTEGER NOT NULL, memory_mib INTEGER NOT NULL,
-                phase TEXT NOT NULL CHECK(phase IN ('waiting','running','finished','cancelled')))''')
+            create_schema(db)
+            self.fenced()
+            marker = db.execute("SELECT value FROM metadata WHERE key='generation'").fetchone()
+            if marker is not None and marker['value'] != self.generation:
+                raise SchedulerUnavailable('Scheduler ledger generation changed; no new execution is authorized')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(requests)')}
+            if not {'disk_mib', 'exclusive'} <= columns:
+                raise SchedulerUnavailable('Old scheduler schema requires a drained-ledger migration; existing work retained')
             expected = {'config': json.dumps(self.config, sort_keys=True), 'boot_id': self.boot_id}
             for key, value in expected.items():
                 row = db.execute('SELECT value FROM metadata WHERE key=?', (key,)).fetchone()
@@ -96,8 +133,10 @@ class Scheduler:
             self.reconcile(db)
             yield db
             db.execute('COMMIT')
+            self.fenced()
         except InvocationStopped:
             db.execute('COMMIT')
+            self.fenced()
             raise
         except BaseException as error:
             if db.in_transaction:
@@ -151,11 +190,13 @@ class Scheduler:
                 raise InvocationStopped(group['stopped'])
             if db.execute('SELECT 1 FROM requests WHERE attempt=?', (attempt,)).fetchone():
                 raise ValueError('Attempt is already registered; no replacement ticket created')
-            return db.execute('''INSERT INTO requests(attempt,invocation,cpu_millis,memory_mib,phase)
-                VALUES (?,?,?,?,'waiting')''', (attempt,invocation,demand['cpu_millis'],demand['memory_mib'])).lastrowid
+            return db.execute('''INSERT INTO requests(attempt,invocation,cpu_millis,memory_mib,disk_mib,exclusive,phase)
+                VALUES (?,?,?,?,?,?,'waiting')''', (attempt,invocation,demand['cpu_millis'],demand['memory_mib'],demand.get('disk_mib', 0),json.dumps(demand.get('exclusive', [])))).lastrowid
 
     def rows(self, db):
         requests = [dict(row) for row in db.execute("SELECT * FROM requests WHERE phase IN ('waiting','running') ORDER BY ticket")]
+        for request in requests:
+            request['exclusive'] = json.loads(request['exclusive'])
         groups = {row['identity']: {'max_parallel': row['max_parallel'], 'turn': row['turn'],
                                     'stopped': row['stopped'] is not None}
                   for row in db.execute('SELECT * FROM invocations')}
@@ -178,6 +219,11 @@ class Scheduler:
                 blocked = [r for r in requests if r['phase'] == 'running' and not alive(self.root / 'runs' / r['attempt'])]
                 if blocked or choose(self.config, requests, groups) != attempt:
                     return None
+                if 'disk_floor_mib' in self.config:
+                    reserved = sum(r['disk_mib'] for r in requests if r['phase'] == 'running')
+                    available = shutil.disk_usage(self.root).free // (1024 * 1024)
+                    if available < self.config['disk_floor_mib'] + reserved + row['disk_mib']:
+                        return None
                 # Shared leases coexist; the old exclusive worker blocks all of
                 # them during migration or operator maintenance.
                 handle = (self.root / 'worker.lock').open('a')

@@ -14,16 +14,12 @@ def suite_request(argv, shard_count):
     if journey[:1] != ['journeys']:
         raise ValueError('Not a suite command')
     options = journey[1:]
-    if options == []:
-        keep_going = False
-    elif options == ['--keep-going']:
-        keep_going = True
-    elif '--update' in options:
-        raise ValueError('Suite updates are not routed. Run: pnpm journey <id> --update. No validation started.')
-    else:
-        raise ValueError('Use pnpm journeys [--keep-going]. No validation started.')
+    if len(options) != len(set(options)) or any(option not in {'--keep-going', '--update'} for option in options):
+        raise ValueError('Use pnpm journeys [--update] [--keep-going]. No validation started.')
+    keep_going = '--keep-going' in options
+    update = '--update' in options
     return {'action': 'run', 'shard_count': shard_count, 'selection': None,
-            'keep_going': keep_going}
+            'keep_going': keep_going, 'update': update}
 
 
 def classify(argv, treatment='normal'):

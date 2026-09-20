@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import time
+from worker_config import docker_limits, execution_seconds
 import re
 from service_cleanup import cleanup
 
@@ -101,16 +102,16 @@ def execute(attempt, image, manifest, dep_entries, metrics):
     (attempt / 'service-cleanup.pending').touch()
     try:
         subprocess.run(['sudo', 'systemd-run', '--quiet', '--unit=' + name + '-deadline',
-                        '--on-active=20m', '/usr/bin/python3', str(attempt / 'deadline_stop.py'),
+                        '--on-active=' + str(execution_seconds(submitted)) + 's', '/usr/bin/python3', str(attempt / 'deadline_stop.py'),
                         str(attempt)], check=True, timeout=30)
         docker('network', 'create', '--label', label, name, stdout=subprocess.DEVNULL)
         docker('run', '-d', '--name', name, '--label', label, '--label', 'pandora.workflow=journey',
-               '--network', name, '--network-alias', 'pgbouncer', '--cpus=2',
-               '--memory=6g', '--memory-swap=6g', '--pids-limit=512', '--init',
+               '--network', name, '--network-alias', 'pgbouncer', *docker_limits(submitted),
+               '--pids-limit=512', '--init',
                '--cap-drop=ALL', '--security-opt=no-new-privileges', '-e', 'CI=true',
                '-e', 'WRANGLER_SEND_METRICS=false',
                '-e', 'DATABASE_OWNER_URL=postgres://ike_owner:local-owner@127.0.0.1:5432/ike',
-               image, 'sleep', '1200', stdout=subprocess.DEVNULL)
+               image, 'sleep', str(execution_seconds(submitted) + 120), stdout=subprocess.DEVNULL)
         overlay = attempt / 'source-overlay.tar'
         install_paths = {e['path'] for e in dep_entries}
         with tarfile.open(overlay, 'w') as archive:
@@ -135,7 +136,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
         for short, service_image, env, memory in services:
             docker('run', '-d', '--name', name + '-' + short, '--label', label,
                    '--label', 'pandora.workflow=journey', '--network', 'container:' + name,
-                   '--cpus=.5', '--memory=' + memory, '--memory-swap=' + memory,
+                   *docker_limits(submitted, short),
                    '--pids-limit=128', *[v for item in env for v in ['-e', item]],
                    service_image, stdout=subprocess.DEVNULL)
             if short == 'db':

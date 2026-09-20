@@ -136,16 +136,23 @@ def check(root, admitted):
     must supply its admitted attempts when integrated. This function neither
     changes capacity nor grants admission, and never stops/deletes resources.
     """
-    if not isinstance(admitted, (set, frozenset)) or any(not isinstance(i, str) or not IDENTITY.fullmatch(i) for i in admitted):
-        raise ValueError('Expected admitted attempt identities')
+    def snapshot():
+        value = admitted() if callable(admitted) else admitted
+        if not isinstance(value, (set, frozenset)) or any(not isinstance(i, str) or not IDENTITY.fullmatch(i) for i in value):
+            raise ValueError('Expected admitted attempt identities')
+        return value
+    snapshot()
     for retry in range(2):
         try:
             containers = inventory(['ps', '-a'])
             networks = inventory(['network', 'ls'])
+            # Read admission after inventory: a newly admitted peer may have
+            # created a resource since the caller began this check.
+            current = snapshot()
             for item in containers:
-                container(root, item, admitted)
+                container(root, item, current)
             for item in networks:
-                network(root, item, admitted)
+                network(root, item, current)
             return
         except (OwnershipUnresolved, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
             # A peer can remove resources after the inventory snapshot. Refresh

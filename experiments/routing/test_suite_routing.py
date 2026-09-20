@@ -27,7 +27,7 @@ class SuiteRoutingTests(unittest.TestCase):
         }))
         message = suite_environment_error({'JOURNEY_FILTER': 'S0-*', 'IKE_WORLD': 'staging'})
         self.assertIn('JOURNEY_FILTER, IKE_WORLD', message)
-        self.assertIn('pnpm journeys [--keep-going]', message)
+        self.assertIn('pnpm journeys [--update] [--keep-going]', message)
         self.assertIn('No validation started.', message)
 
     def test_route_passes_a_private_run_request_to_warm(self):
@@ -56,7 +56,7 @@ class SuiteRoutingTests(unittest.TestCase):
             self.assertTrue(request.is_file())
             self.assertEqual(request.parent.parent, state)
             self.assertEqual(json.loads(request.read_text()), {
-                'action': 'run', 'shard_count': 6, 'selection': None, 'keep_going': True,
+                'action': 'run', 'shard_count': 6, 'selection': None, 'keep_going': True, 'update': False,
             })
             output = Path(captured[0][captured[0].index('--output') + 1])
             self.assertFalse(output.exists())

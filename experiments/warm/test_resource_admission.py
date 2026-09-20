@@ -4,8 +4,9 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from resource_admission import Scheduler, SchedulerUnavailable, InvocationStopped
+from resource_admission import Scheduler, SchedulerUnavailable, InvocationStopped, initialize_ledger
 
 CONFIG = {'version': 1, 'cpu_millis': 1000, 'memory_mib': 1024, 'max_running': 2, 'policy': 'fair'}
 DEMAND = {'cpu_millis': 500, 'memory_mib': 512}
@@ -174,6 +175,71 @@ class AdmissionTests(unittest.TestCase):
         self.now = 0
         (self.root / 'resources.sqlite3').write_bytes(b'broken')
         with self.assertRaises(SchedulerUnavailable): self.scheduler.snapshot()
+
+    def test_old_schema_fails_closed_without_rewriting_existing_ledger(self):
+        with sqlite3.connect(self.root / 'resources.sqlite3') as db:
+            db.execute('CREATE TABLE requests (ticket INTEGER PRIMARY KEY, attempt TEXT UNIQUE NOT NULL, '
+                       'invocation TEXT NOT NULL, cpu_millis INTEGER NOT NULL, memory_mib INTEGER NOT NULL, '
+                       "phase TEXT NOT NULL CHECK(phase IN ('waiting','running','finished','cancelled')))")
+            db.execute("INSERT INTO requests VALUES (1, ?, ?, 500, 512, 'running')", (A, A))
+
+        with self.assertRaisesRegex(SchedulerUnavailable, 'Old scheduler schema'):
+            self.scheduler.snapshot()
+        with sqlite3.connect(self.root / 'resources.sqlite3') as db:
+            self.assertEqual(db.execute('SELECT attempt, phase FROM requests').fetchone(), (A, 'running'))
+
+    def test_durable_exclusive_and_disk_reservations_block_later_claims(self):
+        settings = CONFIG | {'disk_mib': 1000, 'disk_floor_mib': 100}
+        self.scheduler = self.instance(config=settings)
+        self.scheduler.register(A, max_parallel=2)
+        self.scheduler.register(B, max_parallel=2)
+        self.scheduler.register('c' * 32, max_parallel=2)
+        first = self.queue(1, A, {'cpu_millis': 500, 'memory_mib': 512,
+                                  'disk_mib': 600, 'exclusive': ['dependency-builder']})
+        same_builder = self.queue(2, B, {'cpu_millis': 500, 'memory_mib': 512,
+                                         'disk_mib': 100, 'exclusive': ['dependency-builder']})
+        disk_overflow = self.queue(3, 'c' * 32, {'cpu_millis': 500, 'memory_mib': 512,
+                                           'disk_mib': 500})
+        with patch('resource_admission.shutil.disk_usage', return_value=type('Usage', (), {'free': 10_000 * 1024 * 1024})()):
+            self.assertIsNotNone(self.claim(first))
+            self.assertIsNone(self.claim(same_builder))
+            self.scheduler.stop(B)
+            self.assertIsNone(self.claim(disk_overflow))
+
+    def test_disk_floor_prevents_claim_even_when_declared_capacity_fits(self):
+        settings = CONFIG | {'disk_mib': 1000, 'disk_floor_mib': 300}
+        self.scheduler = self.instance(config=settings)
+        self.scheduler.register(A, max_parallel=2)
+        self.scheduler.register(B, max_parallel=2)
+        first = self.queue(1, A, {'cpu_millis': 500, 'memory_mib': 512, 'disk_mib': 400})
+        pending = self.queue(2, B, {'cpu_millis': 500, 'memory_mib': 512, 'disk_mib': 200})
+        usage = type('Usage', (), {'free': 2_000 * 1024 * 1024})()
+        with patch('resource_admission.shutil.disk_usage', return_value=usage):
+            self.assertIsNotNone(self.claim(first))
+            usage.free = 899 * 1024 * 1024
+            self.assertIsNone(self.claim(pending))
+
+    def test_generation_change_after_old_transaction_commit_cannot_return_a_lease(self):
+        marker = self.root / 'ledger-generation'
+        marker.write_text('a' * 64 + '\n')
+        scheduler = self.instance()
+        with self.assertRaisesRegex(SchedulerUnavailable, 'generation changed'):
+            with scheduler.transaction():
+                marker.write_text('b' * 64 + '\n')
+
+    def test_scheduler_constructed_between_in_place_reset_and_marker_write_is_rejected(self):
+        settings = CONFIG | {'disk_mib': 1000, 'disk_floor_mib': 100}
+        self.scheduler = self.instance(config=settings)
+        self.scheduler.register(A)
+        with sqlite3.connect(self.root / 'resources.sqlite3') as db:
+            db.execute('BEGIN IMMEDIATE')
+            for table in ('requests', 'invocations', 'metadata'):
+                db.execute('DROP TABLE IF EXISTS ' + table)
+            initialize_ledger(db, settings, 'boot-1', 'c' * 64, 0)
+            db.commit()
+        constructed_in_gap = self.instance(config=settings)
+        with self.assertRaisesRegex(SchedulerUnavailable, 'generation changed'):
+            constructed_in_gap.snapshot()
 
 
 if __name__ == '__main__':

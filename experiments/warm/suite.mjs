@@ -91,6 +91,54 @@ async function fixtureState() {
   for (const name of names) state[name] = createHash('sha256').update(await readFile(join(directory, name))).digest('hex');
   return state;
 }
+async function fixtureFiles() {
+  const directory = `${SOURCE}/packages/scenarios/fixtures`;
+  const names = (await readdir(directory)).filter((name) => name === 'write-routes.json' || name.endsWith('.ledger.jsonl')).sort();
+  const files = {};
+  for (const name of names) files[name] = await readFile(join(directory, name));
+  return files;
+}
+function routeManifest(bytes, label) {
+  let parsed;
+  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { fail(`Invalid ${label} route manifest`); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(`Invalid ${label} route manifest`);
+  for (const [id, routes] of Object.entries(parsed))
+    if (!idPattern.test(id) || !Array.isArray(routes) || routes.some((route) => typeof route !== 'string'))
+      fail(`Invalid ${label} route manifest`);
+  return parsed;
+}
+async function captureUpdate(before, planned, catalog) {
+  const after = await fixtureFiles();
+  const owned = new Set(planned);
+  const changed = new Set([...Object.keys(before), ...Object.keys(after)].filter((name) =>
+    !before[name] || !after[name] || !before[name].equals(after[name])));
+  const routeName = 'write-routes.json';
+  for (const name of changed) {
+    if (name === routeName) continue;
+    const match = /^(?:S[0-6]|SX)-\d{2}\.ledger\.jsonl$/.exec(name);
+    if (!match || !owned.has(name.slice(0, -'.ledger.jsonl'.length)))
+      fail(`Suite update modified an unowned fixture: ${name}`);
+  }
+  const beforeRoutes = routeManifest(before[routeName] ?? Buffer.from('{}'), 'initial');
+  const afterRoutes = routeManifest(after[routeName] ?? Buffer.from('{}'), 'updated');
+  for (const id of new Set([...Object.keys(beforeRoutes), ...Object.keys(afterRoutes)]))
+    if (stable(beforeRoutes[id]) !== stable(afterRoutes[id]) && !owned.has(id))
+      fail(`Suite update modified an unowned route entry: ${id}`);
+  const routes = Object.fromEntries(planned.map((id) => [id, afterRoutes[id] ?? null]));
+  const expected = catalog.filter((journey) => owned.has(journey.id) && journey.surfaces.includes('api')).map((journey) => journey.id).sort();
+  const ledgers = [];
+  for (const id of expected) {
+    const name = `${id}.ledger.jsonl`;
+    const contents = after[name];
+    if (!contents) fail(`Suite update lacks expected ledger proposal: ${id}`);
+    const path = `packages/scenarios/fixtures/${name}`;
+    const target = `${RESULTS}/updates/${path}`;
+    await mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true });
+    await writeFile(target, contents);
+    ledgers.push({ id, path, sha256: createHash('sha256').update(contents).digest('hex') });
+  }
+  return { version: 1, ...shardContext, planned_ids: planned, routes, ledger_expected: expected, ledgers };
+}
 function redactor(stack) {
   return (text) => {
     let result = String(text);
@@ -98,8 +146,8 @@ function redactor(stack) {
     return result;
   };
 }
-async function runCli(env, redact) {
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli/journeys.ts'], {
+async function runCli(env, redact, update) {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli/journeys.ts', ...(update ? ['--update'] : [])], {
     cwd: `${SOURCE}/packages/scenarios`, env, stdio: ['ignore', 'pipe', 'pipe'],
   });
   const log = (stream) => createInterface({ input: stream }).on('line', (line) => console.log(redact(line)));
@@ -125,6 +173,7 @@ let config;
 let stack;
 let shardContext;
 let shardReport;
+let updateProposal;
 try {
   config = parseConfig();
   if (config.action === 'plan') {
@@ -142,24 +191,25 @@ try {
     const planned = frozen.shards.find((entry) => entry.index === config.shard)?.ids;
     if (!Array.isArray(planned) || !planned.length) fail('Frozen suite shard is empty');
     shardContext = { plan_id: frozen.plan_id, source_digest: config.source_digest, shard: config.shard, planned_ids: planned };
-    const before = await fixtureState();
+    const before = config.update ? await fixtureFiles() : await fixtureState();
     const controller = new AbortController();
     process.once('SIGTERM', () => controller.abort()); process.once('SIGINT', () => controller.abort());
     stack = await startInstance({ external: true, signal: controller.signal, output: () => {} });
     const environment = { ...process.env, IKE_API_URL: stack.api, JOURNEY_SHARD: `${config.shard}/${shardCount}`, JOURNEY_CONCURRENCY: '1', JOURNEY_REPLAY: 'cover' };
+    if (config.update) delete environment.CI;
     const filter = exactFilter(selection);
     if (filter) environment.JOURNEY_FILTER = filter; else delete environment.JOURNEY_FILTER;
     delete environment.JOURNEY_TEMPLATE; delete environment.IKE_WORLD;
     // A frozen snapshot can force-include ignored artifacts. Never mistake an
     // earlier CLI's reports for this shard after a child startup failure.
     await Promise.all(['results.json', 'errors.json', 'coverage.json'].map((name) => rm(`${JOURNEYS}/${name}`, { force: true })));
-    const code = await runCli(environment, redactor(stack));
+    const code = await runCli(environment, redactor(stack), config.update);
     if (stack.crashed) fail(`Workers runtime exited unexpectedly: ${stack.crashed}`);
     const results = await json(`${JOURNEYS}/results.json`, 'results');
     const errors = await json(`${JOURNEYS}/errors.json`, 'errors');
     const coverage = await json(`${JOURNEYS}/coverage.json`, 'coverage');
-    const after = await fixtureState();
-    if (stable(before) !== stable(after)) fail('Readonly suite mutated journey fixtures');
+    if (config.update) updateProposal = await captureUpdate(before, planned, await loadJourneys());
+    else if (stable(before) !== stable(await fixtureState())) fail('Readonly suite mutated journey fixtures');
     const seen = new Set(Array.isArray(results) ? results.map((result) => result?.id).filter((id) => typeof id === 'string') : []);
     const reported = Array.isArray(errors?.unrunJourneys) ? errors.unrunJourneys : [];
     const missing = [...new Set([...reported, ...planned.filter((id) => !seen.has(id))])].sort();
@@ -189,6 +239,7 @@ try {
     shardReport.exit_code = status;
     if (status && !shardReport.detail) shardReport.detail = 'Suite cleanup failed';
     await write('suite-shard.json', shardReport);
+    if (status === 0 && config?.update) await write('suite-update.json', updateProposal);
   }
   await mkdir(RESULTS, { recursive: true });
   await writeFile(`${RESULTS}/exit-code`, `${status}\n`);

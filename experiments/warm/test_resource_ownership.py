@@ -36,6 +36,14 @@ class ResourceOwnership(unittest.TestCase):
     def test_two_admitted_live_workflows_and_owned_network_are_accepted(self):
         self.verify()
 
+    def test_admission_refresh_includes_peer_that_arrived_during_inventory(self):
+        calls = []
+        def current():
+            calls.append(True)
+            return {self.ids[0]} if len(calls) == 1 else set(self.ids)
+        self.verify(current)
+        self.assertEqual(len(calls), 2)
+
     def test_live_but_unadmitted_peer_remains_blocked_in_production(self):
         with self.assertRaisesRegex(OwnershipUnresolved, 'not admitted'):
             self.verify({self.ids[0]})

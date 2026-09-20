@@ -54,9 +54,11 @@ def _inputs(
         _fail("reports exceed planned shards")
     validated_reports = [validate_shard(validated_plan, report) for report in reports]
     actual = [report["shard"] for report in validated_reports]
-    expected = list(range(1, len(actual) + 1))
-    if actual != expected:
-        _fail("reports must be a sequential shard prefix")
+    if len(actual) != len(set(actual)):
+        _fail("reports must identify distinct shards")
+    # Children are independently admitted, so their terminal receipts may arrive
+    # in any order.  The aggregate is nevertheless canonical by shard index.
+    validated_reports.sort(key=lambda report: report["shard"])
     return validated_plan, validated_reports, parent, plan_id, attempts, keep_going, stop_reason
 
 
@@ -71,7 +73,7 @@ def summarize(
     )
     total = len(plan["shards"])
     completed = [report["shard"] for report in reports]
-    unrun_shards = list(range(len(reports) + 1, total + 1))
+    unrun_shards = [index for index in range(1, total + 1) if index not in completed]
     results = [row for report in reports for row in report["results"]]
     shards_by_index = {shard["index"]: shard for shard in plan["shards"]}
     unrun_journeys = [
@@ -89,15 +91,10 @@ def summarize(
 
     external_stop = requested in {"deadline", "queue-timeout", "cancelled"}
     if infrastructure is not None:
-        if reports[-1] is not infrastructure:
-            _fail("infrastructure failure must stop the suite immediately")
-        if requested not in (None, "infrastructure", "deadline", "queue-timeout", "cancelled"):
+        if requested not in (None, "test-failure", "infrastructure", "deadline", "queue-timeout", "cancelled"):
             _fail("infrastructure failure conflicts with stop_reason")
         resolved = requested if external_stop else "infrastructure"
     elif failures:
-        first = failures[0]
-        if not keep_going and first != len(reports) - 1:
-            _fail("failfast must stop at the first test failure")
         if not keep_going and requested not in (None, "test-failure", "deadline", "queue-timeout", "cancelled"):
             _fail("failfast test failure conflicts with stop_reason")
         if keep_going and unrun_shards and not external_stop:

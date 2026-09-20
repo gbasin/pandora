@@ -11,9 +11,9 @@ def suite_request(value):
         raise ValueError('Suite request must be an object')
     action = value.get('action')
     if action == 'run':
-        if set(value) != {'action', 'shard_count', 'selection', 'keep_going'} or type(value.get('keep_going')) is not bool:
-            raise ValueError('Suite run requires shard_count, selection and boolean keep_going')
-        suite_request({key: item for key, item in value.items() if key != 'keep_going'} | {'action': 'plan'})
+        if set(value) not in ({'action', 'shard_count', 'selection', 'keep_going'}, {'action', 'shard_count', 'selection', 'keep_going', 'update'}) or type(value.get('keep_going')) is not bool or ('update' in value and type(value['update']) is not bool):
+            raise ValueError('Suite run requires shard_count, selection, boolean keep_going and optional boolean update')
+        suite_request({key: item for key, item in value.items() if key not in {'keep_going', 'update'}} | {'action': 'plan'})
     elif action == 'plan':
         if set(value) != {'action', 'shard_count', 'selection'}:
             raise ValueError('Plan request requires action, shard_count and selection')
@@ -41,9 +41,12 @@ def suite_config(submitted):
     source = submitted['source_digest']
     if not isinstance(source, str) or not re.fullmatch('[0-9a-f]{64}', source):
         raise ValueError('Invalid suite source identity')
+    requested_update = submitted.get('suite_update', False)
+    if type(requested_update) is not bool:
+        raise ValueError('Suite update mode must be boolean')
     if request['action'] == 'shard' and request['plan']['source_digest'] != source:
         raise ValueError('Source differs from frozen suite plan; no shard started')
-    return request | {'source_digest': source}
+    return request | {'source_digest': source, 'update': requested_update if request['action'] == 'shard' else False}
 
 
 def suite_command(config):

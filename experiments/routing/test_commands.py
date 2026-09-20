@@ -26,26 +26,25 @@ class CommandsTests(unittest.TestCase):
 
     def test_catalog_journeys_route_a_bounded_suite_request(self):
         for prefix in ([], ['run'], ['validate'], ['run', 'validate']):
-            for options, keep_going in (([], False), (['--keep-going'], True)):
+            for options, keep_going, update in (([], False, False), (['--keep-going'], True, False), (['--update'], False, True), (['--update', '--keep-going'], True, True), (['--keep-going', '--update'], True, True)):
                 argv = [*prefix, 'journeys', *options]
                 self.assertEqual(classify(argv)[:2], ('suite-run', []))
                 self.assertEqual(suite_request(argv, 7), {
                     'action': 'run', 'shard_count': 7, 'selection': None,
-                    'keep_going': keep_going,
+                    'keep_going': keep_going, 'update': update,
                 })
 
     def test_catalog_journeys_rejects_unroutable_options_with_a_focused_update_alternative(self):
         for argv in (
             ['journeys', '--keep-going', '--keep-going'],
             ['journeys', 'S0-01'],
-            ['journeys', '--update'],
-            ['run', 'journeys', '--update'],
+            ['journeys', '--update', '--update'],
+            ['run', 'journeys', '--keep-going', '--keep-going'],
             ['validate', 'journeys', '--fault', 'dropped'],
         ):
             action, _, message = classify(argv)
             self.assertEqual(action, 'reject')
             self.assertIn('No validation started.', message)
-        self.assertIn('pnpm journey <id> --update', classify(['journeys', '--update'])[2])
 
     def test_surface_preserves_exact_file_and_grep_argv_for_each_app(self):
         for command, expected in (

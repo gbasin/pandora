@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scheduler": {
+    "version": 1,
+    "cpu_millis": 3500,
+    "memory_mib": 13000,
+    "max_running": 2,
+    "policy": "fair",
+    "disk_mib": 24576,
+    "disk_floor_mib": 10240
+  },
+  "max_parallel": 2,
+  "execution_seconds": 1500,
+  "workspace_mib": 8192,
+  "limits": {
+    "main": {
+      "cpu_millis": 1000,
+      "memory_mib": 4096
+    },
+    "db": {
+      "cpu_millis": 250,
+      "memory_mib": 512
+    },
+    "pool": {
+      "cpu_millis": 125,
+      "memory_mib": 128
+    },
+    "proxy": {
+      "cpu_millis": 125,
+      "memory_mib": 128
+    }
+  }
+}
