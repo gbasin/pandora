@@ -59,7 +59,7 @@ def main():
     offsets = [int(x) for x in sys.argv[3:5]] or [0, 0]
     if len(offsets) != 2 or any(x < 0 for x in offsets):
         raise ValueError('Invalid log offsets')
-    if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel', 'release', 'artifact-stats'}:
+    if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel', 'release', 'artifact-stats', 'operator-result'}:
         raise ValueError('Invalid attempt/action')
     path = Path.home() / 'pandora-warm/runs' / attempt
     if action == 'artifact-stats':
@@ -76,8 +76,24 @@ def main():
             if proc.exists() and proc.read_text().split()[21] == worker['start_ticks']:
                 os.kill(pid, signal.SIGTERM)
     terminal = path / 'terminal.json'
-    if terminal.exists():
-        result = json.loads(terminal.read_text())
+    operator_result = path / 'operator-result.json'
+    if action == 'operator-result':
+        if operator_result.is_symlink() or not operator_result.is_file():
+            print(json.dumps({'state': 'active-or-unresolved'}))
+            return
+        print(json.dumps({'state': 'infrastructure-failed',
+                          'operator_result': json.loads(operator_result.read_text())}))
+        return
+    terminal_result = None
+    if terminal.is_file() and not terminal.is_symlink():
+        try:
+            candidate = json.loads(terminal.read_text())
+        except (OSError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict) and candidate.get('attempt') == attempt and candidate.get('cleanup_verified') is True:
+            terminal_result = candidate
+    if terminal_result is not None:
+        result = terminal_result
         if action == 'release' and result.get('cleanup_verified'):
             (path / 'released').touch()
             if result.get('workflow') == 'suite-run':
@@ -89,6 +105,12 @@ def main():
                         receipt = json.loads((child / 'terminal.json').read_text())
                         if receipt.get('attempt') == identity and receipt.get('cleanup_verified'):
                             (child / 'released').touch()
+    elif operator_result.is_file() and not operator_result.is_symlink():
+        # An operator acknowledgement is an infrastructure outcome, never a
+        # terminal test receipt.  Keep a malformed terminal available for the
+        # client to bind into the acknowledgement rather than inventing a pass.
+        result = {'state': 'infrastructure-failed',
+                  'operator_result': json.loads(operator_result.read_text())}
     elif not (path / 'worker.json').exists() and (path / 'cancel.request').exists():
         # Registration precedes the worker's cancel-marker check. A late worker
         # therefore exits before preparation/execution even if no PID exists yet.
