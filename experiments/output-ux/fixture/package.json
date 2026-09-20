@@ -1,0 +1,1 @@
+{"name":"pandora-output-fixture","private":true,"scripts":{"build":"python3 ../bridge.py build","generate":"python3 ../bridge.py generate","test":"python3 ../bridge.py test"}}

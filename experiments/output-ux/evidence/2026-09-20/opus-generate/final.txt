@@ -1,0 +1,30 @@
+Done.
+
+## What changed
+
+`experiments/output-ux/fixture/fixtures/receipt.json` — one line:
+
+```diff
+-  "title": "Legacy",
++  "title": "Draft",
+```
+
+The handwritten `"note": "Handwritten note: retain."` is intact. Nothing else in the tree is modified — schema, generator, scripts, and test logic are untouched.
+
+## How it was produced
+
+`pnpm generate` runs the generator on a remote host and, by design, does **not** write to the workspace. It exits 75 and drops the generated file plus a unified diff under `.pandora-artifacts/<run-id>/` (gitignored), with a message telling you to apply them yourself. I reviewed the diff, applied it, and confirmed the workspace file is byte-identical to the generated artifact (`diff` clean).
+
+Only `title` changed because `totalCents` was already 1350 (= `subtotalCents` 1250 + `taxCents` 100); the stale field was the title.
+
+## Validation
+
+- `pnpm generate` → remote generation succeeded (exit 75 is its normal "review and apply" path, not a failure).
+- `diff fixtures/receipt.json <generated>` → identical.
+- `pnpm test` → `[pandora] Receipt fixture matches schema`, exit 0.
+
+## Worth flagging
+
+`pnpm generate` exiting 75 makes `pnpm` report `ELIFECYCLE Command failed with exit code 75` even on success. That's the fixture's intended UX stimulus rather than a defect, so I left it alone — but a caller that only checks the exit code will read a successful generation as a failure.
+
+Not committed, no PR, no other test suites run.

@@ -1,0 +1,10 @@
+Changed `src/schema.json` title from `Draft` to `Ready`.
+
+`pnpm build` failed with exit code 75: it preserved existing output and saved new output separately.
+
+- `dist/report.json`: title `Draft`
+  SHA-256: `90f1e3ba6f554daf538e7bb1ce302453c3fa519f4fdf0879f529cc399288765b`
+- `.pandora-artifacts/63889fac450147d584d8ca7cca1d9479/dist/report.json`: title `Ready`
+  SHA-256: `e4b39c0e4584c5267f59941ad716277441072ecb1b3464f001ac5b5330a84970`
+
+Unresolved: `dist/report.json` remains stale. No generated outputs or tooling were edited directly; no commits, PRs, or other test suites.

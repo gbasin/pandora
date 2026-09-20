@@ -79,6 +79,10 @@ login-profile additions in a compatibility probe. Manual PATH overrides and
 absolute executable paths can bypass routing. Ordinary pnpm delegation uses the
 executable selected at launcher start. See the [environment details](experiments/routing/README.md#environment-compatibility).
 
+The [output UX trial](notes/remote-output-2026-09-20-agent-ux.md) separately tests
+returned build artifacts and generated source with Codex and Opus. Its fixture
+is evaluator-only and does not extend the production routing commands.
+
 ## Try the pilot
 
 Use a disposable Linux x86 worker with Docker, systemd, Python 3, rsync, SSH, and

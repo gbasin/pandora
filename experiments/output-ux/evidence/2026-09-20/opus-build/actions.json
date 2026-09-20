@@ -1,0 +1,66 @@
+[
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pwd",
+      "description": "Print working directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "ls -la experiments/output-ux/fixture",
+      "description": "List fixture directory"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd experiments/output-ux/fixture && cat package.json .gitignore && echo \"--- src ---\" && ls -R src fixtures",
+      "description": "Show fixture config and source tree"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-build/experiments/output-ux/fixture/src/schema.json"
+    }
+  },
+  {
+    "tool": "Read",
+    "input": {
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-build/experiments/output-ux/bridge.py"
+    }
+  },
+  {
+    "tool": "Edit",
+    "input": {
+      "replace_all": false,
+      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-build/experiments/output-ux/fixture/src/schema.json",
+      "old_string": "{\"title\":\"Draft\",",
+      "new_string": "{\"title\":\"Ready\","
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "pnpm build; echo \"EXIT=$?\"",
+      "description": "Run fixture build",
+      "timeout": 180000
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "shasum -a 256 dist/report.json && echo \"--- contents ---\" && cat dist/report.json",
+      "description": "Hash and show built report"
+    }
+  },
+  {
+    "tool": "Bash",
+    "input": {
+      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-build && git status --short && echo \"--- diff ---\" && git diff",
+      "description": "Show repo status and diff"
+    }
+  }
+]
