@@ -130,8 +130,15 @@ tags. Unit checks protect unresolved, legacy, and explicitly pinned attempts.
 
 After retention and direct artifact-path reporting were integrated, a final
 current-source smoke run passed all 49 tests again and published both outputs.
-All 22 local Python tests passed. The agent-run cgroup evidence reports no OOM
+All 23 local Python tests passed. The agent-run cgroup evidence reports no OOM
 kills.
+
+A seventh fresh session tested the final Codex wrapper without the trial's
+manual writable-roots override. The wrapper adds only Pandora's state directory
+with `--add-dir`, alongside existing sandbox access. That session completed the
+same fail/edit/pass loop, returned both builds, and changed only the intended
+source. It used the printed JUnit path instead of enumerating the entire source
+snapshot. This is one follow-up observation, not a new three-sample comparison.
 
 ## State trace
 
