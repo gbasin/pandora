@@ -1,0 +1,18 @@
+[pandora] freezing current tracked and nonignored source
+[pandora] transferring changed source; frozen identity 7a4c9ac4b4ba
+[pandora] accepted af88e3e15d4a49c38a9a398ce088ea16; source transfer 2.2s
+[pandora] source verified; waiting for the experiment worker
+[pandora] worker acquired; preparing dependencies
+[pandora] starting isolated database, pooler and proxy; no host ports
+[pandora] applying migrations and starting the local Workers runtime
+Stack ike-validation-6f37692c: API http://127.0.0.1:45327, Postgres 127.0.0.1:5432.
+[pandora] Workers runtime ready; running journey S0-01
+[pandora] journey S0-01 running; services owned by this attempt
+[pandora] journey S0-01 running; services owned by this attempt
+[pandora] journey S0-01 running; services owned by this attempt
+[pandora] journey S0-01 running; services owned by this attempt
+Stack ike-validation-6f37692c removed.
+{"journey":"S0-01","status":"pass","detail":""}
+[pandora] removing this attempt’s services and private network
+[pandora] attempt=af88e3e15d4a49c38a9a398ce088ea16; exit=0; evidence=/Users/garybasin/.local/state/pandora/contention-20260920/journey/bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea/af88e3e15d4a49c38a9a398ce088ea16
+[pandora] journey report: /Users/garybasin/.local/state/pandora/contention-20260920/journey/bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea/af88e3e15d4a49c38a9a398ce088ea16/results/journey.json
