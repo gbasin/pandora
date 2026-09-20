@@ -11,6 +11,7 @@ import time
 import uuid
 from snapshot import encode, freeze
 from retention import PROFILE
+from source_cache import repository_key
 from transport import follow, SSH_OPTIONS
 
 
@@ -47,6 +48,7 @@ def main():
     output = args.output.resolve()
     spec = json.loads(args.docker_request) if args.workflow == 'docker' else None
     uses_source = spec is None or spec['request']['kind'] == 'build' or spec['request'].get('mount')
+    cache_key = repository_key(args.repo) if uses_source else None
     if uses_source:
         print('[pandora] freezing current tracked and nonignored source', flush=True)
         manifest, excluded = freeze(args.repo, output / 'source')
@@ -57,7 +59,7 @@ def main():
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
-                'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
+                'repository_key': cache_key, 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
     if args.workflow == 'docker':
         metadata['docker'] = spec
     write_metadata(output / 'submission.json', metadata)
@@ -81,8 +83,11 @@ def main():
     root = home + '/pandora-warm'
     remote = root + '/runs/' + attempt
     run(*ssh, f'mkdir -p {root}/runs && mkdir {remote} && mkdir {remote}/source')
-    cached = run(*ssh, f'readlink -f {root}/latest || true', capture_output=True,
-                 text=True).stdout.strip()
+    cached = ''
+    if uses_source:
+        cached = run(*ssh, f'python3 - prepare {cache_key} {attempt}',
+                     input=(scripts / 'source_cache.py').read_text(),
+                     capture_output=True, text=True).stdout.strip()
     options = ['--link-dest=' + cached] if cached else []
     print(f'[pandora] transferring changed source; frozen identity {identity[:12]}', flush=True)
     transfer = time.monotonic()
@@ -94,15 +99,14 @@ def main():
     metadata['transfer_seconds'] = time.monotonic() - transfer
     write_metadata(output / 'submission.json', metadata)
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
-        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'),
+        str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'), str(scripts / 'source_cache.py'),
         str(scripts / 'in-container.sh'), str(scripts / 'journey.py'),
         str(scripts / 'service_cleanup.py'), str(scripts / 'journey.mjs'),
         str(scripts / 'docker_workflow.py'), str(scripts / 'docker_cleanup.py'), str(scripts / 'docker_images.py'), str(scripts / 'image_gc.py'), f'{args.host}:{remote}/')
     run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
     # All links reference complete immutable source directories, never containers.
     if uses_source:
-        run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
-            f'mv -Tf {root}/latest-{attempt} {root}/latest')
+        run(*ssh, f'python3 {remote}/source_cache.py publish {cache_key} {attempt}')
     print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
     # systemd owns the worker independently of this SSH connection. Never retry
     # this start after ambiguous acknowledgement; reconnect by the same attempt.
