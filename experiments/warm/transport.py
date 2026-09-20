@@ -31,9 +31,12 @@ def query(host, attempt, action='status', offsets=None):
 
 
 from evidence import validate_evidence
+from artifact_limits import (DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES,
+                             artifact_delivery_limit,
+                             enforce_declared_artifact_limit)
 
 
-def retrieve(host, output, attempt):
+def retrieve(host, output, attempt, artifact_delivery_limit_bytes=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES):
     stage = output / ('.download-' + uuid.uuid4().hex)
     stage.mkdir()
     remote = f'{host}:pandora-warm/runs/{attempt}/'
@@ -42,10 +45,8 @@ def retrieve(host, output, attempt):
                         remote + 'artifacts.json', remote + 'terminal.json', str(stage) + '/'],
                        check=True, timeout=60)
         manifest = json.loads((stage / 'artifacts.json').read_text())
-        for name in manifest:
-            p = Path(name)
-            if p.is_absolute() or '..' in p.parts or '\n' in name or '\r' in name:
-                raise ValueError('Unsafe artifact path')
+        enforce_declared_artifact_limit(
+            manifest, query(host, attempt, 'artifact-stats'), artifact_delivery_limit_bytes)
         subprocess.run(['rsync', '-rt', '--files-from=-', '-e', 'ssh ' + ' '.join(SSH_OPTIONS),
                         remote, str(stage) + '/'], input='\n'.join(manifest) + '\n',
                        text=True, check=True, timeout=120)
@@ -64,7 +65,9 @@ def retrieve(host, output, attempt):
         shutil.rmtree(stage, ignore_errors=True)
 
 
-def follow(host, output, reconnect_seconds=45):
+def follow(host, output, reconnect_seconds=45,
+           artifact_delivery_limit_bytes=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES):
+    artifact_limit = artifact_delivery_limit(artifact_delivery_limit_bytes)
     metadata = json.loads((output / 'submission.json').read_text())
     attempt = metadata['attempt']
     if not re.fullmatch('[0-9a-f]{32}', attempt):
@@ -100,7 +103,7 @@ def follow(host, output, reconnect_seconds=45):
             if state.get('more_logs'):
                 continue
             try:
-                terminal = retrieve(host, output, attempt)
+                terminal = retrieve(host, output, attempt, artifact_limit)
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 print(f'[pandora] Evidence retrieval incomplete: {error}. Retry the same command to recover {attempt}.', flush=True)
                 return 75
@@ -126,5 +129,12 @@ def follow(host, output, reconnect_seconds=45):
 
 
 if __name__ == '__main__':
-    import sys
-    raise SystemExit(follow(sys.argv[1], Path(sys.argv[2])))
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('host')
+    parser.add_argument('output', type=Path)
+    parser.add_argument('--artifact-delivery-limit-bytes', type=int,
+                        default=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES)
+    args = parser.parse_args()
+    raise SystemExit(follow(args.host, args.output,
+                            artifact_delivery_limit_bytes=args.artifact_delivery_limit_bytes))

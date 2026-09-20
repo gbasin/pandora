@@ -8,6 +8,12 @@ DEFAULT_QUEUE_TIMEOUT_SECONDS = 900
 MAX_QUEUE_TIMEOUT_SECONDS = 86400
 
 
+def artifact_delivery_limit_bytes(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError('Artifact delivery limit must be a positive integer number of bytes')
+    return value
+
+
 def relative(value):
     if not isinstance(value, str) or any(c in value for c in ('\0', '\n', '\r', ':', ',')):
         raise ValueError('Unsupported profile path')
@@ -28,7 +34,7 @@ def absolute(value):
 
 def profile(value):
     data = json.loads(value)
-    if not isinstance(data, dict) or set(data) - {'dockerfiles', 'mounts', 'outputs', 'network', 'queue_timeout_seconds'}:
+    if not isinstance(data, dict) or set(data) - {'dockerfiles', 'mounts', 'outputs', 'network', 'queue_timeout_seconds', 'artifact_delivery_limit_bytes'}:
         raise ValueError('Unsupported Docker profile fields')
     for key in ('dockerfiles', 'mounts', 'outputs'):
         if not isinstance(data.get(key), list):
@@ -51,6 +57,8 @@ def profile(value):
         raise ValueError('Profile network must be none or bridge')
     if 'queue_timeout_seconds' in data:
         queue_timeout_seconds(data['queue_timeout_seconds'])
+    if 'artifact_delivery_limit_bytes' in data:
+        artifact_delivery_limit_bytes(data['artifact_delivery_limit_bytes'])
     return data
 
 

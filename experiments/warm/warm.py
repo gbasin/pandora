@@ -14,6 +14,7 @@ from retention import PROFILE
 from source_cache import repository_key
 from worker_bundle import bundle
 from transport import follow, SSH_OPTIONS
+from artifact_limits import artifact_delivery_limit
 
 
 def queue_timeout_seconds(value):
@@ -51,6 +52,7 @@ def main():
     p.add_argument('--selectors-json')
     p.add_argument('--surface-app', choices=['borrower-web', 'desk'], default='borrower-web')
     p.add_argument('--queue-timeout-seconds', type=int, default=900)
+    p.add_argument('--artifact-delivery-limit-bytes', type=int, default=None)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.@-]*', args.host):
@@ -67,6 +69,7 @@ def main():
     spec = json.loads(args.docker_request) if args.workflow == 'docker' else None
     try:
         timeout = effective_queue_timeout(args.queue_timeout_seconds, spec)
+        artifact_limit = artifact_delivery_limit(args.artifact_delivery_limit_bytes)
     except ValueError as error:
         p.error(str(error))
     suite = None
@@ -190,7 +193,7 @@ def main():
     launched = subprocess.run([*ssh, command])
     if launched.returncode:
         print('[pandora] Start acknowledgement unavailable; checking the existing attempt only.', flush=True)
-    status = follow(args.host, output)
+    status = follow(args.host, output, artifact_delivery_limit_bytes=artifact_limit)
     metadata['total_seconds'] = time.monotonic() - started
     metadata['exit_code'] = status
     write_metadata(output / 'submission.json', metadata)

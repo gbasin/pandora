@@ -9,11 +9,15 @@ import shutil
 import sys
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'warm'))
+from artifact_limits import DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES, artifact_delivery_limit
+
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--host', required=True)
 p.add_argument('--state', required=True, type=Path)
 p.add_argument('--docker-profile', type=Path)
 p.add_argument('--queue-timeout-seconds', type=int, default=900)
+p.add_argument('--artifact-delivery-limit-bytes', type=int, default=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES)
 p.add_argument('--suite-shards', type=int, default=4)
 p.add_argument('--session', default=None)
 p.add_argument('--treatment', choices=['normal', 'block', 'redirect'], default='normal')
@@ -25,6 +29,7 @@ if not command:
 from docker_commands import queue_timeout_seconds
 try:
     queue_timeout_seconds(a.queue_timeout_seconds)
+    artifact_delivery_limit(a.artifact_delivery_limit_bytes)
 except ValueError as error:
     p.error(str(error))
 if not 1 <= a.suite_shards <= 32:
@@ -42,6 +47,7 @@ if a.docker_profile:
     docker_profile = profile(a.docker_profile.read_text())
     env['PANDORA_DOCKER_PROFILE_JSON'] = json.dumps(docker_profile)
 env['PANDORA_QUEUE_TIMEOUT_SECONDS'] = str(a.queue_timeout_seconds)
+env['PANDORA_ARTIFACT_DELIVERY_LIMIT_BYTES'] = str(a.artifact_delivery_limit_bytes)
 env['PANDORA_SUITE_SHARDS'] = str(a.suite_shards)
 prefix = str(Path(__file__).resolve().parent / 'bin')
 env['PATH'] = prefix + os.pathsep + env['PATH']
