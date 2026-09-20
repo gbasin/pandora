@@ -69,7 +69,17 @@ def main():
     leftovers = docker('ps', '-a', '--filter', 'label=pandora.workflow=journey', '--format', '{{.Names}}', capture_output=True, text=True)
     if leftovers.stdout.strip():
         raise RuntimeError('Previous journey resources remain; operator cleanup required. No validation started.')
+    from docker_cleanup import BUILDER_CONTAINER
+    leftovers = docker('ps', '--filter', 'name=^/' + BUILDER_CONTAINER + '$', '--format', '{{.Names}}', capture_output=True, text=True)
+    if leftovers.stdout.strip():
+        raise RuntimeError('Docker build worker still active without its lease; operator cleanup required.')
+    orphaned = docker('ps', '-a', '--filter', 'label=pandora.workflow=docker', '--format', '{{.Names}}', capture_output=True, text=True)
+    if orphaned.stdout.strip():
+        raise RuntimeError('Previous Docker execution has unresolved cleanup; operator reconciliation required.')
     metrics = {'queue_seconds': time.monotonic() - queued}
+    if submitted.get('workflow') == 'docker':
+        from docker_workflow import execute
+        return execute(attempt, submitted, metrics)
     print('[pandora] worker acquired; preparing dependencies', flush=True)
     started = time.monotonic()
     recipe = (attempt / 'runtime.Dockerfile').read_text()
@@ -220,13 +230,13 @@ if __name__ == '__main__':
             status = 70
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
-                 Path('metrics.json'), Path('service-state.json'), Path('service-cleanup.json'), *Path('results').rglob('*')]:
+                 Path('metrics.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
         if item.is_file() and not item.is_symlink():
             artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
                 'workflow': json.loads(Path('submission.json').read_text()).get('workflow', 'surface'),
-                'cleanup_verified': not Path('service-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
+                'cleanup_verified': not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
     raise SystemExit(status)

@@ -10,12 +10,12 @@ from publish import publish, verify
 OUTPUTS = ('apps/borrower-web/dist', 'apps/borrower-web/e2e/dist')
 
 
-def deliver(repo, output, fault=lambda point: None):
+def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS):
     manifest = json.loads((output / 'artifacts.json').read_text())
     plans = []
     # Validate every root before publishing any. Multiple roots are individually
     # atomic, not a transaction. Their receipts make partial delivery recoverable.
-    for name in OUTPUTS:
+    for name in outputs:
         destination = repo / name
         for part in [destination, *destination.parents]:
             if part == repo:

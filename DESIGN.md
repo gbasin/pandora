@@ -14,8 +14,8 @@ Docker commands are routed, and declared outputs return with conflict checks.
 The integrated surface extension now prepares dependencies automatically and
 publishes generated build outputs with recoverable directory exchange. The
 original pilot description below predates that extension. The S0-01 journey now
-shares its snapshot, admission, dependency, and recovery path. Direct Docker
-command routing remains unimplemented. See the README for the journey boundary.
+shares its snapshot, admission, dependency, and recovery path. A subsequent bounded Docker build/run profile now shares this path, with
+worktree-private tags. See the README for current workflow and Docker boundaries.
 
 ## Objective and boundaries
 

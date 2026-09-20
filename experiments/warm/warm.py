@@ -29,8 +29,9 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
-    p.add_argument('--workflow', choices=['surface', 'journey'], default='surface')
+    p.add_argument('--workflow', choices=['surface', 'journey', 'docker'], default='surface')
     p.add_argument('--require-warm', action='store_true')
+    p.add_argument('--docker-request')
     p.add_argument('--attempt', default=None)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
@@ -44,18 +45,39 @@ def main():
     started = time.monotonic()
     args.output.mkdir(parents=True, exist_ok=False)
     output = args.output.resolve()
-    print('[pandora] freezing current tracked and nonignored source', flush=True)
-    manifest, excluded = freeze(args.repo, output / 'source')
+    spec = json.loads(args.docker_request) if args.workflow == 'docker' else None
+    uses_source = spec is None or spec['request']['kind'] == 'build' or spec['request'].get('mount')
+    if uses_source:
+        print('[pandora] freezing current tracked and nonignored source', flush=True)
+        manifest, excluded = freeze(args.repo, output / 'source')
+    else:
+        print('[pandora] image-only request; local source is not captured or injected', flush=True)
+        (output / 'source').mkdir()
+        manifest, excluded = [], []
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
+    if args.workflow == 'docker':
+        metadata['docker'] = spec
     write_metadata(output / 'submission.json', metadata)
     scripts = Path(__file__).resolve().parent
     ssh = ['ssh', *SSH_OPTIONS, args.host]
     home = run(*ssh, 'pwd', capture_output=True, text=True).stdout.strip()
     if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
         raise RuntimeError('Unsupported remote home path')
+    if args.workflow == 'docker' and metadata['docker']['request']['kind'] == 'run':
+        spec = metadata['docker']
+        resolved = subprocess.run([*ssh, 'python3 - ' + shlex.quote(spec['worktree_key']) + ' ' + shlex.quote(spec['request']['tag'])],
+                                  input=(scripts / 'docker_images.py').read_text(), capture_output=True, text=True)
+        if resolved.returncode:
+            print('[pandora] ' + resolved.stderr.strip(), flush=True)
+            # No remote directory or worker exists yet. Let the route clear this
+            # pre-submission failure instead of pinning an unrecoverable request.
+            (output / 'submission.json').unlink()
+            return 64 if resolved.returncode == 64 else 75
+        spec['image'] = json.loads(resolved.stdout)
+        print(f'[pandora] pinned {spec["request"]["tag"]} to {spec["image"]["image_id"]}; built source {spec["image"]["source_digest"][:12]}', flush=True)
     root = home + '/pandora-warm'
     remote = root + '/runs/' + attempt
     run(*ssh, f'mkdir -p {root}/runs && mkdir {remote} && mkdir {remote}/source')
@@ -74,11 +96,13 @@ def main():
     run('scp', '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
         str(scripts / 'snapshot.py'), str(scripts / 'worker.py'), str(scripts / 'dependencies.py'), str(scripts / 'retention.py'),
         str(scripts / 'in-container.sh'), str(scripts / 'journey.py'),
-        str(scripts / 'service_cleanup.py'), str(scripts / 'journey.mjs'), f'{args.host}:{remote}/')
+        str(scripts / 'service_cleanup.py'), str(scripts / 'journey.mjs'),
+        str(scripts / 'docker_workflow.py'), str(scripts / 'docker_cleanup.py'), str(scripts / 'docker_images.py'), f'{args.host}:{remote}/')
     run('scp', '-q', str(scripts.parent / 'surface/Dockerfile'), f'{args.host}:{remote}/runtime.Dockerfile')
     # All links reference complete immutable source directories, never containers.
-    run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
-        f'mv -Tf {root}/latest-{attempt} {root}/latest')
+    if uses_source:
+        run(*ssh, f'ln -s {remote}/source {root}/latest-{attempt} && '
+            f'mv -Tf {root}/latest-{attempt} {root}/latest')
     print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
     # systemd owns the worker independently of this SSH connection. Never retry
     # this start after ambiguous acknowledgement; reconnect by the same attempt.

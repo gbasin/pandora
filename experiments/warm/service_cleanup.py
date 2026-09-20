@@ -43,4 +43,7 @@ def cleanup(attempt):
 
 
 if __name__ == '__main__':
-    raise SystemExit(0 if cleanup(sys.argv[1]) else 70)
+    from docker_cleanup import cleanup as cleanup_docker
+    services = cleanup(sys.argv[1])
+    containers = cleanup_docker(Path(sys.argv[1]))
+    raise SystemExit(0 if services and containers else 70)

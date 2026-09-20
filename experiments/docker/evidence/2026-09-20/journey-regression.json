@@ -1,0 +1,41 @@
+{
+  "submission.json": {
+    "profile": "integrated-surface-v1",
+    "attempt": "07baa5912fcd4816ab99a13920c1860f",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "excluded": [],
+    "workflow": "journey",
+    "selectors": [
+      "S0-01"
+    ],
+    "require_warm": false,
+    "snapshot_seconds": 4.528722207993269,
+    "transfer_seconds": 69.0787779999664,
+    "total_seconds": 134.50504187500337,
+    "exit_code": 0
+  },
+  "metrics.json": {
+    "queue_seconds": 0.12505757799954154,
+    "dependency_cache_hit": true,
+    "dependency_seconds": 0.042280568999558454,
+    "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+    "execution_seconds": 49.51310282000122,
+    "exit_code": 0
+  },
+  "terminal.json": {
+    "state": "terminal",
+    "attempt": "07baa5912fcd4816ab99a13920c1860f",
+    "exit_code": 0,
+    "workflow": "journey",
+    "cleanup_verified": true
+  },
+  "results/journey.json": {
+    "journey": "S0-01",
+    "status": "pass",
+    "detail": ""
+  },
+  "service-cleanup.json": {
+    "verified": true,
+    "errors": []
+  }
+}

@@ -9,6 +9,7 @@ p.add_argument('--skill', type=Path, required=True)
 p.add_argument('--directory', type=Path, required=True)
 p.add_argument('--host', required=True)
 p.add_argument('--state', type=Path, required=True)
+p.add_argument('--docker-profile', type=Path)
 p.add_argument('--session', required=True)
 p.add_argument('--treatment', choices=['normal', 'block', 'redirect'], default='normal')
 a = p.parse_args()
@@ -18,7 +19,8 @@ scripts.mkdir(parents=True, exist_ok=False)
 for name in ['agent-fanout', 'launch-command-lane']:
     (scripts / name).symlink_to(a.skill.resolve() / 'scripts' / name)
 command = ['python3', str(routing / 'launch.py'), '--host', a.host,
-           '--state', str(a.state.resolve()), '--session', a.session, '--treatment', a.treatment, '--',
+           '--state', str(a.state.resolve()), '--session', a.session, '--treatment', a.treatment,
+           *(['--docker-profile', str(a.docker_profile.resolve())] if a.docker_profile else []), '--',
            str(a.skill.resolve() / 'scripts/launch-codex-lane'),
            '--codex-bin', str(routing / 'bin/codex')]
 launcher = scripts / 'launch-codex-lane'
