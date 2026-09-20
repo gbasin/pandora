@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 
 INTENT_FILE = 'publication/tracked-intent.json'
+DECLARATIONS_FILE = 'publication/tracked-declarations.json'
 RESOLUTION_FILE = 'publication/tracked-resolution.json'
 
 
@@ -53,20 +54,49 @@ def _digest(value):
     return None if value is None else hashlib.sha256(value).hexdigest()
 
 
+def _json_bytes(value):
+    return (json.dumps(value, indent=2, sort_keys=True) + '\n').encode('utf-8')
+
+
 def _atomic_json(path, value):
     temporary = path.with_name(path.name + '.tmp')
     with temporary.open('w') as handle:
-        handle.write(json.dumps(value, indent=2, sort_keys=True) + '\n')
+        handle.write(_json_bytes(value).decode('utf-8'))
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
     _fsync_directory(path.parent)
 
 
-def _write_intent(output, phase, declarations, committed):
+def _encode_committed(committed, declarations):
+    names = tuple(declarations)
+    positions = {name: index for index, name in enumerate(names)}
+    bits = bytearray((len(names) + 7) // 8)
+    for name in committed:
+        if name not in positions:
+            raise ValueError('Invalid tracked output receipt')
+        index = positions[name]
+        bits[index // 8] |= 1 << (index % 8)
+    return base64.b64encode(bits).decode('ascii')
+
+
+def _decode_committed(encoded, declarations):
+    if not isinstance(encoded, str):
+        raise ValueError('Invalid tracked output receipt')
+    try:
+        bits = base64.b64decode(encoded.encode('ascii'), validate=True)
+    except (ValueError, TypeError) as error:
+        raise ValueError('Invalid tracked output receipt') from error
+    names = tuple(declarations)
+    if len(bits) != (len(names) + 7) // 8 or (len(names) % 8 and bits[-1] >> (len(names) % 8)):
+        raise ValueError('Invalid tracked output receipt')
+    return tuple(name for index, name in enumerate(names) if bits[index // 8] & (1 << (index % 8)))
+
+
+def _write_intent(output, phase, committed, declarations_digest, declarations):
     _atomic_json(Path(output) / INTENT_FILE, {
-        'version': 1, 'phase': phase, 'declarations': _encode(declarations),
-        'committed': list(committed),
+        'version': 2, 'phase': phase, 'declarations_sha256': declarations_digest,
+        'committed': _encode_committed(committed, declarations),
     })
 
 
@@ -161,23 +191,76 @@ def _decode(encoded):
     return _normalize(decoded)
 
 
-def read_intent(output):
-    """Return durable intent, or None when publication has not begun."""
+def _declarations_document(declarations):
+    return {'version': 1, 'declarations': _encode(declarations)}
+
+
+def _prepare_declarations(output, declarations):
+    """Persist an attempt's immutable declarations and return their digest."""
+    path = Path(output) / DECLARATIONS_FILE
+    document = _declarations_document(declarations)
+    encoded = _json_bytes(document)
+    digest = _digest(encoded)
+    if path.exists():
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Tracked output declarations are not a regular file')
+        if path.read_bytes() != encoded:
+            raise ValueError('Tracked output declarations differ from pending intent')
+        return digest
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_json(path, document)
+    return digest
+
+
+def _read_intent(output):
+    """Read intent and its v2 declaration digest, if one is available."""
     path = Path(output) / INTENT_FILE
     if not path.exists():
-        return None
+        return None, None
     if path.is_symlink() or not path.is_file():
         raise ValueError('Tracked output intent is not a regular file')
     document = json.loads(path.read_text())
-    if set(document) != {'version', 'phase', 'declarations', 'committed'} or document['version'] != 1:
+    if not isinstance(document, dict) or not isinstance(document.get('version'), int):
         raise ValueError('Invalid tracked output intent schema')
-    if document['phase'] not in ('applying', 'conflicted', 'published', 'resolved') or not isinstance(document['committed'], list):
+    if document['version'] == 1:
+        if set(document) != {'version', 'phase', 'declarations', 'committed'}:
+            raise ValueError('Invalid tracked output intent schema')
+        declarations = _decode(document['declarations'])
+        digest = None
+    elif document['version'] == 2:
+        if set(document) != {'version', 'phase', 'declarations_sha256', 'committed'} or \
+           not isinstance(document['declarations_sha256'], str):
+            raise ValueError('Invalid tracked output intent schema')
+        declarations_path = Path(output) / DECLARATIONS_FILE
+        if not declarations_path.exists() or declarations_path.is_symlink() or not declarations_path.is_file():
+            raise ValueError('Tracked output declarations are not a regular file')
+        encoded = declarations_path.read_bytes()
+        digest = document['declarations_sha256']
+        if _digest(encoded) != digest:
+            raise ValueError('Tracked output declarations digest mismatch')
+        declarations_document = json.loads(encoded)
+        if not isinstance(declarations_document, dict) or set(declarations_document) != {'version', 'declarations'} or \
+           declarations_document['version'] != 1:
+            raise ValueError('Invalid tracked output declarations schema')
+        declarations = _decode(declarations_document['declarations'])
+    else:
+        raise ValueError('Invalid tracked output intent schema')
+    if document['phase'] not in ('applying', 'conflicted', 'published', 'resolved'):
         raise ValueError('Invalid tracked output intent state')
-    declarations = _decode(document['declarations'])
-    committed = tuple(document['committed'])
+    if document['version'] == 1:
+        if not isinstance(document['committed'], list):
+            raise ValueError('Invalid tracked output intent state')
+        committed = tuple(document['committed'])
+    else:
+        committed = _decode_committed(document['committed'], declarations)
     if len(set(committed)) != len(committed) or any(name not in declarations for name in committed):
         raise ValueError('Invalid tracked output receipt')
-    return TrackedIntent(document['phase'], declarations, committed)
+    return TrackedIntent(document['phase'], declarations, committed), digest
+
+
+def read_intent(output):
+    """Return durable intent, or None when publication has not begun."""
+    return _read_intent(output)[0]
 
 
 def _read_resolution(output, intent):
@@ -316,20 +399,19 @@ def publish(repo, output, declarations, fault=lambda point: None):
     if repo.is_symlink() or not repo.is_dir():
         raise ValueError('Repository must be a regular directory')
     requested = _normalize(declarations)
-    intent = read_intent(output)
+    intent, declarations_digest = _read_intent(output)
     if intent is None:
         _verify_returned_targets(output, requested)
         conflicts = _conflicts(output, repo, requested, allow_target=False)
+        declarations_digest = _prepare_declarations(output, requested)
         if conflicts:
             # Preserve immutable, verified base/target intent before reporting a
             # conflict. A later explicit local resolution must never infer it
             # from mutable source or re-run the remote journey.
-            _write_intent(output, 'conflicted', requested, ())
+            _write_intent(output, 'conflicted', (), declarations_digest, requested)
             _raise_conflict(output, conflicts)
-        intent_path = output / INTENT_FILE
-        intent_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_intent(output, 'applying', requested, ())
-        intent = read_intent(output)
+        _write_intent(output, 'applying', (), declarations_digest, requested)
+        intent = TrackedIntent('applying', requested, ())
     elif intent.declarations != requested:
         raise ValueError('Pending tracked publication belongs to different declarations')
     elif intent.phase == 'resolved':
@@ -339,22 +421,26 @@ def publish(repo, output, declarations, fault=lambda point: None):
         if not conflicts:
             raise ValueError('Conflicted tracked publication lacks conflict evidence')
         _raise_conflict(output, conflicts)
+    if declarations_digest is None:
+        # A v1 intent stays readable forever. The first recovery write upgrades
+        # it after capturing an immutable copy of the already-verified values.
+        declarations_digest = _prepare_declarations(output, intent.declarations)
     conflicts = _conflicts(output, repo, intent.declarations, allow_target=True, committed=intent.committed)
     if conflicts:
-        _write_intent(output, 'conflicted', intent.declarations, intent.committed)
+        _write_intent(output, 'conflicted', intent.committed, declarations_digest, intent.declarations)
         _raise_conflict(output, conflicts)
     committed = list(intent.committed)
     for name, item in intent.declarations.items():
         if _value(repo, name) == item['target']:
             if name not in committed:
                 committed.append(name)
-                _write_intent(output, 'applying', intent.declarations, committed)
+                _write_intent(output, 'applying', committed, declarations_digest, intent.declarations)
             continue
         _write_target(repo, output, name, item, fault)
         fault('after_write')
         committed.append(name)
-        _write_intent(output, 'applying', intent.declarations, committed)
-    _write_intent(output, 'published', intent.declarations, committed)
+        _write_intent(output, 'applying', committed, declarations_digest, intent.declarations)
+    _write_intent(output, 'published', committed, declarations_digest, intent.declarations)
     return PublicationReceipt(tuple(committed))
 
 
@@ -367,7 +453,7 @@ def resolve_with_local_contents(repo, output, declarations, fault=lambda point: 
     """
     repo, output = Path(repo), Path(output)
     requested = _normalize(declarations)
-    intent = read_intent(output)
+    intent, declarations_digest = _read_intent(output)
     if intent is None or intent.phase not in ('conflicted', 'resolved'):
         raise ValueError('No conflicted tracked publication is available to resolve')
     if intent.declarations != requested:
@@ -395,6 +481,8 @@ def resolve_with_local_contents(repo, output, declarations, fault=lambda point: 
         _atomic_json(receipt_path, receipt)
         fault('after_receipt')
     if intent.phase != 'resolved':
-        _write_intent(output, 'resolved', intent.declarations, intent.committed)
+        if declarations_digest is None:
+            declarations_digest = _prepare_declarations(output, intent.declarations)
+        _write_intent(output, 'resolved', intent.committed, declarations_digest, intent.declarations)
         fault('after_intent')
     return tuple(intent.declarations)

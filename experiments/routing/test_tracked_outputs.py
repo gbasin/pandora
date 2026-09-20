@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import tracked_outputs
 from tracked_outputs import PublicationConflict, publish, read_intent, resolve_with_local_contents, source_matches_intent
 
 
@@ -166,6 +168,57 @@ class TrackedOutputs(unittest.TestCase):
         (self.repo / 'x').write_bytes(b'old')
         with self.assertRaises(PublicationConflict):
             publish(self.repo, self.output, declarations)
+
+    def test_v1_intent_remains_readable_and_recovery_upgrades_it(self):
+        declarations = {'x': {'base': None, 'target': b'X'}}
+        self.prepare(declarations)
+        publication = self.output / 'publication'
+        publication.mkdir()
+        (publication / 'tracked-intent.json').write_text(json.dumps({
+            'version': 1,
+            'phase': 'applying',
+            'declarations': tracked_outputs._encode(declarations),
+            'committed': [],
+        }))
+        self.assertEqual(read_intent(self.output).declarations, declarations)
+        self.assertEqual(publish(self.repo, self.output, declarations).committed, ('x',))
+        intent = json.loads((publication / 'tracked-intent.json').read_text())
+        self.assertEqual(intent['version'], 2)
+        self.assertTrue((publication / 'tracked-declarations.json').is_file())
+
+    def test_v2_declaration_digest_detects_tampering(self):
+        declarations = {'x': {'base': None, 'target': b'X'}}
+        self.prepare(declarations)
+        publish(self.repo, self.output, declarations)
+        declarations_path = self.output / 'publication' / 'tracked-declarations.json'
+        declarations_path.write_bytes(declarations_path.read_bytes() + b' ')
+        with self.assertRaisesRegex(ValueError, 'digest mismatch'):
+            read_intent(self.output)
+
+    def test_progress_receipts_do_not_rewrite_declarations(self):
+        declarations = {
+            f'outputs/{index:03}.txt': {'base': None, 'target': bytes([index]) * 256}
+            for index in range(200)
+        }
+        self.prepare(declarations)
+        writes = []
+        original = tracked_outputs._atomic_json
+
+        def record(path, value):
+            writes.append((Path(path).name, len(tracked_outputs._json_bytes(value))))
+            return original(path, value)
+
+        with patch.object(tracked_outputs, '_atomic_json', side_effect=record):
+            publish(self.repo, self.output, declarations)
+
+        declaration_writes = [size for name, size in writes if name == 'tracked-declarations.json']
+        intent_writes = [size for name, size in writes if name == 'tracked-intent.json']
+        self.assertEqual(len(declaration_writes), 1)
+        self.assertEqual(len(intent_writes), len(declarations) + 2)
+        # The immutable record is written once. Each progress receipt contains
+        # only phase, digest, and a compact committed-path bitset, never target bytes.
+        self.assertLess(sum(intent_writes), len(declarations) * 2048)
+        self.assertLess(sum(size for _, size in writes), declaration_writes[0] + len(declarations) * 2048)
 
     def test_unsafe_paths_are_rejected_without_touching_target(self):
         outside = self.root / 'outside'; outside.write_bytes(b'keep')
