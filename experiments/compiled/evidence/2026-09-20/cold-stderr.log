@@ -1,0 +1,233 @@
+#0 building with "pandora-docker-builds-v1" instance using docker-container driver
+
+#1 [internal] booting buildkit
+#1 starting container buildx_buildkit_pandora-docker-builds-v10
+#1 starting container buildx_buildkit_pandora-docker-builds-v10 0.2s done
+#1 DONE 0.2s
+
+#2 [internal] load build definition from Pandora.Dockerfile
+#2 transferring dockerfile: 2.96kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#3 DONE 0.2s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [build  1/35] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#5 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 done
+#5 CACHED
+
+#6 [stage-1 2/4] WORKDIR /workspace
+#6 CACHED
+
+#7 [internal] load build context
+#7 ...
+
+#8 [build  2/35] RUN npm install --global pnpm@12.3.4
+#8 1.922 
+#8 1.922 added 2 packages in 2s
+#8 1.923 npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+#8 1.923 npm warn install-scripts   pnpm@12.3.4 (preinstall: node install.js; postinstall: node install.js)
+#8 1.923 npm warn install-scripts
+#8 1.923 npm warn install-scripts Run `npm install -g --allow-scripts=pnpm` to allow these scripts once, or `npm config set allow-scripts=pnpm --location=user` to allow them for all global installs.
+#8 1.924 npm notice
+#8 1.924 npm notice New major version of npm available! 11.19.0 -> 12.0.2
+#8 1.924 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+#8 1.924 npm notice To update run: npm install -g npm@12.0.2
+#8 1.924 npm notice
+#8 DONE 2.2s
+
+#9 [build  3/35] WORKDIR /workspace
+#9 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 380.10MB 3.7s done
+#7 DONE 3.7s
+
+#10 [build  4/35] COPY [apps/agent/package.json, ./apps/agent/package.json]
+#10 DONE 0.1s
+
+#11 [build  5/35] COPY [apps/api/package.json, ./apps/api/package.json]
+#11 DONE 0.0s
+
+#12 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#12 DONE 0.0s
+
+#13 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#13 DONE 0.0s
+
+#14 [build  8/35] COPY [apps/brand-tour/package.json, ./apps/brand-tour/package.json]
+#14 DONE 0.0s
+
+#15 [build  9/35] COPY [apps/brief/package.json, ./apps/brief/package.json]
+#15 DONE 0.0s
+
+#16 [build 10/35] COPY [apps/desk/package.json, ./apps/desk/package.json]
+#16 DONE 0.0s
+
+#17 [build 11/35] COPY [apps/film/package.json, ./apps/film/package.json]
+#17 DONE 0.0s
+
+#18 [build 12/35] COPY [apps/mockup/package.json, ./apps/mockup/package.json]
+#18 DONE 0.0s
+
+#19 [build 13/35] COPY [apps/progress/package.json, ./apps/progress/package.json]
+#19 DONE 0.0s
+
+#20 [build 14/35] COPY [apps/static-docs/package.json, ./apps/static-docs/package.json]
+#20 DONE 0.0s
+
+#21 [build 15/35] COPY [apps/web/package.json, ./apps/web/package.json]
+#21 DONE 0.0s
+
+#22 [build 16/35] COPY [legacy/apps/blueprint-viewer/package.json, ./legacy/apps/blueprint-viewer/package.json]
+#22 DONE 0.0s
+
+#23 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#23 DONE 0.0s
+
+#24 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#24 DONE 0.0s
+
+#25 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
+#25 DONE 0.0s
+
+#26 [build 20/35] COPY [legacy/apps/journey/package.json, ./legacy/apps/journey/package.json]
+#26 DONE 0.0s
+
+#27 [build 21/35] COPY [legacy/packages/blueprint/package.json, ./legacy/packages/blueprint/package.json]
+#27 DONE 0.0s
+
+#28 [build 22/35] COPY [legacy/packages/core/package.json, ./legacy/packages/core/package.json]
+#28 DONE 0.0s
+
+#29 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#29 DONE 0.0s
+
+#30 [build 24/35] COPY [package.json, ./package.json]
+#30 DONE 0.0s
+
+#31 [build 25/35] COPY [packages/client/package.json, ./packages/client/package.json]
+#31 DONE 0.0s
+
+#32 [build 26/35] COPY [packages/design/package.json, ./packages/design/package.json]
+#32 DONE 0.0s
+
+#33 [build 27/35] COPY [packages/domain/package.json, ./packages/domain/package.json]
+#33 DONE 0.0s
+
+#34 [build 28/35] COPY [packages/scenarios/package.json, ./packages/scenarios/package.json]
+#34 DONE 0.0s
+
+#35 [build 29/35] COPY [packages/vendors/package.json, ./packages/vendors/package.json]
+#35 DONE 0.0s
+
+#36 [build 30/35] COPY [packages/web-ui/package.json, ./packages/web-ui/package.json]
+#36 DONE 0.0s
+
+#37 [build 31/35] COPY [patches/decode-uri-component@0.5.0.patch, ./patches/decode-uri-component@0.5.0.patch]
+#37 DONE 0.0s
+
+#38 [build 32/35] COPY [pnpm-lock.yaml, ./pnpm-lock.yaml]
+#38 DONE 0.0s
+
+#39 [build 33/35] COPY [pnpm-workspace.yaml, ./pnpm-workspace.yaml]
+#39 DONE 0.0s
+
+#40 [build 34/35] RUN --mount=type=cache,id=pandora-compiled-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
+#40 0.069 Scope: all 19 workspace projects
+#40 0.131 ? Verifying lockfile against supply-chain policies (1299 entries)...
+#40 0.338 Packages are copied from the content-addressable store to the virtual store.
+#40 0.338   Content-addressable store is at: /pnpm/store/v11
+#40 0.338   Virtual store is at:             node_modules/.pnpm
+#40 0.917 Downloading expo-contacts@57.0.4: 0.00 B/11.21 MB
+#40 0.918 Downloading @cloudflare/workerd-linux-64@1.20260714.1: 0.00 B/37.34 MB
+#40 0.973 Downloading expo-modules-core@57.0.14: 0.00 B/30.48 MB
+#40 1.978 Progress: resolved 1163, reused 0, downloaded 334, added 320
+#40 3.007 Progress: resolved 1163, reused 0, downloaded 454, added 479
+#40 3.165 Downloading @remotion/compositor-linux-x64-gnu@4.0.522: 0.00 B/10.30 MB
+#40 4.400 Progress: resolved 1163, reused 0, downloaded 652, added 672
+#40 4.486 Downloading @rspack/binding-linux-x64-gnu@1.7.11: 0.00 B/18.89 MB
+#40 4.827 Downloading @turbo/linux-64@2.10.5: 0.00 B/18.65 MB
+#40 5.363 Downloading expo-file-system@57.0.6: 0.00 B/7.20 MB
+#40 5.430 Downloading @img/sharp-libvips-linux-x64@1.3.3: 0.00 B/8.17 MB
+#40 6.316 Downloading hermes-compiler@250829098.0.17: 0.00 B/19.18 MB
+#40 6.372 Downloading @oxlint/binding-linux-x64-gnu@1.77.0: 0.00 B/6.75 MB
+#40 7.103 ✓ Lockfile passes supply-chain policies (1299 entries in 7s)
+#40 7.103 Lockfile is up to date, resolution step is skipped
+#40 8.132 Progress: resolved 1163, reused 0, downloaded 1114, added 1139
+#40 9.121 Packages: +1163
+#40 9.121 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#40 9.227 Progress: resolved 1163, reused 0, downloaded 1124, added 1163, done
+#40 9.242 .../esbuild@0.28.1/node_modules/esbuild postinstall$ node install.js
+#40 9.242 .../esbuild@0.25.12/node_modules/esbuild postinstall$ node install.js
+#40 9.242 .../node_modules/workerd postinstall$ node install.js
+#40 9.448 .../esbuild@0.25.12/node_modules/esbuild postinstall: Done
+#40 9.457 .../esbuild@0.28.1/node_modules/esbuild postinstall: Done
+#40 9.475 .../node_modules/workerd postinstall: Done
+#40 9.980 
+#40 9.980 devDependencies:
+#40 9.980 + happy-dom 20.11.2
+#40 9.980 + marked 18.0.12
+#40 9.980 + oxfmt 0.62.0
+#40 9.980 + oxlint 1.77.0
+#40 9.980 + turbo 2.10.5
+#40 9.980 + typescript 5.9.3
+#40 9.980 + vitest 4.1.11
+#40 9.980 + yaml 2.9.0
+#40 9.980 
+#40 10.00 Done in 9.9s using pnpm v12.3.4
+#40 DONE 10.3s
+
+#41 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#41 1.381 $ vite build
+#41 1.566 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+#41 1.617 transforming...
+#41 2.517 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment
+#41 2.517 
+#41 2.517 "// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+#41 2.517 
+#41 2.517 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
+#41 2.518 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment
+#41 2.518 
+#41 2.518 "/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+#41 2.518  * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+#41 2.518  * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+#41 2.518 
+#41 2.518 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
+#41 3.419 [32m✓[39m 384 modules transformed.
+#41 3.681 rendering chunks...
+#41 3.691 computing gzip size...
+#41 3.710 [2mdist/[22m[32mindex.html                 [39m[1m[2m  0.39 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+#41 3.710 [2mdist/[22m[2massets/[22m[35mindex-5MBVbAjP.css  [39m[1m[2m  6.48 kB[22m[1m[22m[2m │ gzip:   1.39 kB[22m
+#41 3.711 [2mdist/[22m[2massets/[22m[36mindex-zGPitRJL.js   [39m[1m[33m783.52 kB[39m[22m[2m │ gzip: 225.76 kB[22m
+#41 3.711 [33m
+#41 3.711 (!) Some chunks are larger than 500 kB after minification. Consider:
+#41 3.711 - Using dynamic import() to code-split the application
+#41 3.711 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+#41 3.711 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+#41 3.711 [32m✓ built in 2.12s[39m
+#41 DONE 3.8s
+
+#42 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#42 DONE 0.0s
+
+#43 [stage-1 4/4] COPY pandora-check-build.cjs /workspace/check.cjs
+#43 DONE 0.0s
+
+#44 exporting to oci image format
+#44 exporting layers 0.0s done
+#44 exporting manifest sha256:6e3a445433eae76402c165b5b468bf45661cba2316da3e9b1b016f1cc0029ce9 done
+#44 exporting config sha256:ece8b3707c62cb7335f845244efdf9e6c26214e06b6f760342c108c9f26bad45 done
+#44 sending tarball
+#44 sending tarball 0.5s done
+#44 DONE 0.6s
+
+#45 importing to docker
+#45 DONE 0.0s
+
+#46 resolving provenance for metadata file
+#46 DONE 0.0s

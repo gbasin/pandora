@@ -1,0 +1,202 @@
+#0 building with "pandora-docker-builds-v1" instance using docker-container driver
+
+#1 [internal] booting buildkit
+#1 starting container buildx_buildkit_pandora-docker-builds-v10
+#1 starting container buildx_buildkit_pandora-docker-builds-v10 0.2s done
+#1 DONE 0.2s
+
+#2 [internal] load build definition from Pandora.Dockerfile
+#2 transferring dockerfile: 2.96kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#3 DONE 0.2s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [build  1/35] FROM docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#5 resolve docker.io/library/node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 0.0s done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 949.56kB 0.2s done
+#6 DONE 0.2s
+
+#7 [build  3/35] WORKDIR /workspace
+#7 CACHED
+
+#8 [build  8/35] COPY [apps/brand-tour/package.json, ./apps/brand-tour/package.json]
+#8 CACHED
+
+#9 [build 13/35] COPY [apps/progress/package.json, ./apps/progress/package.json]
+#9 CACHED
+
+#10 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#10 CACHED
+
+#11 [build 12/35] COPY [apps/mockup/package.json, ./apps/mockup/package.json]
+#11 CACHED
+
+#12 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#12 CACHED
+
+#13 [build 22/35] COPY [legacy/packages/core/package.json, ./legacy/packages/core/package.json]
+#13 CACHED
+
+#14 [build 10/35] COPY [apps/desk/package.json, ./apps/desk/package.json]
+#14 CACHED
+
+#15 [build 14/35] COPY [apps/static-docs/package.json, ./apps/static-docs/package.json]
+#15 CACHED
+
+#16 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
+#16 CACHED
+
+#17 [build  9/35] COPY [apps/brief/package.json, ./apps/brief/package.json]
+#17 CACHED
+
+#18 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#18 CACHED
+
+#19 [build 20/35] COPY [legacy/apps/journey/package.json, ./legacy/apps/journey/package.json]
+#19 CACHED
+
+#20 [build 21/35] COPY [legacy/packages/blueprint/package.json, ./legacy/packages/blueprint/package.json]
+#20 CACHED
+
+#21 [build 16/35] COPY [legacy/apps/blueprint-viewer/package.json, ./legacy/apps/blueprint-viewer/package.json]
+#21 CACHED
+
+#22 [build 15/35] COPY [apps/web/package.json, ./apps/web/package.json]
+#22 CACHED
+
+#23 [build 11/35] COPY [apps/film/package.json, ./apps/film/package.json]
+#23 CACHED
+
+#24 [build  2/35] RUN npm install --global pnpm@12.3.4
+#24 CACHED
+
+#25 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#25 CACHED
+
+#26 [build  4/35] COPY [apps/agent/package.json, ./apps/agent/package.json]
+#26 CACHED
+
+#27 [build  5/35] COPY [apps/api/package.json, ./apps/api/package.json]
+#27 CACHED
+
+#28 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#28 CACHED
+
+#29 [build 24/35] COPY [package.json, ./package.json]
+#29 DONE 0.0s
+
+#30 [build 25/35] COPY [packages/client/package.json, ./packages/client/package.json]
+#30 DONE 0.0s
+
+#31 [build 26/35] COPY [packages/design/package.json, ./packages/design/package.json]
+#31 DONE 0.0s
+
+#32 [build 27/35] COPY [packages/domain/package.json, ./packages/domain/package.json]
+#32 DONE 0.0s
+
+#33 [build 28/35] COPY [packages/scenarios/package.json, ./packages/scenarios/package.json]
+#33 DONE 0.0s
+
+#34 [build 29/35] COPY [packages/vendors/package.json, ./packages/vendors/package.json]
+#34 DONE 0.0s
+
+#35 [build 30/35] COPY [packages/web-ui/package.json, ./packages/web-ui/package.json]
+#35 DONE 0.0s
+
+#36 [build 31/35] COPY [patches/decode-uri-component@0.5.0.patch, ./patches/decode-uri-component@0.5.0.patch]
+#36 DONE 0.0s
+
+#37 [build 32/35] COPY [pnpm-lock.yaml, ./pnpm-lock.yaml]
+#37 DONE 0.0s
+
+#38 [build 33/35] COPY [pnpm-workspace.yaml, ./pnpm-workspace.yaml]
+#38 DONE 0.0s
+
+#39 [build 34/35] RUN --mount=type=cache,id=pandora-compiled-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
+#39 0.066 Scope: all 19 workspace projects
+#39 0.126 ? Verifying lockfile against supply-chain policies (1299 entries)...
+#39 0.397 Packages are copied from the content-addressable store to the virtual store.
+#39 0.397   Content-addressable store is at: /pnpm/store/v11
+#39 0.397   Virtual store is at:             node_modules/.pnpm
+#39 1.398 Progress: resolved 530, reused 530, downloaded 0, added 523
+#39 2.398 Progress: resolved 953, reused 953, downloaded 0, added 946
+#39 6.294 ✓ Lockfile passes supply-chain policies (1299 entries in 6.2s)
+#39 6.294 Lockfile is up to date, resolution step is skipped
+#39 6.312 Packages: +1163
+#39 6.312 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#39 6.403 Progress: resolved 1163, reused 1163, downloaded 0, added 1163, done
+#39 6.691 
+#39 6.691 devDependencies:
+#39 6.691 + happy-dom 20.11.2
+#39 6.691 + is-number 7.0.0
+#39 6.691 + marked 18.0.12
+#39 6.691 + oxfmt 0.62.0
+#39 6.691 + oxlint 1.77.0
+#39 6.691 + turbo 2.10.5
+#39 6.691 + typescript 5.9.3
+#39 6.691 + vitest 4.1.11
+#39 6.691 + yaml 2.9.0
+#39 6.691 
+#39 6.691 Done in 6.6s using pnpm v12.3.4
+#39 DONE 7.3s
+
+#40 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#40 2.167 $ vite build
+#40 2.345 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+#40 2.397 transforming...
+#40 3.290 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment
+#40 3.290 
+#40 3.290 "/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+#40 3.290  * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+#40 3.290  * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+#40 3.290 
+#40 3.290 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
+#40 3.295 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment
+#40 3.295 
+#40 3.295 "// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+#40 3.295 
+#40 3.295 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
+#40 4.248 [32m✓[39m 384 modules transformed.
+#40 4.640 rendering chunks...
+#40 4.650 computing gzip size...
+#40 4.670 [2mdist/[22m[32mindex.html                 [39m[1m[2m  0.44 kB[22m[1m[22m[2m │ gzip:   0.30 kB[22m
+#40 4.670 [2mdist/[22m[2massets/[22m[35mindex-5MBVbAjP.css  [39m[1m[2m  6.48 kB[22m[1m[22m[2m │ gzip:   1.39 kB[22m
+#40 4.671 [2mdist/[22m[2massets/[22m[36mindex-zGPitRJL.js   [39m[1m[33m783.52 kB[39m[22m[2m │ gzip: 225.76 kB[22m
+#40 4.671 [33m
+#40 4.671 (!) Some chunks are larger than 500 kB after minification. Consider:
+#40 4.671 - Using dynamic import() to code-split the application
+#40 4.671 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+#40 4.671 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+#40 4.671 [32m✓ built in 2.30s[39m
+#40 DONE 4.8s
+
+#41 [stage-1 2/4] WORKDIR /workspace
+#41 CACHED
+
+#42 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#42 CACHED
+
+#43 [stage-1 4/4] COPY pandora-check-build.cjs /workspace/check.cjs
+#43 CACHED
+
+#44 exporting to oci image format
+#44 exporting layers done
+#44 exporting manifest sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1 done
+#44 exporting config sha256:781f196de2540f485889cb95f7b8dcbe848d8792684e2edebcb8b6c461a35c2e done
+#44 sending tarball
+#44 sending tarball 0.6s done
+#44 DONE 0.7s
+
+#45 importing to docker
+#45 DONE 0.0s
+
+#46 resolving provenance for metadata file
+#46 DONE 0.0s

@@ -92,7 +92,9 @@ rebuild preservation, output delivery, cancellation, and transport recovery.
 Codex and Opus each repaired and rebuilt a failing image without queue coaching.
 A subsequent four-agent pass completed all 16 build/run requests with isolated tags
 and correct outputs.
-Physical Docker image garbage collection remains manual.
+Image reservations now survive rebuild and tag removal. [Acknowledged unused
+build tags are collected](notes/docker-image-gc-2026-09-20.md); unresolved images
+remain protected. Drain older clients and workers before enabling this protocol.
 
 The [integrated journey trial](notes/remote-journey-2026-09-20-integrated.md) ran
 Codex and Opus through failure, local repair, queued rerun, and report inspection.
@@ -193,7 +195,12 @@ worktree-scoped image tags, and conflict-checked return of declared outputs.
 The surface pilot now covers the edit/test/fix loop and publishes two generated
 build directories. The S0-01 journey now uses the same routing and recovery path.
 The bounded Docker build/run profile is implemented and evaluated on a fixture.
-Broader Docker compatibility and compiled application builds remain unevaluated.
+The [compiled application evaluation](notes/compiled-build-2026-09-20.md) now
+covers the real Ike Home Vite build: first build, identical rerun, source edit,
+dependency change, and toolchain change. Worker execution ranged from 2.0 seconds
+for an identical build to 19.9 seconds for the first recipe build. Request overhead
+still dominates warm builds. Broader Docker compatibility and concurrent agents
+using this compiled workload remain unevaluated.
 
 Evaluate source consistency, cache invalidation, output recovery, and parallel
 worktree isolation before increasing concurrency. Include Codex and Claude Opus.

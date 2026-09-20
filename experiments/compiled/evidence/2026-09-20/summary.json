@@ -1,0 +1,252 @@
+[
+  {
+    "label": "cold",
+    "attempt": "7f7310e8f9414281be9dea8c47cdd2db",
+    "source_digest": "f0bae12335d4de73499704c0569b5f947cfeb580191c8e071239d81e67c69dcf",
+    "transfer_seconds": 2.47944299998926,
+    "request_seconds": 41.16418037499534,
+    "metrics": {
+      "queue_seconds": 0.36002996399474796,
+      "execution_seconds": 19.909536716004368,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "build",
+      "tag": "compiled:test",
+      "image_id": "sha256:6e3a445433eae76402c165b5b468bf45661cba2316da3e9b1b016f1cc0029ce9",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": "f0bae12335d4de73499704c0569b5f947cfeb580191c8e071239d81e67c69dcf",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    },
+    "cleanup_verified": true
+  },
+  {
+    "label": "cold-output",
+    "attempt": "3111cb516c3f4f509dac80da74c6caad",
+    "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "transfer_seconds": 0.8031304579926655,
+    "request_seconds": 17.49118345795432,
+    "metrics": {
+      "queue_seconds": 0.26382345899764914,
+      "execution_seconds": 0.369652542998665,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "run",
+      "tag": "compiled:test",
+      "image_id": "sha256:6e3a445433eae76402c165b5b468bf45661cba2316da3e9b1b016f1cc0029ce9",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": null,
+      "image_source_digest": "f0bae12335d4de73499704c0569b5f947cfeb580191c8e071239d81e67c69dcf",
+      "platform": "linux/amd64",
+      "builder": null
+    },
+    "cleanup_verified": true,
+    "html_sha256": "ca3ab05690fe736d433d762446664cf1c1ef2cba5080b3259e0e9c535586025c",
+    "source_marker_present": false
+  },
+  {
+    "label": "identical",
+    "attempt": "9871cc0b8af645a685675045cf971a88",
+    "source_digest": "f0bae12335d4de73499704c0569b5f947cfeb580191c8e071239d81e67c69dcf",
+    "transfer_seconds": 3.3661832079524174,
+    "request_seconds": 24.001213416981045,
+    "metrics": {
+      "queue_seconds": 0.37438300299982075,
+      "execution_seconds": 2.0281230039981892,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "build",
+      "tag": "compiled:test",
+      "image_id": "sha256:6e3a445433eae76402c165b5b468bf45661cba2316da3e9b1b016f1cc0029ce9",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": "f0bae12335d4de73499704c0569b5f947cfeb580191c8e071239d81e67c69dcf",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    },
+    "cleanup_verified": true
+  },
+  {
+    "label": "identical-output",
+    "attempt": "a45dc7d0a4b8496cb5ac4608a2eb4d15",
+    "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "transfer_seconds": 0.8703985000029206,
+    "request_seconds": 13.52012487500906,
+    "metrics": {
+      "queue_seconds": 0.2863650749932276,
+      "execution_seconds": 0.4760454299976118,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "run",
+      "tag": "compiled:test",
+      "image_id": "sha256:6e3a445433eae76402c165b5b468bf45661cba2316da3e9b1b016f1cc0029ce9",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": null,
+      "image_source_digest": "f0bae12335d4de73499704c0569b5f947cfeb580191c8e071239d81e67c69dcf",
+      "platform": "linux/amd64",
+      "builder": null
+    },
+    "cleanup_verified": true,
+    "html_sha256": "ca3ab05690fe736d433d762446664cf1c1ef2cba5080b3259e0e9c535586025c",
+    "source_marker_present": false
+  },
+  {
+    "label": "source-edit",
+    "attempt": "ae178531e62845279e781762c9b16119",
+    "source_digest": "c5cd26e83414bd9cf581412c474dbb37ea8f0d78a74aba589d1ae50f408b67d6",
+    "transfer_seconds": 3.2256332500255667,
+    "request_seconds": 27.60964016697835,
+    "metrics": {
+      "queue_seconds": 0.5216857030027313,
+      "execution_seconds": 5.434040289997938,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "build",
+      "tag": "compiled:test",
+      "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": "c5cd26e83414bd9cf581412c474dbb37ea8f0d78a74aba589d1ae50f408b67d6",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    },
+    "cleanup_verified": true
+  },
+  {
+    "label": "source-output",
+    "attempt": "8323a4a782f64511ac35170d01f3d169",
+    "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "transfer_seconds": 0.7560348749975674,
+    "request_seconds": 14.190960917039774,
+    "metrics": {
+      "queue_seconds": 0.3211074059945531,
+      "execution_seconds": 0.37085513699275907,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "run",
+      "tag": "compiled:test",
+      "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": null,
+      "image_source_digest": "c5cd26e83414bd9cf581412c474dbb37ea8f0d78a74aba589d1ae50f408b67d6",
+      "platform": "linux/amd64",
+      "builder": null
+    },
+    "cleanup_verified": true,
+    "html_sha256": "8586102074ba08e5788ac9ad52656fcc3690d17fc1216b0422cf33f3b77d3c80",
+    "source_marker_present": true
+  },
+  {
+    "label": "dependency-edit",
+    "attempt": "f68033051ce44f7fb546fedc55a5887c",
+    "source_digest": "87e58b337980011789cad1da87a2270cf89575660eb2dd23eab479ab8f98074f",
+    "transfer_seconds": 2.926532415964175,
+    "request_seconds": 35.930038542021066,
+    "metrics": {
+      "queue_seconds": 0.39075649600999895,
+      "execution_seconds": 14.091014160003397,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "build",
+      "tag": "compiled:test",
+      "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": "87e58b337980011789cad1da87a2270cf89575660eb2dd23eab479ab8f98074f",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    },
+    "cleanup_verified": true
+  },
+  {
+    "label": "dependency-output",
+    "attempt": "59093a23c95c4613b169e7d3bacc5116",
+    "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "transfer_seconds": 0.7380840409896336,
+    "request_seconds": 11.677344625000842,
+    "metrics": {
+      "queue_seconds": 0.3111575810034992,
+      "execution_seconds": 0.3722315610066289,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "run",
+      "tag": "compiled:test",
+      "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": null,
+      "image_source_digest": "87e58b337980011789cad1da87a2270cf89575660eb2dd23eab479ab8f98074f",
+      "platform": "linux/amd64",
+      "builder": null
+    },
+    "cleanup_verified": true,
+    "html_sha256": "8586102074ba08e5788ac9ad52656fcc3690d17fc1216b0422cf33f3b77d3c80",
+    "source_marker_present": true
+  },
+  {
+    "label": "toolchain-edit",
+    "attempt": "ea82029c97dd4609b3fa2b898024a3ba",
+    "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+    "transfer_seconds": 3.324295709026046,
+    "request_seconds": 41.23934108397225,
+    "metrics": {
+      "queue_seconds": 0.3680965730018215,
+      "execution_seconds": 17.566794949001633,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "build",
+      "tag": "compiled:test",
+      "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "image_source_digest": null,
+      "platform": "linux/amd64",
+      "builder": "pandora-docker-builds-v1"
+    },
+    "cleanup_verified": true
+  },
+  {
+    "label": "toolchain-output",
+    "attempt": "ff81b27baf2c42ef9cdc76d5db696cb9",
+    "source_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "transfer_seconds": 0.737704458006192,
+    "request_seconds": 14.174254624987952,
+    "metrics": {
+      "queue_seconds": 0.3038478169910377,
+      "execution_seconds": 0.3738309640029911,
+      "exit_code": 0
+    },
+    "docker": {
+      "kind": "run",
+      "tag": "compiled:test",
+      "image_id": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+      "exit_code": 0,
+      "worktree_key": "da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5",
+      "source_digest": null,
+      "image_source_digest": "79bb29717bd12d68a541e36cbe9d5c7ef5ef22d56d6060075824173c468fca6b",
+      "platform": "linux/amd64",
+      "builder": null
+    },
+    "cleanup_verified": true,
+    "html_sha256": "8586102074ba08e5788ac9ad52656fcc3690d17fc1216b0422cf33f3b77d3c80",
+    "source_marker_present": true
+  }
+]
