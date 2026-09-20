@@ -1,6 +1,5 @@
 """Collect only acknowledged Pandora build tags under the worker lease."""
 import json
-from pathlib import Path
 import re
 import subprocess
 from docker_images import locked
@@ -54,7 +53,7 @@ def collect(root):
         retained = []
         removed = []
         listed = subprocess.run(['sudo', 'docker', 'image', 'ls', '--no-trunc',
-                                 '--format', '{{json .}}'], check=True, capture_output=True, text=True)
+                                 '--format', '{{json .}}'], check=True, capture_output=True, text=True, timeout=60)
         inventory = {}
         for line in listed.stdout.splitlines():
             item = json.loads(line)
@@ -65,7 +64,7 @@ def collect(root):
             if inventory[tag] in protected:
                 retained.append(tag)
                 continue
-            result = subprocess.run(['sudo', 'docker', 'image', 'rm', tag], capture_output=True)
+            result = subprocess.run(['sudo', 'docker', 'image', 'rm', tag], capture_output=True, timeout=60)
             if result.returncode:
                 retained.append(tag)
             else:
