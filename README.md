@@ -66,6 +66,12 @@ and worktree must be on the same filesystem supporting directory exchange.
 
 ## Current evidence
 
+The [different-dependency trial](notes/remote-surface-2026-09-20-dependency-isolation.md)
+ran Codex and Opus concurrently with distinct package versions. Both prepared
+their images automatically, repaired source, reused the correct image, and
+received their own build outputs. New dependency images took about 80 seconds
+even with package reuse; a warm rerun could still queue behind that preparation.
+
 The [integrated repair trial](notes/remote-surface-2026-09-20-integrated-repair.md)
 records three successful diagnose/edit/rerun samples each for Codex and Opus,
 automatic dependency preparation, returned build directories, and delivery
