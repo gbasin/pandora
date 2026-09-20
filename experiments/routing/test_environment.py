@@ -10,6 +10,25 @@ ROOT = Path(__file__).resolve().parent
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_codex_grants_state_additively_without_setting_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = root / 'codex'
+            fake.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            fake.chmod(0o755)
+            env = dict(os.environ)
+            for key in ['PANDORA_HOST', 'PANDORA_STATE', 'PANDORA_SESSION',
+                        'PANDORA_REAL_PNPM', 'PANDORA_TREATMENT', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
+                env[key] = str(root / key)
+            env['PANDORA_REAL_CODEX'] = str(fake)
+            result = subprocess.check_output(['python3', str(ROOT / 'bin/codex'), 'exec',
+                                              '--add-dir', '/existing/root', 'prompt'], env=env, text=True)
+            argv = json.loads(result)
+            self.assertEqual(argv[0:3], ['exec', '--add-dir', env['PANDORA_STATE']])
+            self.assertEqual(argv[-3:], ['--add-dir', '/existing/root', 'prompt'])
+            self.assertFalse(any('shell_environment_policy.set.PATH=' in arg for arg in argv))
+            self.assertFalse(any('writable_roots' in arg for arg in argv))
+
     def test_startup_order_manual_path_and_original_pnpm(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

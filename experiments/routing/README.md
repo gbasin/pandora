@@ -139,6 +139,6 @@ Source changes detected after execution produce exit 75, even on the first
 invocation. The previous result remains evidence for the submitted snapshot.
 
 The state directory must be writable by the agent's shell and on the same
-filesystem as the worktree. The evaluated Codex supervisor explicitly grants
-write access to this dedicated state directory, alongside its normal worktree
-and pnpm-store access. The launcher does not disable the agent's sandbox.
+filesystem as the worktree. The session-only Codex wrapper adds this state directory with `--add-dir`,
+preserving existing writable roots and sandbox mode. The evaluated supervisor
+separately grants pnpm-store access. The launcher does not disable the sandbox.

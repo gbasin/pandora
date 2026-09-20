@@ -6,7 +6,9 @@ from pathlib import Path
 import sys
 
 real = os.environ['PANDORA_REAL_CODEX']
-overrides = []
+# Add the dedicated transport state alongside existing writable roots. Do not
+# replace the user's sandbox configuration or disable it to support routing.
+overrides = ['--add-dir', os.environ['PANDORA_STATE']]
 os.environ['PATH'] = str(Path(__file__).resolve().parent) + os.pathsep + os.environ['PATH']
 for key in ['PANDORA_HOST', 'PANDORA_STATE', 'PANDORA_SESSION',
             'PANDORA_REAL_PNPM', 'PANDORA_REAL_CODEX', 'PANDORA_TREATMENT', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
