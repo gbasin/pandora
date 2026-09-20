@@ -91,6 +91,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
         command = journey_command(config)
         adapter = 'journey.mjs'
         label_text = 'journey ' + config['id']
+    services = [] if is_suite and config['action'] == 'plan' else SERVICES
     name = 'pandora-warm-' + attempt.name
     label = 'pandora.attempt=' + attempt.name
     status = 70
@@ -129,8 +130,9 @@ def execute(attempt, image, manifest, dep_entries, metrics):
         docker('exec', name, 'tar', 'xf', '/tmp/source.tar', '-C', '/workspace/source')
         overlay.unlink()
         docker('cp', str(attempt / adapter), name + ':/workspace/source/pandora-' + adapter)
-        print('[pandora] starting isolated database, pooler and proxy; no host ports', flush=True)
-        for short, service_image, env, memory in SERVICES:
+        print('[pandora] starting isolated database, pooler and proxy; no host ports' if services else
+              '[pandora] planning suite in an isolated container; no database services', flush=True)
+        for short, service_image, env, memory in services:
             docker('run', '-d', '--name', name + '-' + short, '--label', label,
                    '--label', 'pandora.workflow=journey', '--network', 'container:' + name,
                    '--cpus=.5', '--memory=' + memory, '--memory-swap=' + memory,
@@ -155,7 +157,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
             except subprocess.TimeoutExpired:
                 print('[pandora] ' + label_text + ' running; services owned by this attempt', flush=True)
         states = []
-        for suffix in ('', '-db', '-pool', '-proxy'):
+        for suffix in ['', *['-' + service[0] for service in services]]:
             raw = docker('inspect', name + suffix, '--format', '{{json .State}}', capture_output=True, text=True)
             state = json.loads(raw.stdout)
             states.append({'name': name + suffix, 'state': state})

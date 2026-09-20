@@ -38,6 +38,29 @@ class SuiteRequestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'differs'):
                 validate_result(root,submitted,{'exit_code':0},{name:'unused'})
 
+    def test_plan_execution_does_not_start_database_services(self):
+        import subprocess
+        import journey
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as temp:
+            attempt = Path(temp) / ('a' * 32); attempt.mkdir()
+            (attempt / 'submission.json').write_text(json.dumps({
+                'workflow':'suite','source_digest':'a'*64,
+                'suite':{'action':'plan','shard_count':1,'selection':None}}))
+            calls=[]
+            def docker(*args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args,0,stdout=json.dumps({'Running':True,'OOMKilled':False}))
+            with patch.object(journey,'docker',side_effect=docker), \
+                 patch.object(journey.subprocess,'run',return_value=subprocess.CompletedProcess([],0)), \
+                 patch.object(journey.subprocess,'Popen',return_value=Mock(wait=Mock(return_value=0))), \
+                 patch.object(journey,'cleanup',return_value=True):
+                self.assertEqual(journey.execute(attempt,'image',[],[],{}),0)
+            started=[args for args in calls if args[0]=='run']
+            self.assertEqual(len(started),1)
+            self.assertFalse(any('-db' in str(arg) or '-pool' in str(arg) or '-proxy' in str(arg)
+                                 for args in started for arg in args))
+
     def test_warm_captures_private_suite_request_without_routing_selectors(self):
         class Captured(Exception): pass
         with tempfile.TemporaryDirectory() as temp:
