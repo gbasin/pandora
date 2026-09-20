@@ -159,9 +159,9 @@ def record_cleanup(attempt, verified):
     """ExecStopPost can unblock a dead execution, but never invent a test result."""
     attempt = Path(attempt)
     if not verified or any((attempt / name).exists() for name in (
-            'service-cleanup.pending', 'docker-cleanup.pending', 'dependency-cleanup.pending')):
+            'service-cleanup.pending', 'docker-cleanup.pending', 'surface-cleanup.pending', 'dependency-cleanup.pending')):
         return False
-    check = subprocess.run(['sudo', 'docker', 'ps', '--filter',
+    check = subprocess.run(['sudo', 'docker', 'ps', '-a', '--filter',
                             'name=^/pandora-warm-' + attempt.name + '$', '--format', '{{.Names}}'],
                            capture_output=True, text=True, timeout=30)
     if check.returncode or check.stdout.strip():

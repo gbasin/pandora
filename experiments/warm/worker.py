@@ -160,6 +160,8 @@ def main():
     status = 70
     execution = time.monotonic()
     try:
+        # This precedes create so ExecStopPost can clean up a lost acknowledgement.
+        (attempt / 'surface-cleanup.pending').touch()
         docker('create', '--name', name, '--label', 'pandora.experiment=warm-surface',
                '--label', 'pandora.workflow=surface', '--label', 'pandora.attempt=' + attempt.name,
                *docker_limits(submitted), '--pids-limit=512',
@@ -189,21 +191,22 @@ def main():
         print('[pandora] running surface validation; installed dependencies reused', flush=True)
         status = subprocess.run(['sudo', 'docker', 'start', '--attach', name]).returncode
     finally:
-        if created:
-            subprocess.run(['sudo', 'docker', 'stop', '--time', '10', name],
-                           stdout=subprocess.DEVNULL)
-            with (attempt / 'container.json').open('w') as target:
-                docker('inspect', name, stdout=target)
-            result = subprocess.run(['sudo', 'docker', 'cp', name + ':/workspace/results',
-                                     str(attempt / 'results')])
-            if result.returncode == 0:
-                run('sudo', 'chown', '-R', '--no-dereference', f'{os.getuid()}:{os.getgid()}', str(attempt / 'results'))
-            if result.returncode and status == 0:
+        try:
+            if created:
+                subprocess.run(['sudo', 'docker', 'stop', '--time', '10', name],
+                               stdout=subprocess.DEVNULL)
+                with (attempt / 'container.json').open('w') as target:
+                    docker('inspect', name, stdout=target)
+                result = subprocess.run(['sudo', 'docker', 'cp', name + ':/workspace/results',
+                                         str(attempt / 'results')])
+                if result.returncode == 0:
+                    run('sudo', 'chown', '-R', '--no-dereference', f'{os.getuid()}:{os.getgid()}', str(attempt / 'results'))
+                if result.returncode and status == 0:
+                    status = 70
+        finally:
+            from surface_cleanup import cleanup as cleanup_surface
+            if not cleanup_surface(attempt):
                 status = 70
-            # Retain failed stopped containers for diagnostics, release processes.
-            if status == 0:
-                docker('rm', name, stdout=subprocess.DEVNULL)
-            subprocess.run(['sudo', 'systemctl', 'stop', name + '-deadline.timer'])
         metrics['execution_seconds'] = time.monotonic() - execution
         metrics['exit_code'] = status
         (attempt / 'metrics.json').write_text(json.dumps(metrics, indent=2) + '\n')
