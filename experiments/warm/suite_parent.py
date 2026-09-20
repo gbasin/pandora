@@ -144,8 +144,18 @@ def execute(parent, submitted):
         waited += queue_wait(child)
         state.update(queue_seconds=waited, completed=[*state['completed'], identity])
         write(parent / 'suite-state.json', state)
+        if terminal['exit_code'] == 124:
+            reason = 'deadline'
         if index == 0:
             if terminal['exit_code'] != 0:
+                if reason == 'deadline':
+                    state['stop_reason'] = reason
+                    write(parent / 'suite-state.json', state)
+                    write(parent / 'results/suite-error.json', {
+                        'version': 1, 'parent_attempt': parent.name, 'source_digest': submitted['source_digest'],
+                        'plan_attempt': identity, 'reason': reason, 'exit_code': terminal['exit_code']})
+                    (parent / 'results/exit-code').write_text('75\n')
+                    return 75
                 state['stop_reason'] = 'planning-failed'
                 write(parent / 'suite-state.json', state)
                 write(parent / 'results/suite-error.json', {
@@ -247,9 +257,15 @@ def validate_planning_failure(stage, submitted, terminal, manifest):
         raise ValueError('Invalid failed planning invocation')
     error = json.loads((stage / 'results/suite-error.json').read_text())
     expected_error = {'version': 1, 'parent_attempt': submitted['attempt'], 'source_digest': submitted['source_digest'],
-                      'plan_attempt': identities[0], 'reason': 'planning-failed', 'exit_code': terminal['exit_code']}
+                      'plan_attempt': identities[0], 'reason': None, 'exit_code': None}
     state = json.loads((stage / 'suite-state.json').read_text())
-    if error != expected_error or state['completed'] != identities[:1] or state['stop_reason'] != 'planning-failed':
+    if error.get('reason') not in ('planning-failed', 'deadline'):
+        raise ValueError('Failed plan has an invalid stop reason')
+    if error['reason'] == 'deadline' and terminal['exit_code'] != 75:
+        raise ValueError('Deadline planning stop must exit 75')
+    expected_error['reason'] = error['reason']
+    expected_error['exit_code'] = 124 if error['reason'] == 'deadline' else terminal['exit_code']
+    if error != expected_error or state['completed'] != identities[:1] or state['stop_reason'] != error['reason']:
         raise ValueError('Failed plan receipt does not match reserved work')
     child = stage / 'results/attempts' / identities[0]
     for name in ('submission.json', 'terminal.json', 'artifacts.json'):
@@ -261,7 +277,8 @@ def validate_planning_failure(stage, submitted, terminal, manifest):
             metadata.get('source_digest') != submitted['source_digest'] or metadata.get('workflow') != 'suite'):
         raise ValueError('Failed plan receipt belongs to different work')
     receipt = validate_evidence(child, identities[0], metadata)
-    if receipt['exit_code'] != terminal['exit_code']:
+    expected_child_exit = 124 if error['reason'] == 'deadline' else terminal['exit_code']
+    if receipt['exit_code'] != expected_child_exit:
         raise ValueError('Failed plan disagrees with invocation exit')
     validate_queue_accounting(stage, submitted, manifest, state, identities)
 

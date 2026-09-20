@@ -101,8 +101,8 @@ def execute(attempt, image, manifest, dep_entries, metrics):
     (attempt / 'service-cleanup.pending').touch()
     try:
         subprocess.run(['sudo', 'systemd-run', '--quiet', '--unit=' + name + '-deadline',
-                        '--on-active=20m', '/usr/bin/systemctl', 'stop',
-                        'pandora-worker-' + attempt.name + '.service'], check=True, timeout=30)
+                        '--on-active=20m', '/usr/bin/python3', str(attempt / 'deadline_stop.py'),
+                        str(attempt)], check=True, timeout=30)
         docker('network', 'create', '--label', label, name, stdout=subprocess.DEVNULL)
         docker('run', '-d', '--name', name, '--label', label, '--label', 'pandora.workflow=journey',
                '--network', name, '--network-alias', 'pgbouncer', '--cpus=2',
