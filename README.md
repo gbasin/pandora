@@ -277,3 +277,5 @@ expectation updates remain unimplemented.
 [Suite foundation evidence](notes/suite-shards-2026-09-20.md) records real shard success, failure, and incomplete-evidence rejection.
 
 [Parent invocation evidence](notes/suite-parent-2026-09-20.md) covers client-loss recovery, fail-fast, keep-going, queue exhaustion, and failed planning.
+
+The [resource admission experiment](experiments/scheduler/README.md) proves CPU/RAM reservations, fair turns, and invocation waiting clocks in isolation. It is not connected to production routing yet. [Evidence](notes/resource-admission-2026-09-20.md).
