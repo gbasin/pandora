@@ -238,3 +238,18 @@ requires cold builds, identical reruns, source edits, and dependency changes.
 The current [pilot design](DESIGN.md) documents the narrower implemented trial.
 The dated notes preserve what happened in each experiment; later merges do not
 rewrite their historical claims.
+
+
+## Expanded v0.1 target
+
+The [command contract](notes/v0.1-contract.md) now prioritizes long-running Eichler
+tests: focused/full journeys, both browser surfaces, internal shard scheduling,
+and declared tracked expectation return for `--update`. These additions are
+implementation targets. Current routing still supports borrower-web surfaces,
+S0-01 without update, and the bounded Docker grammar described above.
+
+The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
+reuse and a focused remote update POC, plus synthetic publication recovery. It
+does not establish integrated tracked writeback, actual shard execution or
+multi-server recovery. [Issue #27](https://github.com/gbasin/pandora/issues/27)
+tracks the sequence and evidence. Fast standalone checks and builds stay local.
