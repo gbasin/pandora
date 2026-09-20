@@ -84,16 +84,22 @@ def main():
         print(json.dumps({'state': 'infrastructure-failed',
                           'operator_result': json.loads(operator_result.read_text())}))
         return
-    terminal_result = None
-    if terminal.is_file() and not terminal.is_symlink():
+    # The operator writes this only after it has rejected a full terminal
+    # evidence validation.  It therefore takes precedence over a retained,
+    # malformed terminal whose basic cleanup fields alone look plausible.
+    if operator_result.is_file() and not operator_result.is_symlink():
+        result = {'state': 'infrastructure-failed',
+                  'operator_result': json.loads(operator_result.read_text())}
+    elif terminal.is_file() and not terminal.is_symlink():
         try:
-            candidate = json.loads(terminal.read_text())
+            result = json.loads(terminal.read_text())
         except (OSError, ValueError):
-            candidate = None
-        if isinstance(candidate, dict) and candidate.get('attempt') == attempt and candidate.get('cleanup_verified') is True:
-            terminal_result = candidate
-    if terminal_result is not None:
-        result = terminal_result
+            result = None
+        if not (isinstance(result, dict) and result.get('attempt') == attempt and result.get('cleanup_verified') is True):
+            result = None
+    else:
+        result = None
+    if result is not None and 'operator_result' not in result:
         if action == 'release' and result.get('cleanup_verified'):
             (path / 'released').touch()
             if result.get('workflow') == 'suite-run':
@@ -105,18 +111,12 @@ def main():
                         receipt = json.loads((child / 'terminal.json').read_text())
                         if receipt.get('attempt') == identity and receipt.get('cleanup_verified'):
                             (child / 'released').touch()
-    elif operator_result.is_file() and not operator_result.is_symlink():
-        # An operator acknowledgement is an infrastructure outcome, never a
-        # terminal test receipt.  Keep a malformed terminal available for the
-        # client to bind into the acknowledgement rather than inventing a pass.
-        result = {'state': 'infrastructure-failed',
-                  'operator_result': json.loads(operator_result.read_text())}
-    elif not (path / 'worker.json').exists() and (path / 'cancel.request').exists():
+    elif result is None and not (path / 'worker.json').exists() and (path / 'cancel.request').exists():
         # Registration precedes the worker's cancel-marker check. A late worker
         # therefore exits before preparation/execution even if no PID exists yet.
         result = {'exit_code': 130, 'cleanup_verified': True,
                   'state': 'cancelled-before-start'}
-    else:
+    elif result is None:
         result = {'state': 'active-or-unresolved'}
     result['registered'] = (path / 'worker.json').exists()
     result['offsets'] = offsets

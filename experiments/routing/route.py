@@ -173,6 +173,22 @@ def main(tool='pnpm'):
             return 75
         active = state / 'active.json'
         record = json.loads(active.read_text()) if active.exists() else None
+        if record is not None and record.get('state') == 'infrastructurefailure':
+            # A crash can follow the durable active-state update but precede the
+            # local completion marker. Repair that marker before allowing the
+            # next explicit command to create a new attempt.
+            try:
+                output = Path(record['output'])
+                receipt = validate_operator_result(output, record['attempt'])
+                write(output / 'completed.json', {'attempt': record['attempt'],
+                                                  'outcome': 'infrastructure-failed'})
+                record['operator_result'] = receipt
+                write(active, record)
+            except (KeyError, OSError, ValueError) as error:
+                print('[pandora] Acknowledged infrastructure outcome is incomplete locally: ' + str(error) +
+                      '. Retry this command after restoring its evidence; no replacement submitted.', file=sys.stderr)
+                return 75
+            record = None
         recovering = record is not None and record['state'] == 'active'
         if recovering:
             if record.get('host') != os.environ['PANDORA_HOST'] or record['command'] != argv or record.get('tool', 'pnpm') != tool:
