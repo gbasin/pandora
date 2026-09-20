@@ -111,6 +111,8 @@ def main():
                    or e['path'].startswith('patches/')]
     key = hashlib.sha256(b'deps-recipe-v3' + recipe.encode() + encode(dep_entries)).hexdigest()
     image = 'pandora-deps:' + key
+    from dependency_images import pin
+    pin(attempt, image)
     exists = subprocess.run(['sudo', 'docker', 'image', 'inspect', image],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
     metrics['dependency_cache_hit'] = exists
@@ -275,6 +277,8 @@ if __name__ == '__main__':
                 'cleanup_verified': suite_clean and not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
+    from dependency_images import release
+    release(Path.cwd())
     if resource_lease is not None:
         resource_lease.close()
     raise SystemExit(status)
