@@ -1,0 +1,10 @@
+{
+  "attempt": "708b441aac754d0b89bead7895eb8a9c",
+  "manifest_only": true,
+  "capture_seconds": 0.6329967919737101,
+  "sync_seconds": 0.39282395801274106,
+  "prepare_verify_seconds": 4.658737999969162,
+  "ready_seconds": 5.684558749955613,
+  "total_seconds": 59.26858608296607,
+  "session": "pandora-journey-99a44e87abc1"
+}

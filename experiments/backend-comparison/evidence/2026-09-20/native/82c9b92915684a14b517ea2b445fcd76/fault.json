@@ -1,0 +1,5 @@
+{
+  "status": 1,
+  "seconds": 11.2925723749795,
+  "processes_after_disconnect": "PID                 COMMAND\n394199              /usr/bin/buildkitd --addr unix:///run/pandora-poc/buildkit.sock --group 1000\n"
+}

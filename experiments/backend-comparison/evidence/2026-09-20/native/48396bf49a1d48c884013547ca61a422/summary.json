@@ -1,0 +1,10 @@
+{
+  "stable_context": true,
+  "snapshot_seconds": 9.77291250001872,
+  "setup_seconds": 32.02711108297808,
+  "build_seconds": 86.25854916701792,
+  "import_seconds": 0.14040633296826854,
+  "ready_seconds": 128.198979082983,
+  "image": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+  "test": "Compiled application verified source-edit-20260920\n"
+}

@@ -1,0 +1,63 @@
+{
+  "buildx.build.provenance": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/node@24-bookworm-slim?digest=sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6\u0026platform=linux%2Famd64",
+        "digest": {
+          "sha256": "0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Pandora.Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ],
+        "root": {
+          "configSource": {
+            "path": "Pandora.Dockerfile"
+          },
+          "request": {
+            "args": {
+              "vcs:localdir:context": ".poc-stress-test/native/8909b9694d4341f68235fb4e5fec644c/source",
+              "vcs:localdir:dockerfile": ".poc-stress-test/native/8909b9694d4341f68235fb4e5fec644c/source",
+              "vcs:revision": "488ea947be1f6bae275d1bb135125db92b228222",
+              "vcs:source": "git@github.com:gbasin/pandora.git"
+            }
+          }
+        },
+        "compatibilityVersion": 30
+      },
+      "environment": {
+        "dockerfileVersion": "1.26.0",
+        "platform": "linux/amd64"
+      }
+    }
+  },
+  "buildx.build.ref": "poc-8909b9694d4341f68235fb4e5fec644c/poc-8909b9694d4341f68235fb4e5fec644c0/8rkz27sc9uzsaaogikttfusnd",
+  "containerimage.config.digest": "sha256:781f196de2540f485889cb95f7b8dcbe848d8792684e2edebcb8b6c461a35c2e",
+  "containerimage.descriptor": {
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "digest": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+    "size": 1810,
+    "platform": {
+      "architecture": "amd64",
+      "os": "linux"
+    }
+  },
+  "containerimage.digest": "sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1",
+  "image.name": "127.0.0.1:15000/pandora-poc:compiled"
+}

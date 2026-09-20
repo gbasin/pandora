@@ -1,0 +1,8 @@
+{
+  "remote_agent_killed": true,
+  "flush_failures_before_recovery": [
+    "Error: unable to flush session: session is not currently able to synchronize\n"
+  ],
+  "flush_reconnected_seconds": 2.805796082946472,
+  "value": "after-disconnect\n"
+}
