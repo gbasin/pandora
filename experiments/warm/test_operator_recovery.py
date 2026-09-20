@@ -1,7 +1,10 @@
 import json
 import fcntl
 from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -231,7 +234,7 @@ class OperatorRecoveryTest(unittest.TestCase):
         child = self.suite_child("b" * 32)
         self.suite_parent([child.name])
         with patch("operator_recovery.alive", side_effect=lambda attempt: Path(attempt) == self.attempt), \
-                patch("operator_recovery.cleanup") as clean:
+                patch("operator_recovery._cleanup_locked") as clean:
             with self.assertRaisesRegex(recovery.RecoveryBlocked, "Live suite parent"):
                 recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", list_resources=lambda args: [])
         clean.assert_not_called()
@@ -239,7 +242,8 @@ class OperatorRecoveryTest(unittest.TestCase):
     def test_suite_parent_resumes_mixed_terminal_and_acknowledged_children(self):
         terminal = self.suite_child("b" * 32, terminal=True)
         acknowledged = self.suite_child("c" * 32, acknowledged=True)
-        self.suite_parent([terminal.name, acknowledged.name])
+        reserved = "d" * 32
+        self.suite_parent([terminal.name, acknowledged.name, reserved])
         calls = []
         def clean(root, identity, **kwargs):
             calls.append(identity)
@@ -247,16 +251,24 @@ class OperatorRecoveryTest(unittest.TestCase):
             (path / "admission-cleanup.json").write_text(json.dumps({"attempt": identity, "cleanup_verified": True}))
             (path / "suite-cleanup.pending").unlink(missing_ok=True)
             return recovery._state(root, identity)
-        with patch("operator_recovery.cleanup", side_effect=clean):
+        with patch("operator_recovery._cleanup_locked", side_effect=clean):
             result = recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", now=lambda: 3, list_resources=lambda args: [])
         self.assertEqual(calls, [IDENTITY])
         self.assertEqual(result["state"], "infrastructure-failed")
         self.assertTrue((self.attempt / "operator-cleanup.json").exists())
         # A retry retains each immutable receipt and performs no child cleanup.
-        with patch("operator_recovery.cleanup", side_effect=clean) as cleanup:
+        with patch("operator_recovery._cleanup_locked", side_effect=clean) as cleanup:
             retry = recovery.acknowledge_suite_parent(self.root, IDENTITY, "different", now=lambda: 4, list_resources=lambda args: [])
         self.assertEqual(retry, result)
         self.assertEqual([item.args[1] for item in cleanup.call_args_list], [IDENTITY])
+
+    def test_suite_parent_rejects_reserved_child_with_owned_resource(self):
+        reserved = "b" * 32
+        self.suite_parent([reserved])
+        resource = [{"Names": "pandora-warm-" + reserved, "Labels": "pandora.attempt=" + reserved}]
+        with self.assertRaisesRegex(recovery.RecoveryBlocked, "Reserved suite child has an owned resource"):
+            recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot",
+                                               list_resources=lambda args: resource if args[0] == "ps" else [])
 
     def test_suite_parent_resumes_after_parent_cleanup_receipt_before_acknowledgement(self):
         child = self.suite_child("b" * 32, acknowledged=True)
@@ -267,7 +279,7 @@ class OperatorRecoveryTest(unittest.TestCase):
         (self.attempt / "operator-cleanup.json").write_text(json.dumps(stored))
         def clean(*args, **kwargs):
             return recovery._state(self.root, IDENTITY)
-        with patch("operator_recovery.cleanup", side_effect=clean):
+        with patch("operator_recovery._cleanup_locked", side_effect=clean):
             result = recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", now=lambda: 8, list_resources=lambda args: [])
         self.assertEqual(json.loads((self.attempt / "operator-cleanup.json").read_text()), stored)
         self.assertEqual(result["state"], "infrastructure-failed")
@@ -280,6 +292,68 @@ class OperatorRecoveryTest(unittest.TestCase):
         (child / "operator-result.json").write_text(json.dumps(receipt))
         with self.assertRaisesRegex(recovery.RecoveryBlocked, "immutable"):
             recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", list_resources=lambda args: [])
+
+    def test_suite_parent_uses_current_operator_cleanup_not_old_attempt_copy(self):
+        child = self.suite_child("b" * 32, acknowledged=True)
+        self.suite_parent([child.name])
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            self.assertEqual(Path(command[1]), Path(recovery.__file__).with_name("service_cleanup.py"))
+            self.assertNotEqual(Path(command[1]), self.attempt / "service_cleanup.py")
+            (self.attempt / "admission-cleanup.json").write_text(json.dumps({"attempt": IDENTITY, "cleanup_verified": True}))
+            (self.attempt / "suite-cleanup.pending").unlink()
+            return type("Result", (), {"returncode": 0, "stderr": ""})()
+        recovery.acknowledge_suite_parent(self.root, IDENTITY, "host-reboot", run=run, list_resources=lambda args: [])
+        self.assertEqual(len(calls), 1)
+
+    def test_current_service_entrypoint_resolves_acknowledged_child_where_old_copy_fails(self):
+        """Exercise the real Python entrypoint, not a mocked cleanup function."""
+        def bundle(directory, old=False):
+            source = Path(recovery.__file__).parent
+            shutil.copy(source / "service_cleanup.py", directory / "service_cleanup.py")
+            shutil.copy(source / "suite_parent_cleanup.py", directory / "suite_parent_cleanup.py")
+            for name in ("docker_cleanup.py", "dependencies.py", "surface_cleanup.py"):
+                (directory / name).write_text("def cleanup(attempt): return True\n")
+            (directory / "cleanup_identity.py").write_text("")
+            (directory / "admission.py").write_text(
+                "import json\n"
+                "def alive(attempt): return False\n"
+                "def record_cleanup(attempt, verified):\n"
+                "    if verified: (attempt / 'admission-cleanup.json').write_text(json.dumps({'attempt': attempt.name, 'cleanup_verified': True}))\n"
+                "    return verified\n")
+            if old:
+                (directory / "suite_parent_cleanup.py").write_text(
+                    "import json\nfrom pathlib import Path\n"
+                    "def cleanup(parent):\n"
+                    "    parent = Path(parent); root = parent.parent.parent\n"
+                    "    for identity in json.loads((parent / 'children.json').read_text())['children']:\n"
+                    "        child = root / 'runs' / identity\n"
+                    "        if child.exists() and not (child / 'terminal.json').exists(): return False\n"
+                    "    (parent / 'suite-cleanup.pending').unlink(missing_ok=True); return True\n")
+
+        def stage(root):
+            parent = root / "runs" / IDENTITY; parent.mkdir(parents=True)
+            child_id = "b" * 32; child = root / "runs" / child_id; child.mkdir()
+            submitted = {"attempt": child_id, "workflow": "surface", "source_digest": "d" * 64}
+            content = json.dumps(submitted).encode(); (child / "submission.json").write_bytes(content)
+            (child / "operator-result.json").write_text(json.dumps({
+                "attempt": child_id, "state": "infrastructure-failed", "reason": "host-reboot", "cleanup_verified": True,
+                "acknowledged_at": 1, "submission_sha256": __import__("hashlib").sha256(content).hexdigest(),
+                "source_digest": submitted["source_digest"], "workflow": "surface"}))
+            (parent / "suite-cleanup.pending").touch()
+            (parent / "children.json").write_text(json.dumps({"version": 1, "parent_attempt": IDENTITY, "children": [child_id]}))
+            return parent
+
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            current, old = temporary / "current", temporary / "old"
+            current.mkdir(); old.mkdir(); bundle(current); bundle(old, old=True)
+            current_parent, old_parent = stage(temporary / "current-root"), stage(temporary / "old-root")
+            accepted = subprocess.run([sys.executable, str(current / "service_cleanup.py"), str(current_parent)], capture_output=True, text=True)
+            rejected = subprocess.run([sys.executable, str(old / "service_cleanup.py"), str(old_parent)], capture_output=True, text=True)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 70, rejected.stderr)
 
 
 if __name__ == "__main__": unittest.main()

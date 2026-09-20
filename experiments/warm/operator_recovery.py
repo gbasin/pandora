@@ -236,6 +236,36 @@ def _exact_cleanup_inventory(attempt, *, list_resources=inventory):
     return selected
 
 
+def _reserved_child_is_clear(root, identity, *, list_resources=inventory):
+    """A registry reservation is safe only when no exact name or label exists."""
+    names = {"pandora-warm-" + identity + suffix for suffix in ("", "-db", "-pool", "-proxy")}
+    for command, name_key in ((["ps", "-a"], "Names"), (["network", "ls"], "Name")):
+        for item in list_resources(command):
+            name, raw = item.get(name_key), item.get("Labels", "")
+            if not isinstance(name, str) or not isinstance(raw, str):
+                raise RecoveryBlocked("Docker inventory has malformed reserved-child data")
+            if name in names or ("pandora.attempt=" + identity) in raw:
+                raise RecoveryBlocked("Reserved suite child has an owned resource: " + identity)
+    return True
+
+
+def _cleanup_locked(root, identity, *, run, list_resources, entrypoint=None):
+    attempt = _attempt(root, identity)
+    if alive(attempt):
+        raise RecoveryBlocked("Attempt owner is live; refusing cleanup")
+    _exact_cleanup_inventory(attempt, list_resources=list_resources)
+    program = entrypoint or attempt / "service_cleanup.py"
+    if not program.is_file() or program.is_symlink():
+        raise RecoveryBlocked("Attempt has no safe worker-bundled cleanup entrypoint")
+    result = run([sys.executable, str(program), str(attempt)], capture_output=True, text=True, timeout=120)
+    if result.returncode:
+        raise RecoveryBlocked("Exact cleanup did not verify; resources remain a barrier: " + result.stderr.strip())
+    state = _state(root, identity)
+    if not state["cleanup_verified"] or state["pending"]:
+        raise RecoveryBlocked("Cleanup returned without a verified complete receipt")
+    return state
+
+
 def cleanup(root, identity, *, run=subprocess.run, list_resources=inventory):
     """Invoke the copied, exact-attempt systemd cleanup entrypoint after owner death."""
     attempt = _attempt(root, identity)
@@ -245,19 +275,7 @@ def cleanup(root, identity, *, run=subprocess.run, list_resources=inventory):
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise RecoveryBlocked("Worker is busy; wait for its lease before cleanup") from error
-        if alive(attempt):
-            raise RecoveryBlocked("Attempt owner is live; refusing cleanup")
-        _exact_cleanup_inventory(attempt, list_resources=list_resources)
-        entrypoint = attempt / "service_cleanup.py"
-        if not entrypoint.is_file() or entrypoint.is_symlink():
-            raise RecoveryBlocked("Attempt has no safe worker-bundled cleanup entrypoint")
-        result = run([sys.executable, str(entrypoint), str(attempt)], capture_output=True, text=True, timeout=120)
-        if result.returncode:
-            raise RecoveryBlocked("Exact cleanup did not verify; resources remain a barrier: " + result.stderr.strip())
-        state = _state(root, identity)
-        if not state["cleanup_verified"] or state["pending"]:
-            raise RecoveryBlocked("Cleanup returned without a verified complete receipt")
-        return state
+        return _cleanup_locked(root, identity, run=run, list_resources=list_resources)
 
 
 def acknowledge_missing_result(root, identity, reason, *, now=time.time, list_resources=inventory):
@@ -270,100 +288,114 @@ def acknowledge_missing_result(root, identity, reason, *, now=time.time, list_re
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise RecoveryBlocked("Worker is busy; wait for its lease before acknowledgement") from error
-        state = _state(root, identity)
-        terminal = attempt / "terminal.json"
-        target = attempt / "operator-result.json"
-        if state["alive"] or state["terminal_verified"]:
-            raise RecoveryBlocked("Missing-result acknowledgement requires a dead owner and refuses a valid terminal result")
-        if not state["cleanup_verified"] or state["pending"]:
-            raise RecoveryBlocked("Missing-result acknowledgement requires verified cleanup")
-        if _exact_cleanup_inventory(attempt, list_resources=list_resources):
-            raise RecoveryBlocked("Exact owned resources remain after cleanup")
-        binding = _binding(attempt)
-        if target.exists() or target.is_symlink():
-            if _acknowledgement_matches(attempt, identity):
-                return json.loads(target.read_text())
-            raise RecoveryBlocked("Operator result is immutable and already exists")
-        value = {"attempt": identity, "state": "infrastructure-failed", "reason": reason,
-                 "cleanup_verified": True, "acknowledged_at": now()} | binding
-        temporary_path = attempt / ("operator-result." + secrets.token_hex(8) + ".tmp")
-        descriptor = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as temporary:
-            temporary.write(json.dumps(value, sort_keys=True) + "\n")
-            temporary.flush(); os.fsync(temporary.fileno())
-        os.replace(temporary_path, target)
-        return value
+        return _acknowledge_locked(root, identity, reason, now=now, list_resources=list_resources)
+
+
+def _acknowledge_locked(root, identity, reason, *, now, list_resources):
+    attempt = _attempt(root, identity)
+    state = _state(root, identity)
+    target = attempt / "operator-result.json"
+    if state["alive"] or state["terminal_verified"]:
+        raise RecoveryBlocked("Missing-result acknowledgement requires a dead owner and refuses a valid terminal result")
+    if not state["cleanup_verified"] or state["pending"]:
+        raise RecoveryBlocked("Missing-result acknowledgement requires verified cleanup")
+    if _exact_cleanup_inventory(attempt, list_resources=list_resources):
+        raise RecoveryBlocked("Exact owned resources remain after cleanup")
+    binding = _binding(attempt)
+    if target.exists() or target.is_symlink():
+        if _acknowledgement_matches(attempt, identity):
+            return json.loads(target.read_text())
+        raise RecoveryBlocked("Operator result is immutable and already exists")
+    value = {"attempt": identity, "state": "infrastructure-failed", "reason": reason,
+             "cleanup_verified": True, "acknowledged_at": now()} | binding
+    temporary_path = attempt / ("operator-result." + secrets.token_hex(8) + ".tmp")
+    descriptor = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as temporary:
+        temporary.write(json.dumps(value, sort_keys=True) + "\n")
+        temporary.flush(); os.fsync(temporary.fileno())
+    os.replace(temporary_path, target)
+    return value
 
 
 def acknowledge_suite_parent(root, identity, reason, *, now=time.time, run=subprocess.run, list_resources=inventory):
     """Resolve a lost suite only after each staged child is independently resolved."""
+    if not reason or not isinstance(reason, str):
+        raise ValueError("A nonempty infrastructure reason is required")
+    root = Path(root)
     parent = _attempt(root, identity)
     registry = parent / "children.json"
-    if alive(parent):
-        raise RecoveryBlocked("Live suite parent prevents acknowledgement")
-    try:
-        from suite_parent_cleanup import validate_registry
-        children = validate_registry(parent, json.loads(registry.read_text()))
-        parent_submission = json.loads((parent / "submission.json").read_text())
-    except (OSError, ValueError, TypeError, AttributeError) as error:
-        raise RecoveryBlocked("Suite parent registry or submission is malformed") from error
-    if not isinstance(parent_submission, dict) or parent_submission.get("attempt") != identity or parent_submission.get("workflow") != "suite-run":
-        raise RecoveryBlocked("Parent submission is not a suite run")
-    for child in children:
-        attempt = _attempt(root, child)
-        try: submitted = json.loads((attempt / "submission.json").read_text())
-        except (OSError, ValueError, TypeError, AttributeError) as error: raise RecoveryBlocked("Child submission is malformed") from error
-        if not isinstance(submitted, dict) or submitted.get("attempt") != child or submitted.get("parent_attempt") != identity:
-            raise RecoveryBlocked("Child submission does not belong to this suite parent")
-        state = _state(root, child)
-        if state["alive"]: raise RecoveryBlocked("Live suite child prevents parent acknowledgement")
-        if state["terminal_verified"]:
-            if state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources):
-                raise RecoveryBlocked("Verified suite child still has cleanup barriers")
-            continue
-        if _operator_result(attempt / "operator-result.json", child):
-            # Idempotence is conditional: re-check immutable source, terminal,
-            # cleanup, and ownership bindings before trusting a prior receipt.
-            acknowledge_missing_result(root, child, reason, now=now, list_resources=list_resources)
-            continue
-        cleanup(root, child, run=run, list_resources=list_resources)
-        acknowledge_missing_result(root, child, reason, now=now, list_resources=list_resources)
-    if alive(parent):
-        raise RecoveryBlocked("Live suite parent prevents acknowledgement")
-    for child in children:
-        attempt = _attempt(root, child)
-        state = _state(root, child)
-        if (state["alive"] or state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources)
-                or not (state["terminal_verified"] or _acknowledgement_matches(attempt, child))):
-            raise RecoveryBlocked("Every suite child requires resolved evidence and no cleanup barrier")
-    # This invokes the copied cleanup entrypoint. Its suite cleanup recognizes
-    # only bound child acknowledgements, then admission records parent cleanup.
-    cleanup(root, identity, run=run, list_resources=list_resources)
-    for child in children:
-        attempt = _attempt(root, child)
-        state = _state(root, child)
-        if (state["alive"] or state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources)
-                or not (state["terminal_verified"] or _acknowledgement_matches(attempt, child))):
-            raise RecoveryBlocked("Suite child cleanup changed before parent acknowledgement")
-    receipt_path = parent / "operator-cleanup.json"
-    stable = {"parent_attempt": identity, "children": children, "cleanup_verified": True}
-    if receipt_path.exists() or receipt_path.is_symlink():
-        try: existing = json.loads(receipt_path.read_text())
-        except (OSError, ValueError, TypeError, AttributeError): existing = None
-        if (not receipt_path.is_file() or receipt_path.is_symlink() or not isinstance(existing, dict)
-                or set(existing) != set(stable) | {"acknowledged_at"}
-                or not isinstance(existing.get("acknowledged_at"), (int, float)) or isinstance(existing.get("acknowledged_at"), bool)
-                or any(existing.get(key) != value for key, value in stable.items())):
-            raise RecoveryBlocked("Suite operator cleanup receipt is immutable")
-    else:
-        value = stable | {"acknowledged_at": now()}
-        temporary = parent / ("operator-cleanup." + secrets.token_hex(8) + ".tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as target:
-            target.write(json.dumps(value, sort_keys=True) + "\n")
-            target.flush(); os.fsync(target.fileno())
-        os.replace(temporary, receipt_path)
-    return acknowledge_missing_result(root, identity, reason, now=now, list_resources=list_resources)
+    with (root / "worker.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RecoveryBlocked("Worker is busy; wait before suite acknowledgement") from error
+        if alive(parent):
+            raise RecoveryBlocked("Live suite parent prevents acknowledgement")
+        try:
+            from suite_parent_cleanup import validate_registry
+            children = validate_registry(parent, json.loads(registry.read_text()))
+            parent_submission = json.loads((parent / "submission.json").read_text())
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            raise RecoveryBlocked("Suite parent registry or submission is malformed") from error
+        if not isinstance(parent_submission, dict) or parent_submission.get("attempt") != identity or parent_submission.get("workflow") != "suite-run":
+            raise RecoveryBlocked("Parent submission is not a suite run")
+        staged = []
+        for child in children:
+            candidate = root / "runs" / child
+            if not candidate.exists():
+                _reserved_child_is_clear(root, child, list_resources=list_resources)
+                continue
+            attempt = _attempt(root, child)
+            staged.append(child)
+            try: submitted = json.loads((attempt / "submission.json").read_text())
+            except (OSError, ValueError, TypeError, AttributeError) as error: raise RecoveryBlocked("Child submission is malformed") from error
+            if not isinstance(submitted, dict) or submitted.get("attempt") != child or submitted.get("parent_attempt") != identity:
+                raise RecoveryBlocked("Child submission does not belong to this suite parent")
+            state = _state(root, child)
+            if state["alive"]: raise RecoveryBlocked("Live suite child prevents parent acknowledgement")
+            if state["terminal_verified"]:
+                if state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources):
+                    raise RecoveryBlocked("Verified suite child still has cleanup barriers")
+            elif _operator_result(attempt / "operator-result.json", child):
+                _acknowledge_locked(root, child, reason, now=now, list_resources=list_resources)
+            else:
+                _cleanup_locked(root, child, run=run, list_resources=list_resources)
+                _acknowledge_locked(root, child, reason, now=now, list_resources=list_resources)
+        if alive(parent):
+            raise RecoveryBlocked("Live suite parent prevents acknowledgement")
+        for child in staged:
+            attempt, state = _attempt(root, child), _state(root, child)
+            if (state["alive"] or state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources)
+                    or not (state["terminal_verified"] or _acknowledgement_matches(attempt, child))):
+                raise RecoveryBlocked("Every suite child requires resolved evidence and no cleanup barrier")
+        # Use the current operator bundle. Old copied attempt helpers predate
+        # operator receipts and must remain immutable evidence.
+        _cleanup_locked(root, identity, run=run, list_resources=list_resources,
+                        entrypoint=Path(__file__).with_name("service_cleanup.py"))
+        for child in staged:
+            attempt, state = _attempt(root, child), _state(root, child)
+            if (state["alive"] or state["pending"] or _exact_cleanup_inventory(attempt, list_resources=list_resources)
+                    or not (state["terminal_verified"] or _acknowledgement_matches(attempt, child))):
+                raise RecoveryBlocked("Suite child cleanup changed before parent acknowledgement")
+        receipt_path = parent / "operator-cleanup.json"
+        stable = {"parent_attempt": identity, "children": children, "cleanup_verified": True}
+        if receipt_path.exists() or receipt_path.is_symlink():
+            try: existing = json.loads(receipt_path.read_text())
+            except (OSError, ValueError, TypeError, AttributeError): existing = None
+            if (not receipt_path.is_file() or receipt_path.is_symlink() or not isinstance(existing, dict)
+                    or set(existing) != set(stable) | {"acknowledged_at"}
+                    or not isinstance(existing.get("acknowledged_at"), (int, float)) or isinstance(existing.get("acknowledged_at"), bool)
+                    or any(existing.get(key) != value for key, value in stable.items())):
+                raise RecoveryBlocked("Suite operator cleanup receipt is immutable")
+        else:
+            value = stable | {"acknowledged_at": now()}
+            temporary = parent / ("operator-cleanup." + secrets.token_hex(8) + ".tmp")
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w") as target:
+                target.write(json.dumps(value, sort_keys=True) + "\n")
+                target.flush(); os.fsync(target.fileno())
+            os.replace(temporary, receipt_path)
+        return _acknowledge_locked(root, identity, reason, now=now, list_resources=list_resources)
 
 
 def _scheduler_config(config):

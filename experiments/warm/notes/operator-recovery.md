@@ -39,11 +39,15 @@ invocation.
 `acknowledge-suite-parent` first rejects a live parent. It validates the complete
 `children.json` registry and each staged child submission. Each child must have
 full terminal evidence or its own bound operator result after verified cleanup.
-The copied suite cleanup then accepts only those bound child results, verifies
-the parent cleanup, and removes `suite-cleanup.pending`. The utility writes a
-distinct immutable `operator-cleanup.json` before it acknowledges the parent.
-Retries validate each receipt again. The command never writes child terminals or
-claims test success.
+A reserved child with no run directory is accepted only when its exact names and
+labels have no resources. The utility holds the worker lock for this complete
+operation. It runs the current operator bundle's `service_cleanup.py` for the
+parent, because an older copied attempt helper does not understand operator
+receipts. It does not replace that older helper. The current helper accepts only
+bound child results, verifies the parent cleanup, and removes
+`suite-cleanup.pending`. The utility writes a distinct immutable
+`operator-cleanup.json` before it acknowledges the parent. Retries validate each
+receipt again. The command never writes child terminals or claims test success.
 
 `migrate` takes the exclusive worker lock without waiting. It refuses live
 attempts, pending cleanup, unresolved managed resources, and a running row that
