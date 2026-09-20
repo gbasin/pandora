@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 NAMES = ['worker_bundle.py', 'evidence.py', 'suite_parent.py', 'suite_parent_evidence.py', 'suite_parent_cleanup.py', 'suite.py', 'suite_evidence.py', 'suite.mjs', 'workflow_options.py', 'admission.py', 'snapshot.py', 'worker.py', 'resource_ownership.py', 'deadline_stop.py', 'dependencies.py', 'builder_owner.py', 'dependency_images.py', 'retention.py', 'source_cache.py',
-         'in-container.sh', 'journey.py', 'service_cleanup.py', 'journey.mjs',
+         'in-container.sh', 'journey.py', 'service_cleanup.py', 'cleanup_identity.py', 'journey.mjs',
          'docker_workflow.py', 'docker_cleanup.py', 'docker_images.py', 'image_gc.py']
 
 
