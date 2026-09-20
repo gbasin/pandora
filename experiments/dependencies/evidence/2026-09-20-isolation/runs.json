@@ -1,0 +1,94 @@
+[
+  {
+    "fixture": {
+      "version": "6.0.0",
+      "marker": "pandora-codex-a-6.0.0"
+    },
+    "attempts": [
+      {
+        "attempt": "ce1ab9ac34544b3f98a00100561aa903",
+        "source_digest": "755a65525c5c68e12ab8d22a80681fbfecc5338920b6249c4a5b91e9ba0093ac",
+        "exit_code": 1,
+        "total_seconds": 203.31373950000852,
+        "metrics": {
+          "queue_seconds": 90.04365110100116,
+          "dependency_cache_hit": false,
+          "dependency_seconds": 79.1445304480003,
+          "image_id": "sha256:58c7e14da85708079122f57093b786287110974a03aa2d3554024af80b85d224",
+          "execution_seconds": 16.47157594300006,
+          "exit_code": 1
+        },
+        "memory_peak_bytes": 598675456,
+        "install_progress": [
+          "1164",
+          "1163",
+          "1"
+        ]
+      },
+      {
+        "attempt": "ae045003a0e546d297382c892d3f31aa",
+        "source_digest": "df14604f2e7cb791e0eefa8a5bc1ba7ba8731bd6a4f436ebe7b3419539e071cc",
+        "exit_code": 0,
+        "total_seconds": 28.874928541015834,
+        "metrics": {
+          "queue_seconds": 0.02856817900101305,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.05002219800007879,
+          "image_id": "sha256:58c7e14da85708079122f57093b786287110974a03aa2d3554024af80b85d224",
+          "execution_seconds": 11.157370115000958,
+          "exit_code": 0
+        },
+        "memory_peak_bytes": 605601792,
+        "install_progress": null
+      }
+    ],
+    "output_and_prior_generation_verified": true,
+    "nested_worktrees_excluded": true
+  },
+  {
+    "fixture": {
+      "version": "7.0.0",
+      "marker": "pandora-opus-b-7.0.0"
+    },
+    "attempts": [
+      {
+        "attempt": "6d9c97dd7b59426aadb20b3148aaa6a7",
+        "source_digest": "fabd04f777e5aea29fcea90c35bc2f7075b7a521826b871bf2ad9e48a7331356",
+        "exit_code": 1,
+        "total_seconds": 115.31262508401414,
+        "metrics": {
+          "queue_seconds": 0.04658661199937342,
+          "dependency_cache_hit": false,
+          "dependency_seconds": 81.17302145400026,
+          "image_id": "sha256:18a04fd38fe26a59d09a982acbdf766b187e5af615991a36bf2cdd7a7be1fb16",
+          "execution_seconds": 16.19631550700069,
+          "exit_code": 1
+        },
+        "memory_peak_bytes": 611319808,
+        "install_progress": [
+          "1163",
+          "1163",
+          "0"
+        ]
+      },
+      {
+        "attempt": "1094756bac0c4a91b09e3d9c3a5abe31",
+        "source_digest": "05fd79925d6da435ee5cdfa38c0a778d93121bb6248b3e18e46d22a23514bda7",
+        "exit_code": 0,
+        "total_seconds": 110.59710445802193,
+        "metrics": {
+          "queue_seconds": 80.0322930809998,
+          "dependency_cache_hit": true,
+          "dependency_seconds": 0.0526317449985072,
+          "image_id": "sha256:18a04fd38fe26a59d09a982acbdf766b187e5af615991a36bf2cdd7a7be1fb16",
+          "execution_seconds": 11.302634592000686,
+          "exit_code": 0
+        },
+        "memory_peak_bytes": 632655872,
+        "install_progress": null
+      }
+    ],
+    "output_and_prior_generation_verified": true,
+    "nested_worktrees_excluded": true
+  }
+]
