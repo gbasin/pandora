@@ -70,7 +70,11 @@ build has a 15-minute client deadline. The dedicated BuildKit container stops
 after preparation, including on cancellation. Its cache volume persists.
 BuildKit garbage collection targets at most 12 GB of cache and 10 GB free disk;
 these targets are not hard disk quotas. Integrated runs retain ten released attempts, with the latest snapshot protected.
-Three recent dependency image tags are retained; referenced images stay pinned.
+Three recent dependency image tags are retained. Each worker durably pins its
+dependency tag before lookup or preparation, through verified execution cleanup.
+Retention shares the reservation lock and skips pinned tags, including those
+owned by dead workers with unresolved cleanup. Stopped diagnostic containers
+also prevent image removal.
 Legacy and unresolved data is never automatically deleted. A worker with less
 than 10 GiB free refuses preparation and execution.
 

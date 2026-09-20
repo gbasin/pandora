@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from source_cache import locked, protected
+from dependency_images import remember as remember_image
 
 PROFILE = 'integrated-surface-v1'
 KEEP_ATTEMPTS = 10
@@ -56,21 +57,3 @@ def _remote_locked(root):
             if removed.returncode:
                 continue
         shutil.rmtree(path)
-
-
-def remember_image(root, image):
-    ledger = root / 'integrated-images.json'
-    images = json.loads(ledger.read_text()) if ledger.exists() else []
-    images = [item for item in images if item != image] + [image]
-    retained = []
-    for item in images[:-3]:
-        if not re.fullmatch('pandora-deps:[a-f0-9]{64}', item):
-            raise ValueError('Unexpected managed image identity')
-        # No force: an image referenced by a retained container stays pinned.
-        result = subprocess.run(['sudo', 'docker', 'image', 'rm', item],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode:
-            retained.append(item)
-    temporary = ledger.with_suffix('.tmp')
-    temporary.write_text(json.dumps(retained + images[-3:]) + '\n')
-    temporary.replace(ledger)
