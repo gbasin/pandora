@@ -133,7 +133,7 @@
 #39 6.312 Packages: +1163
 #39 6.312 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #39 6.403 Progress: resolved 1163, reused 1163, downloaded 0, added 1163, done
-#39 6.691 
+#39 6.691
 #39 6.691 devDependencies:
 #39 6.691 + happy-dom 20.11.2
 #39 6.691 + is-number 7.0.0
@@ -144,7 +144,7 @@
 #39 6.691 + typescript 5.9.3
 #39 6.691 + vitest 4.1.11
 #39 6.691 + yaml 2.9.0
-#39 6.691 
+#39 6.691
 #39 6.691 Done in 6.6s using pnpm v12.3.4
 #39 DONE 7.3s
 
@@ -153,16 +153,16 @@
 #40 2.345 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
 #40 2.397 transforming...
 #40 3.290 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment
-#40 3.290 
+#40 3.290
 #40 3.290 "/** Anchors a pattern source. The interpolation lives here rather than at the call site because
 #40 3.290  * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
 #40 3.290  * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
-#40 3.290 
+#40 3.290
 #40 3.290 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
 #40 3.295 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment
-#40 3.295 
+#40 3.295
 #40 3.295 "// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
-#40 3.295 
+#40 3.295
 #40 3.295 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
 #40 4.248 [32m✓[39m 384 modules transformed.
 #40 4.640 rendering chunks...

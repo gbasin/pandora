@@ -27,7 +27,7 @@
 #7 ...
 
 #8 [build  2/35] RUN npm install --global pnpm@12.3.4
-#8 1.922 
+#8 1.922
 #8 1.922 added 2 packages in 2s
 #8 1.923 npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
 #8 1.923 npm warn install-scripts   pnpm@12.3.4 (preinstall: node install.js; postinstall: node install.js)
@@ -168,7 +168,7 @@
 #40 9.448 .../esbuild@0.25.12/node_modules/esbuild postinstall: Done
 #40 9.457 .../esbuild@0.28.1/node_modules/esbuild postinstall: Done
 #40 9.475 .../node_modules/workerd postinstall: Done
-#40 9.980 
+#40 9.980
 #40 9.980 devDependencies:
 #40 9.980 + happy-dom 20.11.2
 #40 9.980 + marked 18.0.12
@@ -178,7 +178,7 @@
 #40 9.980 + typescript 5.9.3
 #40 9.980 + vitest 4.1.11
 #40 9.980 + yaml 2.9.0
-#40 9.980 
+#40 9.980
 #40 10.00 Done in 9.9s using pnpm v12.3.4
 #40 DONE 10.3s
 
@@ -187,16 +187,16 @@
 #41 1.566 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
 #41 1.617 transforming...
 #41 2.517 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js (330:0): A comment
-#41 2.517 
+#41 2.517
 #41 2.517 "// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
-#41 2.517 
+#41 2.517
 #41 2.517 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
 #41 2.518 [33m../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js (70:0): A comment
-#41 2.518 
+#41 2.518
 #41 2.518 "/** Anchors a pattern source. The interpolation lives here rather than at the call site because
 #41 2.518  * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
 #41 2.518  * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
-#41 2.518 
+#41 2.518
 #41 2.518 in "../../node_modules/.pnpm/zod@4.5.4/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
 #41 3.419 [32m✓[39m 384 modules transformed.
 #41 3.681 rendering chunks...

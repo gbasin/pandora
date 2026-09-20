@@ -65,6 +65,6 @@ agent coding-loop trials remain the evidence for agent behavior. A next evaluati
 should measure end-to-end command latency after overhead changes and repeat a
 concurrent coding loop with this application build.
 
-Raw measurements, BuildKit logs, provenance, and final recipe are under
+Measurements, BuildKit logs (trailing whitespace normalized), provenance, and final recipe are under
 `experiments/compiled/evidence/2026-09-20`. At completion, no containers were running
 and the worker had 47 GiB free of 96 GiB. Caches and the trial VM remain available.
