@@ -5,6 +5,7 @@ import re
 
 import admission
 import docker_cleanup
+import dependencies
 import service_cleanup
 
 
@@ -71,7 +72,8 @@ def cleanup(parent):
     for attempt in dead:
         services = service_cleanup.cleanup(attempt)
         containers = docker_cleanup.cleanup(attempt)
-        if not admission.record_cleanup(attempt, services and containers):
+        prepared = dependencies.cleanup(attempt)
+        if not admission.record_cleanup(attempt, services and containers and prepared):
             verified = False
         if not terminal_verified(attempt):
             verified = False

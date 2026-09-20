@@ -1,12 +1,26 @@
-"""Bounded persistent BuildKit cache, used under the worker's exclusive lock."""
+"""Bounded persistent BuildKit cache, with explicit ownership through verified stop."""
 import subprocess
 import time
+import builder_owner
 
 BUILDER = 'pandora-surface-deps-v3'
 CONTAINER = 'buildx_buildkit_' + BUILDER + '0'
 
 
+def cleanup(attempt):
+    return builder_owner.cleanup(attempt, BUILDER, "dependency-cleanup.pending")
+
+
 def prepare(context, image):
+    lease = builder_owner.acquire(context.parent, BUILDER, "dependency-cleanup.pending")
+    try:
+        _prepare(context, image)
+    finally:
+        if not lease.close():
+            raise RuntimeError("Dependency builder cleanup remains unresolved")
+
+
+def _prepare(context, image):
     def docker(*args, **kwargs):
         return subprocess.run(['sudo', 'docker', *args], check=True, **kwargs)
     exists = subprocess.run(['sudo', 'docker', 'buildx', 'inspect', BUILDER],
@@ -32,9 +46,8 @@ def prepare(context, image):
                     raise TimeoutError('Dependency preparation exceeded 15 minutes')
                 print('[pandora] preparing dependencies remotely; package cache retained; no local build', flush=True)
     finally:
-        # Stopping the dedicated daemon terminates its RUN processes too. Merely
-        # killing a Docker client is not sufficient. Its volume preserves cache.
-        docker('buildx', 'stop', BUILDER, timeout=30)
+        # The outer lease stops the owned daemon after client teardown. Killing
+        # only this client is insufficient to stop the build RUN processes.
         if child is not None and child.poll() is None:
             child.terminate()
             try:
