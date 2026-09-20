@@ -18,7 +18,7 @@ class EnvironmentTests(unittest.TestCase):
             fake.chmod(0o755)
             env = dict(os.environ)
             for key in ['PANDORA_HOST', 'PANDORA_STATE', 'PANDORA_SESSION',
-                        'PANDORA_REAL_PNPM', 'PANDORA_TREATMENT', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
+                        'PANDORA_REAL_PNPM', 'PANDORA_TREATMENT', 'PANDORA_QUEUE_TIMEOUT_SECONDS', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
                 env[key] = str(root / key)
             env['PANDORA_REAL_CODEX'] = str(fake)
             result = subprocess.check_output(['python3', str(ROOT / 'bin/codex'), 'exec',
@@ -28,6 +28,7 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(argv[-3:], ['--add-dir', '/existing/root', 'prompt'])
             self.assertFalse(any('shell_environment_policy.set.PATH=' in arg for arg in argv))
             self.assertFalse(any('writable_roots' in arg for arg in argv))
+            self.assertIn('shell_environment_policy.set.PANDORA_QUEUE_TIMEOUT_SECONDS=' + json.dumps(env['PANDORA_QUEUE_TIMEOUT_SECONDS']), argv)
 
     def test_startup_order_manual_path_and_original_pnpm(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -97,12 +97,15 @@ def follow(host, output, reconnect_seconds=45):
     attempt = metadata['attempt']
     if not re.fullmatch('[0-9a-f]{32}', attempt):
         raise ValueError('Invalid attempt')
+    queue_timeout = metadata.get('queue_timeout_seconds', 900)
+    if isinstance(queue_timeout, bool) or not isinstance(queue_timeout, int) or not 0 < queue_timeout <= 86400:
+        raise ValueError('Invalid submission queue timeout')
     offsets = [0, 0]
     unavailable = None
     unregistered = time.monotonic()
     following = time.monotonic()
     while True:
-        if time.monotonic() - following > 2445:
+        if time.monotonic() - following > queue_timeout + 1545:
             print('[pandora] Follow deadline reached; remote state remains unresolved. No replacement submitted.', flush=True)
             return 75
         try:

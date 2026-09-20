@@ -11,7 +11,7 @@ real = os.environ['PANDORA_REAL_CODEX']
 overrides = ['--add-dir', os.environ['PANDORA_STATE']]
 os.environ['PATH'] = str(Path(__file__).resolve().parent) + os.pathsep + os.environ['PATH']
 for key in ['PANDORA_HOST', 'PANDORA_STATE', 'PANDORA_SESSION',
-            'PANDORA_REAL_PNPM', 'PANDORA_REAL_CODEX', 'PANDORA_TREATMENT', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
+            'PANDORA_REAL_PNPM', 'PANDORA_REAL_CODEX', 'PANDORA_TREATMENT', 'PANDORA_QUEUE_TIMEOUT_SECONDS', 'ZDOTDIR', 'PANDORA_ORIGINAL_ZDOTDIR']:
     overrides += ['-c', 'shell_environment_policy.set.' + key + '=' + json.dumps(os.environ[key])]
 if 'PANDORA_DOCKER_PROFILE_JSON' in os.environ:
     overrides += ['-c', 'shell_environment_policy.set.PANDORA_DOCKER_PROFILE_JSON=' + json.dumps(os.environ['PANDORA_DOCKER_PROFILE_JSON'])]

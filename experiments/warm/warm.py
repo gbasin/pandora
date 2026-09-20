@@ -16,6 +16,17 @@ from worker_bundle import bundle
 from transport import follow, SSH_OPTIONS
 
 
+def queue_timeout_seconds(value):
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 86400:
+        raise ValueError('Queue timeout must be an integer from 1 through 86400 seconds')
+    return value
+
+
+def effective_queue_timeout(default, spec):
+    value = spec.get('config', {}).get('queue_timeout_seconds', default) if spec else default
+    return queue_timeout_seconds(value)
+
+
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
@@ -35,19 +46,24 @@ def main():
     p.add_argument('--require-warm', action='store_true')
     p.add_argument('--docker-request')
     p.add_argument('--attempt', default=None)
+    p.add_argument('--queue-timeout-seconds', type=int, default=900)
     p.add_argument('selectors', nargs='*')
     args = p.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.@-]*', args.host):
         p.error('Invalid SSH destination')
     if any(s.startswith('-') for s in args.selectors):
         p.error('Only file selectors are supported in this experiment')
+    spec = json.loads(args.docker_request) if args.workflow == 'docker' else None
+    try:
+        timeout = effective_queue_timeout(args.queue_timeout_seconds, spec)
+    except ValueError as error:
+        p.error(str(error))
     attempt = args.attempt or uuid.uuid4().hex
     if not re.fullmatch('[0-9a-f]{32}', attempt):
         p.error('Invalid attempt identity')
     started = time.monotonic()
     args.output.mkdir(parents=True, exist_ok=False)
     output = args.output.resolve()
-    spec = json.loads(args.docker_request) if args.workflow == 'docker' else None
     uses_source = spec is None or spec['request']['kind'] == 'build' or spec['request'].get('mount')
     cache_key = repository_key(args.repo) if uses_source else None
     if uses_source:
@@ -60,7 +76,8 @@ def main():
     identity = hashlib.sha256(encode(manifest)).hexdigest()
     (output / 'manifest.json').write_bytes(encode(manifest))
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
-                'repository_key': cache_key, 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm, 'snapshot_seconds': time.monotonic() - started}
+                'repository_key': cache_key, 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm,
+                'queue_timeout_seconds': timeout, 'snapshot_seconds': time.monotonic() - started}
     if args.workflow == 'docker':
         metadata['docker'] = spec
     write_metadata(output / 'submission.json', metadata)
@@ -115,13 +132,13 @@ def main():
         f'{args.host}:{remote}/')
     # All links reference complete immutable source directories, never containers.
     phase = 'source transfer' if uses_source else 'request staging'
-    print(f'[pandora] accepted {attempt}; {phase} {metadata["transfer_seconds"]:.1f}s', flush=True)
+    print(f'[pandora] staged {attempt}; {phase} {metadata["transfer_seconds"]:.1f}s', flush=True)
     # systemd owns the worker independently of this SSH connection. Never retry
     # this start after ambiguous acknowledgement; reconnect by the same attempt.
     worker_command = 'exec python3 -u worker.py >stdout.log 2>stderr.log'
     command = (f'sudo systemd-run --quiet --collect --unit=pandora-worker-{attempt} '
                f'--uid=ubuntu --working-directory={remote} '
-               '--property=RuntimeMaxSec=40m --property=TimeoutStopSec=30s '
+               f'--property=RuntimeMaxSec={timeout + 1500}s --property=TimeoutStopSec=30s '
                '--property=KillMode=control-group '
                f'--property=ExecStopPost={shlex.quote("/usr/bin/python3 " + remote + "/service_cleanup.py " + remote)} /bin/bash -c ' + shlex.quote(worker_command))
     if uses_source:
