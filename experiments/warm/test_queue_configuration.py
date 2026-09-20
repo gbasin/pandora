@@ -55,3 +55,24 @@ class JourneyUpdateArgumentTests(unittest.TestCase):
                 with self.assertRaises(Captured):
                     warm.main()
             self.assertEqual(captured[0]['selectors'], ['S0-01', '--update'])
+
+class SelectorTransportTests(unittest.TestCase):
+    def test_json_preserves_flags_patterns_and_app_in_submission(self):
+        import json
+        class Captured(Exception): pass
+        for workflow, app, selectors in [('surface', 'desk', ['smoke.spec.ts', '--grep', 'one | two']),
+                                          ('journey', 'borrower-web', ['S2-03', '--fault', 'dropped', '--update'])]:
+            with self.subTest(workflow=workflow), tempfile.TemporaryDirectory() as temp:
+                captured = []
+                def capture(path, metadata):
+                    captured.append(metadata)
+                    raise Captured
+                argv = ['warm.py', '--host', 'unused', '--repo', temp,
+                        '--output', str(Path(temp) / 'output'), '--workflow', workflow,
+                        '--surface-app', app, '--selectors-json=' + json.dumps(selectors)]
+                with patch.object(sys, 'argv', argv), patch.object(warm, 'repository_key', return_value='k'), \
+                     patch.object(warm, 'freeze', return_value=([], [])), \
+                     patch.object(warm, 'write_metadata', side_effect=capture):
+                    with self.assertRaises(Captured): warm.main()
+                self.assertEqual(captured[0]['selectors'], selectors)
+                if workflow == 'surface': self.assertEqual(captured[0]['surface_app'], app)

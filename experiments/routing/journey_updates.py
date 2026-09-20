@@ -1,16 +1,17 @@
-"""Narrow S0-01 expectation return; no general source synchronization."""
+"""Focused journey expectation return; no general source synchronization."""
 import hashlib
 import json
 from pathlib import Path
 from snapshot import names, excluded, entry, encode
 from tracked_outputs import publish
+from journey import journey_config
 
 FIXTURES = 'packages/scenarios/fixtures/'
 PATHS = (FIXTURES + 'S0-01.ledger.jsonl', FIXTURES + 'write-routes.json')
 
 
 def is_update(submitted):
-    return submitted.get('workflow') == 'journey' and submitted.get('selectors') == ['S0-01', '--update']
+    return submitted.get('workflow') == 'journey' and journey_config(submitted)['update']
 
 
 def regular_bytes(root, name, optional=False):
@@ -28,17 +29,20 @@ def regular_bytes(root, name, optional=False):
 
 
 def declarations(output):
+    config = journey_config(json.loads((output / 'submission.json').read_text()))
+    journey_id = config['id']
+    paths = (FIXTURES + journey_id + '.ledger.jsonl', FIXTURES + 'write-routes.json')
     manifest = {x['path']: x for x in json.loads((output / 'manifest.json').read_text())}
     artifacts = json.loads((output / 'artifacts.json').read_text())
     report = json.loads((output / 'results/journey.json').read_text())
-    if report.get('update') is not True or report.get('journey') != 'S0-01' or report.get('status') != 'pass':
+    if report.get('update') is not True or report.get('journey') != journey_id or report.get('status') != 'pass':
         raise ValueError('Journey update lacks matching successful update evidence')
     prefix = 'results/updates/'
     proposed = {p[len(prefix):] for p in artifacts if p.startswith(prefix)}
-    if proposed != set(PATHS):
+    if proposed != set(paths):
         raise ValueError('Unexpected or missing declared journey expectation outputs')
     result = {}
-    for name in PATHS:
+    for name in paths:
         base = regular_bytes(output / 'source', name, optional=True)
         record = manifest.get(name)
         if (base is None) != (record is None) or (record is not None and (
@@ -48,14 +52,14 @@ def declarations(output):
         if hashlib.sha256(target).hexdigest() != artifacts[prefix + name]:
             raise ValueError('Journey expectation checksum mismatch: ' + name)
         result[name] = {'base': base, 'target': target}
-    route = result[PATHS[1]]
+    route = result[paths[1]]
     before = json.loads(route['base']) if route['base'] is not None else {}
     after = json.loads(route['target'])
     if not isinstance(before, dict) or not isinstance(after, dict):
         raise ValueError('Invalid journey route manifest')
-    if {k: v for k, v in before.items() if k != 'S0-01'} != {k: v for k, v in after.items() if k != 'S0-01'}:
+    if {k: v for k, v in before.items() if k != journey_id} != {k: v for k, v in after.items() if k != journey_id}:
         raise ValueError('Focused journey update modified unrelated route entries')
-    if not isinstance(after.get('S0-01'), list) or any(not isinstance(x, str) for x in after['S0-01']):
+    if not isinstance(after.get(journey_id), list) or any(not isinstance(x, str) for x in after[journey_id]):
         raise ValueError('Focused journey update lacks its route entry')
     return result
 

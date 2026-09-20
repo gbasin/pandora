@@ -128,6 +128,10 @@ def main():
         from journey import execute
         return execute(attempt, image_id, manifest, dep_entries, metrics)
     name = 'pandora-warm-' + attempt.name
+    from workflow_options import surface_selectors, surface_outputs
+    surface_app = submitted.get('surface_app', 'borrower-web')
+    surface_outputs(surface_app)
+    surface_selectors(submitted['selectors'])
     created = False
     status = 70
     execution = time.monotonic()
@@ -135,7 +139,7 @@ def main():
         docker('create', '--name', name, '--label', 'pandora.experiment=warm-surface',
                '--cpus=2', '--memory=6g', '--memory-swap=6g', '--pids-limit=512',
                '--shm-size=1g', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-               '--init', '-e', 'CI=true', image_id, 'bash', '/tmp/pandora-run.sh',
+               '--init', '-e', 'CI=true', '-e', 'PANDORA_SURFACE_APP=' + surface_app, image_id, 'bash', '/tmp/pandora-run.sh',
                *submitted['selectors'], stdout=subprocess.DEVNULL)
         created = True
         # Installation inputs already exist byte-for-byte in the keyed image.

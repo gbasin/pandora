@@ -13,7 +13,8 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
-from commands import classify
+from commands import classify, selected_surface
+from workflow_options import surface_outputs
 from transport import query, validate_evidence
 from delivery import deliver
 import journey_updates
@@ -147,9 +148,9 @@ def main(tool='pnpm'):
                        '--output', str(output), '--attempt', record['attempt'],
                        '--workflow', action if action in ('journey', 'docker') else 'surface',
                        '--queue-timeout-seconds', str(record['queue_timeout_seconds']),
-                       *[s for s in selectors if not (action == 'journey' and s == '--update')]]
-            if action == 'journey' and '--update' in selectors:
-                command += ['--journey-update']
+                       '--selectors-json=' + json.dumps(selectors)]
+            if action == 'remote':
+                command += ['--surface-app', selected_surface(argv)]
             if docker_request is not None:
                 command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
         child = None
@@ -209,7 +210,7 @@ def main(tool='pnpm'):
                     print('[pandora] Result applies to earlier source. Run again to validate current source; inspect retained outputs before using them. Evidence: ' + str(output), file=sys.stderr)
                     return 75
                 if terminal['exit_code'] == 0 and submitted.get('workflow', 'surface') == 'surface':
-                    deliver(repo, output)
+                    deliver(repo, output, outputs=surface_outputs(submitted.get("surface_app", "borrower-web")))
                 if terminal['exit_code'] == 0 and request.get('kind') == 'run':
                     deliver(repo, output, outputs=tuple(x['workspace'] for x in submitted['docker']['config']['outputs']))
                 if updates is not None:

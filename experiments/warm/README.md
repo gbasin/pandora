@@ -86,7 +86,7 @@ corruption still need fault tests before broader use. A
 failed preparation can leave partial evidence. Do not interpret a missing test
 result as a pass. This harness does not manage billable cloud resources.
 
-Successful runs export both borrower-web build directories under
+Successful runs export both selected-app build directories under
 `results/outputs/`. The session router verifies and publishes them locally.
 Direct `warm.py` calls only retrieve evidence; they do not publish into a worktree.
 The dependency builder is `pandora-surface-deps-v3`. An unexpectedly running
