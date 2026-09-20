@@ -1,0 +1,52 @@
+[
+  {
+    "mode": "cancel",
+    "attempt": "3d003441445549568ff223243db952ff",
+    "client_exit": 130,
+    "state": {
+      "state": "terminal",
+      "attempt": "3d003441445549568ff223243db952ff",
+      "exit_code": 130,
+      "workflow": "journey",
+      "cleanup_verified": true,
+      "registered": true,
+      "offsets": [
+        720,
+        155
+      ],
+      "more_logs": false
+    }
+  },
+  {
+    "mode": "disconnect",
+    "attempt": "7bdd9a8835f54b938ef2201bd81911f0",
+    "client_exit": 0,
+    "state": {
+      "state": "terminal",
+      "attempt": "7bdd9a8835f54b938ef2201bd81911f0",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true,
+      "registered": true,
+      "offsets": [
+        797,
+        155
+      ],
+      "more_logs": false
+    }
+  },
+  {
+    "mode": "worker-kill",
+    "attempt": "49f6755053004ff0a7e611c14deb1303",
+    "client_exit": 130,
+    "state": {
+      "state": "active-or-unresolved",
+      "registered": true,
+      "offsets": [
+        389,
+        0
+      ],
+      "more_logs": false
+    }
+  }
+]

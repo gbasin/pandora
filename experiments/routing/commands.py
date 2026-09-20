@@ -4,6 +4,11 @@ import shlex
 
 def classify(argv, treatment='normal'):
     command = argv[1:] if argv[:1] == ['run'] else argv
+    journey = command[1:] if command[:1] == ['validate'] else command
+    if journey[:1] in (['journey'], ['journeys']):
+        if journey == ['journey', 'S0-01']:
+            return 'journey', ['S0-01'], ''
+        return 'reject', [], 'This trial supports pnpm journey S0-01 only. No validation started.'
     if command[:2] == ['test:surface', 'borrower-web']:
         selectors = command[2:]
     elif command[:3] == ['validate', 'surface', 'borrower-web']:

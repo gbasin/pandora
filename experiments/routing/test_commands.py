@@ -3,6 +3,12 @@ from commands import classify
 
 
 class CommandsTests(unittest.TestCase):
+    def test_journey_scope(self):
+        for args in (['journey', 'S0-01'], ['run', 'journey', 'S0-01'], ['validate', 'journey', 'S0-01']):
+            self.assertEqual(classify(args)[:2], ('journey', ['S0-01']))
+        for args in (['journeys'], ['journey', 'S0-02'], ['journey', 'S0-01', '--update']):
+            self.assertEqual(classify(args)[0], 'reject')
+
     def test_three_treatments(self):
         direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1']
         self.assertEqual(classify(direct, 'normal')[0], 'local')

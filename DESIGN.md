@@ -13,8 +13,9 @@ In that scope, a service-backed workflow is required before daily use, selected
 Docker commands are routed, and declared outputs return with conflict checks.
 The integrated surface extension now prepares dependencies automatically and
 publishes generated build outputs with recoverable directory exchange. The
-original pilot description below predates that extension. Service-backed routing
-and Docker command routing remain unimplemented.
+original pilot description below predates that extension. The S0-01 journey now
+shares its snapshot, admission, dependency, and recovery path. Direct Docker
+command routing remains unimplemented. See the README for the journey boundary.
 
 ## Objective and boundaries
 
@@ -39,8 +40,8 @@ manager, or learned scheduler for this MVP.
 Use `pnpm test:surface borrower-web`, including supported selectors.
 `pnpm validate surface borrower-web` is the equivalent entry point. The current
 surface runner builds static fixtures and runs Playwright without Postgres or
-Docker services. Journeys are a later generalization test because they introduce
-service setup and teardown.
+Docker services. The subsequent S0-01 profile adds isolated service setup and
+teardown without exposing Docker inside the execution container.
 
 Agents perform validation and recovery only. They do not fix seeded product bugs
 or take on pending product Issues. The evaluator injects faults exclusively into
@@ -235,7 +236,7 @@ broader adoption evaluation remain incomplete. See the README for the boundary.
 
 Deferred: learned admission, automatic command classification, universal shell
 rewriting, continuous sync, general source write-back, microVMs, multi-host
-scheduling, native iOS, journey stacks, and replacement of PR checks.
+scheduling, native iOS, arbitrary journey stacks, and replacement of PR checks.
 
 ## References
 

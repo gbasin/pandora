@@ -66,6 +66,9 @@ def main():
     prune_remote(root)
     if shutil.disk_usage(root).free < 10 * 1024**3:
         raise RuntimeError('Worker disk has less than 10 GiB free. No preparation or tests started; operator retention cleanup required.')
+    leftovers = docker('ps', '-a', '--filter', 'label=pandora.workflow=journey', '--format', '{{.Names}}', capture_output=True, text=True)
+    if leftovers.stdout.strip():
+        raise RuntimeError('Previous journey resources remain; operator cleanup required. No validation started.')
     metrics = {'queue_seconds': time.monotonic() - queued}
     print('[pandora] worker acquired; preparing dependencies', flush=True)
     started = time.monotonic()
@@ -116,6 +119,9 @@ def main():
     metrics['image_id'] = image_id
     remember_image(root, image)
     (attempt / 'metrics.json').write_text(json.dumps(metrics, indent=2))
+    if submitted.get('workflow') == 'journey':
+        from journey import execute
+        return execute(attempt, image_id, manifest, dep_entries, metrics)
     name = 'pandora-warm-' + attempt.name
     created = False
     status = 70
@@ -156,6 +162,8 @@ def main():
                 docker('inspect', name, stdout=target)
             result = subprocess.run(['sudo', 'docker', 'cp', name + ':/workspace/results',
                                      str(attempt / 'results')])
+            if result.returncode == 0:
+                run('sudo', 'chown', '-R', '--no-dereference', f'{os.getuid()}:{os.getgid()}', str(attempt / 'results'))
             if result.returncode and status == 0:
                 status = 70
             # Retain failed stopped containers for diagnostics, release processes.
@@ -212,12 +220,13 @@ if __name__ == '__main__':
             status = 70
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
-                 Path('metrics.json'), *Path('results').rglob('*')]:
+                 Path('metrics.json'), Path('service-state.json'), Path('service-cleanup.json'), *Path('results').rglob('*')]:
         if item.is_file() and not item.is_symlink():
             artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
-                'cleanup_verified': check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
+                'workflow': json.loads(Path('submission.json').read_text()).get('workflow', 'surface'),
+                'cleanup_verified': not Path('service-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
     raise SystemExit(status)

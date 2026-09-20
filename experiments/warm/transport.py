@@ -39,10 +39,15 @@ def validate_evidence(stage, attempt):
         if digest(target) != expected:
             raise ValueError('Artifact checksum mismatch: ' + name)
     if terminal['exit_code'] == 0:
-        if not {'results/exit-code', 'results/junit.xml'} <= set(manifest):
+        report = 'results/journey.json' if terminal.get('workflow') == 'journey' else 'results/junit.xml'
+        if not {'results/exit-code', report} <= set(manifest):
             raise ValueError('Successful run lacks test evidence')
         if (stage / 'results/exit-code').read_text().strip() != '0':
             raise ValueError('Test evidence disagrees with successful terminal')
+        if terminal.get('workflow') == 'journey':
+            result = json.loads((stage / report).read_text())
+            if result.get('journey') != 'S0-01' or result.get('status') != 'pass':
+                raise ValueError('Journey evidence disagrees with successful terminal')
     return terminal
 
 
@@ -114,6 +119,8 @@ def follow(host, output, reconnect_seconds=45):
                 print(f'[pandora] Evidence retrieval incomplete: {error}. Retry the same command to recover {attempt}.', flush=True)
                 return 75
             print(f'[pandora] attempt={attempt}; exit={terminal["exit_code"]}; evidence={output}', flush=True)
+            if (output / 'results/journey.json').exists():
+                print(f'[pandora] journey report: {output / "results/journey.json"}', flush=True)
             if (output / 'results/junit.xml').exists():
                 print(f'[pandora] test report: {output / "results/junit.xml"}', flush=True)
             if (output / 'results/playwright').exists():

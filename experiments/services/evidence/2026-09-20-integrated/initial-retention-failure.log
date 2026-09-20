@@ -1,0 +1,30 @@
+[pandora] freezing current tracked and nonignored source
+[pandora] transferring changed source; frozen identity 7a4c9ac4b4ba
+[pandora] accepted cfbd54328937492cbedb2a1ce750f5d2; source transfer 2.8s
+[pandora] source verified; waiting for the experiment worker
+Traceback (most recent call last):
+  File "/home/ubuntu/pandora-warm/runs/cfbd54328937492cbedb2a1ce750f5d2/worker.py", line 202, in <module>
+    status = main()
+  File "/home/ubuntu/pandora-warm/runs/cfbd54328937492cbedb2a1ce750f5d2/worker.py", line 66, in main
+    prune_remote(root)
+    ~~~~~~~~~~~~^^^^^^
+  File "/home/ubuntu/pandora-warm/runs/cfbd54328937492cbedb2a1ce750f5d2/retention.py", line 53, in remote
+    shutil.rmtree(path)
+    ~~~~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 852, in rmtree
+    _rmtree_impl(path, dir_fd, onexc)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 721, in _rmtree_safe_fd
+    _rmtree_safe_fd_step(stack, onexc)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 802, in _rmtree_safe_fd_step
+    onexc(func, path, err)
+    ~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 795, in _rmtree_safe_fd_step
+    onexc(os.unlink, fullname, err)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 791, in _rmtree_safe_fd_step
+    os.unlink(entry.name, dir_fd=topfd)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: '/home/ubuntu/pandora-warm/runs/cd00530a4f5849d4864ab1a3a1961a9a/results'
+[pandora] attempt=cfbd54328937492cbedb2a1ce750f5d2; exit=70; evidence=/Users/garybasin/.local/state/pandora/journey-lifecycle/bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea/cfbd54328937492cbedb2a1ce750f5d2

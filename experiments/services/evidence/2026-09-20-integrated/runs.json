@@ -1,0 +1,317 @@
+[
+  {
+    "profile": "journey-integration",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "048616c69ed94c95b8013e9ca35ca5bd",
+    "source_digest": "10d9767b356aa3176aa53c33cf16c94fc2f0bd1613781255ee2f141562fd6d24",
+    "workflow": "journey",
+    "total_seconds": 26.13642562495079,
+    "metrics": {
+      "queue_seconds": 0.040736253999057226,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.0465391810030269,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 9.987178159000905,
+      "exit_code": 1
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "048616c69ed94c95b8013e9ca35ca5bd",
+      "exit_code": 1,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "fail",
+      "detail": "clean: Pandora seeded journey fault"
+    }
+  },
+  {
+    "profile": "journey-integration",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "0d4ef40390a6450db6a5b4708d906e7b",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "surface",
+    "total_seconds": 136.79556391603546,
+    "metrics": {
+      "queue_seconds": 0.4998178679998091,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.04564103200027603,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 97.93001947399898,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "0d4ef40390a6450db6a5b4708d906e7b",
+      "exit_code": 0,
+      "workflow": "surface",
+      "cleanup_verified": true
+    },
+    "report": null
+  },
+  {
+    "profile": "journey-integration",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "7edd1ce6a6974b16a9a5799330fcc447",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": 67.84139837499242,
+    "metrics": {
+      "queue_seconds": 0.0560844100000395,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.05043790200215881,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 49.129373163999844,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "7edd1ce6a6974b16a9a5799330fcc447",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "pass",
+      "detail": ""
+    }
+  },
+  {
+    "profile": "journey-integration",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "c235541d92dc471e81f8efc66146e3d3",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": 68.81212854199111,
+    "metrics": {
+      "queue_seconds": 0.24731555200196453,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.0442728400012129,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 49.245696992999,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "c235541d92dc471e81f8efc66146e3d3",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "pass",
+      "detail": ""
+    }
+  },
+  {
+    "profile": "journey-integration",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "d6c06de4421645f9ad0c1f50a3a040ab",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": 70.06466720800381,
+    "metrics": {
+      "queue_seconds": 0.05320987599770888,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.04766855700290762,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 51.67504952499803,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "d6c06de4421645f9ad0c1f50a3a040ab",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "pass",
+      "detail": ""
+    }
+  },
+  {
+    "profile": "journey-agents",
+    "worktree_key": "2a9b20d560e266726b091a95461559bf1f5e7f8c3e6cf349942b1d4e9a5cd40e",
+    "attempt": "2da781a522194455b046e609292a27a8",
+    "source_digest": "10d9767b356aa3176aa53c33cf16c94fc2f0bd1613781255ee2f141562fd6d24",
+    "workflow": "journey",
+    "total_seconds": 29.965341666014865,
+    "metrics": {
+      "queue_seconds": 0.04544181600067532,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.046806567999738036,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 10.587006892998033,
+      "exit_code": 1
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "2da781a522194455b046e609292a27a8",
+      "exit_code": 1,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "fail",
+      "detail": "clean: Pandora seeded journey fault"
+    }
+  },
+  {
+    "profile": "journey-agents",
+    "worktree_key": "2a9b20d560e266726b091a95461559bf1f5e7f8c3e6cf349942b1d4e9a5cd40e",
+    "attempt": "e592569422a74eea87df4defe00d748f",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": 139.44863841601182,
+    "metrics": {
+      "queue_seconds": 70.05423885699929,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.04958935299873701,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 50.359047119000024,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "e592569422a74eea87df4defe00d748f",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "pass",
+      "detail": ""
+    }
+  },
+  {
+    "profile": "journey-agents",
+    "worktree_key": "c282ac2ffb7105fa4a281b7d62ed249865497a6b494e1cefcbf499ffc8a4c6d6",
+    "attempt": "8c31ccfc38564ca49656a624fee772d7",
+    "source_digest": "10d9767b356aa3176aa53c33cf16c94fc2f0bd1613781255ee2f141562fd6d24",
+    "workflow": "journey",
+    "total_seconds": 27.798272582993377,
+    "metrics": {
+      "queue_seconds": 0.048415138000564184,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.04666844899838907,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 10.747528091000277,
+      "exit_code": 1
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "8c31ccfc38564ca49656a624fee772d7",
+      "exit_code": 1,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "fail",
+      "detail": "clean: Pandora seeded journey fault"
+    }
+  },
+  {
+    "profile": "journey-agents",
+    "worktree_key": "c282ac2ffb7105fa4a281b7d62ed249865497a6b494e1cefcbf499ffc8a4c6d6",
+    "attempt": "ad8fa019cc2648bdb3a87c30c919eef3",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": 207.67141729197465,
+    "metrics": {
+      "queue_seconds": 140.35313860799943,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.04880588300147792,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 50.45308080899849,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "ad8fa019cc2648bdb3a87c30c919eef3",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "pass",
+      "detail": ""
+    }
+  },
+  {
+    "profile": "journey-lifecycle",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "3d003441445549568ff223243db952ff",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": null,
+    "metrics": null,
+    "terminal": null,
+    "report": null
+  },
+  {
+    "profile": "journey-lifecycle",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "49f6755053004ff0a7e611c14deb1303",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": null,
+    "metrics": null,
+    "terminal": null,
+    "report": null
+  },
+  {
+    "profile": "journey-lifecycle",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "7bdd9a8835f54b938ef2201bd81911f0",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": null,
+    "metrics": {
+      "queue_seconds": 0.052060971000173595,
+      "dependency_cache_hit": true,
+      "dependency_seconds": 0.04667902900109766,
+      "image_id": "sha256:bcb0030f7f94ea1ecd084c6625db99e2a4c1e5425594c6ffe5e91e2730c48320",
+      "execution_seconds": 51.95650292500068,
+      "exit_code": 0
+    },
+    "terminal": {
+      "state": "terminal",
+      "attempt": "7bdd9a8835f54b938ef2201bd81911f0",
+      "exit_code": 0,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": {
+      "journey": "S0-01",
+      "status": "pass",
+      "detail": ""
+    }
+  },
+  {
+    "profile": "journey-lifecycle",
+    "worktree_key": "bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea",
+    "attempt": "cfbd54328937492cbedb2a1ce750f5d2",
+    "source_digest": "7a4c9ac4b4baa7dd8d3d47ac9c3b5f7c1911602efc8afda80069309b4333bbca",
+    "workflow": "journey",
+    "total_seconds": 17.139064833987504,
+    "metrics": null,
+    "terminal": {
+      "state": "terminal",
+      "attempt": "cfbd54328937492cbedb2a1ce750f5d2",
+      "exit_code": 70,
+      "workflow": "journey",
+      "cleanup_verified": true
+    },
+    "report": null
+  }
+]

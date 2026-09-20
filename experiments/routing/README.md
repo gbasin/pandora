@@ -142,3 +142,27 @@ The state directory must be writable by the agent's shell and on the same
 filesystem as the worktree. The session-only Codex wrapper adds this state directory with `--add-dir`,
 preserving existing writable roots and sandbox mode. The evaluated supervisor
 separately grants pnpm-store access. The launcher does not disable the sandbox.
+
+## Service-backed journey
+
+Run `pnpm journey S0-01` or `pnpm validate journey S0-01` from the repository root.
+The same forms with `pnpm run` work. Other journey IDs, flags, and the plural
+`journeys` command stop with feedback. Direct package commands can still bypass
+this opt-in wrapper.
+
+The shared worker lease covers dependency preparation, service startup, the
+journey, and cleanup. Each invocation gets a fresh private database, pooler, proxy,
+and network. No local services start. The runner uses the repository's external
+stack mode and the same journey and route checks, with generated principal
+printing disabled. It does not invoke the local Docker Compose entry point.
+
+The command prints phase progress and a local `results/journey.json` path. Returned
+reports are checksummed. A successful journey does not publish borrower-web build
+outputs. Fix source locally, then invoke the same ordinary command again.
+
+Explicit cancellation removes owned services before clearing the request. Lost
+transport keeps the remote execution alive; retry follows the same attempt.
+Systemd removes owned resources after worker death, but a missing terminal remains
+unresolved. Do not delete an active record to work around that condition. Host
+reboot, unavailable Docker, and generalized operator reconciliation are not yet
+covered by an automatic recovery service.
