@@ -101,6 +101,23 @@ class Retention(unittest.TestCase):
                 _remote_locked(root)
             self.assertFalse(path.exists())
 
+    def test_remote_allows_inherited_nonpandora_labels(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root, path = self.remote_candidate(temp)
+            name, container_id = 'pandora-warm-' + path.name, 'c' * 64
+            inspected = {'Id': container_id, 'Name': '/' + name,
+                         'State': {'Status': 'exited', 'Running': False},
+                         'Config': {'Labels': {'pandora.experiment': 'warm-surface',
+                                               'pandora.workflow': 'surface',
+                                               'pandora.attempt': path.name,
+                                               'org.opencontainers.image.source': 'https://example.invalid/image'}}}
+            with patch('retention.subprocess.run', side_effect=[
+                    subprocess.CompletedProcess([], 0, json.dumps({'ID': container_id[:12]}) + '\n', ''),
+                    subprocess.CompletedProcess([], 0, json.dumps(inspected), ''),
+                    subprocess.CompletedProcess([], 0, '', '')]):
+                _remote_locked(root)
+            self.assertFalse(path.exists())
+
     def remote_candidate(self, temp):
         root = Path(temp)
         path = root / 'runs' / ('a' * 32)

@@ -5,6 +5,8 @@ import re
 import subprocess
 import sys
 
+import cleanup_identity
+
 
 def cleanup(attempt):
     attempt = Path(attempt)
@@ -19,14 +21,24 @@ def cleanup(attempt):
     names = [name + suffix for suffix in ('-proxy', '-pool', '-db', '')]
     errors = []
     for owned in names:
-        result = subprocess.run(['sudo', 'docker', 'rm', '-f', '-v', owned],
-                                capture_output=True, text=True, timeout=30)
-        if result.returncode and 'No such container' not in result.stderr:
-            errors.append(result.stderr)
-    result = subprocess.run(['sudo', 'docker', 'network', 'rm', name],
-                            capture_output=True, text=True, timeout=30)
-    if result.returncode and 'not found' not in result.stderr:
-        errors.append(result.stderr)
+        removed, error = cleanup_identity.remove_container(owned, {
+            'pandora.attempt': attempt.name, 'pandora.workflow': 'journey'})
+        if not removed:
+            errors.append(error)
+    removed, error = cleanup_identity.remove_network(name, {'pandora.attempt': attempt.name})
+    if not removed:
+        errors.append(error)
+    for owned in names:
+        absent, error = cleanup_identity.absent_container(owned)
+        if error:
+            errors.append(error)
+        elif not absent:
+            errors.append('Container name remains present after cleanup: ' + owned)
+    absent, error = cleanup_identity.absent_network(name)
+    if error:
+        errors.append(error)
+    elif not absent:
+        errors.append('Network name remains present after cleanup: ' + name)
     check = subprocess.run(['sudo', 'docker', 'ps', '-a', '--filter',
                             'label=pandora.attempt=' + attempt.name, '--format', '{{.Names}}'],
                            capture_output=True, text=True, timeout=30)
