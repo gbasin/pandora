@@ -54,7 +54,7 @@ def main():
         print('[pandora] freezing current tracked and nonignored source', flush=True)
         manifest, excluded = freeze(args.repo, output / 'source')
     else:
-        print('[pandora] image-only request; local source is not captured or injected', flush=True)
+        print('[pandora] image-only run uses the built image; rebuild to include local source edits', flush=True)
         (output / 'source').mkdir()
         manifest, excluded = [], []
     identity = hashlib.sha256(encode(manifest)).hexdigest()
@@ -99,7 +99,10 @@ def main():
     remote = root + '/runs/' + attempt
     cached = prepared['cached']
     options = ['--link-dest=' + cached] if cached else []
-    print(f'[pandora] transferring changed source; frozen identity {identity[:12]}', flush=True)
+    if uses_source:
+        print(f'[pandora] transferring changed source; frozen identity {identity[:12]}', flush=True)
+    else:
+        print('[pandora] preparing image-only request', flush=True)
     transfer = time.monotonic()
     result = run('rsync', '-rlpc', '--delete', '--stats',
                  '-e', 'ssh ' + ' '.join(SSH_OPTIONS), *options,
@@ -111,7 +114,8 @@ def main():
     run('scp', *SSH_OPTIONS, '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
         f'{args.host}:{remote}/')
     # All links reference complete immutable source directories, never containers.
-    print(f'[pandora] accepted {attempt}; source transfer {metadata["transfer_seconds"]:.1f}s', flush=True)
+    phase = 'source transfer' if uses_source else 'request staging'
+    print(f'[pandora] accepted {attempt}; {phase} {metadata["transfer_seconds"]:.1f}s', flush=True)
     # systemd owns the worker independently of this SSH connection. Never retry
     # this start after ambiguous acknowledgement; reconnect by the same attempt.
     worker_command = 'exec python3 -u worker.py >stdout.log 2>stderr.log'

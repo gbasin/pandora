@@ -1,0 +1,2 @@
+[pandora] After a successful run, declared outputs return automatically: /workspace/dist -> /Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build/apps/borrower-web/dist. No output-directory mount is needed; use docker run --rm TAG for an image-only test.
+[pandora] Only the current worktree root may be mounted

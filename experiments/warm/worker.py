@@ -45,7 +45,7 @@ def main():
     if (attempt / 'cancel.request').exists():
         return 130
     verify(attempt / 'source', manifest)
-    print('[pandora] source verified; waiting for the experiment worker', flush=True)
+    print('[pandora] input verification complete; waiting for the experiment worker', flush=True)
     lock = (root / 'worker.lock').open('w')
     queued = time.monotonic()
     while True:

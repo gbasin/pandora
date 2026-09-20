@@ -1,0 +1,13 @@
+{
+  "rejected_exit": 64,
+  "rejection_submitted_nothing": true,
+  "run_exit": 0,
+  "attempt": "b2f03e326750494f8a7c616bc44d0f4a",
+  "terminal": {
+    "state": "terminal",
+    "attempt": "b2f03e326750494f8a7c616bc44d0f4a",
+    "exit_code": 0,
+    "workflow": "docker",
+    "cleanup_verified": true
+  }
+}

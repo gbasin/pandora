@@ -112,3 +112,10 @@ Unsupported commands, including Docker read commands, stop with an example. Ther
 is no local fallback. The wrapper also stops Docker when no profile is selected.
 Absolute executable paths and PATH overrides still bypass this opt-in mechanism.
 This is not OS enforcement, multi-tenant isolation, or full Docker compatibility.
+
+Image-only run feedback identifies the built image and tells the agent to rebuild
+to include local source edits. It does not label empty request staging as a source
+transfer. For profiles with declared outputs, run feedback prints the container
+and local output paths before command validation, including when an attempted
+output-directory mount is rejected. Those outputs return automatically after a
+successful run; they do not require a bind mount.

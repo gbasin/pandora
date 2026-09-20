@@ -1,0 +1,11 @@
+{
+  "attempt": "5a805a210436413bab1a8a5e0c6169de",
+  "terminal": {
+    "state": "terminal",
+    "attempt": "5a805a210436413bab1a8a5e0c6169de",
+    "exit_code": 0,
+    "workflow": "docker",
+    "cleanup_verified": true
+  },
+  "final_wording_verified": true
+}
