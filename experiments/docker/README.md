@@ -38,7 +38,10 @@ Declare only generated output directories that Pandora may own during publicatio
 Local destinations must be Git-ignored and contain no tracked files. Use an empty
 outputs list for commands that produce no workspace output. Network may be `none`
 or `bridge`; there are no forwarded ports. Unknown profile fields are rejected.
-The same profile applies to every Docker run in that session.
+The same profile applies to every Docker run in that session. Optional
+`queue_timeout_seconds` overrides the session queue limit for Docker commands.
+It accepts integer seconds from 1 through 86400 and defaults to the session limit
+(900 seconds unless configured). Accepted requests retain their original limit on retry.
 
 ## Images across calls
 

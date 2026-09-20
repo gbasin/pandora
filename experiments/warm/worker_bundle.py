@@ -8,7 +8,7 @@ import shutil
 import sys
 import tempfile
 
-NAMES = ['snapshot.py', 'worker.py', 'dependencies.py', 'retention.py', 'source_cache.py',
+NAMES = ['admission.py', 'snapshot.py', 'worker.py', 'dependencies.py', 'retention.py', 'source_cache.py',
          'in-container.sh', 'journey.py', 'service_cleanup.py', 'journey.mjs',
          'docker_workflow.py', 'docker_cleanup.py', 'docker_images.py', 'image_gc.py']
 

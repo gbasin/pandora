@@ -46,4 +46,6 @@ if __name__ == '__main__':
     from docker_cleanup import cleanup as cleanup_docker
     services = cleanup(sys.argv[1])
     containers = cleanup_docker(Path(sys.argv[1]))
-    raise SystemExit(0 if services and containers else 70)
+    from admission import record_cleanup
+    verified = record_cleanup(Path(sys.argv[1]), services and containers)
+    raise SystemExit(0 if verified else 70)

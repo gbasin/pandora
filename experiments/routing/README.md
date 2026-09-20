@@ -45,13 +45,13 @@ terminal result permits a deliberate new run.
 
 An interrupted client leaves its descriptor active. The recovery behavior,
 independent worker lifetime, and verified artifact retrieval are described below.
-Cold dependency builds remain excluded from agent routing.
+Cold dependency builds run automatically under the worker resource lease.
 
 ## Evaluation boundaries
 
 The current controller supports the initial informed and ordinary-command tests.
-Do not treat it as production admission control. The remote lock is not FIFO;
-source capture can occur concurrently; unresolved and legacy data need operator cleanup; and there is no
+FIFO admission serializes remote execution. Local source capture can occur
+concurrently; unresolved and legacy data need operator cleanup; and there is no
 universal shell interception. Recovery and startup-race guarantees are limited to the recorded fault tests.
 Unknown terminal state still requires operator recovery.
 
@@ -75,8 +75,9 @@ its invocation directory. Pin or recheck this behavior if the skill changes.
 ## Recovery pilot update
 
 The recovery pilot gives each remote worker a systemd service independent of its
-SSH client. Queue admission expires after 15 minutes, test containers after
-20 minutes, and the whole worker after 40 minutes. Explicit cancellation still
+SSH client. Queue admission defaults to 15 minutes, test containers expire after
+20 minutes, and the whole worker receives the accepted queue limit plus 25 minutes.
+Explicit cancellation still
 signals the owned attempt and verifies cleanup.
 
 The active-request guard now belongs to the canonical worktree within the chosen
@@ -176,3 +177,29 @@ including Docker read commands and sessions without a selected profile. A run
 without a mount uses its pinned image and captures no local source. See
 [the Docker pilot](../docker/README.md) for supported flags, source ownership,
 image retention, outputs, and the evaluated repair loop.
+
+## Admission and deadlines
+
+Requests receive a durable FIFO ticket after remote registration and input
+verification. Upload start time does not determine ticket order. One worker lease
+covers preparation, execution, collection, and cleanup. Waiting commands print
+their ticket, requests ahead, elapsed wait, and queue limit. They start no local
+validation and do not replace existing work.
+
+Set the session default with `--queue-timeout-seconds 900` on the launcher.
+A Docker profile may override it with `"queue_timeout_seconds": 900`; this override
+applies only to Docker commands. Both accept integer seconds from 1 through 86400.
+The default is 900 seconds. The accepted attempt records its effective limit.
+Retry retains that limit even if the session configuration changes. The worker
+supervisor allows the queue limit plus 25 minutes; the result follower allows a
+further 45 seconds for shutdown and retrieval.
+
+A queued cancellation or expired wait starts no validation. A dead waiting
+process can leave the queue. A dead executing process blocks successors until
+cleanup is positively verified. Cleanup proof does not manufacture a terminal
+result: that attempt remains unresolved for operator reconciliation. Corrupt
+queue state stops admission instead of bypassing the queue. Dependency or surface
+worker death can still need operator cleanup.
+
+Drain older clients and workers before deploying FIFO admission. Older worker
+code uses only the resource lock and cannot honor the new ticket ordering.
