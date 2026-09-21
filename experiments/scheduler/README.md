@@ -1,8 +1,9 @@
 # Resource admission experiment
 
-This is a tested admission core, not the production worker scheduler. Normal
-Pandora commands still use one FIFO worker slot. The new modules are not in the
-uploaded worker bundle and cannot enable overlap in agent sessions.
+This is the admission core used by configured Pandora workers. A worker with a
+valid `worker-config.json` uses the uploaded scheduler and can admit overlapping
+work within its declared resource limits. Legacy workers without that configuration
+retain one FIFO worker slot.
 
 The implementation uses Python's standard SQLite library and process-held file
 locks. One transaction reserves CPU, RAM, and a slot together. Each invocation
@@ -11,10 +12,11 @@ containers, builders, and supporting services.
 
 ## Policy
 
-A configuration has this exact shape:
+The scheduler section of the [complete worker configuration](../warm/worker-config.example.json)
+has this shape:
 
 ```json
-{"version":1,"cpu_millis":1000,"memory_mib":256,"max_running":2,"policy":"fair"}
+{"version":1,"cpu_millis":3500,"memory_mib":13000,"max_running":2,"policy":"fair","disk_mib":24576,"disk_floor_mib":10240}
 ```
 
 `fair` alternates admission between waiting invocations. A newly waiting focused
@@ -45,8 +47,9 @@ activity or reconstruct an unreported completion time.
 
 The same boot identity and configuration must be supplied when reopening the
 ledger. A reboot, configuration change, corrupt clock, or corrupt database stops
-new admission. This experiment has no live configuration migration procedure.
-Do not delete the ledger to bypass unresolved work.
+new admission. Use the [operator recovery runbook](../warm/notes/operator-recovery.md)
+for an acknowledged recovery or configuration migration. Do not delete the ledger
+to bypass unresolved work.
 
 A dead running owner retains its resource reservation and blocks new admission.
 An explicit verified cleanup receipt can release capacity without inventing a
@@ -77,16 +80,17 @@ Containers have unique probe names and a 30-second process lifetime. The probe
 removes its containers on exit. It writes `result.json` with identities and events.
 This is not a journey benchmark or a coding-agent concurrency trial.
 
-## Integration boundary
+## Legacy and safety boundary
 
-Before this can replace production admission, shared BuildKit operations need
-explicit ownership, dependency-image use must be protected from retention, and
-orphan checks must distinguish other live attempts from abandoned resources.
-Disk capacity needs its own accounting. The suite parent must also collect
-out-of-order results, preserve exact identities, and stop dispatch without
-interrupting already-running shards.
+Configured admission protects shared BuildKit operations with explicit ownership,
+protects dependency-image use from retention, accounts for disk capacity, and
+distinguishes other live attempts from abandoned resources. The suite parent
+collects out-of-order results, preserves exact identities, and stops new dispatch
+without interrupting already-running shards. These protections do not retrofit a
+legacy worker, and unknown or corrupt state still stops admission for operator
+recovery.
 
-Current journey limits sum to 3.5 CPU and 7.125 GiB, including database, pooler,
-and proxy. Surface validation and dependency preparation each cap their main
+Legacy journey limits sum to 3.5 CPU and 7.125 GiB, including database, pooler,
+and proxy. Legacy surface validation and dependency preparation each cap their main
 container at 2 CPU and 6 GiB. Host processes and Docker overhead require headroom.
 A worker's configured slot count never overrides its CPU or RAM budget.

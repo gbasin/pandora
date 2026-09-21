@@ -1,299 +1,207 @@
 # Pandora
 
-Pandora is an opt-in experiment for running heavy validation remotely while coding
-agents, edits, and worktrees stay on a local Mac. The current SSH pilot supports
-Eichler borrower-web and Desk surface validation, focused and sharded service-backed journeys, and
-a scoped Docker build/run profile on a dedicated Linux VM. It is not ready
-for unattended daily use or twelve-agent concurrency.
+Pandora runs selected heavy validation on a Linux worker while coding agents,
+source edits, and Git worktrees stay on the local Mac. Agents use their normal
+commands and existing CLI subscriptions. Installation does not change the target
+repository or other engineers' shells.
 
-## How it works
+The v0.1 implementation supports Eichler browser surfaces, service-backed journeys,
+sharded full suites, expectation updates, and a bounded Docker build/run profile.
+Final twelve-agent evaluation is in progress. [Issue #27](https://github.com/gbasin/pandora/issues/27)
+tracks readiness against the [v0.1 contract](notes/v0.1-contract.md).
 
-Start an agent through the session launcher. The launcher sets a private PATH
-and shell configuration for that process and its children. A `pnpm` wrapper
-recognizes supported validation commands and submits them over SSH. The agent
-itself still runs locally with its existing CLI authentication.
+## Start a session
 
-```text
-Local agent → normal pnpm command → frozen worktree snapshot → SSH worker
-                                                            ↓
-Local exit status + logs + artifacts ← bounded test container ← admitted slots
-```
+The client needs Python 3.10+, Git, rsync, SSH, pnpm, and the selected agent CLI.
+Use a bootstrapped target worktree with its own dependencies. The worker needs
+Linux x86, Docker with Buildx, systemd, Python 3, rsync, and SSH access. The current
+profiles run trusted repository code under one trusted SSH user.
 
-This is executable wrapping, not interception of all shell commands or an OS
-resource policy. Other pnpm commands use the original executable. Absolute paths,
-direct package commands, and explicit environment overrides can bypass routing.
-No tracked target-repo files or global shell settings change.
+For a new worker, adapt [worker-config.example.json](experiments/warm/worker-config.example.json)
+to its hardware and install it at `~/pandora-warm/worker-config.json` before the first
+invocation. The example matches the evaluated two-slot worker. For an existing
+worker, drain requests and use the operator migration procedure below. Do not
+overwrite a live configuration.
 
-Supported commands, from the target repository root:
+From the target worktree:
 
 ```sh
-pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN]
-pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]
+python3 /path/to/pandora/experiments/routing/launch.py \
+  --host ubuntu@WORKER_IP \
+  --state "$HOME/.local/state/pandora/default" \
+  -- codex
+```
+
+Use `-- claude` for Claude Code. For supervised Codex lanes, use the
+[agent-fanout adapter](experiments/routing/README.md#supervised-codex-trial).
+The recorded CLI evaluations are headless. Agentboard integration and interactive
+preview forwarding have not been evaluated.
+
+Inside the session, `command -v pnpm` must point to
+`experiments/routing/bin/pnpm`. The launcher gives its children a private PATH and
+shell configuration. Other pnpm commands delegate to the executable selected at
+launch. Absolute paths, explicit PATH changes, and direct package commands can
+bypass routing. This is command wrapping, not OS resource enforcement.
+
+## Commands agents use
+
+Run supported commands from the worktree root:
+
+```sh
+pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN] [--keep-going]
+pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN] [--keep-going]
 pnpm journey <id> [--fault dropped] [--update]
 pnpm validate journey <id> [--fault dropped] [--update]
 pnpm journeys [--update] [--keep-going]
 pnpm validate journeys [--update] [--keep-going]
 ```
 
-The same forms with `pnpm run` work. Other flags are rejected. Suites stop
-dispatching after the first test failure unless `--keep-going` is set. Focused `--update` returns only the selected ledger and its route
-manifest change. Offline-only journeys have no ledger and return only their route
-manifest change. There is no automatic local fallback, general source writeback,
-Mutagen session, or CI dispatch.
-Required target-repo CI remains unchanged.
+The same forms with `pnpm run` work. Unsupported options stop with feedback.
+Fast standalone checks, unit tests, and builds remain local. A build required by
+a remote test runs with that test. Target-repository CI stays unchanged.
 
-With a human-selected external `--docker-profile`, the same launcher also routes
-`docker build -t TAG .`, foreground `docker run --rm TAG`, one declared worktree
-mount, and `docker image rm TAG`. Tags are worktree-private and survive launcher
-restarts. Unsupported Docker commands stop with feedback, including when no
-profile is selected. See the [Docker pilot](experiments/docker/README.md) for the
-exact grammar, source semantics, output declaration, and limits.
-
-Each invocation captures dirty tracked files and nonignored untracked files,
-with explicit exclusions for credentials and local dependencies. These exclusions
-are not a general secret scanner. The client checks for changes during capture,
-then uploads a frozen snapshot and verifies its manifest remotely. Later edits
-do not change submitted input.
-
-The worker reuses source files and a dependency image keyed by installation inputs.
-A cache miss automatically prepares the image remotely with a bounded BuildKit
-builder and a persistent pnpm package cache. Each run gets its own writable
-container and one Playwright worker. An operator-owned worker configuration sets
-CPU, RAM, disk reservations, concurrent slots, and execution deadlines. Configured
-workers admit multiple attempts within those limits, including supporting services
-and dependency preparation. Fair turns between waiting invocations are the default;
-strict FIFO is available. Unconfigured pilot workers retain their exclusive limits.
-The queue timeout defaults to 15 minutes and is configurable. A suite consumes
-one cumulative waiting budget only while it has waiting work and no admitted shard.
-See [admission and deadlines](experiments/routing/README.md#admission-and-deadlines)
-and the [twelve-request fault test](notes/fifo-2026-09-20.md).
-
-The journey adds a private Postgres, PgBouncer, and WebSocket proxy to its run.
-Service images are pinned by digest. No host ports or Docker socket are exposed.
-The configured reservation includes all four containers. The legacy exclusive
-profile caps them at 3.5 CPUs and 7.125 GiB. Every invocation starts with a fresh database. Dependency images and
-pnpm caches remain warm, but database and service state do not persist. A systemd
-stop hook removes attempt-owned resources if the worker is killed. Such a kill
-cannot produce a verified test result and still requires operator reconciliation.
-The [operator recovery utility](experiments/warm/notes/operator-recovery.md)
-verifies cleanup and can explicitly acknowledge an unrecoverable result. The client
-then closes that request as an infrastructure failure, with exit 70. A subsequent
-deliberate command can start a new attempt. Acknowledgement never manufactures a
-test result or overrides valid terminal evidence.
-Journey results return as `results/journey.json` under the printed evidence path;
-they do not publish the surface workflow's build directories.
-
-The original shell invocation stays open until completion. Logs and known test
-artifacts return locally. If an agent loses its shell wait handle, the active-request
-message prints the exact recovery command, `pandora wait <attempt-id>`. Run it from
-the same worktree with the same launcher state. It follows and finalizes the existing
-attempt even while the original client remains alive. It never submits replacement
-work. Interrupting this observer detaches without cancelling the run.
-
-A repeated validation command reports the active request and returns 75, even if
-source or selectors changed. Unknown cleanup state blocks a new request. Retrying
-after client loss recovers the existing attempt and verifies its artifacts. Changed
-local source produces a stale-result notice and exit 75. Waiting on an already
-completed attempt rechecks evidence and source without republishing outputs. A newer
-active attempt cannot be replaced by a late waiter or original client.
-
-Successful surface validation publishes `apps/<app>/dist` and
-`apps/<app>/e2e/dist` at their normal local paths. Each directory is
-replaced atomically, with its previous generation retained in the attempt's
-`publication/` directory. These are exclusively managed generated outputs, not
-source writeback. The two replacements are individually atomic, not one
-transaction. A failed publication keeps the completed attempt active; retrying
-the same command finishes delivery without running tests again. The local state
-and worktree must be on the same filesystem supporting directory exchange.
-
-## Current evidence
-
-The [longer contention trial](notes/contention-2026-09-20.md) completed four agent
-repair loops and recovered queued and running requests after client loss. It also
-exposed a 280-second non-FIFO queue wait. Docker feedback now clarifies image-only
-inputs and automatic outputs. This is four-agent waiting evidence, not twelve-agent
-capacity evidence.
-
-The [manifest-directed transfer experiment](notes/manifest-transfer-2026-09-20.md)
-did not establish a speed improvement and exposed an input-admission race during
-live-source upload. Local freezing remains the default.
-
-[Transport improvements](notes/transport-latency-2026-09-20.md) cache verified worker
-helpers and reuse SSH connections within a request. Three warm compiled builds
-took 13.1–15.8 seconds through evidence retrieval, compared with earlier 21.6–24.0
-second observations. Full shell calls took 14.7–17.7 seconds. Cancellation and
-same-attempt recovery passed again. Source and result verification remain enabled.
-
-The [Docker coding-loop trial](notes/remote-docker-2026-09-20-routing.md) verified
-separate build/run calls, same-tag worktree isolation, mounted source, failed
-rebuild preservation, output delivery, cancellation, and transport recovery.
-Codex and Opus each repaired and rebuilt a failing image without queue coaching.
-A subsequent four-agent pass completed all 16 build/run requests with isolated tags
-and correct outputs.
-Image reservations now survive rebuild and tag removal. [Acknowledged unused
-build tags are collected](notes/docker-image-gc-2026-09-20.md); unresolved images
-remain protected. Drain older clients and workers before enabling this protocol.
-
-The [integrated journey trial](notes/remote-journey-2026-09-20-integrated.md) ran
-Codex and Opus through failure, local repair, queued rerun, and report inspection.
-Both passed. Separate probes verified explicit cancellation, same-attempt recovery
-after transport loss, and resource cleanup after forced worker death. Warm journey
-execution took about 50 seconds, excluding queue and transfer time.
-
-The [different-dependency trial](notes/remote-surface-2026-09-20-dependency-isolation.md)
-ran Codex and Opus concurrently with distinct package versions. Both prepared
-their images automatically, repaired source, reused the correct image, and
-received their own build outputs. New dependency images took about 80 seconds
-even with package reuse; a warm rerun could still queue behind that preparation.
-
-The [integrated repair trial](notes/remote-surface-2026-09-20-integrated-repair.md)
-records three successful diagnose/edit/rerun samples each for Codex and Opus,
-automatic dependency preparation, returned build directories, and delivery
-recovery without duplicate execution.
-
-The [recovery and contention trial](notes/remote-surface-2026-09-19-recovery-and-contention.md)
-records the earlier recovery results. The [initial agent trial](notes/remote-surface-2026-09-19-agent-trials.md)
-preserves earlier setup failures and outcomes.
-
-- Abrupt client death, interrupted artifact retrieval, and a 55-second SSH outage
-  recovered the original attempt. Changed source was not reported as newly tested.
-- A container OOM returned 137 with verified cleanup.
-- Two Codex and two Claude Opus agents each reported 46 passed, including distinct
-  source sentinels. Queue waits ranged from zero to 290 seconds.
-- A Codex agent waited 700 seconds with live output hidden by `tail`, then reported
-  the passing result without replacing or cancelling its run.
-- For one direct command, normal wrapping allowed local execution, blocking made
-  Codex stop, and an exact redirect completed remotely.
-
-These are small controlled scenarios, not reliability estimates. Workload samples
-and prompts are documented in the notes. No twelve-agent or interactive Mac
-responsiveness claim follows from them.
-
-The launcher still changes executable precedence. It preserves the existing
-Codex login-shell policy and avoids a forced Codex PATH setting, which discarded
-login-profile additions in a compatibility probe. Manual PATH overrides and
-absolute executable paths can bypass routing. Ordinary pnpm delegation uses the
-executable selected at launcher start. See the [environment details](experiments/routing/README.md#environment-compatibility).
-
-The [output UX trial](notes/remote-output-2026-09-20-agent-ux.md) separately tests
-returned build artifacts and generated source with Codex and Opus. Its fixture
-is evaluator-only and does not extend the production routing commands. The
-[generation-publication follow-up](notes/remote-output-2026-09-20-generation-publication.md)
-tests automatic replacement of existing generated outputs with three fresh
-samples per agent and delivery-recovery probes.
-
-## Try the pilot
-
-Use a disposable Linux x86 worker with Docker, systemd, Python 3, rsync, SSH, and
-about 16 GiB RAM. The client needs Python 3.10+, rsync, SSH, Git, pnpm, and the
-selected agent CLI. This runs trusted repository code under one trusted SSH user.
-
-1. Install Docker with Buildx, systemd, Python 3, and rsync on the worker.
-2. Prepare a bootstrapped trial worktree with its own dependencies.
-3. Launch a session from the target worktree using an absolute path to Pandora:
+The original command waits and streams progress. A second validation in the same
+worktree reports the existing request and returns 75. It never replaces active
+work. If the agent loses its shell wait handle, feedback prints the exact command:
 
 ```sh
-python3 /path/to/pandora/experiments/routing/launch.py \
-  --host ubuntu@WORKER_IP \
-  --state "$HOME/.local/state/pandora/pilot" \
-  -- codex
+pandora wait <attempt-id>
 ```
 
-Use `-- claude` for an interactive Claude session. The recorded Claude evaluation
-used the headless helper; interactive Claude and Agentboard integration are not
-yet validated. Check `command -v pnpm` inside the agent's shell before validation.
-It must resolve to Pandora's `experiments/routing/bin/pnpm`.
+This follows and finishes the existing request, even while the original client
+lives. Ctrl-C detaches this observer without cancelling remote work. An explicit
+interrupt of the original validation command requests cancellation and verifies
+cleanup. After client or SSH loss, retry recovers the accepted attempt. Keep the
+same worktree path and launcher `--state` directory.
 
-See the [routing README](experiments/routing/README.md) for shell configuration,
-Codex supervisor integration, and cancellation behavior. Cold dependency builds
-run automatically, with a 15-minute preparation deadline, two CPUs, and 6 GiB
-RAM without swap. The dependency recipe assumes Eichler's installation inputs.
+A completed result is not proof for later edits. Recovery checks the current
+source and returns 75 for stale input. A newer request cannot be overwritten by
+an older client. [Wait recovery evidence](notes/explicit-wait-2026-09-20.md) covers
+these identity and publication fences.
 
-Keep local state and returned evidence until unresolved requests are reconciled.
-New integrated runs retain ten prior completed local attempts and ten released
-remote attempts, plus protected current/latest and unresolved work. Source reuse
-is keyed by the canonical Git common directory, so worktrees share a cache and
-unrelated repositories do not evict each other. Each transfer takes a private
-hardlink seed before retention can delete its base snapshot. Drain older workers
-before deploying this cache protocol; the first keyed upload is cold. Old output
-generations live as long as their attempt. Three recent dependency images are
-kept, with images referenced by retained containers pinned. Earlier experiment
-data is excluded from these sweeps. These are retention targets, not hard disk
-quotas; low worker disk space blocks new preparation. Cloud provisioning and
-deletion are manual. Deleting the VM, rather than only stopping
-workloads, is necessary to stop its instance billing.
+## Source, results, and caches
 
-## Next evaluation
+Every invocation freezes dirty tracked files and nonignored untracked files.
+Credentials, dependencies, caches, and registered nested worktrees are excluded.
+These exclusions are not a secret scanner. A verified manifest binds remote
+execution and returned evidence to the submitted bytes. Later edits do not change
+accepted input. No continuous sync service runs.
 
-The [native BuildKit and Mutagen comparison](notes/backend-comparison-2026-09-20.md)
-found no clear replacement for the current backend. Native transport needed stable
-staging and did not preserve builds after client loss. Mutagen made warm sync fast
-but required Git-aware allowlists and session recreation for new source files.
-The [manifest-only follow-up](notes/manifest-transfer-2026-09-20.md) did not
-justify replacing local frozen capture. Production capture remains unchanged.
+The worker reuses source transfers and dependency images. Installation inputs key
+the image, and a missing image builds automatically through bounded BuildKit with
+a persistent pnpm package cache. Each run gets fresh writable containers and
+private services. Databases, service state, and arbitrary compiler caches do not
+persist between runs. Warm images reduce setup cost but do not skip source checks
+or the workflow's build.
 
-The next milestone is a controlled full coding-loop evaluation before daily use.
-The [v0.1 contract and evaluation matrix](notes/v0.1-contract.md) records the
-agreed scope and acceptance criteria. [Issue #27](https://github.com/gbasin/pandora/issues/27)
-tracks progress and remaining gates. Readiness requires twelve actual coding-agent
-sessions with the Mac remaining responsive. It requires local edit/test/fix
-iteration, one service-backed workflow, specific Docker build/run patterns,
-worktree-scoped image tags, and automatic publication of declared generated directories.
-The surface pilot now covers the edit/test/fix loop and publishes two generated
-build directories. The S0-01 journey now uses the same routing and recovery path.
-The bounded Docker build/run profile is implemented and evaluated on a fixture.
-The [compiled application evaluation](notes/compiled-build-2026-09-20.md) now
-covers the real Ike Home Vite build: first build, identical rerun, source edit,
-dependency change, and toolchain change. Worker execution ranged from 2.0 seconds
-for an identical build to 19.9 seconds for the first recipe build. Request overhead
-still dominates warm builds. Broader Docker compatibility and concurrent agents
-using this compiled workload remain unevaluated.
+Logs and reports return under the printed absolute evidence path:
 
-Evaluate source consistency, cache invalidation, output recovery, and parallel
-worktree isolation before increasing concurrency. Include Codex and Claude Opus.
-Warm-image reuse alone does not establish compiled-build performance. The matrix
-requires cold builds, identical reruns, source edits, and dependency changes.
+```text
+<state>/<worktree-key>/<attempt-id>/
+  submission.json       accepted command, source, configuration
+  terminal.json         verified exit and cleanup evidence
+  results/              reports, diagnostics, declared outputs
+  publication/          delivery receipts and prior output generations
+```
 
-The current [pilot design](DESIGN.md) documents the narrower implemented trial.
-The dated notes preserve what happened in each experiment; later merges do not
-rewrite their historical claims.
+Surface suites build production and fixture assets once, then run native Playwright
+shards against that build. Shard screenshots return with the compiled outputs.
 
+Successful surface validation replaces `apps/<app>/dist` and
+`apps/<app>/e2e/dist`. These are exclusively owned generated directories. Each
+replacement is atomic; the two directories are not one transaction. Old generations
+remain in the attempt. Failed-run outputs remain as artifacts. Interrupted delivery
+resumes the same result without another execution.
 
-## Expanded v0.1 target
+Journey `--update` returns declared ledger fixtures and relevant entries in
+`packages/scenarios/fixtures/write-routes.json`. During the command, do not edit
+those declared files locally. Other source remains editable but can make a result
+stale. Review the returned `git diff`, then validate without `--update`.
 
-The [command contract](notes/v0.1-contract.md) now prioritizes long-running Eichler
-tests: focused/full journeys, both browser surfaces, internal shard scheduling,
-and declared tracked expectation return for `--update`. These additions are
-implementation targets. Current routing supports both browser surfaces with file and `--grep` selectors,
-focused catalog journeys including dropped replay and `--update`, and the bounded
-Docker grammar described above. The [suite dispatcher](experiments/suite/README.md)
-freezes one plan, reserves child attempts, runs isolated shards within configured concurrency, and
-verifies their combined evidence behind normal `pnpm journeys` commands.
+Conflicting local fixture edits remain intact. Pandora prints proposed-file paths
+and `pandora resolve-expectations <id> --keep-local`. Manually merge the declared
+files before running that command. It accepts local contents without validating
+them; ordinary validation is still required. Full-catalog publication requires
+all expected shards to succeed. Partial failed suites do not update fixtures.
 
-The [pre-scope stress test](notes/scope-stress-2026-09-20.md) establishes planner
-reuse and a focused remote update POC, plus synthetic publication recovery. It
-does not establish integrated tracked writeback, actual shard execution or
-multi-server recovery. [Issue #27](https://github.com/gbasin/pandora/issues/27)
-tracks the sequence and evidence. Fast standalone checks and builds stay local.
+Artifact delivery defaults to 2 GiB per invocation. Set
+`--artifact-delivery-limit-bytes` to change it. Refusal preserves the remote result.
+Raising the limit retrieves the same result without rerunning tests. A selected
+Docker profile can override the session limit for Docker commands.
 
+## Scheduling and operating limits
 
-The [integrated focused update](notes/journey-update-2026-09-20.md) returns S0-01
-expectations directly into the local worktree, preserves unrelated route entries,
-and recovers interrupted local publication. See the
-[update instructions](experiments/routing/README.md#focused-journey-expectation-updates).
+v0.1 schedules on one server. An operator-owned worker configuration limits CPU,
+RAM, disk reservations, simultaneous execution, and per-invocation parallelism.
+Reservations include dependency preparation and supporting services through verified
+cleanup. A slot count never overrides the resource budget.
 
-The [expanded workflow trial](notes/workflow-coverage-2026-09-20.md) verifies
-focused S0-02 replay and update, offline SX-20 update, and both browser surfaces
-with `--grep`. Eight sequential VM runs passed with warm dependencies and
-automatic output return. Configurable parallel shard scheduling and catalog
-expectation updates now have an implementation; their final evaluation is tracked
-in issue #27.
+Fair turns between waiting invocations are the default configured policy. Strict
+FIFO is available. Running shards are not interrupted to make room. Full suites
+stop dispatching after their first test failure; `--keep-going` collects further
+failures. Already-running shards drain. Infrastructure failure or deadline expiry
+stops dispatch regardless of this flag.
 
-[Suite foundation evidence](notes/suite-shards-2026-09-20.md) records real shard success, failure, and incomplete-evidence rejection.
+`--suite-shards` partitions both browser and journey suites. It defaults to four and accepts 1–32. Shard count controls partitioning,
+not simultaneous resource availability. `--queue-timeout-seconds` defaults to 900
+and accepts 1–86400. A suite consumes one cumulative waiting budget only when work
+is waiting and none of its shards is admitted. Execution has a separate deadline.
+Accepted limits survive reconnection.
 
-[Parent invocation evidence](notes/suite-parent-2026-09-20.md) covers client-loss recovery, fail-fast, keep-going, queue exhaustion, and failed planning.
+The evaluated worker has four CPUs and about 16 GiB RAM, with two admitted slots,
+a 3.5 CPU / 13,000 MiB reservation ceiling, and a 1,500-second execution deadline.
+Twelve local sessions therefore queue behind two heavy executions. More sessions
+do not imply twelve simultaneous test containers. Increasing concurrency requires
+more worker resources and a drained configuration change.
 
-The [resource admission foundation](experiments/scheduler/README.md) is connected
-to configured workers. [Configured resource probes](notes/multislot-resource-probes-2026-09-20.md)
-verify actual overlap, enforced memory limits, deadlines, and bounded disk failures.
-This does not establish twelve-agent readiness.
+Use the [scheduler documentation](experiments/scheduler/README.md) and
+[operator recovery procedure](experiments/warm/notes/operator-recovery.md) for
+configuration changes. Never delete the ledger or an active request to unblock work.
+A dead worker without terminal evidence remains unresolved after cleanup until an
+operator explicitly acknowledges the loss. The client returns infrastructure failure
+70, never a fabricated test result. The next deliberate invocation can then start.
+
+Retention keeps ten prior completed local attempts and ten released remote attempts,
+plus protected current and unresolved work. Three recent dependency images are kept,
+with referenced images pinned. These are retention targets, not disk quotas.
+Unresolved and older experimental data can consume additional disk. Low worker disk
+space blocks new preparation. Provisioning and VM deletion remain manual.
+
+## Optional Docker profile
+
+Pass `--docker-profile /absolute/path/profile.json` to enable:
+
+```sh
+docker build [-f RELATIVE_DOCKERFILE] -t TAG .
+docker run --rm [-v "$PWD:CONTAINER_PATH[:ro]"] TAG [COMMAND [ARG...]]
+docker image rm TAG
+```
+
+The external profile declares allowed inputs, mounts, outputs, limits, and deadlines.
+Tags are worktree-private and survive launcher restarts. Failed rebuilds retain the
+previous image. Image-only runs use the built image; mounted runs freeze current
+local input. Unsupported Docker commands stop without local fallback, including
+sessions without a Docker profile. See the [exact Docker contract](experiments/docker/README.md).
+
+## Verification and boundaries
+
+The evidence includes full 200-journey validation, an eight-shard full update and
+ordinary validation of all returned expectations, real Codex/Opus repair and
+conflict-resolution loops, generated-output recovery, Docker image isolation,
+client/SSH loss, worker loss, OOM, deadlines, disk exhaustion, and artifact-limit
+recovery. Key records:
+
+- [Full catalog return and validation](notes/catalog-return-validation-2026-09-20.md)
+- [Configured overlap and resource fault probes](notes/multislot-resource-probes-2026-09-20.md)
+- [Real-agent expectation conflicts](notes/expectation-conflicts-2026-09-20-agents.md)
+- [Worker-loss recovery](notes/operator-recovery-2026-09-20-journey.md)
+- [Docker coding loops](notes/remote-docker-2026-09-20-routing.md)
+- [Dependency isolation](notes/remote-surface-2026-09-20-dependency-isolation.md)
+- [Compiled build invalidation](notes/compiled-build-2026-09-20.md)
+- [Initial twelve-agent trial and its failed readiness gate](notes/agent-ramp-2026-09-20-initial.md)
+
+These controlled trials are not long-term reliability measurements. Multi-server
+placement, arbitrary Docker/Compose commands, detached services, interactive previews,
+native macOS/iOS builds, continuous source sync, universal interception, and a CI
+control plane are outside v0.1. The [contract](notes/v0.1-contract.md) records the
+accepted scope. [DESIGN.md](DESIGN.md) preserves the earlier pilot rationale.
