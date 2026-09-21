@@ -158,6 +158,9 @@ def main():
     metrics['image_id'] = image_id
     remember_image(root, image)
     (attempt / 'metrics.json').write_text(json.dumps(metrics, indent=2))
+    if submitted.get('workflow') == 'validation':
+        from validation import execute
+        return execute(attempt, image_id, manifest, dep_entries, metrics)
     if submitted.get('workflow') in ('journey', 'suite'):
         from journey import execute
         return execute(attempt, image_id, manifest, dep_entries, metrics)
@@ -301,7 +304,7 @@ if __name__ == '__main__':
         mark_deadline_report()
     artifacts = {}
     for item in [Path('stdout.log'), Path('stderr.log'), Path('container.json'),
-                 Path('metrics.json'), Path('execution-config.json'), Path('execution-stop.json'), Path('queue.json'), Path('children.json'), Path('suite-state.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
+                 Path('metrics.json'), Path('resources.json'), Path('execution-config.json'), Path('execution-stop.json'), Path('queue.json'), Path('children.json'), Path('suite-state.json'), Path('service-state.json'), Path('service-cleanup.json'), Path('docker-cleanup.json'), *Path('results').rglob('*')]:
         if item.is_file() and not item.is_symlink():
             artifacts[str(item)] = digest(item)
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')

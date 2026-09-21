@@ -221,6 +221,8 @@ def follow(host, output, reconnect_seconds=45,
             for suite_report in ('suite-plan.json', 'suite-shard.json', 'suite-run.json', 'suite-error.json', 'surface-plan.json', 'surface-shard.json', 'surface-run.json', 'surface-error.json', 'surface-output-error.json', 'surface-cancelled.json'):
                 if (output / 'results' / suite_report).exists():
                     print(f'[pandora] suite evidence: {output / "results" / suite_report}', flush=True)
+            if (output / 'results/validation.json').exists():
+                print(f'[pandora] validation report: {output / "results/validation.json"}', flush=True)
             if (output / 'results/journey.json').exists():
                 print(f'[pandora] journey report: {output / "results/journey.json"}', flush=True)
             if (output / 'results/junit.xml').exists():

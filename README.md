@@ -5,11 +5,15 @@ source edits, and Git worktrees stay on the local Mac. Agents use their normal
 commands and existing CLI subscriptions. Installation does not change the target
 repository or other engineers' shells.
 
-The v0.1 implementation supports Eichler browser surfaces, service-backed journeys,
-sharded full suites, expectation updates, and a bounded Docker build/run profile.
+Pandora supports Eichler browser surfaces, service-backed journeys, sharded full
+suites, expectation updates, and a bounded Docker build/run profile. v0.1.1 adds
+broad unit/tooling tests and additional browser and PostgreSQL workflows. The
+[v0.1.1 contract](notes/v0.1.1-contract.md) defines that command boundary;
+[dated validation evidence](notes/v0.1.1-validation-2026-09-21.md) records the VM and
+agent trials for [Issue #64](https://github.com/gbasin/pandora/issues/64).
 The evaluated v0.1 passed twelve simultaneous local agent repair loops on a
 two-slot remote worker. [Issue #27](https://github.com/gbasin/pandora/issues/27)
-tracks readiness against the [v0.1 contract](notes/v0.1-contract.md).
+records that baseline against the [v0.1 contract](notes/v0.1-contract.md).
 
 ## Start a session
 
@@ -58,8 +62,29 @@ pnpm validate journeys [--update] [--keep-going]
 ```
 
 The same forms with `pnpm run` work. Unsupported options stop with feedback.
-Fast standalone checks, unit tests, and builds remain local. A build required by
-a remote test runs with that test. Target-repository CI stays unchanged.
+The following broad validation commands also run remotely:
+
+```sh
+pnpm test:unit
+pnpm test:tools
+pnpm test
+pnpm validate agent-web
+pnpm test:employee-browser
+pnpm test:browser-integration
+pnpm test:mockup-browser
+pnpm test:postgres api [--foundation-only]
+pnpm test:postgres scenarios
+```
+
+Equivalent `pnpm validate <suite>` forms are listed in the v0.1.1 contract. Focused
+unit tests and `pnpm validate tools <test files>` stay local. `pnpm test:tools`
+always means the broad tooling list; arguments on that alias stop with the focused
+alternative. Browser suites run whole and reject selectors.
+
+Fast standalone checks and builds remain local. A build required by a remote test
+runs with that test. Native iOS compilation and simulator execution still require
+a Mac. Expo web tests and the broad suite's native JavaScript unit tests run on
+Linux. Target-repository CI stays unchanged.
 
 The original command waits and streams progress. A second validation in the same
 worktree reports the existing request and returns 75. It never replaces active
@@ -83,8 +108,8 @@ these identity and publication fences.
 ## Source, results, and caches
 
 Every invocation freezes dirty tracked files and nonignored untracked files.
-Credentials, dependencies, caches, and registered nested worktrees are excluded.
-These exclusions are not a secret scanner. A verified manifest binds remote
+Known secret filenames, credential-bearing `.npmrc` files, dependencies, caches,
+and registered nested worktrees are excluded. These exclusions are not a secret scanner. A verified manifest binds remote
 execution and returned evidence to the submitted bytes. Later edits do not change
 accepted input. No continuous sync service runs.
 

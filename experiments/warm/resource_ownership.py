@@ -63,7 +63,7 @@ def container(root, item, admitted):
             raise OwnershipUnresolved('Active builder has no recorded owner: ' + name)
         attempt = active(root, identity, admitted)
         submitted = json.loads((attempt / 'submission.json').read_text())
-        valid_workflow = (submitted.get('workflow', 'surface') in ('surface', 'journey', 'suite')
+        valid_workflow = (submitted.get('workflow', 'surface') in ('surface', 'journey', 'suite', 'validation')
                           if builder == 'pandora-surface-deps-v3' else
                           submitted.get('workflow') == 'docker' and submitted.get('docker', {}).get('request', {}).get('kind') == 'build')
         if not valid_workflow:
@@ -92,17 +92,17 @@ def container(root, item, admitted):
         label_identity = metadata.get('pandora.attempt', identity)
     else:
         label_identity = metadata.get('pandora.attempt')
-    if label_identity != identity or kind not in ('journey', 'docker', 'surface') or (suffix and kind != 'journey'):
+    if label_identity != identity or kind not in ('journey', 'docker', 'surface', 'validation') or (suffix and kind not in ('journey', 'validation')):
         raise OwnershipUnresolved('Container name and ownership labels disagree: ' + name)
     if kind == 'surface' and state == 'exited':
         return  # Existing failed-surface diagnostics are deliberately retained.
     attempt = active(root, identity, admitted)
     submitted = workflow(attempt)
-    expected = {'journey': ('journey', 'suite'), 'docker': ('docker',), 'surface': ('surface',)}[kind]
+    expected = {'validation': ('validation',), 'journey': ('journey', 'suite'), 'docker': ('docker',), 'surface': ('surface',)}[kind]
     if submitted not in expected:
         raise OwnershipUnresolved('Container workflow does not match its submission: ' + name)
     if kind != 'surface':
-        marker = 'service-cleanup.pending' if kind == 'journey' else 'docker-cleanup.pending'
+        marker = 'service-cleanup.pending' if kind in ('journey', 'validation') else 'docker-cleanup.pending'
         if not (attempt / marker).is_file():
             raise OwnershipUnresolved('Container cleanup intent is missing: ' + name)
 
@@ -119,7 +119,7 @@ def network(root, item, admitted):
     if not name.startswith(PREFIX) or not IDENTITY.fullmatch(identity) or metadata.get('pandora.attempt') != identity:
         raise OwnershipUnresolved('Network name and ownership labels disagree: ' + name)
     attempt = active(root, identity, admitted)
-    if workflow(attempt) not in ('journey', 'suite') or not (attempt / 'service-cleanup.pending').is_file():
+    if workflow(attempt) not in ('journey', 'suite', 'validation') or not (attempt / 'service-cleanup.pending').is_file():
         raise OwnershipUnresolved('Network has no matching workflow cleanup intent: ' + name)
 
 

@@ -1,7 +1,7 @@
-# Warm surface experiment
+# Warm execution runtime
 
-This extends the clean-commit baseline with dirty-source capture, incremental
-transfer, and reusable installed dependencies. It is the scripted layer used by the
+This runtime provides dirty-source capture, incremental transfer, reusable installed
+dependencies, and isolated execution for the [supported workflows](../../README.md). It is the scripted layer used by the
 [session router](../routing/README.md). See the root README for agent trial results.
 
 ## Run
@@ -19,10 +19,12 @@ python3 -B warm.py \
   smoke.spec.ts
 ```
 
-Choose a new output directory for each attempt. File selectors are supported.
-Interactive and mutation flags are not supported. No credentials or local
-node_modules are sent. Known secret filenames are excluded and listed in
-`submission.json`; this is not a general secret-content scanner.
+Choose a new output directory for each attempt. The direct surface example supports
+file selectors. Its interactive and mutation flags are not supported. Other
+workflows have their own grammar. The v0.1.1 validation workflows accept only the
+commands in the [contract](../../notes/v0.1.1-contract.md). Local `node_modules`,
+known secret filenames, and credential-bearing `.npmrc` files are excluded.
+`submission.json` lists exclusions; this is not a general secret-content scanner.
 
 ## Source and dependency behavior
 
@@ -80,9 +82,11 @@ than 10 GiB free refuses preparation and execution.
 
 Local evidence includes the manifest and source identity, transfer statistics,
 stage timings, cache-hit status, raw stdout/stderr, JUnit, available Playwright
-artifacts, cgroup metrics, and terminal Docker state. Successful containers are
-removed after collection. Failed containers are stopped and retained for diagnosis until their
-acknowledged attempt ages out of retention. This is file retention, not live process retention.
+artifacts, cgroup metrics, and terminal Docker state. Successful surface containers are
+removed after collection. Failed direct surface containers are stopped and retained
+for diagnosis until their acknowledged attempt ages out of retention. Journey and
+validation workflows remove their attempt-owned containers and networks on both
+success and failure. Their returned evidence remains available.
 
 Explicit cancellation was tested through the session router. Abrupt client loss,
 interrupted transfers, disk quotas, retention sweeps, and dependency-cache
@@ -90,9 +94,11 @@ corruption still need fault tests before broader use. A
 failed preparation can leave partial evidence. Do not interpret a missing test
 result as a pass. This harness does not manage billable cloud resources.
 
-Successful runs export both selected-app build directories under
+Successful surface runs export both selected-app build directories under
 `results/outputs/`. The session router verifies and publishes them locally.
 Direct `warm.py` calls only retrieve evidence; they do not publish into a worktree.
+The v0.1.1 validation workflows return reports and declared test artifacts, with no
+automatic build-directory or source publication.
 The dependency builder is `pandora-surface-deps-v3`. An unexpectedly running
 builder without recorded ownership blocks subsequent validation until an operator
 reconciles it. New dependency preparations hold a dedicated builder ownership lock

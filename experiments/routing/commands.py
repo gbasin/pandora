@@ -5,6 +5,64 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "warm"))
 from journey import journey_config
 from workflow_options import APPS, surface_selectors
+from validation_request import validate_request
+
+
+def _validation_command(argv):
+    """Strip pnpm's optional script wrapper without accepting shell syntax."""
+    return argv[1:] if argv[:1] == ['run'] else argv
+
+
+ALIASES = {
+    'test:unit': 'unit', 'test:tools': 'tools', 'test': 'full',
+    'test:browser-integration': 'browser-integration',
+    'test:employee-browser': 'employee-browser',
+    'test:mockup-browser': 'mockup-browser',
+    'test:postgres': 'postgres',
+}
+VALIDATION_SUITES = frozenset({
+    'unit', 'tools', 'full', 'agent-web', 'employee-browser',
+    'browser-integration', 'mockup-browser', 'postgres',
+})
+
+
+def _validation_parts(argv):
+    command = _validation_command(argv)
+    if not command:
+        return None, []
+    if command[:1] == ['validate']:
+        command = command[1:]
+        if not command:
+            return None, []
+        return (command[0] if command[0] in VALIDATION_SUITES else None), command[1:]
+    return ALIASES.get(command[0]), command[1:]
+
+
+def validation_request(argv):
+    """Return normalized metadata for a supported remote validation command."""
+    suite, args = _validation_parts(argv)
+    if suite is None:
+        raise ValueError('Not a validation command')
+    return validate_request({'version': 1, 'suite': suite, 'args': args})
+
+
+def _validation_route(argv):
+    """Classify recognized validation commands before ordinary local fallback."""
+    suite, args = _validation_parts(argv)
+    if suite is None:
+        return None
+    literal_tools = _validation_command(argv)[:1] == ['test:tools']
+    try:
+        request = validation_request(argv)
+    except ValueError:
+        if suite in {'unit', 'tools'}:
+            if suite == 'tools' and literal_tools and args:
+                return 'reject', [], 'pnpm test:tools runs the broad suite; use pnpm validate tools <test files> for focused local validation. No validation started.'
+            return 'local', [], ''
+        if suite == 'postgres':
+            return 'reject', [], 'Use pnpm test:postgres <api|scenarios> [--foundation-only for api]. No validation started.'
+        return 'reject', [], f'{suite} currently runs as one complete suite and takes no selectors. No validation started.'
+    return 'validation', [], ''
 
 
 def suite_request(argv, shard_count):
@@ -65,6 +123,9 @@ def surface_suite_options(options):
 
 
 def classify(argv, treatment='normal'):
+    validation = _validation_route(argv)
+    if validation is not None:
+        return validation
     command = argv[1:] if argv[:1] == ['run'] else argv
     journey = command[1:] if command[:1] == ['validate'] else command
     if journey[:1] in (['journey'], ['journeys']):

@@ -15,6 +15,8 @@ def cleanup(attempt):
     pending = attempt / 'service-cleanup.pending'
     if not pending.exists():
         return True
+    submitted = json.loads((attempt / 'submission.json').read_text()) if (attempt / 'submission.json').exists() else {}
+    kind = 'validation' if submitted.get('workflow') == 'validation' else 'journey'
     name = 'pandora-warm-' + attempt.name
     # Names are reserved before creation. A lost create acknowledgement does not
     # prevent cleanup. Never discover ownership from user-supplied container IDs.
@@ -22,7 +24,7 @@ def cleanup(attempt):
     errors = []
     for owned in names:
         removed, error = cleanup_identity.remove_container(owned, {
-            'pandora.attempt': attempt.name, 'pandora.workflow': 'journey'})
+            'pandora.attempt': attempt.name, 'pandora.workflow': kind})
         if not removed:
             errors.append(error)
     removed, error = cleanup_identity.remove_network(name, {'pandora.attempt': attempt.name})

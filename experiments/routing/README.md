@@ -17,10 +17,16 @@ These pnpm command forms route:
 - `pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]`
 - `pnpm journey <id> [--fault dropped] [--update]`
 - `pnpm validate journey <id> [--fault dropped] [--update]`
+- Full `pnpm journeys` and unfiltered `pnpm test:surface <app>` suites, including
+  the supported options documented below.
+- Broad `pnpm test:unit`, `pnpm test:tools`, and `pnpm test`.
+- The browser and PostgreSQL commands in the [v0.1.1 contract](../../notes/v0.1.1-contract.md).
 - The same forms with `pnpm run`.
 
-Other commands delegate to the original pnpm executable. Unsupported surface
-flags return a configuration error without running locally. This is the
+Unit commands with selectors, `pnpm validate tools <test files>`, and other
+unrouted commands delegate to the original pnpm executable.
+`pnpm test:tools <arguments>` rejects with the focused alternative. Unsupported options on routed workflows return an actionable
+configuration error without running locally. This is the
 normal-command treatment; absolute paths, direct package commands, and explicit
 PATH overrides can bypass it. It is not OS-level enforcement.
 

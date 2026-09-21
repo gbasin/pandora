@@ -13,7 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
-from commands import classify, selected_surface, suite_request, surface_suite_request
+from commands import classify, selected_surface, suite_request, surface_suite_request, validation_request
 from workflow_options import surface_outputs
 from transport import query, validate_evidence, validate_operator_result
 from delivery import deliver
@@ -193,6 +193,7 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
         return 64
     suite = None
     surface_suite = None
+    validation = None
     if action == 'suite-run':
         error = suite_environment_error(os.environ)
         if error:
@@ -211,6 +212,12 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
             if str(error) != 'Not a surface command':
                 print('[pandora] ' + str(error), file=sys.stderr)
                 return 64
+    if action == 'validation':
+        try:
+            validation = validation_request(argv)
+        except ValueError as error:
+            print('[pandora] ' + str(error) + '. No validation started.', file=sys.stderr)
+            return 64
     repo = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
     if Path.cwd().resolve() != repo.resolve():
         print('[pandora] Run this validation command from the repository root. No validation started.', file=sys.stderr)
@@ -319,6 +326,7 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
             record = {'state': 'active', 'protocol': 2, 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt, 'queue_timeout_seconds': timeout, 'artifact_delivery_limit_bytes': delivery_limit}
             suite_request_path = None
             surface_suite_request_path = None
+            validation_request_path = None
             if suite is not None:
                 suite_request_path = state / (attempt + '.suite-request.json')
                 write(suite_request_path, suite)
@@ -327,6 +335,10 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                 surface_suite_request_path = state / (attempt + '.surface-suite-request.json')
                 write(surface_suite_request_path, surface_suite)
                 record['surface_suite_request'] = str(surface_suite_request_path)
+            if validation is not None:
+                validation_request_path = state / (attempt + '.validation-request.json')
+                write(validation_request_path, validation)
+                record['validation_request'] = str(validation_request_path)
             write(active, record)
             owner = locked(owner_path(output))
             print(f'[pandora] accepted {attempt}; recover feedback with `pandora wait {attempt}`. Evidence: {output}', flush=True)
@@ -339,7 +351,7 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
                        '--output', str(output), '--attempt', record['attempt'],
                        '--workflow', ('surface-run' if surface_suite is not None
-                                      else action if action in ('journey', 'docker', 'suite-run') else 'surface'),
+                                      else action if action in ('journey', 'docker', 'suite-run', 'validation') else 'surface'),
                        '--queue-timeout-seconds', str(record['queue_timeout_seconds']),
                        '--artifact-delivery-limit-bytes', str(delivery_limit),
                        '--selectors-json=' + json.dumps(selectors)]
@@ -352,6 +364,8 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                 command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
             if suite_request_path is not None:
                 command += ['--suite-request', str(suite_request_path)]
+            if validation_request_path is not None:
+                command += ['--validation-request', str(validation_request_path)]
         # Allocation is complete. A waiter may now inspect immutable evidence
         # while the attempt owner retains the per-attempt lock.
         lock.close()

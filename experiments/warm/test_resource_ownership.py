@@ -36,6 +36,35 @@ class ResourceOwnership(unittest.TestCase):
     def test_two_admitted_live_workflows_and_owned_network_are_accepted(self):
         self.verify()
 
+    def test_concurrent_validation_and_journey_attempts_are_each_accepted(self):
+        identity = 'c' * 32
+        attempt = self.root / 'runs' / identity
+        attempt.mkdir()
+        (attempt / 'submission.json').write_text(json.dumps({'workflow': 'validation'}))
+        (attempt / 'service-cleanup.pending').touch()
+        handle = (attempt / 'attempt.lock').open('a')
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        self.addCleanup(handle.close)
+        self.containers.append({'Names': 'pandora-warm-' + identity + '-db', 'State': 'running',
+                                'Labels': 'pandora.attempt=' + identity + ',pandora.workflow=validation'})
+        self.networks.append({'Name': 'pandora-warm-' + identity,
+                              'Labels': 'pandora.attempt=' + identity})
+        self.verify(set(self.ids) | {identity})
+
+    def test_validation_foreign_managed_labels_fail_closed(self):
+        identity = 'c' * 32
+        attempt = self.root / 'runs' / identity
+        attempt.mkdir()
+        (attempt / 'submission.json').write_text(json.dumps({'workflow': 'validation'}))
+        (attempt / 'service-cleanup.pending').touch()
+        handle = (attempt / 'attempt.lock').open('a')
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        self.addCleanup(handle.close)
+        self.containers.append({'Names': 'pandora-warm-' + identity, 'State': 'running',
+                                'Labels': 'pandora.attempt=' + identity + ',pandora.workflow=validation,pandora.foreign=true'})
+        with self.assertRaisesRegex(OwnershipUnresolved, 'Unrecognized'):
+            self.verify(set(self.ids) | {identity})
+
     def test_admission_refresh_includes_peer_that_arrived_during_inventory(self):
         calls = []
         def current():

@@ -1,0 +1,1885 @@
+{
+  "version": 1,
+  "date": "2026-09-21",
+  "eichler_commit": "53c28ae52",
+  "worker_config": {
+    "version": 1,
+    "scheduler": {
+      "version": 1,
+      "cpu_millis": 3500,
+      "memory_mib": 13000,
+      "max_running": 2,
+      "policy": "fair",
+      "disk_mib": 24576,
+      "disk_floor_mib": 10240
+    },
+    "max_parallel": 2,
+    "execution_seconds": 1500,
+    "workspace_mib": 8192,
+    "limits": {
+      "main": {
+        "cpu_millis": 1000,
+        "memory_mib": 4096
+      },
+      "db": {
+        "cpu_millis": 250,
+        "memory_mib": 512
+      },
+      "pool": {
+        "cpu_millis": 125,
+        "memory_mib": 128
+      },
+      "proxy": {
+        "cpu_millis": 125,
+        "memory_mib": 128
+      }
+    }
+  },
+  "runs": [
+    {
+      "attempt": "fae9d86840fc4d93badfdaa047f94eb7",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "899e9085c26dddf189fcfd2c28b8ae3f2db76c17107ba0ffd5ad5cd1cfeb9db8",
+      "workflow": "surface",
+      "request": [
+        "e2e/smoke.spec.ts"
+      ],
+      "terminal": {
+        "state": "terminal",
+        "attempt": "fae9d86840fc4d93badfdaa047f94eb7",
+        "exit_code": 0,
+        "workflow": "surface",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.479864416003693,
+      "transfer_seconds": 2.9178178340080194,
+      "metrics": {
+        "queue_seconds": 0.011338477008393966,
+        "queue_ticket": 250,
+        "dependency_cache_hit": false,
+        "dependency_seconds": 164.61411333599244,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 134.77824373399199,
+        "exit_code": 0
+      }
+    },
+    {
+      "attempt": "cb3cefd6c65a4683a7395bbb42e36e98",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "ae186e95b18f18d8f631b5240df825fc287c2d8e0815e9d4d9a7b92e2eaf8bb4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "unit",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "cb3cefd6c65a4683a7395bbb42e36e98",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.245224084006622,
+      "transfer_seconds": 1.984686709009111,
+      "metrics": {
+        "queue_seconds": 0.011636893003014848,
+        "queue_ticket": 252,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.037551604997133836,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 518.6811429520021,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "cb3cefd6c65a4683a7395bbb42e36e98",
+        "suite": "unit",
+        "args": [],
+        "exit_code": 0,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "vitest",
+              "run",
+              "--maxWorkers=1",
+              "--reporter=default",
+              "--reporter=json",
+              "--outputFile=/workspace/results/step-1.vitest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 4044,
+            "report": "step-1.vitest.json"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      }
+    },
+    {
+      "attempt": "275349693aa1454daccbc3768d06498e",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "full",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "275349693aa1454daccbc3768d06498e",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 3.606523374968674,
+      "transfer_seconds": 1.960079374955967,
+      "metrics": {
+        "queue_seconds": 0.012098826991859823,
+        "queue_ticket": 257,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.035671598991029896,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 673.8806489660055,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "275349693aa1454daccbc3768d06498e",
+        "suite": "full",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 128,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "vitest",
+              "run",
+              "--maxWorkers=1",
+              "--reporter=default",
+              "--reporter=json",
+              "--outputFile=/workspace/results/step-2.vitest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 4044,
+            "report": "step-2.vitest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "test",
+              "--filter=!@eichler/agent",
+              "--filter=!@eichler/borrower",
+              "--concurrency=2"
+            ],
+            "exit_code": 0,
+            "test_count": 70,
+            "report": "step-3.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "build",
+              "--filter=@eichler/borrower^...",
+              "--concurrency=1"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/borrower",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--json",
+              "--outputFile=/workspace/results/step-5.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 62,
+            "report": "step-5.jest.json"
+          },
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "apps/agent/tools/test-ios.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 13,
+            "report": "step-6.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--json",
+              "--outputFile=/workspace/results/step-7.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 503,
+            "report": "step-7.jest.json"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        },
+        "adaptations": [
+          {
+            "reason": "The native Turbo package test invokes borrower Jest without the remote worker cap.",
+            "replaced": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "test",
+              "--filter=!@eichler/agent",
+              "--concurrency=2"
+            ],
+            "added": [
+              [
+                "pnpm",
+                "exec",
+                "turbo",
+                "run",
+                "test",
+                "--filter=!@eichler/agent",
+                "--filter=!@eichler/borrower",
+                "--concurrency=2"
+              ],
+              [
+                "pnpm",
+                "exec",
+                "turbo",
+                "run",
+                "build",
+                "--filter=@eichler/borrower^...",
+                "--concurrency=1"
+              ],
+              [
+                "pnpm",
+                "--filter",
+                "@eichler/borrower",
+                "exec",
+                "jest",
+                "--maxWorkers=1"
+              ]
+            ]
+          }
+        ]
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2734284800\n",
+        "cpu_stat": "usage_usec 606153921\nuser_usec 528480333\nsystem_usec 77673588\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 6488\nnr_throttled 5463\nthrottled_usec 256549000\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "d468a01eec724ac0bbc9e7a01fb8eaaa",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "d98d0397e00f268326fb79506e90d860b89bdbc5f5842039bf6f83672413dbd7",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "full",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d468a01eec724ac0bbc9e7a01fb8eaaa",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 5.4382960830116645,
+      "transfer_seconds": 1.7757507499773055,
+      "metrics": {
+        "queue_seconds": 0.01665102900005877,
+        "queue_ticket": 270,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04668715900334064,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 672.728670122,
+        "exit_code": 1
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "d468a01eec724ac0bbc9e7a01fb8eaaa",
+        "suite": "full",
+        "args": [],
+        "exit_code": 1,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 128,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "vitest",
+              "run",
+              "--maxWorkers=1",
+              "--reporter=default",
+              "--reporter=json",
+              "--outputFile=/workspace/results/step-2.vitest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 4044,
+            "report": "step-2.vitest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "test",
+              "--filter=!@eichler/agent",
+              "--filter=!@eichler/borrower",
+              "--concurrency=2",
+              "--force"
+            ],
+            "exit_code": 0,
+            "test_count": 70,
+            "report": "step-3.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "build",
+              "--filter=@eichler/borrower^...",
+              "--concurrency=1"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/borrower",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--json",
+              "--outputFile=/workspace/results/step-5.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 62,
+            "report": "step-5.jest.json"
+          },
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "apps/agent/tools/test-ios.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 13,
+            "report": "step-6.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--json",
+              "--outputFile=/workspace/results/step-7.jest.json"
+            ],
+            "exit_code": 1,
+            "test_count": 503,
+            "report": "step-7.jest.json"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        },
+        "adaptations": [
+          {
+            "reason": "The native Turbo package test invokes borrower Jest without the remote worker cap.",
+            "replaced": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "test",
+              "--filter=!@eichler/agent",
+              "--concurrency=2"
+            ],
+            "added": [
+              [
+                "pnpm",
+                "exec",
+                "turbo",
+                "run",
+                "test",
+                "--filter=!@eichler/agent",
+                "--filter=!@eichler/borrower",
+                "--concurrency=2",
+                "--force"
+              ],
+              [
+                "pnpm",
+                "exec",
+                "turbo",
+                "run",
+                "build",
+                "--filter=@eichler/borrower^...",
+                "--concurrency=1"
+              ],
+              [
+                "pnpm",
+                "--filter",
+                "@eichler/borrower",
+                "exec",
+                "jest",
+                "--maxWorkers=1"
+              ]
+            ],
+            "turbo_force": true
+          }
+        ],
+        "detail": "Step 7 exited 1."
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2988249088\n",
+        "cpu_stat": "usage_usec 606593426\nuser_usec 528596475\nsystem_usec 77996950\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 6475\nnr_throttled 5645\nthrottled_usec 295502541\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "d9ea69bccbb74518aff9dc9fd6792336",
+      "source_digest": "1fb35c31d3a68072e3f631f36189ea1a40211f5995fce313c8d0587e97c9b245",
+      "worker_bundle": "d98d0397e00f268326fb79506e90d860b89bdbc5f5842039bf6f83672413dbd7",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "full",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d9ea69bccbb74518aff9dc9fd6792336",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.312703041010536,
+      "transfer_seconds": 1.5902103750267997,
+      "metrics": {
+        "queue_seconds": 0.013157873996533453,
+        "queue_ticket": 272,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.039109545992687345,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 58.074589408002794,
+        "exit_code": 0
+      },
+      "evaluation_override": "Trial-only planner selects unchanged roster-tasks-closing.test.tsx in three separate Jest processes; this is not a full-suite run.",
+      "validation": {
+        "version": 1,
+        "attempt": "d9ea69bccbb74518aff9dc9fd6792336",
+        "suite": "full",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--runTestsByPath",
+              "__tests__/roster-tasks-closing.test.tsx",
+              "--json",
+              "--outputFile=/workspace/results/step-1.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-1.jest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--runTestsByPath",
+              "__tests__/roster-tasks-closing.test.tsx",
+              "--json",
+              "--outputFile=/workspace/results/step-2.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-2.jest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--runTestsByPath",
+              "__tests__/roster-tasks-closing.test.tsx",
+              "--json",
+              "--outputFile=/workspace/results/step-3.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-3.jest.json"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2107240448\n",
+        "cpu_stat": "usage_usec 55588538\nuser_usec 50010392\nsystem_usec 5578146\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 563\nnr_throttled 453\nthrottled_usec 83281585\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "96d47365c86342b39b0da3adf2c4f0df",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "mockup-browser",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "96d47365c86342b39b0da3adf2c4f0df",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 6.675218499964103,
+      "transfer_seconds": 2.1752091249800287,
+      "metrics": {
+        "queue_seconds": 0.012697689002379775,
+        "queue_ticket": 264,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.03383500300697051,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 112.64922136400128,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "96d47365c86342b39b0da3adf2c4f0df",
+        "suite": "mockup-browser",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/mockup",
+              "test:browser"
+            ],
+            "exit_code": 0,
+            "test_count": 78,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "1556246528\n",
+        "cpu_stat": "usage_usec 100188687\nuser_usec 77280419\nsystem_usec 22908267\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 1076\nnr_throttled 791\nthrottled_usec 98654172\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "27169b483baa443eb42ecad4af5edd40",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "932141d04db7597fd9eb7698c2c84dad24126e2a70b3914df1df21be33dbd36b",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "postgres",
+        "args": [
+          "api",
+          "--foundation-only"
+        ]
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "27169b483baa443eb42ecad4af5edd40",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 61.45263850002084,
+      "transfer_seconds": 2.700452083023265,
+      "metrics": {
+        "queue_seconds": 0.011598052995395847,
+        "queue_ticket": 253,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04309806501260027,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 32.71112195501337,
+        "exit_code": 1
+      }
+    },
+    {
+      "attempt": "2bc95c6314704a9fa988a12645e6095a",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "d98d0397e00f268326fb79506e90d860b89bdbc5f5842039bf6f83672413dbd7",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "postgres",
+        "args": [
+          "api"
+        ]
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "2bc95c6314704a9fa988a12645e6095a",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 5.537295582995284,
+      "transfer_seconds": 1.8076565410010517,
+      "metrics": {
+        "queue_seconds": 0.013685646001249552,
+        "queue_ticket": 269,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.05948265599727165,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 74.21447963200626,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "2bc95c6314704a9fa988a12645e6095a",
+        "suite": "postgres",
+        "args": [
+          "api"
+        ],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/api",
+              "test:postgres"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2627616768\n",
+        "cpu_stat": "usage_usec 56229840\nuser_usec 49079011\nsystem_usec 7150828\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 679\nnr_throttled 371\nthrottled_usec 62917963\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "35073c8990804facbc9e71eadf502c20",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "agent-web",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "35073c8990804facbc9e71eadf502c20",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 5.666378499998245,
+      "transfer_seconds": 2.380312082997989,
+      "metrics": {
+        "queue_seconds": 0.012689919996773824,
+        "queue_ticket": 258,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.03987526599667035,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 220.1472564600117,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "35073c8990804facbc9e71eadf502c20",
+        "suite": "agent-web",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "build:web"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "playwright",
+              "test",
+              "--workers=1"
+            ],
+            "exit_code": 0,
+            "test_count": 36,
+            "report": "step-2.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [
+            "artifacts/apps/agent/test-results/.last-run.json"
+          ],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2715332608\n",
+        "cpu_stat": "usage_usec 206892956\nuser_usec 175175840\nsystem_usec 31717115\nnice_usec 3000\ncore_sched.force_idle_usec 0\nnr_periods 2165\nnr_throttled 1903\nthrottled_usec 194925896\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "d33121c3eabd4c9cbf5bf92bcd4d7756",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "employee-browser",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d33121c3eabd4c9cbf5bf92bcd4d7756",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 108.66656291700201,
+      "transfer_seconds": 5.711710333998781,
+      "metrics": {
+        "queue_seconds": 0.015451005005161278,
+        "queue_ticket": 261,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.057962548002251424,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 146.2595922210021,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "d33121c3eabd4c9cbf5bf92bcd4d7756",
+        "suite": "employee-browser",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=2",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 5,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "node",
+              "tools/employee-browser/run.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-2.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [
+            "artifacts/test-results/employee-browser/.last-run.json",
+            "artifacts/test-results/employee-browser/api-evidence.json"
+          ],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2153177088\n",
+        "cpu_stat": "usage_usec 98390826\nuser_usec 88191852\nsystem_usec 10198973\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 1350\nnr_throttled 845\nthrottled_usec 88426971\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "c0757bc284d441acbe57d3ea3e7ecc1f",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "browser-integration",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "c0757bc284d441acbe57d3ea3e7ecc1f",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 3.8024044999619946,
+      "transfer_seconds": 2.5803579579805955,
+      "metrics": {
+        "queue_seconds": 0.012605461000930518,
+        "queue_ticket": 256,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.03369759400084149,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 78.87283396799467,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "c0757bc284d441acbe57d3ea3e7ecc1f",
+        "suite": "browser-integration",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=2",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 4,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "python3",
+              "tools/browser-integration/sanitize-traces.test.py"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "node",
+              "/workspace/source/tools/browser-integration/pandora-run.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-3.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [
+            "artifacts/test-results/browser-integration/.last-run.json",
+            "artifacts/test-results/browser-integration/stack.log"
+          ],
+          "omitted": [
+            "test-results/browser-integration/borrower-trace.zip",
+            "test-results/browser-integration/desk-trace.zip"
+          ]
+        },
+        "adaptations": [
+          {
+            "reason": "startInstance external services",
+            "source_sha256": "279cf44e2a7fea7b6a4e131d2cc08e18daffbd02f6f6233fc11e4a097862a17d",
+            "transformed_sha256": "9fba3b1321abeaf43a30545efc0332057ef0a3cc963c8822044deb350db8891b",
+            "runner": "/workspace/source/tools/browser-integration/pandora-run.mjs"
+          }
+        ]
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "3409354752\n",
+        "cpu_stat": "usage_usec 70314180\nuser_usec 60555123\nsystem_usec 9759057\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 714\nnr_throttled 600\nthrottled_usec 98044193\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "1a119ead1d154c8bb9ccc73ffacd969a",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "d98d0397e00f268326fb79506e90d860b89bdbc5f5842039bf6f83672413dbd7",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "browser-integration",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "1a119ead1d154c8bb9ccc73ffacd969a",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 6.133733167022001,
+      "transfer_seconds": 4.6000792919658124,
+      "metrics": {
+        "queue_seconds": 0.014102380999247544,
+        "queue_ticket": 271,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.041272538001067005,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 78.35856629200862,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "1a119ead1d154c8bb9ccc73ffacd969a",
+        "suite": "browser-integration",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=2",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 4,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "python3",
+              "tools/browser-integration/sanitize-traces.test.py"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "node",
+              "/workspace/source/tools/browser-integration/pandora-run.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-3.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [
+            "artifacts/test-results/browser-integration/.last-run.json",
+            "artifacts/test-results/browser-integration/borrower-trace.zip",
+            "artifacts/test-results/browser-integration/desk-trace.zip",
+            "artifacts/test-results/browser-integration/pandora-sanitized.json",
+            "artifacts/test-results/browser-integration/stack.log"
+          ],
+          "omitted": []
+        },
+        "adaptations": [
+          {
+            "reason": "startInstance external services + sanitizer receipt",
+            "source_sha256": "279cf44e2a7fea7b6a4e131d2cc08e18daffbd02f6f6233fc11e4a097862a17d",
+            "transformed_sha256": "b6e3329cd3e3e55814f21d1b689c0316f60dd735f4948a16474138e359ef2596",
+            "runner": "/workspace/source/tools/browser-integration/pandora-run.mjs"
+          }
+        ]
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "3654799360\n",
+        "cpu_stat": "usage_usec 71011731\nuser_usec 60988985\nsystem_usec 10022745\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 721\nnr_throttled 606\nthrottled_usec 82658023\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "b65ba577f2494bef91b091a7846f0791",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "5359878e6000cb238734b20eda87b928e0f16276c609c13d62dc9deb835f55bc",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "tools",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "b65ba577f2494bef91b091a7846f0791",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.113306124985684,
+      "transfer_seconds": 1.8245487500098534,
+      "metrics": {
+        "queue_seconds": 0.012113367003621534,
+        "queue_ticket": 255,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.040277791005792096,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 50.32315377800842,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "b65ba577f2494bef91b091a7846f0791",
+        "suite": "tools",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 128,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      }
+    },
+    {
+      "attempt": "381d3d6b29f94d34b2d2842ee3b2bcc6",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "5359878e6000cb238734b20eda87b928e0f16276c609c13d62dc9deb835f55bc",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "postgres",
+        "args": [
+          "api",
+          "--foundation-only"
+        ]
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "381d3d6b29f94d34b2d2842ee3b2bcc6",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.0806392910308205,
+      "transfer_seconds": 2.805123124970123,
+      "metrics": {
+        "queue_seconds": 0.013503808993846178,
+        "queue_ticket": 254,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.040034124001977034,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 55.69795356800023,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "381d3d6b29f94d34b2d2842ee3b2bcc6",
+        "suite": "postgres",
+        "args": [
+          "api",
+          "--foundation-only"
+        ],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/api",
+              "test:postgres",
+              "--foundation-only"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      }
+    },
+    {
+      "attempt": "cc66c0040ae74b6b8ccab3f7456cc014",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "postgres",
+        "args": [
+          "api"
+        ]
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "cc66c0040ae74b6b8ccab3f7456cc014",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.214727584039792,
+      "transfer_seconds": 2.2557044159621,
+      "metrics": {
+        "queue_seconds": 0.013247783004771918,
+        "queue_ticket": 265,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04165748400555458,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 62.072411993009155,
+        "exit_code": 1
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "cc66c0040ae74b6b8ccab3f7456cc014",
+        "suite": "postgres",
+        "args": [
+          "api"
+        ],
+        "exit_code": 1,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/api",
+              "test:postgres"
+            ],
+            "exit_code": 1,
+            "test_count": 0,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        },
+        "detail": "Step 1 exited 1."
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2512187392\n",
+        "cpu_stat": "usage_usec 51623106\nuser_usec 45321568\nsystem_usec 6301537\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 561\nnr_throttled 372\nthrottled_usec 52135642\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "d2fabadde600485ea58566bdbfc6b909",
+      "source_digest": "6efa6f8b3a0dfc6bcc9dd0af61ded24b4fdc1022fc4c6dd8a35befa43c5aa524",
+      "worker_bundle": "886e1041faf6a33693ff4b698ffe4adb20763c79e76cbd0922029f69ea323ebe",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "browser-integration",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d2fabadde600485ea58566bdbfc6b909",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.098793625016697,
+      "transfer_seconds": 2.2221468340139836,
+      "metrics": {
+        "queue_seconds": 0.012612499995157123,
+        "queue_ticket": 266,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.038404795006499626,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 77.46843187199556,
+        "exit_code": 1
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "d2fabadde600485ea58566bdbfc6b909",
+        "suite": "browser-integration",
+        "args": [],
+        "exit_code": 1,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=2",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 4,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "python3",
+              "tools/browser-integration/sanitize-traces.test.py"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "node",
+              "/workspace/source/tools/browser-integration/pandora-run.mjs"
+            ],
+            "exit_code": 1,
+            "test_count": 0,
+            "report": "step-3.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [
+            "artifacts/test-results/browser-integration/.last-run.json",
+            "artifacts/test-results/browser-integration/application-borrower-attes-94f68-the-same-persisted-revision/error-context.md",
+            "artifacts/test-results/browser-integration/application-borrower-attes-94f68-the-same-persisted-revision/test-failed-1.png",
+            "artifacts/test-results/browser-integration/application-borrower-attes-94f68-the-same-persisted-revision/test-failed-2.png",
+            "artifacts/test-results/browser-integration/borrower-trace.zip",
+            "artifacts/test-results/browser-integration/desk-trace.zip",
+            "artifacts/test-results/browser-integration/pandora-sanitized.json",
+            "artifacts/test-results/browser-integration/stack.log"
+          ],
+          "omitted": []
+        },
+        "adaptations": [
+          {
+            "reason": "startInstance external services + sanitizer receipt",
+            "source_sha256": "279cf44e2a7fea7b6a4e131d2cc08e18daffbd02f6f6233fc11e4a097862a17d",
+            "transformed_sha256": "941d2f818bfd5b0f3e2b25a2614fb8295146a36cb06219a53a0289908268ffea",
+            "runner": "/workspace/source/tools/browser-integration/pandora-run.mjs"
+          }
+        ],
+        "detail": "Step 3 exited 1."
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "3602128896\n",
+        "cpu_stat": "usage_usec 70188795\nuser_usec 60432774\nsystem_usec 9756021\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 712\nnr_throttled 604\nthrottled_usec 82680546\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "bb0a1aca8ed64c13b203ff736cc0de08",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "tools",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "bb0a1aca8ed64c13b203ff736cc0de08",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 74.85900083300658,
+      "transfer_seconds": 3.4176195000181906,
+      "metrics": {
+        "queue_seconds": 147.11012067898992,
+        "queue_ticket": 262,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.03876219000085257,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 50.76748211699305,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "bb0a1aca8ed64c13b203ff736cc0de08",
+        "suite": "tools",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 128,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "1615945728\n",
+        "cpu_stat": "usage_usec 48215488\nuser_usec 41034036\nsystem_usec 7181451\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 488\nnr_throttled 384\nthrottled_usec 64441903\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "1685f59873eb4a88b252d2d237a61572",
+      "source_digest": "cf6cefb3026fe899140bc7acb77088db0692a6c14967e48e5981d6e065567ccf",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "tools",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "1685f59873eb4a88b252d2d237a61572",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 3.843420666991733,
+      "transfer_seconds": 1.8783811660250649,
+      "metrics": {
+        "queue_seconds": 166.14797819200612,
+        "queue_ticket": 259,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.03892991800967138,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 50.95549809798831,
+        "exit_code": 1
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "1685f59873eb4a88b252d2d237a61572",
+        "suite": "tools",
+        "args": [],
+        "exit_code": 1,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 1,
+            "test_count": 120,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        },
+        "detail": "Step 1 exited 1."
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "1612709888\n",
+        "cpu_stat": "usage_usec 48233107\nuser_usec 40965227\nsystem_usec 7267879\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 489\nnr_throttled 384\nthrottled_usec 69390819\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "44b2aeae1b004ecbbdde26dfed3c0651",
+      "source_digest": "cf6cefb3026fe899140bc7acb77088db0692a6c14967e48e5981d6e065567ccf",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "tools",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "44b2aeae1b004ecbbdde26dfed3c0651",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.495166042004712,
+      "transfer_seconds": 2.193977333023213,
+      "metrics": {
+        "queue_seconds": 201.78131212299922,
+        "queue_ticket": 260,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04029323199938517,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 50.0698764599947,
+        "exit_code": 1
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "44b2aeae1b004ecbbdde26dfed3c0651",
+        "suite": "tools",
+        "args": [],
+        "exit_code": 1,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 1,
+            "test_count": 120,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        },
+        "detail": "Step 1 exited 1."
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "1611563008\n",
+        "cpu_stat": "usage_usec 47464684\nuser_usec 40167208\nsystem_usec 7297476\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 481\nnr_throttled 376\nthrottled_usec 62684831\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "680706d013d344d7b14148fb48000501",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "tools",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "680706d013d344d7b14148fb48000501",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 5.59673325001495,
+      "transfer_seconds": 2.0371657499927096,
+      "metrics": {
+        "queue_seconds": 176.1823973210121,
+        "queue_ticket": 263,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.049621943006059155,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 51.35761186100717,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "680706d013d344d7b14148fb48000501",
+        "suite": "tools",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 128,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "1621159936\n",
+        "cpu_stat": "usage_usec 48377985\nuser_usec 41149190\nsystem_usec 7228795\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 491\nnr_throttled 386\nthrottled_usec 65972394\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "75784bd6ae4641fcb1312f3c5a18e132",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "886e1041faf6a33693ff4b698ffe4adb20763c79e76cbd0922029f69ea323ebe",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "postgres",
+        "args": [
+          "scenarios"
+        ]
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "75784bd6ae4641fcb1312f3c5a18e132",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 3.5025507080135867,
+      "transfer_seconds": 1.6882407910306938,
+      "metrics": {
+        "queue_seconds": 0.0128342980024172,
+        "queue_ticket": 267,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.03183997700398322,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 36.30944780600839,
+        "exit_code": 0
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "75784bd6ae4641fcb1312f3c5a18e132",
+        "suite": "postgres",
+        "args": [
+          "scenarios"
+        ],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/scenarios",
+              "test:postgres"
+            ],
+            "exit_code": 0,
+            "test_count": 2,
+            "report": "step-1.tap"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "1744859136\n",
+        "cpu_stat": "usage_usec 28274487\nuser_usec 24788290\nsystem_usec 3486196\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 288\nnr_throttled 183\nthrottled_usec 46601770\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "5d63c53e0de24edaaeefd2e2d727f254",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "browser-integration",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "5d63c53e0de24edaaeefd2e2d727f254",
+        "exit_code": 130,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.56580679200124,
+      "transfer_seconds": 1.6804038750124164,
+      "metrics": {
+        "queue_seconds": 0.013271792005980387,
+        "queue_ticket": 268,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.045027630010736175,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 19.45299784099916,
+        "exit_code": 70
+      }
+    }
+  ],
+  "recovery": {
+    "case": "validation-running-client-loss-explicit-wait",
+    "attempt": "75784bd6ae4641fcb1312f3c5a18e132",
+    "lost_client_exit": 137,
+    "wait_exit": 0,
+    "same_attempt": true,
+    "terminal": {
+      "attempt": "75784bd6ae4641fcb1312f3c5a18e132",
+      "exit_code": 0,
+      "cleanup_verified": true
+    }
+  },
+  "cancellation": {
+    "case": "validation-service-running-cancel",
+    "attempt": "5d63c53e0de24edaaeefd2e2d727f254",
+    "exit_code": 130,
+    "cleanup_verified": true
+  },
+  "agents": {
+    "run": "pandora-v011-repair-20260921",
+    "terra": {
+      "baseline": "1685f59873eb4a88b252d2d237a61572",
+      "repair": "bb0a1aca8ed64c13b203ff736cc0de08"
+    },
+    "opus": {
+      "baseline": "44b2aeae1b004ecbbdde26dfed3c0651",
+      "repair": "680706d013d344d7b14148fb48000501"
+    },
+    "source_edit": "tools/check-clock-discipline.mjs: Clock -> Date",
+    "interventions": 0,
+    "extra_attempts": 0
+  },
+  "artifact_failure_probe": {
+    "attempt": "d2fabadde600485ea58566bdbfc6b909",
+    "exit_code": 1,
+    "sanitizer_receipt_matches_attempt": true,
+    "valid_zip_archives": 2,
+    "screenshots": 2,
+    "failure_context": true
+  }
+}
