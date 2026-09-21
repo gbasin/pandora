@@ -71,7 +71,7 @@ def protected_images(root):
             if docker is not None and not isinstance(docker, dict):
                 raise CollectionDeferred('submission docker metadata is malformed')
             image = docker.get('image') if docker else None
-            if image:
+            if image is not None:
                 if not isinstance(image, dict) or not isinstance(image.get('image_id'), str) or not image['image_id']:
                     raise CollectionDeferred('submission image metadata is malformed')
                 protected.add(image['image_id'])
