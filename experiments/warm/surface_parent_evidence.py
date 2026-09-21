@@ -4,6 +4,8 @@ from surface_suite import validate_plan, validate_shard
 
 def summarize(plan, reports, *, keep_going, stop_reason=None):
     plan = validate_plan(plan)
+    if type(keep_going) is not bool or keep_going != plan['keep_going']:
+        raise ValueError('Surface continuation policy differs from the plan')
     by_index = {}
     for report in reports:
         checked = validate_shard(report, plan, report['shard'])
@@ -15,6 +17,9 @@ def summarize(plan, reports, *, keep_going, stop_reason=None):
     stops = {None, 'test-failure', 'infrastructure', 'deadline', 'queue-timeout', 'cancelled'}
     if stop_reason not in stops: raise ValueError('Invalid surface stop reason')
     if unrun and stop_reason is None: raise ValueError('Missing surface shard receipt has no stop reason')
+    if any(by_index[index]['exit_code'] not in (0, 1) for index in failures):
+        if stop_reason not in ('infrastructure', 'deadline', 'queue-timeout', 'cancelled'):
+            raise ValueError('Infrastructure failure lacks a matching stop reason')
     if failures and stop_reason is None: stop_reason = 'test-failure'
     if stop_reason == 'test-failure' and not failures: raise ValueError('Test stop requires failed shard')
     if stop_reason in ('infrastructure', 'deadline', 'queue-timeout'): code = 75

@@ -218,7 +218,7 @@ def follow(host, output, reconnect_seconds=45,
                 print(f'[pandora] Docker report: {output / "results/docker.json"}', flush=True)
             if terminal['exit_code'] != 0 and (output / 'results/outputs').exists():
                 print(f'[pandora] failed-run outputs retained: {output / "results/outputs"}; workspace outputs were not published', flush=True)
-            for suite_report in ('suite-plan.json', 'suite-shard.json', 'suite-run.json', 'suite-error.json'):
+            for suite_report in ('suite-plan.json', 'suite-shard.json', 'suite-run.json', 'suite-error.json', 'surface-plan.json', 'surface-shard.json', 'surface-run.json', 'surface-error.json'):
                 if (output / 'results' / suite_report).exists():
                     print(f'[pandora] suite evidence: {output / "results" / suite_report}', flush=True)
             if (output / 'results/journey.json').exists():

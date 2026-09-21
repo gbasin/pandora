@@ -22,7 +22,7 @@ def group(snapshot, invocation):
 def register(root, submitted, invocation):
     queue = scheduler(root, submitted['worker_config'])
     queue.register(invocation, queue_budget=submitted['queue_timeout_seconds'],
-                   max_parallel=submitted['worker_config']['max_parallel'] if submitted.get('parent_attempt') or submitted.get('workflow') == 'suite-run' else 1)
+                   max_parallel=submitted['worker_config']['max_parallel'] if submitted.get('parent_attempt') or submitted.get('workflow') in ('suite-run', 'surface-run') else 1)
     return queue
 
 

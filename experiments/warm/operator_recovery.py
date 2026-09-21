@@ -337,7 +337,7 @@ def acknowledge_suite_parent(root, identity, reason, *, now=time.time, run=subpr
             parent_submission = json.loads((parent / "submission.json").read_text())
         except (OSError, ValueError, TypeError, AttributeError) as error:
             raise RecoveryBlocked("Suite parent registry or submission is malformed") from error
-        if not isinstance(parent_submission, dict) or parent_submission.get("attempt") != identity or parent_submission.get("workflow") != "suite-run":
+        if not isinstance(parent_submission, dict) or parent_submission.get("attempt") != identity or parent_submission.get("workflow") not in ("suite-run", "surface-run"):
             raise RecoveryBlocked("Parent submission is not a suite run")
         staged = []
         for child in children:

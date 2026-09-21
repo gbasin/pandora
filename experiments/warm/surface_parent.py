@@ -1,5 +1,6 @@
 """Configured parent for one built-once, immutable browser surface plan."""
 import json
+import math
 from pathlib import Path
 import shutil
 from threading import Event
@@ -43,7 +44,7 @@ def execute(parent, submitted):
                                         submitted['worker_config']['execution_seconds'])
     terminal = retain(parent, planner); state['completed'].append(children[0]); write(parent / 'suite-state.json', state)
     if terminal['exit_code']:
-        reason = 'deadline' if terminal['exit_code'] == 124 else 'planning-failed'
+        reason = 'deadline' if planner_stopped == 'deadline' or terminal['exit_code'] == 124 else 'planning-failed'
         waited = next(row['waited'] for row in queue.snapshot()['invocations'] if row['identity'] == parent.name)
         state['stop_reason'] = reason; state['queue_seconds'] = waited; write(parent / 'suite-state.json', state)
         from worker_config import identity as config_identity
@@ -62,15 +63,24 @@ def execute(parent, submitted):
     def finish(identity, child, stopped):
         terminal = retain(parent, child); state['completed'].append(identity); write(parent / 'suite-state.json', state); return terminal, stopped
     def classify(index, child, terminal, stopped):
-        path = child / 'results' / 'surface-shard.json'
-        if not path.exists(): return 'infrastructure'
-        reports[index] = json.loads(path.read_text())
-        if terminal['exit_code'] not in (0, 1): return 'infrastructure'
+        path = child / 'results/surface-shard.json'
+        if path.exists():
+            reports[index] = validate_shard(json.loads(path.read_text()), plan, index)
+        if stopped == 'deadline' or terminal['exit_code'] == 124:
+            return 'deadline'
+        if terminal['exit_code'] == 75:
+            snapshot = next(row for row in queue.snapshot()['invocations'] if row['identity'] == parent.name)
+            return snapshot['stopped'] if snapshot.get('stopped') in ('test-failure', 'queue-timeout', 'deadline') else 'infrastructure'
+        if not path.exists() or terminal['exit_code'] not in (0, 1):
+            return 'infrastructure'
         return 'test-failure' if terminal['exit_code'] and not request['keep_going'] else None
     def stop(current, observed):
-        if observed and observed not in ('deadline', 'queue-timeout'):
-            queue.stop(parent.name, observed)
-        return observed or current
+        priorities = {None: 0, 'test-failure': 1, 'infrastructure': 2,
+                      'queue-timeout': 3, 'deadline': 4, 'cancelled': 5}
+        reason = observed if priorities[observed] > priorities[current] else current
+        if reason != 'queue-timeout':
+            queue.stop(parent.name, reason)
+        return reason
     def persist(kind, value):
         if kind == 'dispatched': state['dispatched'].append(value)
         else: state['stop_reason'] = value
@@ -89,45 +99,82 @@ def execute(parent, submitted):
 
 
 def validate_result(stage, submitted, terminal, manifest):
-    """Bind retained surface plan/shards to the one accepted configured invocation."""
-    required = {'children.json', 'suite-state.json', 'results/surface-plan.json',
-                'results/surface-run.json', 'queue.json'}
+    """Reconstruct the aggregate exclusively from authenticated child receipts."""
+    required = {'children.json', 'suite-state.json', 'queue.json', 'results/exit-code'}
     if not required <= set(manifest):
         raise ValueError('Surface parent lacks invocation evidence')
     request = surface_request(submitted['surface_suite'])
+    if request['action'] != 'run':
+        raise ValueError('Surface parent requires a run request')
     children = validate_registry(Path(submitted['attempt']), json.loads((stage / 'children.json').read_text()))
-    if len(children) != request['shard_count'] + 1: raise ValueError('Surface reserved child count differs')
+    if len(children) != request['shard_count'] + 1:
+        raise ValueError('Surface reserved child count differs')
     state = json.loads((stage / 'suite-state.json').read_text())
-    if (state.get('version') != 2 or state.get('reserved') != children or not set(state.get('completed', [])) <= set(state.get('dispatched', []))
-            or not set(state.get('dispatched', [])) <= set(children) or children[0] not in state.get('completed', [])):
+    dispatched, completed = state.get('dispatched'), state.get('completed')
+    if (state.get('version') != 2 or state.get('reserved') != children
+            or not isinstance(dispatched, list) or not isinstance(completed, list)
+            or any(not isinstance(item, str) for item in dispatched + completed)
+            or len(set(dispatched)) != len(dispatched) or len(set(completed)) != len(completed)
+            or set(completed) != set(dispatched) or dispatched != children[:len(dispatched)]
+            or children[0] not in completed):
         raise ValueError('Surface dispatch journal differs from reserved work')
-    plan = validate_plan(json.loads((stage / 'results/surface-plan.json').read_text()), submitted)
-    result = json.loads((stage / 'results/surface-run.json').read_text())
-    from surface_parent_evidence import validate_summary
-    validate_summary(plan, result)
-    if result['exit_code'] != terminal['exit_code'] or state.get('stop_reason') != result['stop_reason']:
-        raise ValueError('Surface parent terminal differs from aggregate')
     queue = json.loads((stage / 'queue.json').read_text())
-    from worker_config import identity as config_identity
+    from worker_config import identity as config_identity, validate
+    validate(submitted['worker_config'])
+    waited = queue.get('waited')
     if (queue.get('mode') != 'resource' or queue.get('invocation') != submitted['attempt']
             or queue.get('config_digest') != config_identity(submitted['worker_config'])
-            or queue.get('waited') != state.get('queue_seconds')):
+            or type(waited) not in (float, int) or not math.isfinite(waited) or waited < 0
+            or waited != state.get('queue_seconds')):
         raise ValueError('Surface queue receipt differs from configured invocation')
-    for index, identity in enumerate(children):
-        if identity not in state['completed']: continue
-        child = stage / 'results' / 'attempts' / identity
+    if (stage / 'results/exit-code').read_text().strip() != str(terminal['exit_code']):
+        raise ValueError('Surface exit receipt differs from terminal')
+    planning_failure = 'results/surface-error.json' in manifest
+    plan = None
+    if not planning_failure:
+        if not {'results/surface-plan.json', 'results/surface-run.json'} <= set(manifest):
+            raise ValueError('Surface parent lacks its plan or aggregate')
+        plan = validate_plan(json.loads((stage / 'results/surface-plan.json').read_text()), submitted)
+    reports, planner_exit = [], None
+    for identity in completed:
+        index = children.index(identity)
+        child = stage / 'results/attempts' / identity
         for name in ('submission.json', 'terminal.json', 'artifacts.json'):
-            if str((child / name).relative_to(stage)) not in manifest: raise ValueError('Surface child receipt missing')
+            if str((child / name).relative_to(stage)) not in manifest:
+                raise ValueError('Surface child receipt missing')
         metadata = json.loads((child / 'submission.json').read_text())
         expected = request | {'action': 'plan'} if index == 0 else {'action': 'shard', 'plan': plan, 'shard': index}
         if (metadata.get('attempt') != identity or metadata.get('parent_attempt') != submitted['attempt']
                 or metadata.get('workflow') != 'surface' or metadata.get('surface_suite') != expected
-                or metadata.get('source_digest') != submitted['source_digest'] or metadata.get('worker_config') != submitted['worker_config']):
+                or metadata.get('surface_app') != request['app'] or metadata.get('selectors') != request['selectors']
+                or metadata.get('queue_timeout_seconds') != submitted['queue_timeout_seconds']
+                or metadata.get('source_digest') != submitted['source_digest']
+                or metadata.get('worker_config') != submitted['worker_config']):
             raise ValueError('Surface child metadata differs from parent')
         receipt = validate_evidence(child, identity, metadata)
         if index == 0:
-            if receipt['exit_code'] or json.loads((child / 'results/surface-plan.json').read_text()) != plan: raise ValueError('Surface planner receipt differs')
+            planner_exit = receipt['exit_code']
+            if not planning_failure and (planner_exit or json.loads((child / 'results/surface-plan.json').read_text()) != plan):
+                raise ValueError('Surface planner receipt differs')
         else:
             path = child / 'results/surface-shard.json'
-            if path.exists(): validate_shard(json.loads(path.read_text()), plan, index)
-            elif receipt['exit_code'] == 0: raise ValueError('Successful surface shard lacks report')
+            if path.exists():
+                reports.append(validate_shard(json.loads(path.read_text()), plan, index))
+            elif receipt['exit_code'] == 0 or (state.get('stop_reason') not in ('infrastructure', 'deadline', 'queue-timeout', 'cancelled')
+                    and not (state.get('stop_reason') == 'test-failure' and receipt['exit_code'] == 75)):
+                raise ValueError('Surface shard lacks an explained result')
+    if planning_failure:
+        reason = state.get('stop_reason')
+        code = 75 if reason == 'deadline' else planner_exit
+        error = json.loads((stage / 'results/surface-error.json').read_text())
+        if (dispatched != children[:1] or not planner_exit or reason not in ('planning-failed', 'deadline')
+                or (reason == 'deadline' and planner_exit != 124) or terminal['exit_code'] != code
+                or error != {'version': 1, 'parent_attempt': submitted['attempt'],
+                             'source_digest': submitted['source_digest'], 'plan_attempt': children[0],
+                             'reason': reason, 'exit_code': planner_exit}):
+            raise ValueError('Surface planning failure differs from retained evidence')
+        return
+    result = json.loads((stage / 'results/surface-run.json').read_text())
+    expected_result = summarize(plan, reports, keep_going=request['keep_going'], stop_reason=state['stop_reason'])
+    if result != expected_result or terminal['exit_code'] != expected_result['exit_code']:
+        raise ValueError('Surface aggregate differs from retained shard receipts')

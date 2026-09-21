@@ -57,6 +57,7 @@ if (request.action !== 'shard' || plan.source_digest !== sourceDigest || plan.pa
 if (canonical(outputManifest()) !== canonical(plan.build)) throw new Error('surface build bytes differ from frozen plan');
 const report = join(results, 'surface-observed.json'); const index = request.shard;
 const result = invoke([...plan.selectors, `--shard=${index}/${plan.shard_count}`, '--pass-with-no-tests'], report, 'run');
+if (canonical(outputManifest()) !== canonical(plan.build)) throw new Error('surface tests changed the frozen compiled inputs');
 const observed = JSON.parse(readFileSync(report, 'utf8'));
 const expected = plan.shards[index - 1].test_ids;
 if (JSON.stringify(observed.inventory.map(x => x.id)) !== JSON.stringify(expected)) throw new Error('surface shard membership changed');
