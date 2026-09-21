@@ -24,10 +24,14 @@ class WarmSubmissionTests(unittest.TestCase):
                     patch('warm.freeze', return_value=([], [])), \
                     patch('warm.repository_key', return_value='repo-key'), \
                     patch('warm.bundle', return_value=('b' * 64, 'payload')), \
-                    patch('warm.run', side_effect=responses), \
+                    patch('warm.run', side_effect=responses) as run, \
                     patch('warm.subprocess.run', return_value=subprocess.CompletedProcess([], 0)), \
                     patch('warm.follow', return_value=70):
                 self.assertEqual(warm.main(), 70)
+            metadata_transfer = run.call_args_list[-1].args
+            self.assertEqual(metadata_transfer[:3], ('rsync', '-rlpc', '--delay-updates'))
+            self.assertEqual({Path(item).name for item in metadata_transfer if item.endswith('.json')},
+                             {'manifest.json', 'submission.json'})
             submitted = json.loads((output / 'submission.json').read_text())
             self.assertNotIn('total_seconds', submitted)
             self.assertNotIn('exit_code', submitted)

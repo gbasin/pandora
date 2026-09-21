@@ -177,8 +177,10 @@ def main():
     (output / 'transfer.log').write_text(result.stdout + result.stderr)
     metadata['transfer_seconds'] = time.monotonic() - transfer
     write_metadata(output / 'submission.json', metadata)
-    run('scp', *SSH_OPTIONS, '-q', str(output / 'manifest.json'), str(output / 'submission.json'),
-        f'{args.host}:{remote}/')
+    # Publish each immutable metadata file through rsync's delayed rename. A
+    # concurrent worker may inspect other runs while this transfer is active.
+    run('rsync', '-rlpc', '--delay-updates', '-e', 'ssh ' + ' '.join(SSH_OPTIONS),
+        str(output / 'manifest.json'), str(output / 'submission.json'), f'{args.host}:{remote}/')
     # All links reference complete immutable source directories, never containers.
     phase = 'source transfer' if uses_source else 'request staging'
     print(f'[pandora] staged {attempt}; {phase} {metadata["transfer_seconds"]:.1f}s', flush=True)
