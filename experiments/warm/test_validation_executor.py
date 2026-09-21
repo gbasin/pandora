@@ -86,6 +86,8 @@ class ValidationExecutorTests(unittest.TestCase):
             self.assertIn('--shm-size=1g', main)
             self.assertIn('--pids-limit=512', main)
             self.assertIn('--memory=6144m', main)
+            aliases = [main[index + 1] for index, value in enumerate(main) if value == '--network-alias']
+            self.assertEqual(aliases, ['pgbouncer'])
             self.assertTrue(any(call[0] == 'network' and call[1] == 'create' for call in calls))
             check = next(call for call in calls if call[:3] == ('exec', 'pandora-warm-' + attempt.name, 'node'))
             self.assertEqual(check[-1], 'tools/check-worktree-deps.mjs')
@@ -125,6 +127,42 @@ class ValidationExecutorTests(unittest.TestCase):
             self.assertIn('--memory=768m', service_runs[0])
             self.assertIn('pandora.workflow=validation', service_runs[0])
             self.assertEqual(sum(1 for call in calls if call[:2] == ('run', '-d')), 4)
+            main = next(call for call in calls if call[:2] == ('run', '-d') and 'image-id' in call)
+            aliases = [main[index + 1] for index, value in enumerate(main) if value == '--network-alias']
+            self.assertEqual(aliases, ['pgbouncer', 'postgres'])
+            proxy = next(call for call in calls if call[:2] == ('run', '-d') and any(
+                isinstance(value, str) and value.endswith('-proxy') for value in call))
+            self.assertIn('ALLOW_ADDR_REGEX=^(pgbouncer:6432|postgres:5432)$', proxy)
+            self.assertNotIn('ALLOW_ADDR_REGEX=^pgbouncer:6432$', proxy)
+
+    def test_browser_service_topology_keeps_only_the_pgbouncer_target(self):
+        with tempfile.TemporaryDirectory() as root:
+            attempt = self.attempt(root, 'browser-integration')
+            calls = []
+
+            def docker(*args, **kwargs):
+                calls.append(args)
+                resource = self.cgroup(args)
+                if resource:
+                    return resource
+                if args[0] == 'inspect':
+                    return self.state()
+                return subprocess.CompletedProcess([], 0, '', '')
+
+            with patch('validation.docker', side_effect=docker), \
+                    patch('validation.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')), \
+                    patch('validation.subprocess.Popen', return_value=self.child()), \
+                    patch('validation._copy_results'), \
+                    patch('validation.cleanup', return_value=True), \
+                    patch('validation.time.sleep'):
+                self.assertEqual(validation.execute(attempt, 'image-id', [], [], {}), 0)
+
+            main = next(call for call in calls if call[:2] == ('run', '-d') and 'image-id' in call)
+            aliases = [main[index + 1] for index, value in enumerate(main) if value == '--network-alias']
+            self.assertEqual(aliases, ['pgbouncer'])
+            proxy = next(call for call in calls if call[:2] == ('run', '-d') and any(
+                isinstance(value, str) and value.endswith('-proxy') for value in call))
+            self.assertIn('ALLOW_ADDR_REGEX=^pgbouncer:6432$', proxy)
 
     def test_cleanup_failure_overrides_passing_adapter_and_records_infrastructure_exit(self):
         with tempfile.TemporaryDirectory() as root:

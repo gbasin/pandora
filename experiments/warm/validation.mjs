@@ -163,7 +163,9 @@ export function fullCommands(planned) {
         ? ['--filter=!@eichler/agent', '--filter=!@eichler/borrower']
         : [arg],
     );
-    commands.push(withoutBorrower);
+    // Turbo otherwise may replay a cached test task's prior TAP output. The
+    // receipt must describe tests executed for this frozen attempt.
+    commands.push([...withoutBorrower, '--force']);
     commands.push([
       'pnpm',
       'exec',
@@ -178,6 +180,7 @@ export function fullCommands(planned) {
       reason: 'The native Turbo package test invokes borrower Jest without the remote worker cap.',
       replaced: argv,
       added: commands.slice(-3),
+      turbo_force: true,
     });
   }
   return { commands, adapted };

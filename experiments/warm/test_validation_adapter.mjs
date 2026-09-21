@@ -104,6 +104,7 @@ test('full suite replaces only the unbounded borrower Jest task', () => {
     '--filter=!@eichler/agent',
     '--filter=!@eichler/borrower',
     '--concurrency=2',
+    '--force',
   ]);
   assert.deepEqual(commands.at(-1), [
     'pnpm',
@@ -115,4 +116,5 @@ test('full suite replaces only the unbounded borrower Jest task', () => {
   ]);
   assert.ok(commands.some((argv) => argv.includes('--filter=@eichler/borrower^...')));
   assert.equal(adapted.length, 1);
+  assert.equal(adapted[0].turbo_force, true);
 });

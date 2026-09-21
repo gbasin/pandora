@@ -123,9 +123,14 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                         '/usr/bin/python3', str(attempt / 'deadline_stop.py'), str(attempt)],
                        check=True, timeout=30)
         docker('network', 'create', '--label', label, name, stdout=subprocess.DEVNULL)
+        aliases = ['--network-alias', 'pgbouncer']
+        if config['suite'] == 'postgres':
+            # letters-realtime runs a Miniflare Worker that deliberately reaches
+            # the direct Compose postgres service through wsproxy.
+            aliases.extend(['--network-alias', 'postgres'])
         run_args = ['run', '-d', '--name', name, '--label', label,
                     '--label', 'pandora.workflow=validation', '--network', name,
-                    '--network-alias', 'pgbouncer', *docker_limits(submitted),
+                    *aliases, *docker_limits(submitted),
                     '--pids-limit=512', '--shm-size=1g', '--init', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '-e', 'CI=true',
                     '-e', 'WRANGLER_SEND_METRICS=false',
@@ -141,6 +146,12 @@ def execute(attempt, image, manifest, dep_entries, metrics):
         for adapter, source in adapters:
             docker('cp', str(source), name + ':/workspace/source/pandora-' + adapter)
         for short, service_image, environment, memory in services:
+            if config['suite'] == 'postgres' and short == 'proxy':
+                environment = [
+                    'ALLOW_ADDR_REGEX=^(pgbouncer:6432|postgres:5432)$'
+                    if value.startswith('ALLOW_ADDR_REGEX=') else value
+                    for value in environment
+                ]
             docker('run', '-d', '--name', name + '-' + short, '--label', label,
                    '--label', 'pandora.workflow=validation', '--network', 'container:' + name,
                    *docker_limits(submitted, short), '--pids-limit=128',
