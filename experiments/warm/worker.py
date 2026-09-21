@@ -283,6 +283,9 @@ if __name__ == '__main__':
         Path('queue.json.tmp').replace('queue.json')
     from suite_parent_cleanup import cleanup as cleanup_suite
     suite_clean = cleanup_suite(Path.cwd())
+    if status == 130:
+        from surface_cancellation import write_receipt
+        write_receipt(Path.cwd(), json.loads(Path('submission.json').read_text()), suite_clean)
     # A terminal record is usable for another submission only when the owned
     # container is absent or stopped. Unknown Docker state cannot clear a job.
     name = 'pandora-warm-' + Path.cwd().name

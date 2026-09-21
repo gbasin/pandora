@@ -23,10 +23,14 @@ def validate_evidence(stage, attempt, submitted=None):
         if digest(target) != expected:
             raise ValueError('Artifact checksum mismatch: ' + name)
     if terminal.get('workflow') == 'surface-run':
-        from surface_parent import validate_result
         if submitted is None:
             raise ValueError('Surface invocation requires its captured submission')
-        validate_result(stage, submitted, terminal, manifest)
+        if terminal.get('exit_code') == 130:
+            from surface_cancellation import validate_receipt
+            validate_receipt(stage, submitted, terminal, manifest)
+        else:
+            from surface_parent import validate_result
+            validate_result(stage, submitted, terminal, manifest)
     if terminal.get('workflow') == 'surface' and submitted and 'surface_suite' in submitted:
         from surface_child import validate_result
         validate_result(stage, submitted, terminal, manifest)
@@ -74,4 +78,3 @@ def validate_evidence(stage, attempt, submitted=None):
             if result.get('app') != submitted['surface_app']:
                 raise ValueError('Surface evidence disagrees with requested app')
     return terminal
-
