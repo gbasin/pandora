@@ -1,0 +1,77 @@
+# A plain npm + pytest repository with one Redis service.
+# Nothing here is Eichler-shaped; it exists to show the contract is not.
+
+version = 1
+
+[repo]
+name = "widgets"
+entrypoints = ["npm", "pytest"]
+root_markers = ["package-lock.json"]
+
+[matching]
+strip_prefixes = [["run"]]
+subdirectory = "reroot"
+
+[feedback]
+reject_suffix = "No validation started."
+extra_message = "{job} runs whole and takes no arguments."
+
+[fallback]
+action = "local"
+on = ["worker-unreachable", "queue-timeout"]
+notice = "Worker unavailable; running this command on your machine instead."
+
+[runtime]
+base_image = "node:22-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+setup = [
+  "apt-get update && apt-get install -y --no-install-recommends python3 python3-venv && rm -rf /var/lib/apt/lists/*",
+]
+workdir = "/workspace"
+user = "node"
+
+[prepare]
+argv = ["sh", "-lc", "npm ci && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"]
+cache_key_paths = ["package-lock.json", "package.json", "requirements.txt"]
+
+[env]
+set = { CI = "true" }
+passthrough = ["TZ"]
+reject_if_set = ["PYTEST_ADDOPTS"]
+
+[secrets]
+exclude_globs = [".env", ".env.*", "**/*.pem"]
+
+[[services]]
+id = "redis"
+image = "redis@sha256:9a9a1b3e4b9f2c0a2f3a3a2b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f"
+cpu_millis = 250
+memory_mib = 256
+host = "127.0.0.1"
+port = 6379
+exports = { REDIS_URL = "redis://{host}:{port}/0" }
+healthcheck = { argv = ["redis-cli", "ping"], attempts = 30, interval_ms = 200 }
+
+[[jobs]]
+id = "node-tests"
+summary = "Whole Node test suite"
+cpu_millis = 2000
+memory_mib = 4096
+services = ["redis"]
+forms = [{ prefix = ["test"] }]
+on_extra = { action = "local" }
+run = { argv = ["npm", "test"] }
+outputs = [{ kind = "artifacts", paths = ["reports"] }]
+
+[[jobs]]
+id = "python-tests"
+summary = "Sharded pytest suite"
+cpu_millis = 1500
+memory_mib = 3072
+services = ["redis"]
+usage = "Use npm run pytest [-k EXPRESSION] [--keep-going]."
+forms = [{ prefix = ["pytest"] }]
+params = [{ name = "targets", kind = "rest", required = false, allow_flags = [{ name = "-k", arity = 1 }] }]
+flags = [{ name = "--keep-going", kind = "pandora" }]
+run = { argv = [".venv/bin/pytest", "-p", "no:cacheprovider", "{p.targets[]}"] }
+shards = { strategy = "argv", default = 2, max = 8, argv_append = ["--shard-id={shard.index}", "--num-shards={shard.total}"] }
+outputs = [{ kind = "artifacts", paths = ["reports/pytest"] }]
