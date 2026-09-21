@@ -1,0 +1,9 @@
+{
+  "owned_containers": [],
+  "owned_networks": [],
+  "active_scheduler_requests": [],
+  "owned_active_units": [],
+  "running_docker_containers": [],
+  "agent_controller_status": "cleaned",
+  "agent_lanes_succeeded": 2
+}

@@ -328,6 +328,318 @@
       }
     },
     {
+      "attempt": "d468a01eec724ac0bbc9e7a01fb8eaaa",
+      "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
+      "worker_bundle": "d98d0397e00f268326fb79506e90d860b89bdbc5f5842039bf6f83672413dbd7",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "full",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d468a01eec724ac0bbc9e7a01fb8eaaa",
+        "exit_code": 1,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 5.4382960830116645,
+      "transfer_seconds": 1.7757507499773055,
+      "metrics": {
+        "queue_seconds": 0.01665102900005877,
+        "queue_ticket": 270,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.04668715900334064,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 672.728670122,
+        "exit_code": 1
+      },
+      "validation": {
+        "version": 1,
+        "attempt": "d468a01eec724ac0bbc9e7a01fb8eaaa",
+        "suite": "full",
+        "args": [],
+        "exit_code": 1,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "--test-concurrency=1",
+              "tools/deploy/web.test.mjs",
+              "tools/deploy/employee-preflight.test.mjs",
+              "tools/deploy/employee-api.test.mjs",
+              "tools/deploy/employee-wrangler.test.mjs",
+              "tools/deploy/employee-roster.test.mjs",
+              "tools/deploy/employee-builds.test.mjs",
+              "tools/employee-browser/bundle.test.mjs",
+              "tools/employee-browser/transport.test.mjs",
+              "tools/lint/settle-signal.test.mjs",
+              "tools/agent-worktree.test.mjs",
+              "tools/pnpm-validation.test.mjs",
+              "tools/html-catalog.test.mjs",
+              "tools/onboarding/install-managed-mac-toolchain.test.mjs",
+              "tools/check-clock-discipline.test.mjs",
+              "tools/check-parity.test.mjs",
+              "tools/check-copy.test.mjs",
+              "tools/browser-integration/server.test.mjs",
+              "tools/browser-integration/worker-ready.test.mjs",
+              "tools/validation/*.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 128,
+            "report": "step-1.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "vitest",
+              "run",
+              "--maxWorkers=1",
+              "--reporter=default",
+              "--reporter=json",
+              "--outputFile=/workspace/results/step-2.vitest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 4044,
+            "report": "step-2.vitest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "test",
+              "--filter=!@eichler/agent",
+              "--filter=!@eichler/borrower",
+              "--concurrency=2",
+              "--force"
+            ],
+            "exit_code": 0,
+            "test_count": 70,
+            "report": "step-3.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "build",
+              "--filter=@eichler/borrower^...",
+              "--concurrency=1"
+            ],
+            "exit_code": 0,
+            "test_count": null,
+            "report": null
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/borrower",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--json",
+              "--outputFile=/workspace/results/step-5.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 62,
+            "report": "step-5.jest.json"
+          },
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-reporter=tap",
+              "apps/agent/tools/test-ios.test.mjs"
+            ],
+            "exit_code": 0,
+            "test_count": 13,
+            "report": "step-6.tap"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--json",
+              "--outputFile=/workspace/results/step-7.jest.json"
+            ],
+            "exit_code": 1,
+            "test_count": 503,
+            "report": "step-7.jest.json"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        },
+        "adaptations": [
+          {
+            "reason": "The native Turbo package test invokes borrower Jest without the remote worker cap.",
+            "replaced": [
+              "pnpm",
+              "exec",
+              "turbo",
+              "run",
+              "test",
+              "--filter=!@eichler/agent",
+              "--concurrency=2"
+            ],
+            "added": [
+              [
+                "pnpm",
+                "exec",
+                "turbo",
+                "run",
+                "test",
+                "--filter=!@eichler/agent",
+                "--filter=!@eichler/borrower",
+                "--concurrency=2",
+                "--force"
+              ],
+              [
+                "pnpm",
+                "exec",
+                "turbo",
+                "run",
+                "build",
+                "--filter=@eichler/borrower^...",
+                "--concurrency=1"
+              ],
+              [
+                "pnpm",
+                "--filter",
+                "@eichler/borrower",
+                "exec",
+                "jest",
+                "--maxWorkers=1"
+              ]
+            ],
+            "turbo_force": true
+          }
+        ],
+        "detail": "Step 7 exited 1."
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2988249088\n",
+        "cpu_stat": "usage_usec 606593426\nuser_usec 528596475\nsystem_usec 77996950\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 6475\nnr_throttled 5645\nthrottled_usec 295502541\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
+      "attempt": "d9ea69bccbb74518aff9dc9fd6792336",
+      "source_digest": "1fb35c31d3a68072e3f631f36189ea1a40211f5995fce313c8d0587e97c9b245",
+      "worker_bundle": "d98d0397e00f268326fb79506e90d860b89bdbc5f5842039bf6f83672413dbd7",
+      "workflow": "validation",
+      "request": {
+        "version": 1,
+        "suite": "full",
+        "args": []
+      },
+      "terminal": {
+        "state": "terminal",
+        "attempt": "d9ea69bccbb74518aff9dc9fd6792336",
+        "exit_code": 0,
+        "workflow": "validation",
+        "cleanup_verified": true
+      },
+      "snapshot_seconds": 4.312703041010536,
+      "transfer_seconds": 1.5902103750267997,
+      "metrics": {
+        "queue_seconds": 0.013157873996533453,
+        "queue_ticket": 272,
+        "dependency_cache_hit": true,
+        "dependency_seconds": 0.039109545992687345,
+        "image_id": "sha256:1e1cb3ef6b03e22208773994ae5f64bb6c1d94ffc04ee04da03779b8f874a7db",
+        "execution_seconds": 58.074589408002794,
+        "exit_code": 0
+      },
+      "evaluation_override": "Trial-only planner selects unchanged roster-tasks-closing.test.tsx in three separate Jest processes; this is not a full-suite run.",
+      "validation": {
+        "version": 1,
+        "attempt": "d9ea69bccbb74518aff9dc9fd6792336",
+        "suite": "full",
+        "args": [],
+        "exit_code": 0,
+        "synthetic_git": true,
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--runTestsByPath",
+              "__tests__/roster-tasks-closing.test.tsx",
+              "--json",
+              "--outputFile=/workspace/results/step-1.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-1.jest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--runTestsByPath",
+              "__tests__/roster-tasks-closing.test.tsx",
+              "--json",
+              "--outputFile=/workspace/results/step-2.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-2.jest.json"
+          },
+          {
+            "argv": [
+              "pnpm",
+              "--filter",
+              "@eichler/agent",
+              "exec",
+              "jest",
+              "--maxWorkers=1",
+              "--runTestsByPath",
+              "__tests__/roster-tasks-closing.test.tsx",
+              "--json",
+              "--outputFile=/workspace/results/step-3.jest.json"
+            ],
+            "exit_code": 0,
+            "test_count": 1,
+            "report": "step-3.jest.json"
+          }
+        ],
+        "artifacts": {
+          "files": [],
+          "omitted": []
+        }
+      },
+      "resources": {
+        "memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+        "memory_peak_bytes": "2107240448\n",
+        "cpu_stat": "usage_usec 55588538\nuser_usec 50010392\nsystem_usec 5578146\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 563\nnr_throttled 453\nthrottled_usec 83281585\nnr_bursts 0\nburst_usec 0\n",
+        "oom_kill": 0
+      }
+    },
+    {
       "attempt": "96d47365c86342b39b0da3adf2c4f0df",
       "source_digest": "bc95ddd2173511c3fbc4c507cc5ba1d528c38dab12fa0d5d358ff0955dcf48c1",
       "worker_bundle": "b230bd3bb7df853e60afdc1c2882716cbcff56627bc09141cac0a1c2b1d800c4",
