@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdir, readdir } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 
 const directories = {
@@ -7,10 +7,20 @@ const directories = {
   'employee-browser': ['test-results/employee-browser'],
 };
 
-export async function collectArtifacts(source, results, suite) {
+export async function collectArtifacts(source, results, suite, attempt) {
   const files = [];
   const omitted = [];
-  const omitArchives = ['browser-integration', 'employee-browser'].includes(suite);
+  let omitArchives = ['browser-integration', 'employee-browser'].includes(suite);
+  if (suite === 'browser-integration' && /^[a-f0-9]{32}$/.test(attempt || '')) {
+    const marker = join(source, 'test-results/browser-integration/pandora-sanitized.json');
+    try {
+      if (!(await lstat(marker)).isFile()) throw new Error('Invalid sanitizer receipt');
+      const receipt = JSON.parse(await readFile(marker, 'utf8'));
+      omitArchives = !(receipt.version === 1 && receipt.attempt === attempt && receipt.sanitized === true);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
   async function copy(path) {
     const origin = join(source, path);
     const stat = await lstat(origin);

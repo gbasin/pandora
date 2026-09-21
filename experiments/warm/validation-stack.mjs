@@ -5,6 +5,11 @@ import { pathToFileURL } from 'node:url';
 
 const digest = (contents) => createHash('sha256').update(contents).digest('hex');
 const BROWSER_OPTIONS = ['signal', 'deployment', 'env', 'output', 'log'];
+const SANITIZER_CALL = `    await command(
+      'python3',
+      [join(root, 'tools/browser-integration/sanitize-traces.py'), directory, output],
+      { quiet: true, cleanup: true },
+    );`;
 
 /**
  * Start Eichler's validation stack against Pandora-owned loopback services.
@@ -40,7 +45,9 @@ export async function startValidationStack(root, signal) {
  * parser: a source change to the inspected call shape requires a new adapter.
  * Keeping it beside run.mjs preserves that runner's relative paths.
  */
-export async function prepareBrowserRunner(root) {
+export async function prepareBrowserRunner(root, attempt) {
+  if (!/^[a-f\d]{32}$/.test(attempt ?? ''))
+    throw new Error('Browser runner adaptation requires a 32-character hexadecimal attempt.');
   const sourceRoot = resolve(root);
   const directory = join(sourceRoot, 'tools/browser-integration');
   const sourcePath = join(directory, 'run.mjs');
@@ -66,13 +73,23 @@ export async function prepareBrowserRunner(root) {
     throw new Error(
       `Browser runner adaptation requires startInstance options ${BROWSER_OPTIONS.join(', ')}.`,
     );
-  const transformed = source.replace(marker, `${marker}\n    external: true,`);
+  if (source.includes('pandora-sanitized.json'))
+    throw new Error('Browser runner adaptation refuses an existing sanitizer receipt.');
+  const sanitizerMatches = source.split(SANITIZER_CALL).length - 1;
+  if (sanitizerMatches !== 1)
+    throw new Error('Browser runner adaptation requires exactly one inspected sanitizer command.');
+  const receipt = `    await writeFile(
+      join(output, 'pandora-sanitized.json'),
+      JSON.stringify({ version: 1, attempt: ${JSON.stringify(attempt)}, sanitized: true }) + '\\n',
+    );`;
+  let transformed = source.replace(marker, `${marker}\n    external: true,`);
+  transformed = transformed.replace(SANITIZER_CALL, `${SANITIZER_CALL}\n${receipt}`);
   await mkdir(directory, { recursive: true });
   await writeFile(path, transformed, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   return {
     path,
     source_sha256: digest(source),
     transformed_sha256: digest(transformed),
-    adaptation: 'startInstance external services',
+    adaptation: 'startInstance external services + sanitizer receipt',
   };
 }

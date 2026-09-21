@@ -35,3 +35,23 @@ test('rejects symlink ancestors and leaf artifacts', async (t) => {
   await symlink(join(root, 'external'), join(source, 'test-results/browser-integration/link'));
   await assert.rejects(collectArtifacts(source, results, 'browser-integration'), /Unsupported/);
 });
+
+test('returns service traces only with this attempt’s completed sanitizer receipt', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'pandora-artifacts-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, 'source');
+  const results = join(root, 'results');
+  const path = 'test-results/browser-integration';
+  await mkdir(join(source, path), { recursive: true });
+  await writeFile(join(source, path, 'trace.zip'), 'sanitized trace');
+  const marker = join(source, path, 'pandora-sanitized.json');
+  const attempt = 'a'.repeat(32);
+  await writeFile(marker, JSON.stringify({ version: 1, attempt: 'b'.repeat(32), sanitized: true }));
+  assert.deepEqual((await collectArtifacts(source, results, 'browser-integration', attempt)).omitted,
+    [`${path}/trace.zip`]);
+  await writeFile(marker, JSON.stringify({ version: 1, attempt, sanitized: true }));
+  const receipt = await collectArtifacts(source, results, 'browser-integration', attempt);
+  assert.deepEqual(receipt.omitted, []);
+  assert.ok(receipt.files.includes(`artifacts/${path}/trace.zip`));
+  assert.equal(await readFile(join(results, 'artifacts', path, 'trace.zip'), 'utf8'), 'sanitized trace');
+});

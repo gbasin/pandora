@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { prepareBrowserRunner, startValidationStack } from './validation-stack.mjs';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
-const runner = `let stack;\nstack = await startInstance({\n    signal,\n    deployment: 'ci',\n    env: { NODE_ENV: 'test' },\n    output: (chunk) => { workerLog += chunk; },\n    log: () => {},\n  });\n`;
+const attempt = 'a'.repeat(32);
+const sanitizer = `    await command(
+      'python3',
+      [join(root, 'tools/browser-integration/sanitize-traces.py'), directory, output],
+      { quiet: true, cleanup: true },
+    );`;
+const runner = `let stack;\nstack = await startInstance({\n    signal,\n    deployment: 'ci',\n    env: { NODE_ENV: 'test' },\n    output: (chunk) => { workerLog += chunk; },\n    log: () => {},\n  });\ntry {\n${sanitizer}\n} catch {}\n`;
 
 async function fixture(contents = runner) {
   const root = await mkdtemp(join(tmpdir(), 'pandora-validation-stack-'));
@@ -22,26 +29,32 @@ test('prepareBrowserRunner transforms precisely once and leaves the source intac
   const { root, source, output } = await fixture();
   const before = await readFile(source, 'utf8');
 
-  const metadata = await prepareBrowserRunner(root);
+  const metadata = await prepareBrowserRunner(root, attempt);
 
   const transformed = await readFile(output, 'utf8');
   assert.equal(await readFile(source, 'utf8'), before);
   assert.equal(
     transformed,
-    before.replace('stack = await startInstance({', 'stack = await startInstance({\n    external: true,'),
+    before
+      .replace('stack = await startInstance({', 'stack = await startInstance({\n    external: true,')
+      .replace(
+        sanitizer,
+        `${sanitizer}\n    await writeFile(\n      join(output, 'pandora-sanitized.json'),\n      JSON.stringify({ version: 1, attempt: "${attempt}", sanitized: true }) + '\\n',\n    );`,
+      ),
   );
   assert.deepEqual(metadata, {
     path: output,
     source_sha256: hash(before),
     transformed_sha256: hash(transformed),
-    adaptation: 'startInstance external services',
+    adaptation: 'startInstance external services + sanitizer receipt',
   });
+  assert.ok(transformed.indexOf(sanitizer) < transformed.indexOf('pandora-sanitized.json'));
 });
 
 test('prepareBrowserRunner rejects zero or multiple adaptation seams', async () => {
   for (const source of ['await startInstance({});', `${runner}\n${runner}`]) {
     const { root, source: sourcePath, output } = await fixture(source);
-    await assert.rejects(prepareBrowserRunner(root), /exactly one/);
+    await assert.rejects(prepareBrowserRunner(root, attempt), /exactly one/);
     assert.equal(await readFile(sourcePath, 'utf8'), source);
     await assert.rejects(readFile(output), { code: 'ENOENT' });
   }
@@ -61,10 +74,48 @@ test('prepareBrowserRunner rejects external options, spreads, and a changed opti
   ];
   for (const [source, error] of cases) {
     const { root, source: sourcePath, output } = await fixture(source);
-    await assert.rejects(prepareBrowserRunner(root), error);
+    await assert.rejects(prepareBrowserRunner(root, attempt), error);
     assert.equal(await readFile(sourcePath, 'utf8'), source);
     await assert.rejects(readFile(output), { code: 'ENOENT' });
   }
+});
+
+test('prepareBrowserRunner rejects an existing or changed sanitizer seam', async () => {
+  const cases = [
+    [runner.replace(sanitizer, ''), /exactly one inspected sanitizer/],
+    [runner.replace(sanitizer, `${sanitizer}\n${sanitizer}`), /exactly one inspected sanitizer/],
+    [runner.replace('sanitize-traces.py', 'different-sanitizer.py'), /exactly one inspected sanitizer/],
+    [`${runner}\n// pandora-sanitized.json`, /existing sanitizer receipt/],
+  ];
+  for (const [source, error] of cases) {
+    const { root, source: sourcePath, output } = await fixture(source);
+    await assert.rejects(prepareBrowserRunner(root, attempt), error);
+    assert.equal(await readFile(sourcePath, 'utf8'), source);
+    await assert.rejects(readFile(output), { code: 'ENOENT' });
+  }
+});
+
+test('prepareBrowserRunner rejects an invalid attempt identity', async () => {
+  const { root, output } = await fixture();
+  await assert.rejects(prepareBrowserRunner(root, 'not-an-attempt'), /32-character hexadecimal attempt/);
+  await assert.rejects(readFile(output), { code: 'ENOENT' });
+});
+
+test('a failed sanitizer command cannot produce the receipt', async () => {
+  const source = `import { mkdir, writeFile } from 'node:fs/promises';\nimport { join } from 'node:path';\nconst output = process.env.PANDORA_TEST_OUTPUT;\nconst directory = output;\nconst root = '/fixture';\nconst signal = new AbortController().signal;\nconst startInstance = async () => ({});\nconst workerLog = '';\nawait mkdir(output, { recursive: true });\nlet stack;\nstack = await startInstance({\n    signal,\n    deployment: 'ci',\n    env: { NODE_ENV: 'test' },\n    output: (chunk) => { workerLog += chunk; },\n    log: () => {},\n  });\nasync function command() { throw new Error('sanitizer failed'); }\ntry {\n${sanitizer}\n} catch {}\n`;
+  const { root, output } = await fixture(source);
+  const results = join(root, 'results');
+  await mkdir(results);
+  const previous = process.env.PANDORA_TEST_OUTPUT;
+  process.env.PANDORA_TEST_OUTPUT = results;
+  try {
+    await prepareBrowserRunner(root, attempt);
+    await import(`${pathToFileURL(output).href}?failed-sanitizer`);
+  } finally {
+    if (previous === undefined) delete process.env.PANDORA_TEST_OUTPUT;
+    else process.env.PANDORA_TEST_OUTPUT = previous;
+  }
+  await assert.rejects(access(join(results, 'pandora-sanitized.json')));
 });
 
 test('startValidationStack dynamically loads the target stack and returns heavy-runner environment', async () => {

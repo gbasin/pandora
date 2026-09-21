@@ -212,7 +212,11 @@ export async function runValidation({
   let browser;
   if (request.suite === 'browser-integration') {
     const { prepareBrowserRunner } = await import(join(root, 'pandora-validation-stack.mjs'));
-    browser = await prepareBrowserRunner(root);
+    try {
+      browser = await prepareBrowserRunner(root, request.attempt);
+    } catch (error) {
+      throw new Error(`Pandora does not support this browser runner revision. Keep the repository runner unchanged and ask the operator to update the adapter. ${error.message}`);
+    }
   }
   await initializeGit(root, runner);
   const fingerprint =
@@ -279,7 +283,7 @@ export async function runValidation({
   let artifacts = { files: [], omitted: [] };
   try {
     const collectArtifacts = collect || (await import(join(root, 'pandora-validation-artifacts.mjs'))).collectArtifacts;
-    artifacts = await collectArtifacts(root, directory, request.suite);
+    artifacts = await collectArtifacts(root, directory, request.suite, request.attempt);
   } catch (error) {
     exitCode ||= 70;
     detail ||= `Validation artifact collection failed: ${error.message}`;
