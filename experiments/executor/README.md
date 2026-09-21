@@ -24,4 +24,8 @@ there.
     ssh worker 'bash ~/incus-exec/driver/setup.sh install && bash ~/incus-exec/driver/setup.sh init'
     ssh worker 'cd ~/incus-exec/driver && python3 poc.py golden && python3 canary.py'
 
+Measurements: `poc.py inject`, `memtest.py repro <variant> <cap_mib> <seconds> <hog>`,
+`memtest.py watchdog|neighbour`, `bench.py conc <N> [cpus_hint] [tag] [--force]`,
+`bench.py mixed [cpu_weight_for_the_heavy_job]`.
+
 Findings are in `notes/incus-executor-poc-2026-09-21.md`.

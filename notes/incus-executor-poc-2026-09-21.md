@@ -389,7 +389,42 @@ replays`, and every receipt came back clean.
 
 ### Mixed: two journeys beside a CPU-heavy job
 
-MIXED_TABLE
+Two `S0-01` journeys and one CPU-heavy job in a third clone: three passes of
+`pnpm exec turbo run typecheck --force --concurrency=4`, 14 turbo tasks mostly
+`tsc --noEmit`, 169 s and **450 CPU-seconds** on its own. All three runs share
+four cores, all `PANDORA_CPUS=2`, memory ceiling 8,192 MiB each, nothing
+capped on CPU.
+
+| | Journey exec (s) | `S0-01` replayed (s) | Heavy exec (s) | Heavy CPU (s) | Journey peaks (MiB) |
+| --- | --- | --- | --- | --- | --- |
+| **two journeys alone** (N=2, hint 2) | 68.0 | — | — | — | 3,099 / 3,266 |
+| **+ heavy at equal weight** (`allowance=100%`) | 93.0 / 91.4 | 69.6 / 69.8 | 169.0 | 450.0 | 3,114 / 3,291 |
+| **+ heavy de-prioritised** (`allowance=10%`) | **82.8 / 83.3** | **62.9 / 64.3** | 171.5 | 446.6 | 3,213 / 3,561 |
+
+- A CPU-heavy neighbour costs a journey **+37 %** at equal weight (68.0 → 93.0 s).
+- Giving the heavy job a tenth of the weight recovers **11 %** of that
+  (93.0 → 82.8 s exec, 69.7 → 63.6 s inside the journey) and costs the heavy
+  job **1.5 %** (169.0 → 171.5 s). That is cheap insurance, and it is the
+  entire argument for keeping a weight knob in `Limits`.
+- Host memory PSI stayed at **0.00** throughout both, with cpu PSI some avg10
+  at 68 % mean and loadavg ~12–13. Memory admission and CPU softness are
+  doing exactly the jobs they were assigned.
+- Every journey passed 45/45 in both arrangements. The heavy job exited 0.
+
+**Use `limits.cpu.allowance=<N>%`, not `limits.cpu.priority`.** The percentage
+form of allowance writes `cpu.weight=N` and leaves `cpu.max` unlimited, which
+is the weight-not-quota model the design asked for. `limits.cpu.priority`
+spans `cpu.weight` 90–100 only (the spike measured `priority=5 → weight 95`),
+an 11 % differential that cannot express "this job matters less".
+
+One incidental finding from making the heavy job run at all:
+`@eichler/progress`'s typecheck shells out to `git rev-parse HEAD`, and
+Pandora ships **tracked files, not a checkout**, so it fails with
+`fatal: not a git repository` and then, after `git init`, with
+`detected dubious ownership` and then `Command failed: git rev-parse HEAD`. It
+is excluded from the measured job. This is a real constraint on the source
+hand-off, not a driver bug: some of a repo's own jobs assume a git working
+tree with at least one commit.
 
 ### What `PANDORA_CPUS` should be
 
@@ -515,7 +550,45 @@ instance cgroup is at `/sys/fs/cgroup/lxc.payload.<project>_<name>`, not
 
 ## 10. The canary
 
-CANARY_RESULT
+`canary.py` — 20 checks, 93 s, exit code = number of failures. This is what
+would gate a worker image rebuild.
+
+```
+ok   incus present                         0.0s 6.0.5
+ok   project pandora exists                0.0s
+ok   pool pandorapool exists               0.1s
+ok   golden golden-2775adec0be404dd ready   0.1s reused
+ok   clone under 2s                        0.5s 0.07s
+ok   start under 5s                        0.5s 0.30s
+ok   cgroup arrangement written            0.5s {"memory.swap.max":"0","memory.high":"4831838208","memory.oom.group":"1"}
+ok   source injected                       1.0s 0.51s
+ok   nested dockerd up                     2.2s overlayfs 2
+ok   compose stack up                      6.2s 3 containers
+ok   fixed ports bound inside the run      6.2s 5 listeners
+ok   compose stack down                    7.3s 0 containers left
+ok   journey S0-01 passes                 60.7s outcome=ok exit=0 in 53.3s
+ok   run stayed under its ceiling         60.7s peak 3856 MiB of 5120
+ok   soft limit was crossed without killing the run  60.7s peak 3856 MiB vs reservation 3800
+ok   destroy receipt clean                61.6s in 0.92s, leftovers=[]
+ok   over-ceiling run is killed as oom    92.1s outcome=oom reason=memory-thrash
+ok   oom verdict within 60s               92.1s 30.0s
+ok   oom verdict carries evidence         92.1s throttle_events_per_second 1073.0, thrashing_seconds 15.5
+ok   oom run destroyed cleanly            93.2s 0.99s
+
+0 checks failed
+```
+
+Three of these are the ones worth having. `compose stack up` brings eichler's
+own `tools/stack/compose.yml` up on the run's private dockerd with its fixed
+ports and takes it down again — the property the whole design rests on.
+`soft limit was crossed without killing the run` catches a regression where
+the watchdog becomes trigger-happy: this run peaked at 3,856 MiB against a
+3,800 MiB reservation and was not touched. And `over-ceiling run is killed as
+oom` catches the opposite regression, which §4 spent most of its time on.
+
+Separately verified, because the mixed test depends on it:
+`limits.cpu.allowance=100%` writes `cpu.weight=100` and leaves
+`cpu.max = "max 100000"` — a weight, not a quota, as claimed.
 
 ---
 
@@ -532,8 +605,8 @@ CANARY_RESULT
 | `test_incus_driver.py` | 171 |
 | `canary.py` | 131 |
 | **test and gate subtotal** | **527** |
-| `poc.py`, `memtest.py`, `bench.py` (measurement only) | 536 |
-| **total** | **2,108** |
+| `poc.py`, `memtest.py`, `bench.py` (measurement only) | 545 |
+| **total** | **2,117** |
 
 For scale: the Docker API proxy POC was 1,152 production lines plus 884 test,
 and the Firecracker spike was ~600 lines across 14 scripts plus a kernel and
@@ -545,7 +618,38 @@ i.e. the two things §4 and §8 showed were not optional.
 
 ## 12. What is left on the worker
 
-WORKER_STATE
+`ubuntu@40.160.93.34`, left deliberately so the owner can continue from the
+golden. **No run instances are running and none exist**; `ip -o link` shows
+zero veths and `/sys/fs/cgroup` has no `lxc.payload.*`.
+
+| | State |
+| --- | --- |
+| Incus | **installed**, 6.0.5 from the Ubuntu archive; `systemctl is-active incus` → `active` (socket-activated, `is-enabled` → `indirect`) |
+| Instances (project `pandora`) | `golden-2775adec0be404dd`, **STOPPED**, with snapshot `warm` |
+| Volumes | that container, its `warm` snapshot, and the `ubuntu/26.04` image volume — nothing else |
+| Storage pool | `pandorapool`, btrfs, on `/dev/loop0` → `~/incus-exec/pool.img` (18 GiB sparse, **4.9 GiB on disk**) |
+| Pool contents | golden 4,258,406,400 B referenced / 57,344 B exclusive; snapshot 53,248 B exclusive; image 566,255,616 B |
+| Network | `pandorabr0`, 10.141.0.1/24, `ipv4.nat=true`, `ipv6.address=none`, plus two `iptables -I FORWARD` ACCEPT rules for it |
+| Project | `pandora` (`features.networks=false`, `features.images/profiles/storage.volumes=true`) with profile `runner` carrying `security.nesting`, `security.syscalls.intercept.mknod`, `security.syscalls.intercept.setxattr`, `security.idmap.isolated` |
+| `~/incus-exec/driver` | 260 KiB — this experiment directory |
+| `~/incus-exec/eichler` | 375 MiB — eichler's **tracked files only**, shipped with `git ls-files -z \| rsync --from0 --files-from=-`. No `.env`, no `.dev.vars`, no keys; `.git` was not shipped either |
+| `~/incus-exec/logs` | 4.1 MiB — `poc.jsonl` (every measurement in this note), per-run journey logs, `memtrace-*.json` |
+| `~/incus-exec/out` | 4.1 MiB — collected artifacts from `collect` |
+| Disk | 29 GiB free of 96 GiB |
+
+**Removed, as permitted:** `~/spike-fc` (11 GiB, the Firecracker spike's
+binaries, kernel, rootfs and warm base) was deleted to make room for the pool.
+`~/pandora-warm` (1.9 GiB, v0.1.1) was **not** touched. The host dockerd, its
+configuration and its images were not touched, and `~/spike-proxy` was not
+touched.
+
+`bash ~/incus-exec/driver/setup.sh teardown` removes the project, the profile,
+the golden, the bridge, the pool and the loop device, and leaves the package
+installed.
+
+**Not persistent across a reboot:** the loop device is attached by hand in
+`setup.sh init`, so after a restart the pool is gone until `init` is run
+again. See §13.
 
 ---
 
