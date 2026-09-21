@@ -67,6 +67,15 @@ class CommandsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'at most one'):
             surface_suite_request(command + ['--keep-going'], 6)
 
+    def test_surface_keep_going_does_not_rewrite_a_grep_pattern(self):
+        command = ['test:surface', 'desk', '--grep', '--keep-going']
+        self.assertEqual(classify(command)[:2], ('remote', ['--grep', '--keep-going']))
+        self.assertEqual(surface_suite_request(command, 4), {
+            'action': 'run', 'app': 'desk', 'selectors': ['--grep', '--keep-going'],
+            'shard_count': 4, 'keep_going': False,
+        })
+        self.assertEqual(classify(['test:surface', 'desk', '--keep-going', '--keep-going'])[0], 'reject')
+
     def test_three_treatments(self):
         direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1']
         self.assertEqual(classify(direct, 'normal')[0], 'local')
