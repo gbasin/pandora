@@ -331,7 +331,61 @@ number, with the driver, the limits, the watchdog and the receipt added.
 
 ## 6. Concurrency
 
-CONCURRENCY_TABLE
+N clones of the golden running `S0-01` at once, each admitted by
+`admission.py` against a 14,336 MiB host budget (15.6 GiB total, ~1 GiB left
+outside the runs). History was seeded with three peaks of 3,800 MiB, which
+makes `classify` choose the **`large`** class (ceiling 8,192 MiB) and
+`reserve` return **4,750 MiB** — so three runs fit the budget and a fourth
+does not.
+
+| N | Admitted | Wall (s) | `execute` median (s) | `memory.peak` per run (MiB) | Σ peak (MiB) | clone (s) | start (s) | inject (s) | destroy (s) | passes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 56.7 | 54.5 | 3,190 | 3,190 | 0.07 | 0.25 | 0.50 | 0.91 | 1/1 |
+| 2 | 2 | 70.7 | 68.0 | 3,099 / 3,266 | 6,365 | 0.09 | 0.34 | 0.69 | 0.94–0.98 | 2/2 |
+| 3 | 3 | 89.2 | 84.0 | 2,917 / 2,982 / 3,007 | 8,906 | 0.11–0.12 | 0.42–0.45 | 0.77–0.84 | 0.93–0.99 | 3/3 |
+
+Then the same thing with admission's budget raised deliberately, to measure
+what it is protecting (`--force`). Note the lane counts: asking for 4 or 6 at
+a 4,750 MiB reservation still only admits 3 and 5 respectively, because the
+forced budget is computed from the *seeded* 3,800 MiB and the *learned*
+reservation is larger. Admission refusing the extra lane is the point.
+
+| Asked | Admitted | Wall (s) | `execute` median (s) | `memory.peak` per run (MiB) | Σ peak (MiB) | clone (s) | destroy (s) | passes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4 | 3 | 86.3 | 82.6 | 3,052 / 2,970 / 3,324 | 9,346 | 0.10–0.11 | 0.94–0.97 | 3/3 |
+| 6 | **5** | 141.3 | 136.0 | 2,420 / 2,327 / 2,461 / 2,539 / 2,594 | **12,341** | 0.15–0.20 | 0.85–1.31 | **5/5** |
+
+**Five concurrent journeys fit this 15 GiB box and all five pass.** The
+interesting number is Σ peak: 12,341 MiB for five runs, against 3,190 MiB for
+one. **A run's peak is not a constant — it falls as the box fills**, from
+3,190 MiB alone to ~2,480 MiB at five lanes, because most of it is page cache
+that reclaim takes back when there is competition. A reservation learned from
+solo runs therefore over-reserves under concurrency, which is safe and is also
+why admission would only have let three of these five start.
+
+Host, sampled once a second for the whole window (`max` / `mean`):
+
+| N | cpu PSI some avg10 | mem PSI some avg10 | mem PSI full avg10 | io PSI some avg10 | loadavg | MemAvailable min |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 11.39 / 10.36 | 0.08 / 0.01 | 0.08 / 0.01 | 4.22 / 1.67 | 4.03 / 3.03 | 12,139 MiB |
+| 2 | 32.40 / 26.85 | 0.18 / 0.02 | 0.18 / 0.02 | 5.32 / 2.39 | 4.06 / 3.12 | 10,049 MiB |
+| 3 | 51.66 / 46.28 | 0.63 / 0.13 | 0.28 / 0.04 | 6.48 / 3.87 | 7.18 / 5.92 | 8,411 MiB |
+
+| 3 (asked 4) | 52.27 / 43.90 | 0.51 / 0.07 | 0.18 / 0.02 | 8.12 / 4.15 | 7.01 / 4.80 | 8,379 MiB |
+| 5 (asked 6) | 78.83 / 70.03 | 7.53 / 2.95 | **3.15 / 1.17** | 12.36 / 8.33 | 16.77 / 13.08 | **3,779 MiB** |
+
+**Memory pressure is essentially absent up to N=3** — full avg10 peaks at
+0.28 % — while CPU pressure is what actually rises, from 11 % to 52 %. Admit
+on memory, CPU soft is the right shape for this workload on this box: memory
+is what must not be oversubscribed, and CPU is what degrades gracefully.
+
+The reservation is also **48 % larger than the observed peak** (4,750 MiB
+reserved against ~3,000 MiB used). That is the cost of p95 × 1.25 over a
+seeded history; with real history the margin would tighten, and it is the
+direction to err in.
+
+No failures at any N: every run exited 0 with `45/45 covered by passing
+replays`, and every receipt came back clean.
 
 ### Mixed: two journeys beside a CPU-heavy job
 
@@ -339,7 +393,30 @@ MIXED_TABLE
 
 ### What `PANDORA_CPUS` should be
 
-PANDORA_CPUS_ANSWER
+**A share of the host, not the host's core count.** The same N with the only
+difference being what the run is told:
+
+| N | `PANDORA_CPUS` | `execute` median (s) | host cpu PSI some avg10 max/mean | loadavg max/mean | MemAvailable min |
+| --- | --- | --- | --- | --- | --- |
+| 2 | **2** (host/N) | **68.0** | 32.40 / 26.85 | 4.06 / 3.12 | 10,049 MiB |
+| 2 | 4 (host count) | 108.0 | 88.85 / 62.86 | 16.29 / 14.62 | 6,133 MiB |
+| 3 | **1** (host/N) | **84.0** | 51.66 / 46.28 | 7.18 / 5.92 | 8,411 MiB |
+| 3 | 4 (host count) | 139.2 | 89.34 / 74.21 | 21.07 / 17.96 | 4,154 MiB |
+
+Telling every run it has the whole box costs **59 % at two lanes and 66 % at
+three**, and takes load average from 4 to 16 and from 7 to 21. CPU being soft
+does not make oversubscription free: `cpu.weight` decides who wins a
+contended slice, it does not stop a run from starting four `tsc` processes
+and a `vitest` pool per lane. The scheduler knows N and the run does not, so
+the driver must tell it — `PANDORA_CPUS = max(1, host_cores // lanes)` is the
+rule these numbers support.
+
+Two caveats. The hint only matters for jobs that read it (turbo's
+`--concurrency`, vitest's pool size, `make -j`); nothing enforces it, which is
+the point of CPU-soft. And this is one journey shape on a 4-core box; a
+16-core worker with the same three lanes would leave cores idle under
+`host // lanes` and probably wants `max(1, host // lanes)` with a floor of 2.
+**NOT RUN:** anything other than 4 cores.
 
 ---
 

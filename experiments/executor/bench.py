@@ -18,7 +18,13 @@ from incus_driver import IncusDriver
 from interface import Limits
 from poc import EICHLER, JOURNEY, ROOT, SOURCE, emit, host_pressure, one_run
 
-HEAVY = ['pnpm', 'exec', 'turbo', 'run', 'typecheck', '--force', '--concurrency=4']
+# A real CPU-heavy job from the repo: 14 turbo tasks, most of them
+# `tsc --noEmit`, four at a time, three passes so it spans a journey.
+# `@eichler/progress` is excluded because its typecheck shells out to
+# `git rev-parse HEAD`, and Pandora ships tracked files, not a checkout --
+# a real finding about what a repo's own jobs assume, not a driver problem.
+HEAVY = ['bash', '-c', 'for i in 1 2 3; do pnpm exec turbo run typecheck --force '
+                       '--concurrency=4 --filter=!@eichler/progress || exit 1; done']
 
 
 class Sampler(threading.Thread):
@@ -112,20 +118,22 @@ def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, ta
 def mixed(driver, priority=None):
     """Two journeys beside a CPU-heavy job. CPU is soft, so nothing is capped."""
     golden = driver.prepare(EICHLER, source=SOURCE)
-    hint = os.cpu_count() or 1
+    # Two journeys share the box with the heavy job: a share, not the
+    # host core count (see the PANDORA_CPUS result).
+    hint = max(1, (os.cpu_count() or 1) // 2)
     results, lock = {}, threading.Lock()
     tag = 'p%s' % (priority if priority is not None else 'none')
 
     def journey(index):
         record = one_run(driver, golden, 'mix%s-j%d' % (tag, index),
-                         Limits(memory_mib=3800, ceiling_mib=5120, cpus_hint=hint,
+                         Limits(memory_mib=3800, ceiling_mib=8192, cpus_hint=hint,
                                 cpu_weight=100, wall_seconds=2400))
         with lock:
             results['journey%d' % index] = record
 
     def heavy():
         record = one_run(driver, golden, 'mix%s-heavy' % tag,
-                         Limits(memory_mib=3800, ceiling_mib=5120, cpus_hint=4,
+                         Limits(memory_mib=5800, ceiling_mib=8192, cpus_hint=4,
                                 cpu_weight=priority if priority is not None else 100,
                                 wall_seconds=2400),
                          argv=HEAVY, collect=False)
