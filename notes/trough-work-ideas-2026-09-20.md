@@ -11,6 +11,11 @@ nearly free compute, and only delay-tolerant work can raise average utilization.
 The question here is what that work should be when the customers are teams
 running many coding agents. No idea below has been built or measured.
 
+Later the same day, transcript analysis and a survey of existing products tested
+this brainstorm. See [the evidence note](trough-work-evidence-2026-09-20.md): it
+drops several ideas below, finds little token waste of the kind assumed here, and
+replaces the falsifying experiment. The text below is left as written.
+
 ## Framing
 
 Trough compute is nearly free. Tokens, agent wall-time, and human review are not.
