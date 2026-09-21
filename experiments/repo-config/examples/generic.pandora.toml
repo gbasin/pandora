@@ -1,4 +1,4 @@
-# A plain npm + pytest repository with one Redis service.
+# A plain npm + pytest repository with one Redis service, and no CI import.
 # Nothing here is Eichler-shaped; it exists to show the contract is not.
 
 version = 1
@@ -43,9 +43,8 @@ exclude_globs = [".env", ".env.*", "**/*.pem"]
 
 [[services]]
 id = "redis"
+role = "cache"
 image = "redis@sha256:9a9a1b3e4b9f2c0a2f3a3a2b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f"
-cpu_millis = 250
-memory_mib = 256
 host = "127.0.0.1"
 port = 6379
 exports = { REDIS_URL = "redis://{host}:{port}/0" }
@@ -54,8 +53,7 @@ healthcheck = { argv = ["redis-cli", "ping"], attempts = 30, interval_ms = 200 }
 [[jobs]]
 id = "node-tests"
 summary = "Whole Node test suite"
-cpu_millis = 2000
-memory_mib = 4096
+size = "medium"
 services = ["redis"]
 forms = [{ prefix = ["test"] }]
 on_extra = { action = "local" }
@@ -65,13 +63,13 @@ outputs = [{ kind = "artifacts", paths = ["reports"] }]
 [[jobs]]
 id = "python-tests"
 summary = "Sharded pytest suite"
-cpu_millis = 1500
-memory_mib = 3072
+size = "small"
 services = ["redis"]
+args = "optional"
 usage = "Use npm run pytest [-k EXPRESSION] [--keep-going]."
 forms = [{ prefix = ["pytest"] }]
-params = [{ name = "targets", kind = "rest", required = false, allow_flags = [{ name = "-k", arity = 1 }] }]
-flags = [{ name = "--keep-going", kind = "pandora" }]
-run = { argv = [".venv/bin/pytest", "-p", "no:cacheprovider", "{p.targets[]}"] }
+options = [{ name = "--keep-going", sets = "keep_going" }]
+value_flags = ["-k"]
+run = { argv = [".venv/bin/pytest", "-p", "no:cacheprovider", "{args}"] }
 shards = { strategy = "argv", default = 2, max = 8, argv_append = ["--shard-id={shard.index}", "--num-shards={shard.total}"] }
 outputs = [{ kind = "artifacts", paths = ["reports/pytest"] }]

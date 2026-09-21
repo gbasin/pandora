@@ -4,19 +4,51 @@ The file is data, never code: it is read with ``tomllib``, every key is checked
 against a closed schema, and unknown keys are refused with the allowed set.  A
 configuration that loads is a configuration the classifier can execute without
 further repository knowledge.
+
+Two things this loader deliberately does *not* do.
+
+It does not re-implement the repository's command-line parser.  A job declares
+which literal argv forms Pandora **claims**, which options Pandora itself
+consumes, which tokens it refuses outright with a message, and whether a focused
+form stays on the agent's machine.  Everything else is forwarded verbatim to the
+repository's own runner, which is the only thing that knows whether ``S9-01`` is
+a journey.
+
+It does not state resource numbers.  A job declares a size class; the worker's
+configuration maps classes and service roles to CPU and memory, because those
+are facts about the operator's machine, not about the repository.
+
+Facts the repository already maintains in its GitHub Actions workflow may be
+inherited rather than restated: a job that names ``ci_job`` takes its services,
+job environment, shard pattern, timeout and artifact paths from that workflow
+job.  See ``ci_import.py``.
 """
+import hashlib
 import re
 import tomllib
 from pathlib import Path
+
+import ci_import
 
 VERSION = 1
 NAME = re.compile(r'[a-z][a-z0-9-]*\Z')
 FLAG = re.compile(r'-{1,2}[A-Za-z][A-Za-z0-9-]*\Z')
 TOKEN = re.compile(r'\{([^{}]+)\}')
+VARIABLE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*\Z')
+# registry/name[:tag]@sha256:<64 hex> -- a substring test is not enough: it would
+# accept "postgres:16 @sha256:..." and "evil@sha256:short".
+REFERENCE = re.compile(
+    r'(?:(?P<registry>[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?)/)?'
+    r'(?P<name>[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*)'
+    r'(?::(?P<tag>[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}))?'
+    r'(?:@(?P<digest>sha256:[0-9a-f]{64}))?\Z')
 FAULTS = ('worker-unreachable', 'queue-timeout', 'admission-refused')
-KINDS = ('enum', 'pattern', 'rest')
 OUTPUTS = ('artifacts', 'generated', 'writeback')
 EXTRA = ('local', 'reject')
+ARGS = ('none', 'required', 'optional')
+SIZES = ('small', 'medium', 'large')
+SHARD_NAMES = frozenset({'shard.index', 'shard.total'})
+LOCAL_ORIGIN = 'pandora.toml'
 
 
 class ConfigError(ValueError):
@@ -75,10 +107,14 @@ def _bool(value, where):
 def _env(value, where):
     _table(value, where)
     for key, item in value.items():
-        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+        if not VARIABLE.fullmatch(key):
             raise ConfigError(where + ' has an invalid variable name: ' + key)
         _str(item, where + '.' + key, allow_empty=True)
     return dict(value)
+
+
+def _names(value, where):
+    return _strs(value, where, VARIABLE, unique=True)
 
 
 def _choice(value, where, allowed):
@@ -87,40 +123,31 @@ def _choice(value, where, allowed):
     return value
 
 
-def _service(value, index):
-    where = 'services[%d]' % index
-    _keys(value, where, {'id', 'image', 'cpu_millis', 'memory_mib'},
-          {'env', 'host', 'port', 'exports', 'healthcheck', 'memory_swap'})
-    service = {
-        'id': _str(value['id'], where + '.id', NAME),
-        'image': _str(value['image'], where + '.image'),
-        'cpu_millis': _int(value['cpu_millis'], where + '.cpu_millis'),
-        'memory_mib': _int(value['memory_mib'], where + '.memory_mib'),
-        'env': _env(value.get('env', {}), where + '.env'),
-        'host': _str(value.get('host', '127.0.0.1'), where + '.host'),
-        'port': _int(value.get('port', 1), where + '.port', 1, 65535),
-        'exports': {},
-        'healthcheck': None,
-    }
-    if '@sha256:' not in service['image'] and not service['image'].startswith('local/'):
-        raise ConfigError(where + '.image must be digest-pinned: ' + service['image'])
-    scope = {'host': service['host'], 'port': str(service['port'])}
-    for key, item in _env(value.get('exports', {}), where + '.exports').items():
-        service['exports'][key] = _render(item, scope, where + '.exports.' + key)
-    if 'healthcheck' in value:
-        check = _keys(value['healthcheck'], where + '.healthcheck', {'argv'}, {'attempts', 'interval_ms'})
-        service['healthcheck'] = {
-            'argv': _strs(check['argv'], where + '.healthcheck.argv'),
-            'attempts': _int(check.get('attempts', 60), where + '.healthcheck.attempts', 1, 600),
-            'interval_ms': _int(check.get('interval_ms', 500), where + '.healthcheck.interval_ms', 10, 60000),
-        }
-        if not service['healthcheck']['argv']:
-            raise ConfigError(where + '.healthcheck.argv must not be empty')
-    return service
+def _image(value, where, pins):
+    """Resolve a pin, then insist on a complete digest-pinned reference."""
+    text = _str(value, where)
+    resolved = pins.get(text, text)
+    if resolved.startswith('local/'):
+        return resolved
+    match = REFERENCE.fullmatch(resolved)
+    if match is None:
+        raise ConfigError('%s is not a valid image reference: %s' % (where, resolved))
+    if match.group('digest') is None:
+        raise ConfigError(
+            '%s must be digest-pinned: %s.  Add [pins] "%s" = "%s@sha256:<digest>" so the worker '
+            'reproduces what CI merely re-pulls.' % (where, resolved, text, resolved.split(':')[0]))
+    return resolved
+
+
+def _check_template(text, names, where):
+    for match in TOKEN.finditer(text):
+        if match.group(1) not in names:
+            raise ConfigError('%s uses unknown template value {%s}; known: %s' % (
+                where, match.group(1), ', '.join(sorted(names)) or 'none'))
+    return text
 
 
 def _render(text, scope, where):
-    """Substitute {name} tokens from a flat scope; unknown names are a load error."""
     def replace(match):
         name = match.group(1)
         if name not in scope:
@@ -130,105 +157,102 @@ def _render(text, scope, where):
     return TOKEN.sub(replace, text)
 
 
-def _check_template(text, names, where):
-    for match in TOKEN.finditer(text):
-        if match.group(1) not in names:
-            raise ConfigError('%s uses unknown template value {%s}; known: %s' % (
-                where, match.group(1), ', '.join(sorted(names))))
-    return text
+def _inside(path, where):
+    if path.startswith('/') or '..' in path.split('/'):
+        raise ConfigError('%s must stay inside the worktree: %s' % (where, path))
+    return path
 
 
-def _param(value, index, job):
-    where = 'jobs.%s.params[%d]' % (job, index)
-    _keys(value, where, {'name', 'kind'},
-          {'values', 'pattern', 'required', 'allow_flags', 'path_like'})
-    param = {
-        'name': _str(value['name'], where + '.name', NAME),
-        'kind': _choice(value['kind'], where + '.kind', KINDS),
-        'values': None, 'pattern': None,
-        'required': _bool(value.get('required', True), where + '.required'),
-        'allow_flags': [], 'path_like': True,
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
+def _healthcheck(value, where):
+    check = _keys(value, where, {'argv'}, {'attempts', 'interval_ms'})
+    argv = _strs(check['argv'], where + '.argv')
+    if not argv:
+        raise ConfigError(where + '.argv must not be empty')
+    return {'argv': argv,
+            'attempts': _int(check.get('attempts', 60), where + '.attempts', 1, 600),
+            'interval_ms': _int(check.get('interval_ms', 500), where + '.interval_ms', 10, 60000)}
+
+
+def _service(value, where, pins):
+    _keys(value, where, {'id', 'image'}, {'role', 'env', 'host', 'port', 'exports', 'healthcheck'})
+    service = {
+        'id': _str(value['id'], where + '.id', NAME),
+        'image': _image(value['image'], where + '.image', pins),
+        'env': _env(value.get('env', {}), where + '.env'),
+        'host': _str(value.get('host', '127.0.0.1'), where + '.host'),
+        'port': _int(value.get('port', 1), where + '.port', 1, 65535),
+        'exports': {},
+        'healthcheck': _healthcheck(value['healthcheck'], where + '.healthcheck')
+                       if 'healthcheck' in value else None,
     }
-    if param['kind'] == 'enum':
-        param['values'] = _strs(value.get('values', []), where + '.values', unique=True)
-        if not param['values']:
-            raise ConfigError(where + ' of kind enum needs values')
-        if 'pattern' in value:
-            raise ConfigError(where + ' of kind enum takes no pattern')
-    elif param['kind'] == 'pattern':
-        param['pattern'] = _str(value.get('pattern', ''), where + '.pattern')
-        try:
-            re.compile(param['pattern'])
-        except re.error as error:
-            raise ConfigError(where + '.pattern is not a regular expression: ' + str(error)) from None
-        if 'values' in value:
-            raise ConfigError(where + ' of kind pattern takes no values')
-    else:
-        param['path_like'] = _bool(value.get('path_like', True), where + '.path_like')
-        for position, entry in enumerate(value.get('allow_flags', [])):
-            spot = '%s.allow_flags[%d]' % (where, position)
-            _keys(entry, spot, {'name'}, {'arity', 'max', 'nonempty'})
-            param['allow_flags'].append({
-                'name': _str(entry['name'], spot + '.name', FLAG),
-                'arity': _int(entry.get('arity', 1), spot + '.arity', 0, 1),
-                'max': _int(entry.get('max', 1), spot + '.max', 1, 32),
-                'nonempty': _bool(entry.get('nonempty', True), spot + '.nonempty'),
-            })
-    return param
+    service['role'] = _str(value.get('role', service['id']), where + '.role', NAME)
+    scope = {'host': service['host'], 'port': str(service['port'])}
+    for key, item in _env(value.get('exports', {}), where + '.exports').items():
+        service['exports'][key] = _render(item, scope, where + '.exports.' + key)
+    return service
 
 
-def _flag(value, index, job, params):
-    where = 'jobs.%s.flags[%d]' % (job, index)
-    _keys(value, where, {'name', 'kind'},
-          {'arity', 'values', 'sets', 'requires', 'enables_writeback', 'forward'})
-    flag = {
-        'name': _str(value['name'], where + '.name', FLAG),
-        'kind': _choice(value['kind'], where + '.kind', ('forward', 'pandora')),
-        'arity': _int(value.get('arity', 0), where + '.arity', 0, 1),
-        'values': None, 'sets': None, 'requires': None,
-        'enables_writeback': _bool(value.get('enables_writeback', False), where + '.enables_writeback'),
-        'forward': _bool(value.get('forward', False), where + '.forward'),
+def _imported_service(fact, role, where, pins):
+    """Turn one GitHub Actions service container into a Pandora service."""
+    port = fact['ports'][0]['container'] if fact['ports'] else None
+    health = fact['health']
+    return {
+        'id': role,
+        'role': role,
+        'ci_name': fact['name'],
+        'image': _image(fact['image'], where + '.image', pins),
+        'env': dict(fact['env']),
+        'ci_ports': [dict(entry) for entry in fact['ports']],
+        # Every container in the run shares one network namespace, so the address
+        # CI writes into its URLs -- localhost -- is the address that works.
+        'host': '127.0.0.1',
+        'port': port or 1,
+        'exports': {},
+        'healthcheck': {'argv': health['argv'], 'attempts': health['attempts'],
+                        'interval_ms': health['interval_ms']} if health else None,
     }
-    if 'values' in value:
-        if flag['arity'] != 1:
-            raise ConfigError(where + '.values needs arity 1')
-        flag['values'] = _strs(value['values'], where + '.values', unique=True)
-    if flag['kind'] == 'pandora':
-        if flag['arity']:
-            raise ConfigError(where + ' of kind pandora must not take a value')
-        if not flag['name'].startswith('--'):
-            raise ConfigError(where + ' of kind pandora must be a long option')
-        flag['sets'] = _str(value.get('sets', flag['name'].lstrip('-').replace('-', '_')), where + '.sets')
-    else:
-        if 'sets' in value:
-            raise ConfigError(where + '.sets applies to pandora flags only')
-        if 'forward' in value:
-            raise ConfigError(where + '.forward applies to pandora flags only')
-        flag['forward'] = True
-    if 'requires' in value:
-        need = _keys(value['requires'], where + '.requires', {'param', 'equals'})
-        name = _str(need['param'], where + '.requires.param', NAME)
-        if name not in {p['name'] for p in params}:
-            raise ConfigError(where + '.requires.param is not a parameter of this job: ' + name)
-        flag['requires'] = {'param': name, 'equals': _str(need['equals'], where + '.requires.equals')}
-    return flag
 
 
-def _form(value, index, job):
-    where = 'jobs.%s.forms[%d]' % (job, index)
-    _keys(value, where, {'prefix'}, {'on_extra'})
-    form = {'prefix': _strs(value['prefix'], where + '.prefix'), 'on_extra': None}
-    if not form['prefix']:
-        raise ConfigError(where + '.prefix must not be empty')
-    if 'on_extra' in value:
-        form['on_extra'] = _on_extra(value['on_extra'], where + '.on_extra')
-    return form
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+def _option(value, where):
+    _keys(value, where, {'name'}, {'sets', 'forward', 'writeback'})
+    name = _str(value['name'], where + '.name', FLAG)
+    if not name.startswith('--'):
+        raise ConfigError(where + '.name must be a long option: ' + name)
+    return {'name': name,
+            'sets': _str(value.get('sets', name.lstrip('-').replace('-', '_')), where + '.sets'),
+            'forward': _bool(value.get('forward', False), where + '.forward'),
+            'writeback': _bool(value.get('writeback', False), where + '.writeback')}
 
 
 def _on_extra(value, where):
     _keys(value, where, {'action'}, {'message'})
     return {'action': _choice(value['action'], where + '.action', EXTRA),
             'message': _str(value['message'], where + '.message') if 'message' in value else None}
+
+
+def _form(value, where):
+    _keys(value, where, {'prefix'}, {'on_extra'})
+    prefix = _strs(value['prefix'], where + '.prefix')
+    if not prefix:
+        raise ConfigError(where + '.prefix must not be empty')
+    return {'prefix': prefix,
+            'on_extra': _on_extra(value['on_extra'], where + '.on_extra') if 'on_extra' in value else None}
+
+
+def _reject(value, where):
+    _keys(value, where, {'args', 'message'})
+    args = _strs(value['args'], where + '.args', unique=True)
+    if not args:
+        raise ConfigError(where + '.args must not be empty')
+    return {'args': args, 'message': _str(value['message'], where + '.message')}
 
 
 def _fallback(value, where):
@@ -243,8 +267,7 @@ def _fallback(value, where):
     return fallback
 
 
-def _output(value, index, job, names):
-    where = 'jobs.%s.outputs[%d]' % (job, index)
+def _output(value, where):
     _keys(value, where, {'kind', 'paths'}, {'requires_option'})
     output = {
         'kind': _choice(value['kind'], where + '.kind', OUTPUTS),
@@ -254,189 +277,339 @@ def _output(value, index, job, names):
     if not output['paths']:
         raise ConfigError(where + '.paths must not be empty')
     for path in output['paths']:
-        _check_template(path, names['scalar'], where + '.paths')
-        if path.startswith('/') or '..' in path.split('/'):
-            raise ConfigError(where + '.paths must stay inside the worktree: ' + path)
+        _inside(path, where + '.paths')
     if 'requires_option' in value:
         output['requires_option'] = _str(value['requires_option'], where + '.requires_option')
     return output
 
 
-def _argv(value, where, names, extra=frozenset()):
-    argv = _strs(value, where)
+def _run(value, where):
+    _keys(value, where, {'argv'}, {'cwd', 'env', 'unset'})
+    argv = _strs(value['argv'], where + '.argv')
     if not argv:
-        raise ConfigError(where + ' must not be empty')
+        raise ConfigError(where + '.argv must not be empty')
+    splices = [index for index, item in enumerate(argv) if item == '{args}']
+    if len(splices) > 1:
+        raise ConfigError(where + '.argv uses {args} more than once')
     for item in argv:
-        whole = TOKEN.fullmatch(item)
-        if whole and whole.group(1) in names['splice']:
-            continue
-        _check_template(item, names['scalar'] | set(extra), where)
-    return argv
-
-
-def _run(value, where, names):
-    _keys(value, where, {'argv'}, {'cwd', 'env'})
-    run = {'argv': _argv(value['argv'], where + '.argv', names),
-           'cwd': _str(value.get('cwd', '.'), where + '.cwd'),
-           'env': _env(value.get('env', {}), where + '.env')}
+        if item != '{args}':
+            _check_template(item, set(), where + '.argv')
+    run = {'argv': argv,
+           'args_at': splices[0] if splices else None,
+           'cwd': _inside(_str(value.get('cwd', '.'), where + '.cwd'), where + '.cwd'),
+           'env': _env(value.get('env', {}), where + '.env'),
+           'unset': _names(value.get('unset', []), where + '.unset')}
     for key, item in run['env'].items():
-        _check_template(item, names['scalar'], where + '.env.' + key)
-    if run['cwd'].startswith('/') or '..' in run['cwd'].split('/'):
-        raise ConfigError(where + '.cwd must stay inside the worktree: ' + run['cwd'])
+        _check_template(item, set(), where + '.env.' + key)
+    overlap = sorted(set(run['unset']) & set(run['env']))
+    if overlap:
+        raise ConfigError('%s both sets and unsets %s' % (where, ', '.join(overlap)))
     return run
 
 
-def _shards(value, where, names):
-    _keys(value, where, {'strategy'}, {'default', 'min', 'max', 'env', 'argv_append', 'plan'})
+def _shards(value, where, imported):
+    """Shard-count policy.  With an import, CI owns the pattern and this owns N."""
+    optional = {'default', 'min', 'max'}
+    if imported is None:
+        _keys(value, where, {'strategy'}, optional | {'env', 'argv_append', 'plan'})
+    else:
+        _keys(value, where, (), optional)
     shards = {
-        'strategy': _choice(value['strategy'], where + '.strategy', ('env', 'argv')),
         'min': _int(value.get('min', 1), where + '.min', 1, 32),
         'max': _int(value.get('max', 32), where + '.max', 1, 32),
-        'env': _env(value.get('env', {}), where + '.env'),
-        'argv_append': _strs(value.get('argv_append', []), where + '.argv_append'),
         'plan': None,
     }
-    shards['default'] = _int(value.get('default', 1), where + '.default', shards['min'], shards['max'])
     if shards['min'] > shards['max']:
         raise ConfigError(where + '.min exceeds max')
-    sharded = names['scalar'] | {'shard.index', 'shard.total'}
-    for key, item in shards['env'].items():
-        _check_template(item, sharded, where + '.env.' + key)
-    for item in shards['argv_append']:
-        _check_template(item, sharded, where + '.argv_append')
-    if (shards['strategy'] == 'env') != bool(shards['env']):
-        raise ConfigError(where + " strategy 'env' requires env and forbids it otherwise")
-    if (shards['strategy'] == 'argv') != bool(shards['argv_append']):
-        raise ConfigError(where + " strategy 'argv' requires argv_append and forbids it otherwise")
-    if 'plan' in value:
-        plan = _keys(value['plan'], where + '.plan', {'run'},
-                     {'services', 'cpu_millis', 'memory_mib', 'emits'})
-        emits = None
-        if 'emits' in plan:
-            emits = _check_template(_str(plan['emits'], where + '.plan.emits'),
-                                    names['scalar'], where + '.plan.emits')
-            if emits.startswith('/') or '..' in emits.split('/'):
-                raise ConfigError(where + '.plan.emits must stay inside the worktree: ' + emits)
-        shards['plan'] = {
-            'run': _run(plan['run'], where + '.plan.run', names),
-            'emits': emits,
-            'services': _strs(plan.get('services', []), where + '.plan.services', NAME, unique=True),
-            'cpu_millis': _int(plan['cpu_millis'], where + '.plan.cpu_millis') if 'cpu_millis' in plan else None,
-            'memory_mib': _int(plan['memory_mib'], where + '.plan.memory_mib') if 'memory_mib' in plan else None,
-        }
+    if imported is not None:
+        consumed = imported['consumed']
+        shards['strategy'] = consumed['kind']
+        shards['env'] = ({consumed['name']: '{shard.index}/{shard.total}'}
+                         if consumed['kind'] == 'env' else {})
+        shards['argv_append'] = ([consumed['name'] + '={shard.index}/{shard.total}']
+                                 if consumed['kind'] == 'argv' else [])
+        fallback_default = imported['total']
+    else:
+        shards['strategy'] = _choice(value['strategy'], where + '.strategy', ('env', 'argv'))
+        shards['env'] = _env(value.get('env', {}), where + '.env')
+        shards['argv_append'] = _strs(value.get('argv_append', []), where + '.argv_append')
+        for key, item in shards['env'].items():
+            _check_template(item, SHARD_NAMES, where + '.env.' + key)
+        for item in shards['argv_append']:
+            _check_template(item, SHARD_NAMES, where + '.argv_append')
+        if (shards['strategy'] == 'env') != bool(shards['env']):
+            raise ConfigError(where + " strategy 'env' requires env and forbids it otherwise")
+        if (shards['strategy'] == 'argv') != bool(shards['argv_append']):
+            raise ConfigError(where + " strategy 'argv' requires argv_append and forbids it otherwise")
+        fallback_default = 1
+    default = value.get('default', min(max(fallback_default, shards['min']), shards['max']))
+    shards['default'] = _int(default, where + '.default', shards['min'], shards['max'])
+    if imported is not None and shards['max'] == 1:
+        # A job pinned to a single shard inherits the world but not the marker:
+        # writing SHARD=1/1 would change what the repository's runner selects.
+        shards['env'], shards['argv_append'] = {}, []
+    if imported is None and 'plan' in value:
+        plan = _keys(value['plan'], where + '.plan', {'run'}, {'services', 'emits'})
+        emits = _inside(_str(plan['emits'], where + '.plan.emits'), where + '.plan.emits') \
+                if 'emits' in plan else None
+        shards['plan'] = {'run': _run(plan['run'], where + '.plan.run'),
+                          'emits': emits,
+                          'services': _strs(plan.get('services', []), where + '.plan.services',
+                                            NAME, unique=True)}
     return shards
 
 
-def _template_names(params, flags):
-    """Scalar tokens usable anywhere; splice tokens usable as a whole argv element."""
-    scalar, splice = {'job', 'params_json'}, set()
-    for param in params:
-        if param['kind'] == 'rest':
-            splice.add('p.%s[]' % param['name'])
-        else:
-            scalar.add('p.' + param['name'])
-    for flag in flags:
-        if flag['kind'] == 'pandora':
-            scalar.add('opt.' + flag['sets'])
-        if flag['forward']:
-            splice.add('f!.' + flag['name'])
-        if flag['arity']:
-            scalar.add('f.' + flag['name'])
-    return {'scalar': scalar, 'splice': splice}
+JOB_REQUIRED = {'id', 'forms', 'run'}
+JOB_OPTIONAL = {'summary', 'tool', 'size', 'args', 'options', 'value_flags', 'reject',
+                'services', 'shards', 'outputs', 'fallback', 'on_extra', 'usage', 'exclusive',
+                'reject_if_set', 'timeout_minutes', 'ci_job', 'ci_matrix_params', 'ci_lint'}
 
 
-def _job(value, index, services):
+def _ci_lint(value, where):
+    _keys(value, where, {'job'}, {'except', 'matrix_params'})
+    return {'job': _str(value['job'], where + '.job'),
+            'except': _strs(value.get('except', []), where + '.except', unique=True),
+            'matrix_params': _strs(value.get('matrix_params', []), where + '.matrix_params',
+                                   unique=True)}
+
+
+def _job(value, index, library, pins, workflow):
     where = 'jobs[%d]' % index
-    _keys(value, where, {'id', 'forms', 'run', 'cpu_millis', 'memory_mib'},
-          {'summary', 'tool', 'params', 'flags', 'services', 'shards', 'outputs', 'fallback',
-           'on_extra', 'usage', 'exclusive', 'reject_if_set'})
+    _keys(value, where, JOB_REQUIRED, JOB_OPTIONAL)
     job_id = _str(value['id'], where + '.id', NAME)
     where = 'jobs.' + job_id
-    params = [_param(item, position, job_id) for position, item in enumerate(value.get('params', []))]
-    if len({p['name'] for p in params}) != len(params):
-        raise ConfigError(where + '.params has duplicate names')
-    rest = [p for p in params if p['kind'] == 'rest']
-    if len(rest) > 1 or (rest and params[-1]['kind'] != 'rest'):
-        raise ConfigError(where + '.params allows at most one rest parameter, and it must come last')
-    seen_optional = False
-    for param in params:
-        if param['kind'] == 'rest':
-            continue
-        if not param['required']:
-            seen_optional = True
-        elif seen_optional:
-            raise ConfigError(where + '.params cannot require a parameter after an optional one')
-    flags = [_flag(item, position, job_id, params) for position, item in enumerate(value.get('flags', []))]
-    if len({f['name'] for f in flags}) != len(flags):
-        raise ConfigError(where + '.flags has duplicate names')
-    names = _template_names(params, flags)
+    origin = {}
+
+    facts = None
+    if 'ci_job' in value:
+        if workflow is None:
+            raise ConfigError(where + '.ci_job needs a top-level ci_workflow')
+        params = _strs(value.get('ci_matrix_params', []), where + '.ci_matrix_params', unique=True)
+        try:
+            facts = ci_import.import_job(workflow['document'], _str(value['ci_job'], where + '.ci_job'),
+                                         source=workflow['name'], matrix_params=params)
+        except ci_import.CiImportError as error:
+            raise ConfigError('%s.ci_job cannot be imported: %s' % (where, error)) from None
+    elif 'ci_matrix_params' in value:
+        raise ConfigError(where + '.ci_matrix_params applies only with ci_job')
+    if 'ci_job' in value and 'ci_lint' in value:
+        raise ConfigError(where + ' cannot both import ci_job and lint against ci_lint')
+
+    def note(field, suffix=None):
+        origin[field] = ('%s:%s.%s' % (workflow['name'], facts['job'], suffix)
+                         if suffix is not None else LOCAL_ORIGIN)
+
+    options = [_option(item, '%s.options[%d]' % (where, position))
+               for position, item in enumerate(value.get('options', []))]
+    if len({o['name'] for o in options}) != len(options):
+        raise ConfigError(where + '.options has duplicate names')
+    args = _choice(value.get('args', 'none'), where + '.args', ARGS)
+    run = _run(value['run'], where + '.run')
+    if args == 'none' and run['args_at'] is not None:
+        raise ConfigError(where + ".run.argv uses {args} but the job declares args = 'none'")
+    if args != 'none' and run['args_at'] is None:
+        raise ConfigError(where + ".run.argv must place {args} when the job forwards arguments")
+
+    # Services: the workflow's, then anything the configuration states itself.
+    services, seen = [], {}
+    if facts is not None:
+        for name in sorted(facts['services']):
+            role = workflow['roles'].get(name, name)
+            spot = '%s.services.%s' % (where, name)
+            service = _imported_service(facts['services'][name], role, spot, pins)
+            seen[role] = len(services)
+            services.append(service)
+            note('services.' + role, 'services.' + name)
+    for name in _strs(value.get('services', []), where + '.services', NAME, unique=True):
+        if name not in library:
+            raise ConfigError(where + '.services names an undeclared service: ' + name)
+        if name in seen:
+            services[seen[name]] = dict(library[name])
+        else:
+            seen[name] = len(services)
+            services.append(dict(library[name]))
+        note('services.' + name)
+
+    environment = dict(facts['env']) if facts is not None else {}
+    for key in environment:
+        note('env.' + key, 'env.' + key)
+    for key in run['env']:
+        note('env.' + key)
+    for key in run['unset']:
+        note('env.' + key)
+
+    imported_shards = facts['shards'] if facts is not None else None
+    if 'shards' in value:
+        shards = _shards(value['shards'], where + '.shards', imported_shards)
+        note('shards', 'strategy.matrix.' + imported_shards['dimension'] if imported_shards else None)
+    elif imported_shards is not None:
+        shards = _shards({}, where + '.shards', imported_shards)
+        note('shards', 'strategy.matrix.' + imported_shards['dimension'])
+    else:
+        shards = None
+
+    outputs = [_output(item, '%s.outputs[%d]' % (where, position))
+               for position, item in enumerate(value.get('outputs', []))]
+    for output in outputs:
+        note('outputs.' + output['kind'])
+    if facts is not None and facts['artifacts'] and not any(o['kind'] == 'artifacts' for o in outputs):
+        paths = []
+        for entry in facts['artifacts']:
+            for path in entry['paths']:
+                if path.startswith('/') or '..' in path.split('/'):
+                    raise ConfigError(
+                        '%s inherits the artifact path %s from %s, which is outside the worktree.  '
+                        'Pandora collects results from the snapshot only; declare outputs in '
+                        'pandora.toml to override the inherited list.'
+                        % (where, path, entry['where']))
+                if TOKEN.search(path) or '${{' in path:
+                    raise ConfigError(
+                        '%s inherits the artifact path %s from %s, which is a matrix expression.  '
+                        'Pandora has no matrix; declare outputs in pandora.toml as a glob.'
+                        % (where, path, entry['where']))
+                paths.append(path)
+        outputs.append({'kind': 'artifacts', 'paths': sorted(set(paths)), 'requires_option': None})
+        note('outputs.artifacts', 'steps[*].uses=actions/upload-artifact')
+
+    timeout = None
+    if 'timeout_minutes' in value:
+        timeout = _int(value['timeout_minutes'], where + '.timeout_minutes', 1, 1440)
+        note('timeout_minutes')
+    elif facts is not None and facts['timeout_minutes'] is not None:
+        timeout = facts['timeout_minutes']
+        note('timeout_minutes', 'timeout-minutes')
+
     job = {
         'id': job_id,
         'summary': _str(value.get('summary', job_id), where + '.summary'),
         'tool': _str(value['tool'], where + '.tool') if 'tool' in value else None,
-        'reject_if_set': _strs(value.get('reject_if_set', []), where + '.reject_if_set', unique=True),
-        'forms': [_form(item, position, job_id) for position, item in enumerate(value['forms'])],
-        'params': params, 'flags': flags,
-        'services': _strs(value.get('services', []), where + '.services', NAME, unique=True),
-        'run': _run(value['run'], where + '.run', names),
-        'cpu_millis': _int(value['cpu_millis'], where + '.cpu_millis'),
-        'memory_mib': _int(value['memory_mib'], where + '.memory_mib'),
+        'size': _choice(value.get('size', 'medium'), where + '.size', SIZES),
+        'args': args,
+        'options': options,
+        'value_flags': _strs(value.get('value_flags', []), where + '.value_flags', FLAG, unique=True),
+        'reject': [_reject(item, '%s.reject[%d]' % (where, position))
+                   for position, item in enumerate(value.get('reject', []))],
+        'reject_if_set': _names(value.get('reject_if_set', []), where + '.reject_if_set'),
+        'forms': [_form(item, '%s.forms[%d]' % (where, position))
+                  for position, item in enumerate(value['forms'])],
+        'services': services,
+        'run': run,
+        'env': environment,
         'exclusive': _strs(value.get('exclusive', []), where + '.exclusive', NAME, unique=True),
-        'shards': _shards(value['shards'], where + '.shards', names) if 'shards' in value else None,
-        'outputs': [_output(item, position, job_id, names)
-                    for position, item in enumerate(value.get('outputs', []))],
+        'shards': shards,
+        'outputs': outputs,
+        'timeout_minutes': timeout,
         'fallback': _fallback(value['fallback'], where + '.fallback') if 'fallback' in value else None,
         'on_extra': _on_extra(value['on_extra'], where + '.on_extra') if 'on_extra' in value
                     else {'action': 'reject', 'message': None},
         'usage': _str(value['usage'], where + '.usage') if 'usage' in value else None,
+        'ci_job': facts['job'] if facts is not None else None,
+        'ci_facts': facts,
+        'ci_lint': _ci_lint(value['ci_lint'], where + '.ci_lint') if 'ci_lint' in value else None,
+        'provenance': origin,
     }
+    for field in ('size', 'args', 'forms', 'run'):
+        origin.setdefault(field, LOCAL_ORIGIN)
     if not job['forms']:
         raise ConfigError(where + '.forms must not be empty')
-    unknown = sorted(set(job['services']) - set(services))
-    if unknown:
-        raise ConfigError(where + '.services names undeclared service(s): ' + ', '.join(unknown))
-    options = {f['sets'] for f in flags if f['kind'] == 'pandora'}
+    if job['value_flags'] and args == 'none':
+        raise ConfigError(where + ".value_flags needs args = 'required' or 'optional'")
+    if job['reject'] and args == 'none':
+        raise ConfigError(where + ".reject needs args = 'required' or 'optional'")
+    claimed = {o['name'] for o in options}
+    for entry in job['reject']:
+        overlap = sorted(set(entry['args']) & (claimed | set(job['value_flags'])))
+        if overlap:
+            raise ConfigError('%s.reject names %s, which this job also accepts'
+                              % (where, ', '.join(overlap)))
+    armed = {o['sets'] for o in options if o['writeback']}
     for output in job['outputs']:
-        if output['requires_option'] and output['requires_option'] not in options:
-            raise ConfigError('%s.outputs requires option %r, which no flag of this job sets'
+        if output['kind'] == 'writeback':
+            if not output['requires_option']:
+                raise ConfigError(where + '.outputs of kind writeback must name a requires_option')
+            if output['requires_option'] not in armed:
+                raise ConfigError('%s.outputs requires option %r, which no writeback option of this '
+                                  'job sets' % (where, output['requires_option']))
+        elif output['requires_option'] and output['requires_option'] not in {o['sets'] for o in options}:
+            raise ConfigError('%s.outputs requires option %r, which no option of this job sets'
                               % (where, output['requires_option']))
-        if output['kind'] == 'writeback' and not output['requires_option']:
-            raise ConfigError(where + '.outputs of kind writeback must name a requires_option')
-    if job['shards'] and job['shards']['plan']:
-        unknown = sorted(set(job['shards']['plan']['services']) - set(services))
+    if shards and shards['plan']:
+        unknown = sorted(set(shards['plan']['services']) - set(library))
         if unknown:
-            raise ConfigError(where + '.shards.plan.services names undeclared service(s): ' + ', '.join(unknown))
+            raise ConfigError(where + '.shards.plan.services names undeclared service(s): '
+                              + ', '.join(unknown))
     return job
 
 
-def validate(value):
+# ---------------------------------------------------------------------------
+# Whole configuration
+# ---------------------------------------------------------------------------
+
+def _pins(value):
+    table = _table(value, 'pins')
+    pins = {}
+    for key, item in table.items():
+        floating = _str(key, 'pins key')
+        pinned = _str(item, 'pins.' + floating)
+        if '@sha256:' not in pinned:
+            raise ConfigError('pins.%s must map to a digest: %s' % (floating, pinned))
+        if '@sha256:' in floating:
+            raise ConfigError('pins.%s is already pinned' % floating)
+        pins[floating] = pinned
+    return pins
+
+
+def _workflow(value, root, roles):
+    path = Path(root) / _str(value, 'ci_workflow')
+    try:
+        document, parser = ci_import.load_workflow(path)
+    except ci_import.CiImportError as error:
+        raise ConfigError(str(error)) from None
+    return {'path': str(path), 'name': path.name, 'document': document,
+            'parser': parser, 'roles': roles}
+
+
+def validate(value, *, root='.'):
     """Return a normalized configuration or raise ConfigError."""
     _keys(value, 'configuration', {'version', 'repo', 'runtime', 'prepare', 'jobs'},
-          {'services', 'env', 'secrets', 'fallback', 'feedback', 'matching'})
+          {'services', 'env', 'secrets', 'fallback', 'feedback', 'matching',
+           'pins', 'ci_workflow', 'ci_service_roles'})
     if type(value['version']) is not int or value['version'] != VERSION:
         raise ConfigError('configuration version must be %d' % VERSION)
+    pins = _pins(value.get('pins', {}))
+    roles = {}
+    for key, item in _table(value.get('ci_service_roles', {}), 'ci_service_roles').items():
+        roles[_str(key, 'ci_service_roles key')] = _str(item, 'ci_service_roles.' + key, NAME)
+    workflow = _workflow(value['ci_workflow'], root, roles) if 'ci_workflow' in value else None
+
     repo = _keys(value['repo'], 'repo', {'name', 'entrypoints'}, {'root_markers'})
-    runtime = _keys(value['runtime'], 'runtime', {'base_image'}, {'setup', 'env', 'workdir', 'user'})
-    prepare = _keys(value['prepare'], 'prepare', {'argv', 'cache_key_paths'}, {'cache_key_env', 'check_argv'})
+    runtime = _keys(value['runtime'], 'runtime', {'base_image'},
+                    {'platform', 'setup', 'env', 'workdir', 'user'})
+    prepare = _keys(value['prepare'], 'prepare', {'argv', 'cache_key_paths'},
+                    {'cache_key_env', 'check_argv'})
     matching = _keys(value.get('matching', {}), 'matching', (), {'strip_prefixes', 'subdirectory'})
     feedback = _keys(value.get('feedback', {}), 'feedback', (), {'reject_suffix', 'extra_message'})
     secrets = _keys(value.get('secrets', {}), 'secrets', (), {'exclude_globs'})
-    environment = _keys(value.get('env', {}), 'env', (), {'set', 'passthrough', 'reject_if_set'})
-    if '@sha256:' not in runtime['base_image']:
-        raise ConfigError('runtime.base_image must be digest-pinned: ' + runtime['base_image'])
-    services = {}
+    environment = _keys(value.get('env', {}), 'env', (), {'set', 'passthrough', 'unset', 'reject_if_set'})
+
+    setup = _strs(runtime.get('setup', []), 'runtime.setup')
+    platform = _str(runtime.get('platform', 'linux/amd64'), 'runtime.platform')
+    base_image = _image(runtime['base_image'], 'runtime.base_image', pins)
+    library = {}
     for index, item in enumerate(value.get('services', [])):
-        service = _service(item, index)
-        if service['id'] in services:
+        service = _service(item, 'services[%d]' % index, pins)
+        if service['id'] in library:
             raise ConfigError('services has duplicate id ' + service['id'])
-        services[service['id']] = service
+        library[service['id']] = service
     jobs = {}
     for index, item in enumerate(value['jobs']):
-        job = _job(item, index, services)
+        job = _job(item, index, library, pins, workflow)
         if job['id'] in jobs:
             raise ConfigError('jobs has duplicate id ' + job['id'])
         jobs[job['id']] = job
     entrypoints = _strs(repo['entrypoints'], 'repo.entrypoints', unique=True)
+    if not entrypoints:
+        raise ConfigError('repo.entrypoints must not be empty')
     seen = {}
     for job in jobs.values():
         if job['tool'] is None:
@@ -449,23 +622,31 @@ def validate(value):
                 raise ConfigError('form %s %s is claimed by both %s and %s'
                                   % (job['tool'], ' '.join(form['prefix']), seen[key], job['id']))
             seen[key] = job['id']
+
+    unset = _names(environment.get('unset', []), 'env.unset')
+    base_env = _env(environment.get('set', {}), 'env.set')
+    overlap = sorted(set(unset) & set(base_env))
+    if overlap:
+        raise ConfigError('env both sets and unsets ' + ', '.join(overlap))
     config = {
         'version': VERSION,
         'repo': {'name': _str(repo['name'], 'repo.name'),
                  'entrypoints': entrypoints,
                  'root_markers': _strs(repo.get('root_markers', []), 'repo.root_markers', unique=True)},
-        'runtime': {'base_image': runtime['base_image'],
-                    'setup': _strs(runtime.get('setup', []), 'runtime.setup'),
+        'runtime': {'base_image': base_image,
+                    'platform': platform,
+                    'setup': setup,
                     'env': _env(runtime.get('env', {}), 'runtime.env'),
                     'workdir': _str(runtime.get('workdir', '/workspace'), 'runtime.workdir'),
                     'user': _str(runtime.get('user', 'root'), 'runtime.user')},
         'prepare': {'argv': _strs(prepare['argv'], 'prepare.argv'),
                     'cache_key_paths': _strs(prepare['cache_key_paths'], 'prepare.cache_key_paths', unique=True),
-                    'cache_key_env': _strs(prepare.get('cache_key_env', []), 'prepare.cache_key_env', unique=True),
+                    'cache_key_env': _names(prepare.get('cache_key_env', []), 'prepare.cache_key_env'),
                     'check_argv': _strs(prepare['check_argv'], 'prepare.check_argv') if 'check_argv' in prepare else []},
-        'env': {'set': _env(environment.get('set', {}), 'env.set'),
-                'passthrough': _strs(environment.get('passthrough', []), 'env.passthrough', unique=True),
-                'reject_if_set': _strs(environment.get('reject_if_set', []), 'env.reject_if_set', unique=True)},
+        'env': {'set': base_env,
+                'passthrough': _names(environment.get('passthrough', []), 'env.passthrough'),
+                'unset': unset,
+                'reject_if_set': _names(environment.get('reject_if_set', []), 'env.reject_if_set')},
         'secrets': {'exclude_globs': _strs(secrets.get('exclude_globs', []), 'secrets.exclude_globs', unique=True)},
         'matching': {
             'strip_prefixes': [_strs(x, 'matching.strip_prefixes entry')
@@ -481,20 +662,100 @@ def validate(value):
         },
         'fallback': _fallback(value['fallback'], 'fallback') if 'fallback' in value
                     else {'action': 'fail', 'on': list(FAULTS), 'notice': None},
-        'services': services,
+        'pins': pins,
+        'ci_workflow': {'path': workflow['path'], 'parser': workflow['parser']} if workflow else None,
+        'ci_service_roles': roles,
+        'services': library,
         'jobs': jobs,
     }
     if not config['prepare']['argv']:
         raise ConfigError('prepare.argv must not be empty')
-    if not config['repo']['entrypoints']:
-        raise ConfigError('repo.entrypoints must not be empty')
+    config['dependency_cache'] = dependency_cache(config)
     for job in jobs.values():
         if job['fallback'] is None:
             job['fallback'] = config['fallback']
     return config
 
 
-def load(path):
+def dependency_cache(config):
+    """Everything that changes what the prepared dependency image contains.
+
+    ``runtime.setup`` runs ``apt-get`` against a moving mirror, so a digest-pinned
+    base is not by itself reproducible.  Folding the setup text and the platform
+    into the key at least stops a changed setup line from silently reusing an
+    image built by the old one.
+    """
+    material = '\n'.join([config['runtime']['base_image'], config['runtime']['platform'],
+                          *config['runtime']['setup'], *config['prepare']['argv']])
+    return {'base_image': config['runtime']['base_image'],
+            'platform': config['runtime']['platform'],
+            'setup_sha256': hashlib.sha256(material.encode()).hexdigest(),
+            'paths': config['prepare']['cache_key_paths'],
+            'env': config['prepare']['cache_key_env']}
+
+
+NODE_TAG = re.compile(r'node:([0-9]+)[.\-@]')
+
+
+def job_facts(config, job, ci_flat):
+    """The same normalized facts, read off the configuration instead of the workflow."""
+    flat = {}
+    for service in job['services']:
+        role = service['role']
+        flat['services.%s.image' % role] = service['image']
+        flat['services.%s.env' % role] = dict(service['env'])
+        flat['services.%s.ports' % role] = [service['port']]
+        flat['services.%s.health' % role] = (service['healthcheck'] or {}).get('argv')
+    environment = dict(config['env']['set'])
+    environment.update(job['env'])
+    environment.update(job['run']['env'])
+    for name in [*config['env']['unset'], *job['run']['unset']]:
+        environment.pop(name, None)
+    # Only variables CI also states are compared: Pandora sets plenty that CI has
+    # no opinion about, and reporting those as drift would bury the real ones.
+    for key, item in environment.items():
+        if 'env.' + key in ci_flat:
+            flat['env.' + key] = item
+    shards = job['shards']
+    flat['shards.total'] = shards['default'] if shards else None
+    if shards and shards['strategy'] == 'env':
+        flat['shards.consumed'] = 'env ' + next(iter(shards['env']), '')
+    elif shards and shards['argv_append']:
+        flat['shards.consumed'] = 'argv ' + shards['argv_append'][0].split('=')[0]
+    else:
+        flat['shards.consumed'] = None
+    flat['timeout_minutes'] = job['timeout_minutes']
+    match = NODE_TAG.search(config['runtime']['base_image'])
+    flat['node'] = match.group(1) if match else None
+    flat['artifacts'] = sorted(ci_import.clean_path(path) for output in job['outputs']
+                               if output['kind'] == 'artifacts' for path in output['paths'])
+    return flat
+
+
+def lint(config, *, root='.'):
+    """Report drift for jobs that restate a CI job instead of importing it."""
+    reports = []
+    for job in config['jobs'].values():
+        spec = job['ci_lint']
+        if spec is None:
+            continue
+        if config['ci_workflow'] is None:
+            raise ConfigError('jobs.%s.ci_lint needs a top-level ci_workflow' % job['id'])
+        document, _parser = ci_import.load_workflow(config['ci_workflow']['path'])
+        name = Path(config['ci_workflow']['path']).name
+        try:
+            facts = ci_import.import_job(document, spec['job'], source=name,
+                                         matrix_params=spec['matrix_params'])
+        except ci_import.CiImportError as error:
+            raise ConfigError('jobs.%s.ci_lint: %s' % (job['id'], error)) from None
+        ci_flat = ci_import.normalize(facts, pins=config['pins'], roles=config['ci_service_roles'])
+        findings = ci_import.drift(ci_flat, job_facts(config, job, ci_flat), spec['except'])
+        reports.append({'job': job['id'], 'ci_job': spec['job'], 'source': name,
+                        'exceptions': spec['except'], 'findings': findings})
+    return reports
+
+
+def load(path, root=None):
     path = Path(path)
     try:
         raw = tomllib.loads(path.read_text())
@@ -503,6 +764,6 @@ def load(path):
     except OSError as error:
         raise ConfigError('cannot read %s: %s' % (path, error)) from None
     try:
-        return validate(raw)
+        return validate(raw, root=root if root is not None else path.parent)
     except ConfigError as error:
         raise ConfigError('%s: %s' % (path, error)) from None

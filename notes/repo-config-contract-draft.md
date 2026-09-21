@@ -4,9 +4,13 @@ Status: draft, 2026-09-21. Evaluates whether Pandora's repository knowledge can
 move into a file the target repository owns, and whether the result is pleasant
 enough to justify rewriting the welded adapters.
 
-Working proof: `experiments/repo-config/` (loader, classifier, CLI, two example
-configurations, 48 unittest cases including a 77-case parity table against the
-shipped `experiments/routing/commands.py`).
+Working proof: `experiments/repo-config/` (loader, classifier, CI-fact importer,
+CLI, two example configurations, 97 unittest cases including a 77-case parity
+table against the shipped `experiments/routing/commands.py` and a trimmed
+verbatim copy of eichler's real `ci.yml` under `fixtures/`).
+
+Read §10 first if you have read this document before: it is the second pass,
+and it changes the recommendation in §9.4.
 
 ---
 
@@ -78,6 +82,10 @@ The normalized shape is what `experiments/repo-config/config.py` validates. Ever
 table is closed: an unknown key is refused by name with the allowed set printed.
 A configuration that loads is one the classifier can execute with no further
 repository knowledge.
+
+> **Stale below, in three places.** §3.4's `params`/`flags` mini-language and
+> §3.5's `cpu_millis`/`memory_mib` no longer exist, and `CI = ""` in §3.9 is now
+> `unset`. §10.7 states what replaced each, and why. The rest of §3 still holds.
 
 ### 3.1 Identity and matching
 
@@ -661,3 +669,297 @@ No-go conditions, stated in advance so they are falsifiable: if step 1 requires
 more than two new schema keys to cover the seven jobs, or if any Eichler seam
 turns out to need more than ~20 lines, the split is in the wrong place and the
 welded adapters should stay.
+
+---
+
+## 10. Riding on `ci.yml` — second pass
+
+This section is the result of testing one idea against the real file: a
+`pandora.toml` job says `ci_job = "journeys"` and **inherits** the facts the
+repository already maintains in its workflow, instead of restating them.
+
+Everything below was measured against a verbatim trim of
+`/Users/garybasin/Code/eichler/.github/workflows/ci.yml` (596 lines; the jobs
+`postgres`, `journeys`, `surfaces`, `browser-integration` copied line for line
+into `experiments/repo-config/fixtures/eichler/.github/workflows/ci.yml`). The
+importer is `experiments/repo-config/ci_import.py`; its tests are
+`test_ci_import.py`.
+
+### 10.1 What imported cleanly from the real file
+
+All four jobs import. Every field below came out of the workflow with no
+hand-holding:
+
+| Job | Inherited |
+| --- | --- |
+| `postgres` | services `postgres` and `wsproxy` — image, env, `ports`, and the `options:` string parsed into a healthcheck (`pg_isready -U ike_owner -d ike`, 10 retries, 5 s); job env `DATABASE_OWNER_URL`; `timeout-minutes: 15`; node 24 |
+| `journeys` | services `postgres`, `pgbouncer`, `wsproxy`; four job env vars; the matrix shard axis `['1/4'…'4/4']` → total 4 **and** where it is consumed (`JOURNEY_SHARD=${{ matrix.shard }}`, found inside the 15-line shell step); `timeout-minutes: 60`; node 24 |
+| `surfaces` | shard axis total 2, consumed as `--shard=${{ matrix.shard }}`; `timeout-minutes: 30`; node 24 — **after** declaring `ci_matrix_params = ["app"]` |
+| `browser-integration` | `timeout-minutes: 15`; the artifact path `test-results/browser-integration/`; node 24; no services and no shards, which is itself the fact |
+
+Two of those facts were **wrong in the hand-written configuration**, and the
+import corrected them without anyone noticing they were wrong:
+
+- The first draft gave `pnpm test:postgres` three services (`db`, `pool`,
+  `proxy`). CI's `postgres` job has two: there is no pgbouncer, and its wsproxy
+  is pointed straight at Postgres (`ALLOW_ADDR_REGEX: ^postgres:5432$`), not at
+  a pooler. Pandora has been starting a pgbouncer that job never used.
+- The draft's Postgres password was `local-owner`; CI's is `ci-owner`, and
+  `DATABASE_OWNER_URL` embeds it. Two independently-maintained copies of a
+  credential had already drifted.
+
+That is the strongest argument in this document for reading `ci.yml` at all,
+and it is an argument for *comparing*, not necessarily for *inheriting*.
+
+### 10.2 What did not import, and why
+
+Strictness is the point: nothing is skipped silently. Every item here is a
+named `CiImportError` quoting file, job, field and offending text.
+
+1. **The journeys artifact list.** `path:` begins with `/tmp/ike-stack.log`,
+   which is outside the snapshot a worker returns. Inheriting it is refused;
+   the job must declare `outputs` itself. (Verified: `test_config.py`
+   temporarily strips the declaration and asserts the refusal.)
+2. **The surfaces artifact paths.** `apps/${{ matrix.app }}/test-results/` is a
+   matrix expression, and Pandora has no matrix. Refused on inheritance; the
+   config writes `apps/*/test-results` and `lint` reports the two forms as
+   drift, because nothing can check that a glob and an expression cover the
+   same directories.
+3. **The `app` matrix dimension.** `surfaces` crosses shards with an
+   agent-chosen dimension. The importer refuses until the config states
+   `ci_matrix_params = ["app"]` — an explicit "this axis is an argument, not a
+   shard". Without that declaration `surfaces` is un-importable, which is why
+   the example lints it instead of importing it.
+4. **The journeys `run:` block.** Confirmed: it is a 15-line shell script
+   (background `pnpm dev:stack`, `trap`, 120-iteration `curl` poll). Only the
+   shard assignment is recoverable from it. In particular `JOURNEY_CONCURRENCY=6`
+   sits on the same command line and is invisible to a fact importer — the
+   config sets `1` and neither side can tell they disagree. This is exactly
+   review item 2 restated with a measurement: commands cannot ride on `ci.yml`,
+   only facts can.
+5. **`runs-on: blacksmith-4vcpu-ubuntu-2404`.** The closest thing CI has to a
+   size class, deliberately not imported: mapping a vendor runner label onto a
+   worker's CPU and memory is guessing, and it is the operator's guess to make.
+6. **The pnpm version.** `pnpm/action-setup@v6` carries no `with:`; the version
+   comes from `packageManager` in `package.json`. Nothing to import.
+7. **The artifact `name:`.** Uses `${{ strategy.job-index }}`. Not read, because
+   Pandora names its own results — but note that this is the one place the
+   importer ignores a field rather than refusing it.
+8. **`needs:` and `if:`.** Ignored by design and listed in the code as ignored,
+   because a worker running one command for one agent has no job graph.
+
+Refusals for shapes a CI maintainer may reach for, each with a fixture and a
+test: `container:` jobs, job-level `uses:` (reusable workflow), service
+`credentials:`, service `volumes:`, any expression that is not
+`${{ matrix.<name> }}`, a shard that disappears into a composite action, a
+ragged shard list, a docker `options:` flag that changes isolation (`--cpus`),
+an unknown `upload-artifact` input, `node-version-file`, and YAML anchors
+anywhere in the document.
+
+### 10.3 The YAML-parser decision
+
+Pandora's client is stdlib-only and the standard library has no YAML parser.
+`ci_import.load_workflow()` implements the fallback chain and names which parser
+it used.
+
+| Option | Measured | Verdict |
+| --- | --- | --- |
+| (i) PyYAML if importable | 6.0.3 on the owner's Mac. A `SafeLoader` subclass rejects aliases, anchors and duplicate keys in ~15 lines. | Works, but "if importable" is not a contract: an agent's Python may not have it. |
+| (ii) `ruby -ryaml -rjson` | `/usr/bin/ruby` is present; `YAML.safe_load(…, aliases: false)` refuses anchors too. A test asserts the `jobs` tree is byte-identical to PyYAML's. | Works. Costs a subprocess per parse and is macOS-shaped; a Linux client may have no ruby. |
+| (iii) vendored subset parser | Not written. Block mappings, block sequences, `>-` folded scalars, `|` literals, flow sequences, quoting rules and YAML 1.1 booleans are all load-bearing in this one file. | Rejected. A subset parser that is wrong about `options: >-` is worse than no parser. |
+| (iv) committed JSON snapshot | Implemented: `ci_workflow` may point at `{version, source, sha256, workflow}`, and `snapshot_is_fresh()` compares the digest. | **Ship this.** |
+
+**Would ship (iv), with (i)/(ii) as the generator.** The repository commits
+`.github/workflows/ci.pandora.json`, a CI step regenerates it and fails if it is
+stale, and the Pandora client reads JSON with `json.loads`. Three reasons: the
+stdlib-only rule survives intact; a YAML parse failure happens in the
+repository's CI where a human is already looking, not inside an agent's command;
+and the snapshot is a tracked file, so it is inside the frozen manifest and the
+routing decision is reproducible from a digest. The cost is a generated file in
+the repo and one lint.
+
+One finding worth recording: both parsers turn GitHub's `on:` key into YAML
+1.1's boolean `True`. It does not matter here — only `jobs:` is read — but it is
+a good reminder that "the workflow is just data" is shakier than it looks.
+
+### 10.4 Pod networking: what a shared namespace does and does not reproduce
+
+The plan now carries a `network` section (`classify.network()`), modelling one
+network namespace per run: a pause container owns the namespace and every
+service plus the job container joins it with `--network container:<pause>`.
+
+Reproduced for free:
+
+- **`localhost:<port>` URLs work verbatim.** CI's
+  `DATABASE_OWNER_URL=postgres://…@localhost:5432/ike` is imported and used
+  unchanged. This is the single best reason to use a pod.
+- **No host ports are published**, so concurrent runs cannot collide on 5432 or
+  5433 the way the current implementation can.
+
+Not reproduced, and each one bites eichler's real configuration:
+
+- **Service-to-service names do not resolve.** Joining another container's
+  namespace inherits the namespace, not Docker's embedded DNS — name resolution
+  for service aliases exists only on user-defined bridge networks. So
+  pgbouncer's `DB_HOST: postgres` and wsproxy's `ALLOW_ADDR_REGEX:
+  ^pgbouncer:6432$` resolve nothing. **What is needed:** `/etc/hosts` is a
+  per-container mount even when the namespace is shared, so every member of the
+  pod gets `--add-host <service name>:127.0.0.1` for every service name. The
+  plan emits that exact list (`network.add_host`), using CI's service names, not
+  Pandora's role names.
+- **A non-identity `ports:` mapping does not survive.** This is the one place
+  the "mappings work verbatim" premise is false, and eichler hits it: wsproxy is
+  `ports: ['5433:80']`. In CI the job dials `localhost:5433`; in a shared
+  namespace wsproxy listens on 80 and 5433 is dead. The plan emits
+  `network.port_forwards` for every such mapping; each needs either a forwarder
+  inside the namespace (`socat TCP-LISTEN:5433,fork,reuseaddr
+  TCP:127.0.0.1:80`) or a service reconfigured to listen where CI published it.
+  Postgres is safe only because `5432:5432` is an identity.
+- **Two services cannot share a container port.** CI hides this because each
+  service container has its own namespace. The plan emits `port_conflicts`.
+- **Lifecycle constraints.** The pause container must start first and outlive
+  every member; a container joining with `--network container:` may not pass
+  `--publish`, `--hostname` or `--dns`. Health checks still work, because they
+  are `docker exec` in the member's own container.
+
+### 10.5 What breaks when a CI maintainer reshapes the workflow
+
+Every one of these is loud, at config-load time, before anything runs. None is
+silent. That is the good news; the bad news is in the last column.
+
+| Reshape | What the importer says | Fixable by the Pandora owner? |
+| --- | --- | --- |
+| Rename `journeys` → `journey-catalog` | `ci.yml has no job 'journeys'; it defines browser-integration, journeys, postgres, surfaces` | Yes — one line |
+| Move the shard into a composite action | `never consumes matrix.shard in a form pandora recognizes` | **No.** The fact genuinely left the file; the job must stop importing |
+| Switch to a reusable workflow (`uses:`) | `the job is a reusable-workflow call, so there is no job body in this file to import` | **No.** Following `uses:` means another file, possibly another repo, with `with:` inputs — not attempted |
+| Add `container:` to the job | refused by name | No — the import must be dropped |
+| Add `credentials:` to a service | refused by name | No |
+| Add `${{ github.run_id }}` to one job-level env var | the **whole job** stops importing, although that variable is irrelevant to Pandora | Only by abandoning the import for that job |
+| Add a YAML anchor anywhere in the file | the **whole document** is refused, for every job | Only by asking the CI maintainer not to |
+| Reorder steps | nothing breaks; the provenance string (`steps[4].run`) changes | n/a |
+| Bump `upload-artifact` and gain a new input | refused with the unknown key named | Yes — one line in `ARTIFACT_WITH` |
+
+Three of nine are not actionable on the Pandora side, and two of those three are
+triggered by a change with nothing to do with the facts being imported. A
+repository's CI file is maintained by people who have never heard of Pandora and
+who are not doing anything wrong.
+
+### 10.6 Verdict: lint-only
+
+**Ship `[pins]` and `ci_lint`. Do not ship `ci_job`.**
+
+The import works. All four real jobs import, the strictness is real (ten named
+refusals, each with a fixture), and it caught two facts the hand-written
+configuration had wrong. But weigh the two sides honestly:
+
+- **What inheritance bought:** the eichler example went from 232 to 187
+  non-comment lines. Roughly 45 lines, of which the service definitions are 24.
+- **What inheritance costs:** a YAML parse (or a snapshot freshness check) on
+  the critical path of every agent command, and a new class of load-time failure
+  that depends on a file the Pandora owner does not control and cannot always
+  repair.
+
+Lint gets the whole correctness benefit — it would have reported both drifted
+facts — and puts the failure in the repository's CI, where a human is already
+looking, instead of in an agent's loop. `python3 plan.py lint` already does
+this: it reports per-field drift with a glob exceptions list and exits 65.
+
+The pleasant part of this conclusion: `ci_import.py` is paid for either way.
+Lint needs the parser, the strict field reader and the normalizer — everything
+except the merge path in `config.py` that turns imported facts into a job. So
+the choice is not "579 lines or nothing"; it is "do facts flow, or only get
+compared". Compare.
+
+Revisit `ci_job` only if the drift lint proves that people ignore its findings.
+That is a falsifiable trigger: if `lint` reports a drifted service credential
+twice in a row and nobody fixes it, inheritance has earned its risk.
+
+### 10.7 Review items 3, 4 and 5, applied
+
+**Item 3 — the argv mini-language shrank.** Gone: `params` (`enum`, `pattern`,
+`rest`, `path_like`, `allow_flags`), flag `arity`/`values`/`requires`, and the
+`{p.*}` / `{f.*}` / `{opt.*}` / `{params_json}` template vocabulary. What a job
+declares now is: literal `forms`, `args = "none" | "required" | "optional"`, the
+`options` Pandora itself must consume (an option that arms writeback, one that
+changes shard behaviour), `value_flags` (flags whose *value* Pandora must not
+read), an explicit `reject` list with a message, and per-form `on_extra`.
+Everything else is spliced into the repo runner's argv at `{args}`.
+
+`value_flags` is the irreducible remainder and worth naming: without knowing
+that `--grep` takes a value, Pandora cannot find its own `--keep-going` in
+`pnpm test:surface desk --grep --keep-going`. One list of flag names is much
+less than a parser, but it is not zero.
+
+The price is measured, not asserted: **8 of 77 parity cases now diverge**, all
+in the same direction — v0.1.1 refused locally, the configuration forwards and
+lets eichler's runner refuse. Each is pinned in `test_parity.DIVERGENT` with the
+knowledge Pandora gave up: the journey-id pattern, the `borrower-web|desk` enum,
+`--fault`'s closed value list, which positional `--foundation-only` belongs to,
+argument counts, and "at most one `--grep`". Recovered by `args = "required"`:
+bare `pnpm journey`, `pnpm test:surface` and `pnpm test:postgres` still refuse
+locally, because *needing an argument* is part of the claim rather than part of
+the grammar. Recovered by `reject`: `--ui` and `--update-snapshots`.
+
+The honest cost of those 8: a container starts, the repo's runner prints the
+error, and the agent waits longer to learn something it used to learn instantly.
+A repository that minds can split literal forms (`forms = [{ prefix =
+["test:postgres", "api"] }, …]`) and buy most of them back.
+
+One more casualty: re-rooting a command run from a subdirectory used to know
+which arguments were file selectors. It now guesses — a forwarded token is
+re-rooted if it contains `/` or a dotted final segment. `apps/desk` +
+`e2e/a.spec.ts` works; `apps/desk` + `smoke` (a `--grep`-less bare selector with
+no suffix) silently does not. `test_parity` pins that limit.
+
+**Item 4 — resources are worker-owned.** `cpu_millis` and `memory_mib` are gone
+from the schema; a job declares `size = "small" | "medium" | "large"` and a
+service declares `role`. `classify.WORKER` is the operator's table and carries
+the **evaluated worker's real limits** (main 1000/4096), not the 2000/6144 code
+defaults the first example copied from `warm/worker_config.py:10`. `pnpm
+journeys` now plans 2500/5248 (medium + db + pool + proxy) rather than a
+fictional 3500/7296. This worker cannot offer more than medium, so `large` maps
+to the same numbers and the plan says so (`clamped_to: "medium"`) instead of
+silently upgrading or refusing. A service role the worker has no limits for is a
+refusal that lists the roles it does have.
+
+**Item 5 — the verified nits.**
+
+- `services[].memory_swap` was accepted and silently discarded. It is now an
+  unknown key, refused by name.
+- Image validation was a substring test for `@sha256:`. It is now a full
+  reference match (`registry/name[:tag]@sha256:<64 hex>`), so
+  `postgres:16 @sha256:…` and `x@sha256:abc` are both refused. Floating tags are
+  refused with the `[pins]` line to add, printed.
+- `CI = ""` is gone. `env.unset` and `run.unset` are explicit lists, the plan
+  carries `env_unset` beside `env`, and setting and unsetting the same variable
+  is a load error. `CI = ""` only ever worked because Node treats `''` as falsy.
+- `runtime.setup` runs `apt-get` against a moving mirror, so a digest-pinned
+  base is not reproducible on its own. `config.dependency_cache()` now folds the
+  setup text, `runtime.platform` and the prepare argv into a `setup_sha256` that
+  keys the dependency image, and the plan carries it. That does not make the
+  build reproducible; it stops a changed setup line from silently reusing an
+  image built by the old one.
+
+### 10.8 Line counts, honestly (supersedes §9.1)
+
+| | lines |
+| --- | --- |
+| `examples/eichler.pandora.toml`, non-comment — first draft | 232 |
+| …after items 3–5 and CI import | **187** (−19%) |
+| …of which the CI import removed | ~45 (three service definitions, their env, `DATABASE_OWNER_URL`, the shard env template, three timeouts) |
+| …and added | 5 (`ci_workflow`, `ci_service_roles`, three `[pins]`) |
+| `examples/generic.pandora.toml`, non-comment | 61 (was 63) |
+| Engine: `config.py` | 769 (was 508) |
+| Engine: `classify.py` | 385 (was 364) |
+| Engine: `plan.py` | 101 (was 47) |
+| Engine: `ci_import.py` | 579 (new) |
+| Tests | 975 (was 524) |
+
+Read that the way §9.1 asked to be read. The argv shrink did *not* shrink the
+engine: `config.py` grew by 261 lines, because what the loader lost in parser
+machinery it gained in import merging, provenance, pins, size classes and lint.
+The repository-side file did shrink, by 45 lines, and 24 of those were the
+service table — the one thing lint can keep honest without inheriting anything.
+
+A second repository still costs ~61 lines. That number has not moved, and it is
+the one that decides whether any of this is worth it.

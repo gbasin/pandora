@@ -1,0 +1,18 @@
+# An anchored workflow.  Anchors are legal YAML and common in hand-tuned
+# workflows; pandora refuses the whole document rather than resolve them,
+# because a resolved alias makes the provenance of an inherited fact a lie.
+name: CI
+on: [push]
+
+x-postgres: &postgres
+  image: postgres:16
+  env:
+    POSTGRES_USER: ike_owner
+
+jobs:
+  journeys:
+    runs-on: ubuntu-latest
+    services:
+      postgres: *postgres
+    steps:
+      - run: pnpm journeys

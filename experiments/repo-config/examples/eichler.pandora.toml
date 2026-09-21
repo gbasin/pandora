@@ -1,13 +1,29 @@
 # Eichler's routed validation boundary, expressed as repo-owned data.
 #
-# This reproduces v0.1.1's accepted/rejected forms (README "Commands agents
-# use" and experiments/routing/commands.py) and adds `pnpm check` and
-# `pnpm test:native-unit`.
+# Everything the repository already states in .github/workflows/ci.yml is
+# inherited by reference (`ci_job`), not restated: service containers, job-level
+# env, the shard pattern, timeouts and artifact paths.  What remains here is the
+# part CI has no opinion about: which argv forms Pandora claims, how big the job
+# is, which floating CI tags are pinned for a reproducible worker, and which
+# files an --update run may write back.
 #
 # Lines marked SEAM depend on a small change inside eichler; each one is listed
 # in notes/repo-config-contract-draft.md with a file reference.
 
 version = 1
+
+ci_workflow = ".github/workflows/ci.yml"
+# CI names its service containers after the software; Pandora's worker sizes
+# them by role.  This is the only mapping between the two vocabularies.
+ci_service_roles = { postgres = "db", pgbouncer = "pool", wsproxy = "proxy" }
+
+# CI re-pulls a floating tag every run; a warm-image worker must not.  Pinning
+# here, rather than restating the image, keeps the argument about which digest
+# to run in the repository that owns the answer.
+[pins]
+"postgres:16" = "postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6"
+"edoburu/pgbouncer:latest" = "edoburu/pgbouncer@sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd"
+"ghcr.io/neondatabase/wsproxy:latest" = "ghcr.io/neondatabase/wsproxy@sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb"
 
 [repo]
 name = "eichler"
@@ -15,8 +31,6 @@ entrypoints = ["pnpm"]
 root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
 [matching]
-# `pnpm run test:unit` is `pnpm test:unit`.  `validate` is not stripped: it is
-# part of each job's second accepted spelling.
 strip_prefixes = [["run"]]
 subdirectory = "reroot"
 
@@ -25,16 +39,14 @@ reject_suffix = "No validation started."
 extra_message = "{job} currently runs as one complete suite and takes no selectors."
 
 [fallback]
-# Owner decision: a worker that cannot be reached, or a queue wait that expires,
-# runs the same command on the Mac rather than failing the agent's loop.
 action = "local"
 on = ["worker-unreachable", "queue-timeout"]
 notice = "Remote worker unavailable; running this command locally instead. Expect it to be slower and to use this machine's CPU."
 
 [runtime]
-# Matches experiments/surface/Dockerfile.  eichler has no Dockerfile and no
-# .nvmrc: node 24 and pnpm 12.3.4 come from `engines` and `packageManager`.
+# node 24 matches ci.yml's setup-node pin; `lint` checks that it still does.
 base_image = "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+platform = "linux/amd64"
 setup = [
   "apt-get update && apt-get install -y --no-install-recommends git python3 && rm -rf /var/lib/apt/lists/*",
   "npm install --global pnpm@12.3.4 @playwright/test@1.62.1",
@@ -46,62 +58,20 @@ user = "node"
 
 [prepare]
 argv = ["pnpm", "install", "--frozen-lockfile"]
-# pnpm-workspace.yaml sets verifyDepsBeforeRun = error, so the install must
-# happen before any run/exec.  These paths key the dependency image.
 cache_key_paths = [
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "package.json",
-  "apps/*/package.json",
-  "packages/*/package.json",
-  "patches/**",
-  ".npmrc",
+  "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json",
+  "apps/*/package.json", "packages/*/package.json", "patches/**", ".npmrc",
 ]
-cache_key_env = []
 check_argv = ["node", "tools/check-worktree-deps.mjs"]
 
 [env]
 set = { CI = "true", WRANGLER_SEND_METRICS = "false" }
 passthrough = ["TZ"]
+unset = []
 reject_if_set = []
 
 [secrets]
 exclude_globs = [".dev.vars", ".dev.vars.*", "**/.env", "**/.env.*", "**/*.pem", "**/.npmrc"]
-
-# --------------------------------------------------------------------------
-# Services.  Digests match experiments/warm/journey.py; eichler's own
-# compose.yml and CI use floating tags, which a routed runner must not.
-# --------------------------------------------------------------------------
-
-[[services]]
-id = "db"
-image = "postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6"
-cpu_millis = 500
-memory_mib = 768
-host = "127.0.0.1"
-port = 5432
-env = { POSTGRES_USER = "ike_owner", POSTGRES_PASSWORD = "local-owner", POSTGRES_DB = "ike", POSTGRES_HOST_AUTH_METHOD = "password" }
-exports = { DATABASE_OWNER_URL = "postgres://ike_owner:local-owner@{host}:{port}/ike" }
-healthcheck = { argv = ["pg_isready", "-U", "ike_owner", "-d", "ike"], attempts = 60, interval_ms = 500 }
-
-[[services]]
-id = "pool"
-image = "edoburu/pgbouncer@sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd"
-cpu_millis = 500
-memory_mib = 256
-host = "pgbouncer"
-port = 6432
-env = { DB_HOST = "127.0.0.1", DB_PORT = "5432", DB_USER = "ike_application", DB_PASSWORD = "local-application", AUTH_TYPE = "plain", POOL_MODE = "transaction", LISTEN_PORT = "6432" }
-
-[[services]]
-id = "proxy"
-image = "ghcr.io/neondatabase/wsproxy@sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb"
-cpu_millis = 500
-memory_mib = 128
-host = "localhost"
-port = 5433
-env = { LISTEN_PORT = ":5433", ALLOW_ADDR_REGEX = "^pgbouncer:6432$", APPEND_PORT = "", LOG_TRAFFIC = "false", LOG_CONN_INFO = "false" }
-exports = { DATABASE_WS_PROXY = "{host}:{port}" }
 
 # --------------------------------------------------------------------------
 # Whole-suite jobs.  SEAM-1: GITHUB_ACTIONS=true is today's only way to reach
@@ -111,8 +81,6 @@ exports = { DATABASE_WS_PROXY = "{host}:{port}" }
 [[jobs]]
 id = "unit"
 summary = "Whole Vitest unit suite"
-cpu_millis = 2000
-memory_mib = 6144
 forms = [{ prefix = ["test:unit"] }, { prefix = ["validate", "unit"] }]
 on_extra = { action = "local" }
 run = { argv = ["node", "tools/validate.mjs", "unit"], env = { GITHUB_ACTIONS = "true" } }
@@ -121,8 +89,7 @@ outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
 [[jobs]]
 id = "tools"
 summary = "Broad tooling test list"
-cpu_millis = 2000
-memory_mib = 6144
+size = "small"
 forms = [
   { prefix = ["test:tools"], on_extra = { action = "reject", message = "pnpm test:tools runs the broad suite; use pnpm validate tools <test files> for focused local validation." } },
   { prefix = ["validate", "tools"], on_extra = { action = "local" } },
@@ -133,8 +100,7 @@ outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
 [[jobs]]
 id = "full"
 summary = "Full validation suite"
-cpu_millis = 2000
-memory_mib = 6144
+size = "large"
 forms = [{ prefix = ["test"] }, { prefix = ["validate", "full"] }]
 run = { argv = ["node", "tools/validate.mjs", "full"], env = { GITHUB_ACTIONS = "true" } }
 outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
@@ -142,8 +108,6 @@ outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
 [[jobs]]
 id = "agent-web"
 summary = "Expo web browser suite"
-cpu_millis = 2000
-memory_mib = 6144
 forms = [{ prefix = ["validate", "agent-web"] }]
 run = { argv = ["node", "tools/validate.mjs", "agent-web"], env = { GITHUB_ACTIONS = "true" } }
 outputs = [{ kind = "artifacts", paths = ["apps/agent/test-results", "tmp/validation"] }]
@@ -151,90 +115,107 @@ outputs = [{ kind = "artifacts", paths = ["apps/agent/test-results", "tmp/valida
 [[jobs]]
 id = "employee-browser"
 summary = "Employee browser suite"
-cpu_millis = 2000
-memory_mib = 6144
 forms = [{ prefix = ["test:employee-browser"] }, { prefix = ["validate", "employee-browser"] }]
 run = { argv = ["node", "tools/validate.mjs", "employee-browser"], env = { GITHUB_ACTIONS = "true" } }
 outputs = [{ kind = "artifacts", paths = ["test-results/employee-browser", "apps/agent/test-results"] }]
 
 [[jobs]]
-id = "browser-integration"
-summary = "Browser integration suite against pandora-owned services"
-cpu_millis = 2000
-memory_mib = 6144
-services = ["db", "pool", "proxy"]
-forms = [{ prefix = ["test:browser-integration"] }, { prefix = ["validate", "browser-integration"] }]
-# SEAM-2: run.mjs must honour an already-running stack instead of calling
-# startInstance() itself.  Today pandora rewrites that call textually.
-run = { argv = ["node", "tools/validate.mjs", "browser-integration"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
-outputs = [{ kind = "artifacts", paths = ["test-results/browser-integration"] }]
-
-[[jobs]]
 id = "mockup-browser"
 summary = "Mockup browser suite"
-cpu_millis = 2000
-memory_mib = 6144
 forms = [{ prefix = ["test:mockup-browser"] }, { prefix = ["validate", "mockup-browser"] }]
 run = { argv = ["node", "tools/validate.mjs", "mockup-browser"], env = { GITHUB_ACTIONS = "true" } }
 outputs = [{ kind = "artifacts", paths = ["apps/mockup/test-results"] }]
 
 [[jobs]]
-id = "postgres"
-summary = "PostgreSQL invariants"
-cpu_millis = 2000
-memory_mib = 6144
-services = ["db", "pool", "proxy"]
-usage = "Use pnpm test:postgres <api|scenarios> [--foundation-only for api]."
-forms = [{ prefix = ["test:postgres"] }, { prefix = ["validate", "postgres"] }]
-params = [{ name = "target", kind = "enum", values = ["api", "scenarios"] }]
-flags = [{ name = "--foundation-only", kind = "forward", requires = { param = "target", equals = "api" } }]
-run = { argv = ["node", "tools/validate.mjs", "postgres", "{p.target}", "{f!.--foundation-only}"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+id = "check"
+summary = "Lint, format, typecheck and docs gates"
+size = "small"
+forms = [{ prefix = ["check"] }, { prefix = ["validate", "check"] }]
+run = { argv = ["node", "tools/validate.mjs", "check"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+[[jobs]]
+id = "native-unit"
+summary = "Jest unit tests for the native apps"
+size = "small"
+forms = [{ prefix = ["test:native-unit"] }, { prefix = ["validate", "native-unit"] }]
+on_extra = { action = "local" }
+run = { argv = ["node", "tools/validate.mjs", "native-unit"], env = { GITHUB_ACTIONS = "true" } }
 outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
 
 # --------------------------------------------------------------------------
-# Journeys.  These bypass tools/validate.mjs the way CI does, because the
-# planner's CI branch would refuse --update (tools/validation/plan.mjs:159).
-# CI = "" is the declarative form of today's `env -u CI` child.
+# Jobs that inherit their world from ci.yml.
 # --------------------------------------------------------------------------
+
+[[jobs]]
+id = "browser-integration"
+summary = "Browser integration suite"
+# CI runs this job with no service containers: tools/browser-integration/run.mjs
+# boots the compose stack inside the job.  Pandora supplies them instead
+# (SEAM-2), so it borrows the catalog job's stack and overrides the two facts
+# that belong to its own CI job.
+ci_job = "journeys"
+shards = { default = 1, min = 1, max = 1 }
+timeout_minutes = 15
+forms = [{ prefix = ["test:browser-integration"] }, { prefix = ["validate", "browser-integration"] }]
+run = { argv = ["node", "tools/validate.mjs", "browser-integration"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+outputs = [{ kind = "artifacts", paths = ["test-results/browser-integration"] }]
+
+[[jobs]]
+id = "postgres"
+summary = "PostgreSQL invariants"
+# Inherits postgres + wsproxy, their env, health options and ports, the
+# DATABASE_OWNER_URL the job runs with, and timeout-minutes: 15.
+ci_job = "postgres"
+args = "required"
+usage = "Use pnpm test:postgres <api|scenarios> [--foundation-only for api]."
+forms = [{ prefix = ["test:postgres"] }, { prefix = ["validate", "postgres"] }]
+run = { argv = ["node", "tools/validate.mjs", "postgres", "{args}"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
 
 [[jobs]]
 id = "journey"
 summary = "One service-backed journey"
-cpu_millis = 2000
-memory_mib = 6144
-services = ["db", "pool", "proxy"]
+# The focused journey has no CI job of its own; it borrows the catalog job's
+# world.  Pinned to one shard, so it inherits the services and env but not the
+# shard marker.
+ci_job = "journeys"
+shards = { default = 1, min = 1, max = 1 }
+args = "required"
 usage = "Use pnpm journey <id> [--fault dropped] [--update]; other journey options are not routed."
 reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
 forms = [{ prefix = ["journey"] }, { prefix = ["validate", "journey"] }]
-params = [{ name = "id", kind = "pattern", pattern = "(?:S[0-6]|SX)-[0-9]{2}" }]
-flags = [
-  { name = "--fault", kind = "forward", arity = 1, values = ["dropped"] },
-  { name = "--update", kind = "pandora", sets = "update", enables_writeback = true, forward = true },
-]
-run = { argv = ["pnpm", "--filter", "@eichler/scenarios", "journey", "{p.id}", "{f!.--fault}", "{f!.--update}"], cwd = ".", env = { CI = "", IKE_STACK_EXTERNAL = "1" } }
+options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
+value_flags = ["--fault"]
+# SEAM-5: a repo-owned runner both CI and Pandora call, so execution logic stops
+# living in Pandora's validation.mjs.
+run = { argv = ["node", "tools/pandora-run.mjs", "journey", "{args}"], unset = ["CI"], env = { IKE_STACK_EXTERNAL = "1" } }
 outputs = [
   { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
   { kind = "writeback", requires_option = "update", paths = [
-    "packages/scenarios/fixtures/{p.id}.ledger.jsonl",
+    "packages/scenarios/fixtures/*.ledger.jsonl",
     "packages/scenarios/fixtures/write-routes.json",
   ] },
 ]
 
 [[jobs]]
 id = "journeys"
-summary = "Sharded 200-journey catalog"
-cpu_millis = 2000
-memory_mib = 6144
-services = ["db", "pool", "proxy"]
+summary = "Sharded journey catalog"
+# Inherits three services, four env vars, the matrix shard pattern
+# (JOURNEY_SHARD='${{ matrix.shard }}') and timeout-minutes: 60.  The worker
+# picks its own N with the same pattern.
+ci_job = "journeys"
+shards = { default = 4, min = 1, max = 32 }
 usage = "Use pnpm journeys [--update] [--keep-going]."
 reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
 forms = [{ prefix = ["journeys"] }, { prefix = ["validate", "journeys"] }]
-flags = [
-  { name = "--update", kind = "pandora", sets = "update", enables_writeback = true, forward = true },
-  { name = "--keep-going", kind = "pandora", sets = "keep_going" },
+options = [
+  { name = "--update", sets = "update", forward = true, writeback = true },
+  { name = "--keep-going", sets = "keep_going" },
 ]
-run = { argv = ["pnpm", "--filter", "@eichler/scenarios", "journeys", "{f!.--update}"], env = { CI = "", IKE_STACK_EXTERNAL = "1", JOURNEY_CONCURRENCY = "1", JOURNEY_REPLAY = "cover" } }
-shards = { strategy = "env", default = 4, min = 1, max = 32, env = { JOURNEY_SHARD = "{shard.index}/{shard.total}" } }
+run = { argv = ["node", "tools/pandora-run.mjs", "journeys"], unset = ["CI"], env = { IKE_STACK_EXTERNAL = "1", JOURNEY_CONCURRENCY = "1", JOURNEY_REPLAY = "cover" } }
+# Declared, not inherited: CI's upload-artifact path list starts with
+# /tmp/ike-stack.log, which is outside the snapshot the worker returns.
 outputs = [
   { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
   { kind = "writeback", requires_option = "update", paths = [
@@ -245,27 +226,28 @@ outputs = [
 
 # --------------------------------------------------------------------------
 # Browser surfaces: build once, fan out Playwright shards over that build.
-# SEAM-3: apps/<app> must expose `build:e2e` (the two vite builds) and
-# `plan:e2e` (build:e2e plus `playwright test --list --reporter=json`), so a
-# shard does not repeat `vite build && vite build --mode e2e` N times.
+# SEAM-3/SEAM-4 (build:e2e, plan:e2e) are unchanged from the first draft.
+# Not imported: ci.yml's surfaces matrix crosses the shard axis with an `app`
+# axis that an agent chooses, so the workflow cannot supply the shard fact on
+# its own.  `lint` keeps the rest honest.
 # --------------------------------------------------------------------------
 
 [[jobs]]
 id = "surface"
 summary = "Sharded browser surface suite"
-cpu_millis = 2000
-memory_mib = 6144
+size = "large"
+ci_lint = { job = "surfaces", matrix_params = ["app"], except = ["shards.total"] }
+args = "required"
 usage = "Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going]."
 forms = [{ prefix = ["test:surface"] }, { prefix = ["validate", "surface"] }]
-params = [
-  { name = "app", kind = "enum", values = ["borrower-web", "desk"] },
-  { name = "selectors", kind = "rest", required = false, allow_flags = [{ name = "--grep", arity = 1, max = 1 }] },
-]
-flags = [{ name = "--keep-going", kind = "pandora", sets = "keep_going" }]
-run = { argv = ["pnpm", "--filter", "@eichler/{p.app}", "exec", "playwright", "test", "{p.selectors[]}", "--workers=1"] }
+options = [{ name = "--keep-going", sets = "keep_going" }]
+value_flags = ["--grep"]
+reject = [{ args = ["--ui", "--update-snapshots", "--debug"], message = "Playwright's interactive modes cannot run on the worker; run them locally." }]
+timeout_minutes = 30
+run = { argv = ["node", "tools/pandora-run.mjs", "surface", "{args}"] }
 outputs = [
-  { kind = "generated", paths = ["apps/{p.app}/dist", "apps/{p.app}/e2e/dist"] },
-  { kind = "artifacts", paths = ["apps/{p.app}/test-results", "apps/{p.app}/playwright-report"] },
+  { kind = "generated", paths = ["apps/*/dist", "apps/*/e2e/dist"] },
+  { kind = "artifacts", paths = ["apps/*/test-results", "apps/*/playwright-report"] },
 ]
 
 [jobs.shards]
@@ -276,31 +258,6 @@ max = 32
 argv_append = ["--shard={shard.index}/{shard.total}"]
 
 [jobs.shards.plan]
-# SEAM-4: the plan step must also emit the test inventory that each shard is
-# checked against, so a shard cannot silently run fewer tests than planned.
-run = { argv = ["pnpm", "--filter", "@eichler/{p.app}", "run", "plan:e2e"] }
-emits = "apps/{p.app}/e2e/dist/pandora-inventory.json"
+run = { argv = ["node", "tools/pandora-run.mjs", "surface-plan", "{args}"] }
+emits = "apps/e2e-dist/pandora-inventory.json"
 services = []
-
-# --------------------------------------------------------------------------
-# Two jobs added purely to measure what adding a command costs.
-# --------------------------------------------------------------------------
-
-[[jobs]]
-id = "check"
-summary = "Lint, format, typecheck and docs gates"
-cpu_millis = 2000
-memory_mib = 6144
-forms = [{ prefix = ["check"] }, { prefix = ["validate", "check"] }]
-run = { argv = ["node", "tools/validate.mjs", "check"], env = { GITHUB_ACTIONS = "true" } }
-outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
-
-[[jobs]]
-id = "native-unit"
-summary = "Jest unit tests for the native apps"
-cpu_millis = 2000
-memory_mib = 6144
-forms = [{ prefix = ["test:native-unit"] }, { prefix = ["validate", "native-unit"] }]
-on_extra = { action = "local" }
-run = { argv = ["node", "tools/validate.mjs", "native-unit"], env = { GITHUB_ACTIONS = "true" } }
-outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
