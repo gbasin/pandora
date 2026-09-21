@@ -10,8 +10,13 @@ from publish import publish, verify
 OUTPUTS = ('apps/borrower-web/dist', 'apps/borrower-web/e2e/dist')
 
 
-def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS):
+def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS, source_outputs=None):
     manifest = json.loads((output / 'artifacts.json').read_text())
+    source_outputs = source_outputs or output / 'results/outputs'
+    try:
+        source_prefix = str(source_outputs.relative_to(output)) + '/'
+    except ValueError:
+        raise ValueError('Output source must be inside parent evidence') from None
     plans = []
     # Validate every root before publishing any. Multiple roots are individually
     # atomic, not a transaction. Their receipts make partial delivery recoverable.
@@ -27,11 +32,11 @@ def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS):
                                  check=False).returncode == 0
         if tracked or not ignored:
             raise ValueError('Output must be ignored and contain no tracked files: ' + name)
-        prefix = 'results/outputs/' + name + '/'
+        prefix = source_prefix + name + '/'
         files = {p[len(prefix):]: sha for p, sha in manifest.items() if p.startswith(prefix)}
         if not files:
             raise ValueError('Missing declared output: ' + name)
-        source = output / 'results/outputs' / name
+        source = source_outputs / name
         verify(source, files)
         plans.append((name, destination, source, files))
     for index, (name, destination, source, files) in enumerate(plans):

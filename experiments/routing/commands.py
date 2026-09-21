@@ -22,6 +22,27 @@ def suite_request(argv, shard_count):
             'keep_going': keep_going, 'update': update}
 
 
+def surface_suite_request(argv, shard_count):
+    """Return a bounded surface-run request without changing the public argv."""
+    command = argv[1:] if argv[:1] == ['run'] else argv
+    if command[:1] == ['test:surface']:
+        if len(command) < 2 or command[1] not in APPS:
+            raise ValueError('Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going].')
+        app, options = command[1], command[2:]
+    elif command[:2] == ['validate', 'surface']:
+        if len(command) < 3 or command[2] not in APPS:
+            raise ValueError('Use pnpm validate surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going].')
+        app, options = command[2], command[3:]
+    else:
+        raise ValueError('Not a surface command')
+    keep_going = options.count('--keep-going') == 1
+    if options.count('--keep-going') > 1:
+        raise ValueError('Use at most one --keep-going for surface validation.')
+    selectors = surface_selectors([option for option in options if option != '--keep-going'])
+    return {'action': 'run', 'app': app, 'selectors': selectors,
+            'shard_count': shard_count, 'keep_going': keep_going}
+
+
 def classify(argv, treatment='normal'):
     command = argv[1:] if argv[:1] == ['run'] else argv
     journey = command[1:] if command[:1] == ['validate'] else command
@@ -60,7 +81,7 @@ def classify(argv, treatment='normal'):
     else:
         return 'local', [], ''
     try:
-        return 'remote', surface_selectors(selectors), ''
+        return 'remote', surface_selectors([selector for selector in selectors if selector != '--keep-going']), ''
     except ValueError as error:
         return 'reject', [], str(error) + '. No validation started.'
 

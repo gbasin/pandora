@@ -61,6 +61,29 @@ class SuiteRoutingTests(unittest.TestCase):
             output = Path(captured[0][captured[0].index('--output') + 1])
             self.assertFalse(output.exists())
 
+    def test_surface_route_passes_private_surface_run_request_to_warm(self):
+        captured = []
+
+        class Child:
+            def wait(self): return 64
+
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / 'state'
+            environment = dict(os.environ, PANDORA_HOST='host', PANDORA_STATE=str(state),
+                               PANDORA_SESSION='session', PANDORA_SUITE_SHARDS='6')
+            argv = ['route.py', 'test:surface', 'desk', 'pipeline.spec.ts', '--keep-going']
+            with patch.object(sys, 'argv', argv), patch.dict(os.environ, environment, clear=True), \
+                 patch.object(route.subprocess, 'check_output', return_value=str(Path.cwd())), \
+                 patch.object(route.subprocess, 'Popen', side_effect=lambda command, **_kwargs: captured.append(command) or Child()):
+                self.assertEqual(route.main(), 64)
+            command = captured[0]
+            self.assertEqual(command[command.index('--workflow') + 1], 'surface-run')
+            request = Path(command[command.index('--surface-suite-request') + 1])
+            self.assertEqual(json.loads(request.read_text()), {
+                'action': 'run', 'app': 'desk', 'selectors': ['pipeline.spec.ts'],
+                'shard_count': 6, 'keep_going': True,
+            })
+
     def test_suite_recovery_uses_original_request_when_shards_change(self):
         captured = []
 
