@@ -1,12 +1,22 @@
 import contextlib
+import fcntl
 import io
 import json
+import multiprocessing
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from control import main
+
+
+def hold_attempt_lock(path, ready, release):
+    handle = Path(path).open('a')
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    ready.set()
+    release.wait(10)
+    handle.close()
 
 
 class ControlTests(unittest.TestCase):
@@ -108,6 +118,30 @@ class ControlTests(unittest.TestCase):
             self.assertEqual(result['state'], 'infrastructure-failed')
             self.assertEqual(result['operator_result'], receipt)
             self.assertNotIn('exit_code', result)
+
+    def test_abandon_unregistered_never_marks_a_worker_owned_attempt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); attempt = 'a' * 32
+            run = root / 'pandora-warm/runs' / attempt; run.mkdir(parents=True)
+            ready, release = multiprocessing.Event(), multiprocessing.Event()
+            owner = multiprocessing.Process(target=hold_attempt_lock, args=(run / 'attempt.lock', ready, release))
+            owner.start(); self.addCleanup(lambda: (release.set(), owner.join(10)))
+            self.assertTrue(ready.wait(5))
+            try:
+                with patch.object(Path, 'home', return_value=root), \
+                        patch.object(sys, 'argv', ['control.py', attempt, 'abandon-unregistered']), \
+                        contextlib.redirect_stdout(io.StringIO()) as captured:
+                    main()
+                self.assertEqual(json.loads(captured.getvalue())['state'], 'worker-owned')
+                self.assertFalse((run / 'cancel.request').exists())
+            finally:
+                release.set(); owner.join(10)
+            with patch.object(Path, 'home', return_value=root), \
+                    patch.object(sys, 'argv', ['control.py', attempt, 'abandon-unregistered']), \
+                    contextlib.redirect_stdout(io.StringIO()) as captured:
+                main()
+            self.assertEqual(json.loads(captured.getvalue())['state'], 'abandoned-unregistered')
+            self.assertTrue((run / 'cancel.request').exists())
 
 
 if __name__ == '__main__':

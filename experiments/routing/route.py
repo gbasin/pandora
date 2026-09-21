@@ -283,6 +283,15 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                 else:
                     print('[pandora] Incomplete capture remains unresolved. No new request submitted.', file=sys.stderr)
                 return 75
+            if not observer and record.get('protocol') == 2:
+                abandoned = control(output, 'abandon-unregistered', record.get('attempt'))
+                if abandoned and abandoned.get('state') == 'abandoned-unregistered':
+                    record.update(state='capture-aborted', remote=abandoned)
+                    write(active, record)
+                    write(output / 'completed.json', {'attempt': record['attempt'],
+                                                      'outcome': 'capture-aborted'})
+                    print('[pandora] Remote worker never registered. This captured request was aborted before work; run the command again to start a fresh request.', file=sys.stderr)
+                    return 75
             print(f'[pandora] Recovering existing request, without resubmitting source. Evidence: {output}', flush=True)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/transport.py'),
                        os.environ['PANDORA_HOST'], str(output),
