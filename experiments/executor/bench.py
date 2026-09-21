@@ -160,9 +160,10 @@ if __name__ == '__main__':
     driver = IncusDriver(root=ROOT)
     command = sys.argv[1]
     if command == 'conc':
+        rest = [a for a in sys.argv[3:] if not a.startswith('--')]
         concurrent(driver, int(sys.argv[2]),
-                   int(sys.argv[3]) if len(sys.argv) > 3 else None,
-                   tag=sys.argv[4] if len(sys.argv) > 4 else '',
+                   int(rest[0]) if rest else None,
+                   tag=rest[1] if len(rest) > 1 else '',
                    force='--force' in sys.argv)
     elif command == 'mixed':
         mixed(driver, int(sys.argv[2]) if len(sys.argv) > 2 else None)
