@@ -77,14 +77,14 @@ class WaitCompletedTests(unittest.TestCase):
         def capture_arrives(_seconds):
             (output / 'submission.json').write_text(json.dumps({'attempt': attempt, 'source_digest': 'same'}))
         env, argv, git, cwd = self.waiting(attempt)
-        with env, argv, git, cwd, patch('wait.route.owner_is_busy', side_effect=[True, True]), \
+        with env, argv, git, cwd, patch('wait.route.owner_is_busy', return_value=True), \
              patch('wait.time.sleep', side_effect=capture_arrives), patch('wait.follow', return_value=75) as follow:
             self.assertEqual(wait.main(), 75)
+            self.assertTrue(follow.call_args.kwargs['registration_pending']())
         follow.assert_called_once()
         args, kwargs = follow.call_args
         self.assertEqual(args, ('unused', output))
         self.assertEqual(kwargs['artifact_delivery_limit_bytes'], 2147483648)
-        self.assertTrue(kwargs['registration_pending']())
 
     def test_dead_capture_owner_returns_without_following_or_cancelling(self):
         attempt = 'e' * 32
