@@ -434,14 +434,8 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                 if terminal['exit_code'] == 0 and submitted.get('workflow', 'surface') == 'surface':
                     deliver(repo, output, outputs=surface_outputs(submitted.get("surface_app", "borrower-web")))
                 if terminal['exit_code'] == 0 and submitted.get('workflow') == 'surface-run':
-                    from suite_parent_cleanup import validate_registry
-                    registry = json.loads((output / 'children.json').read_text())
-                    children = validate_registry(Path(submitted['attempt']), registry)
-                    if not children:
-                        raise ValueError('Surface run has no reserved planner attempt')
-                    planner_outputs = output / 'results/attempts' / children[0] / 'results/outputs'
-                    deliver(repo, output, outputs=surface_outputs(submitted['surface_suite']['app']),
-                            source_outputs=planner_outputs)
+                    from surface_delivery import deliver_surface
+                    deliver_surface(repo, output, submitted)
                 if terminal['exit_code'] == 0 and request.get('kind') == 'run':
                     deliver(repo, output, outputs=tuple(x['workspace'] for x in submitted['docker']['config']['outputs']))
                 if updates is not None:

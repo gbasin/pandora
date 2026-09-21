@@ -10,7 +10,8 @@ from publish import publish, verify
 OUTPUTS = ('apps/borrower-web/dist', 'apps/borrower-web/e2e/dist')
 
 
-def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS, source_outputs=None):
+def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS, source_outputs=None,
+            manifest_mapping=None):
     manifest = json.loads((output / 'artifacts.json').read_text())
     source_outputs = source_outputs or output / 'results/outputs'
     try:
@@ -32,8 +33,12 @@ def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS, source_outp
                                  check=False).returncode == 0
         if tracked or not ignored:
             raise ValueError('Output must be ignored and contain no tracked files: ' + name)
-        prefix = source_prefix + name + '/'
-        files = {p[len(prefix):]: sha for p, sha in manifest.items() if p.startswith(prefix)}
+        if manifest_mapping is None:
+            prefix = source_prefix + name + '/'
+            files = {p[len(prefix):]: sha for p, sha in manifest.items() if p.startswith(prefix)}
+        else:
+            prefix = name + '/'
+            files = {p[len(prefix):]: sha for p, sha in manifest_mapping.items() if p.startswith(prefix)}
         if not files:
             raise ValueError('Missing declared output: ' + name)
         source = source_outputs / name
