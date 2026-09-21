@@ -48,10 +48,15 @@ class Sampler(threading.Thread):
         return out
 
 
-def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, tag=''):
+def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, tag='', force=False):
     golden = driver.prepare(EICHLER, source=SOURCE)
     # 15 GiB host, 1 GiB left outside the runs: the budget admission holds.
-    admission = Admission(budget_mib=14336, max_running=count)
+    budget = 14336
+    if force:
+        # Deliberate oversubscription: admission would refuse this, and the
+        # point of running it anyway is to measure what it is protecting.
+        budget = max(budget, count * reservation + 1024)
+    admission = Admission(budget_mib=budget, max_running=count)
     store = admission.store
     for _ in range(3):
         store.record('eichler', 'journey', reservation, 'ok')
@@ -83,7 +88,8 @@ def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, ta
 
     rows = [results[i] for i in sorted(results)]
     passed = sum(1 for row in rows if row['outcome'] == 'ok' and '45/45' in row.get('verdict', ''))
-    emit({'event': 'concurrency', 'n': count, 'admitted': len(admitted),
+    emit({'event': 'concurrency', 'n': count, 'admitted': len(admitted), 'forced': force,
+          'budget_mib': budget,
           'refused': [d for d in decisions if not d['admitted']],
           'cpus_hint': hint, 'reservation_mib': admitted[0]['reservation_mib'] if admitted else 0,
           'ceiling_mib': ceiling, 'wall_s': round(wall, 1), 'passed': passed,
@@ -152,7 +158,8 @@ if __name__ == '__main__':
     if command == 'conc':
         concurrent(driver, int(sys.argv[2]),
                    int(sys.argv[3]) if len(sys.argv) > 3 else None,
-                   tag=sys.argv[4] if len(sys.argv) > 4 else '')
+                   tag=sys.argv[4] if len(sys.argv) > 4 else '',
+                   force='--force' in sys.argv)
     elif command == 'mixed':
         mixed(driver, int(sys.argv[2]) if len(sys.argv) > 2 else None)
     else:
