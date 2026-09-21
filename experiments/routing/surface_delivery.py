@@ -1,5 +1,4 @@
 """Assemble validated surface planner and shard outputs for local publication."""
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -9,6 +8,7 @@ import sys
 from delivery import deliver
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'warm'))
 from workflow_options import surface_outputs
+from snapshot import digest as file_digest
 from suite_parent_cleanup import validate_registry
 
 
@@ -20,7 +20,7 @@ def _safe(relative):
 
 
 def _digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return file_digest(path)
 
 
 def deliver_surface(repo, output, submitted):
@@ -36,7 +36,6 @@ def deliver_surface(repo, output, submitted):
     if not isinstance(manifest, dict):
         raise ValueError('Invalid parent artifact manifest')
     logical, sources = {}, {}
-    planner = children[0]
     for index, identity in enumerate(children):
         kind = 'results/outputs' if index == 0 else 'results/generated'
         prefix = f'results/attempts/{identity}/{kind}/'
@@ -54,11 +53,18 @@ def deliver_surface(repo, output, submitted):
     if not logical:
         raise ValueError('Surface run returned no declared outputs')
     stage = output / '.surface-delivery'
+    if stage.is_symlink():
+        raise ValueError('Surface delivery stage cannot be a symlink')
     stage.mkdir(exist_ok=True)
     for relative, digest in logical.items():
         source, destination = sources[relative], stage / relative
         if source.is_symlink() or not source.is_file() or _digest(source) != digest:
             raise ValueError('Invalid retained surface output: ' + relative)
+        for ancestor in destination.parents:
+            if ancestor == output:
+                break
+            if ancestor.is_symlink():
+                raise ValueError('Surface delivery stage has a symlink ancestor')
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists() or destination.is_symlink():
             if destination.is_symlink() or not destination.is_file() or _digest(destination) != digest:

@@ -65,7 +65,14 @@ def acquire(attempt, submitted, demand):
     queue = register(root, submitted, invocation)
     started = time.monotonic()
     write(attempt / 'queue-start.json', {'monotonic': started})
-    ticket = queue.enqueue(attempt.name, invocation, demand)
+    try:
+        ticket = queue.enqueue(attempt.name, invocation, demand)
+    except InvocationStopped as error:
+        current = group(queue.snapshot(), invocation)
+        write(attempt / 'queue.json', {'mode': 'resource', 'invocation': invocation,
+              'waited': time.monotonic() - started, 'invocation_waited': current['waited'],
+              'acquired': False, 'config_digest': identity(config), 'demand': demand, 'stopped': error.reason})
+        raise QueueUnavailable('Invocation stopped: ' + error.reason + '; no replacement or local validation started') from error
     last_report = float('-inf')
     print(f'[pandora] queued remotely; request {attempt.name}; invocation {invocation}; ticket {ticket}; '
           f'limits {demand["cpu_millis"]}m CPU/{demand["memory_mib"]} MiB RAM; no local validation', flush=True)

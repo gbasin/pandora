@@ -304,7 +304,7 @@ if __name__ == '__main__':
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
                 'workflow': json.loads(Path('submission.json').read_text()).get('workflow', 'surface'),
-                'cleanup_verified': suite_clean and not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
+                'cleanup_verified': suite_clean and not Path('surface-cleanup.pending').exists() and not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
     from dependency_images import release
