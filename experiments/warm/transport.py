@@ -14,6 +14,7 @@ import tempfile
 import hashlib
 import math
 import stat
+import fcntl
 
 # Per-client private socket; persistence covers sequential SSH/scp/rsync calls.
 SSH_DIRECTORY = tempfile.mkdtemp(prefix='pandora-ssh-', dir='/tmp')
@@ -41,6 +42,13 @@ from artifact_limits import (DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES,
 
 
 def retrieve(host, output, attempt, artifact_delivery_limit_bytes=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES):
+    gate = (output.parent / (attempt + '.evidence.lock')).open('a')
+    fcntl.flock(gate, fcntl.LOCK_EX)
+    if (output / 'terminal.json').exists():
+        try:
+            return validate_evidence(output, attempt, json.loads((output / 'submission.json').read_text()))
+        finally:
+            gate.close()
     stage = output / ('.download-' + uuid.uuid4().hex)
     stage.mkdir()
     remote = f'{host}:pandora-warm/runs/{attempt}/'
@@ -67,6 +75,7 @@ def retrieve(host, output, attempt, artifact_delivery_limit_bytes=DEFAULT_ARTIFA
         return terminal
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+        gate.close()
 
 
 def _regular_bytes(path, name):
@@ -134,6 +143,8 @@ def validate_operator_result(output, attempt, receipt_path=None, terminal_path=N
 
 def retrieve_operator_result(host, output, attempt):
     """Retrieve an acknowledgement and any terminal it explicitly binds."""
+    gate = (output.parent / (attempt + '.evidence.lock')).open('a')
+    fcntl.flock(gate, fcntl.LOCK_EX)
     stage = output / ('.operator-result-' + uuid.uuid4().hex)
     stage.mkdir()
     remote = f'{host}:pandora-warm/runs/{attempt}/'
@@ -157,10 +168,11 @@ def retrieve_operator_result(host, output, attempt):
         return validate_operator_result(output, attempt)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+        gate.close()
 
 
 def follow(host, output, reconnect_seconds=45,
-           artifact_delivery_limit_bytes=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES):
+           artifact_delivery_limit_bytes=DEFAULT_ARTIFACT_DELIVERY_LIMIT_BYTES, registration_pending=None):
     artifact_limit = artifact_delivery_limit(artifact_delivery_limit_bytes)
     metadata = json.loads((output / 'submission.json').read_text())
     attempt = metadata['attempt']
@@ -224,7 +236,8 @@ def follow(host, output, reconnect_seconds=45,
                 return 75
             print(f'[pandora] attempt={attempt}; acknowledged infrastructure failure; evidence={output}', flush=True)
             return 70
-        if not state.get('registered') and time.monotonic() - unregistered > 30:
+        if (not state.get('registered') and time.monotonic() - unregistered > 30
+                and not (registration_pending and registration_pending())):
             print('[pandora] Submission is unresolved before worker registration. No replacement started.', flush=True)
             return 75
         time.sleep(2)

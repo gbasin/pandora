@@ -45,6 +45,17 @@ worktree. A repeated invocation returns exit 75 with the existing-request
 message. Changed selectors or source do not replace the active request. A normal
 terminal result permits a deliberate new run.
 
+The feedback includes `pandora wait <attempt-id>`. Use that command if the shell's
+wait handle is lost but its original process may still be alive. The observer waits
+through source capture, streams the existing attempt, verifies evidence, and finishes
+local delivery. It does not submit or cancel work. Ctrl-C detaches this observer.
+Keep the worktree path and launcher `--state` unchanged. Run it at the repository root.
+
+A completed request can be observed again while it is still this worktree's current
+request. The observer checks source freshness and does not publish again. If a newer
+request exists, the old observer returns 75. Requests created before this protocol
+must finish or recover through their original command before explicit wait is used.
+
 An interrupted client leaves its descriptor active. The recovery behavior,
 independent worker lifetime, and verified artifact retrieval are described below.
 Cold dependency builds run automatically under the worker resource lease.
