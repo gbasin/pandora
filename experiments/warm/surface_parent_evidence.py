@@ -12,10 +12,14 @@ def summarize(plan, reports, *, keep_going, stop_reason=None):
     completed = sorted(by_index)
     unrun = [index for index in range(1, plan['shard_count'] + 1) if index not in by_index]
     failures = [index for index in completed if by_index[index]['exit_code']]
+    stops = {None, 'test-failure', 'infrastructure', 'deadline', 'queue-timeout', 'cancelled'}
+    if stop_reason not in stops: raise ValueError('Invalid surface stop reason')
     if unrun and stop_reason is None: raise ValueError('Missing surface shard receipt has no stop reason')
     if failures and stop_reason is None: stop_reason = 'test-failure'
     if stop_reason == 'test-failure' and not failures: raise ValueError('Test stop requires failed shard')
-    code = 0 if not failures and not unrun else 1 if failures else 75
+    if stop_reason in ('infrastructure', 'deadline', 'queue-timeout'): code = 75
+    elif stop_reason == 'cancelled': code = 130
+    else: code = 0 if not failures and not unrun else 1 if failures else 75
     return {'version': 1, 'plan_id': plan['plan_id'], 'parent_attempt': plan['parent_attempt'],
             'source_digest': plan['source_digest'], 'app': plan['app'], 'keep_going': keep_going,
             'stop_reason': stop_reason, 'completed_shards': completed, 'unrun_shards': unrun,
