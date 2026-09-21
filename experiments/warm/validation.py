@@ -84,6 +84,25 @@ def _service_states(name, services):
     return states
 
 
+def _resources(name):
+    """Capture the main container's cgroup receipt before attempt cleanup."""
+    paths = {
+        'memory_events': '/sys/fs/cgroup/memory.events',
+        'memory_peak_bytes': '/sys/fs/cgroup/memory.peak',
+        'cpu_stat': '/sys/fs/cgroup/cpu.stat',
+    }
+    receipt = {}
+    for key, path in paths.items():
+        raw = docker('exec', name, 'cat', path, capture_output=True, text=True).stdout
+        receipt[key] = raw
+    events = dict(line.split(maxsplit=1) for line in receipt['memory_events'].splitlines() if line)
+    oom_kill = events.get('oom_kill')
+    if oom_kill is None or not oom_kill.isdigit():
+        raise RuntimeError('Container cgroup receipt lacks a valid oom_kill counter')
+    receipt['oom_kill'] = int(oom_kill)
+    return receipt
+
+
 def execute(attempt, image, manifest, dep_entries, metrics):
     """Run the supplied adapter, always recording cleanup and terminal metrics."""
     attempt = Path(attempt)
@@ -148,7 +167,12 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                       ' running; services owned by this attempt', flush=True)
         states = _service_states(name, services)
         (attempt / 'service-state.json').write_text(json.dumps(states, indent=2) + '\n')
+        resources = _resources(name)
+        (attempt / 'resources.json').write_text(json.dumps(resources, indent=2) + '\n')
         if not all(state['state']['Running'] and not state['state']['OOMKilled'] for state in states):
+            status = 70
+        if resources['oom_kill']:
+            print('[pandora] worker RAM OOM killed a process; reporting infrastructure failure', flush=True)
             status = 70
         _copy_results(attempt, name)
     except BaseException:

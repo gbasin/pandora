@@ -41,6 +41,17 @@ class ValidationExecutorTests(unittest.TestCase):
     def state(running=True, oom=False):
         return subprocess.CompletedProcess([], 0, json.dumps({'Running': running, 'OOMKilled': oom}), '')
 
+    @staticmethod
+    def cgroup(args, oom_kill='0'):
+        values = {
+            '/sys/fs/cgroup/memory.events': f'oom 0\noom_kill {oom_kill}\n',
+            '/sys/fs/cgroup/memory.peak': '1048576\n',
+            '/sys/fs/cgroup/cpu.stat': 'usage_usec 3\n',
+        }
+        if args[:3] == ('exec', args[1], 'cat') and args[-1] in values:
+            return subprocess.CompletedProcess([], 0, values[args[-1]], '')
+        return None
+
     def test_private_container_has_validation_labels_limits_and_browser_shm(self):
         with tempfile.TemporaryDirectory() as root:
             attempt = self.attempt(root)
@@ -48,6 +59,9 @@ class ValidationExecutorTests(unittest.TestCase):
 
             def docker(*args, **kwargs):
                 calls.append(args)
+                resource = self.cgroup(args)
+                if resource:
+                    return resource
                 if args[0] == 'inspect':
                     return self.state()
                 return subprocess.CompletedProcess([], 0, '', '')
@@ -87,6 +101,9 @@ class ValidationExecutorTests(unittest.TestCase):
 
             def docker(*args, **kwargs):
                 calls.append(args)
+                resource = self.cgroup(args)
+                if resource:
+                    return resource
                 if args[0] == 'inspect':
                     return self.state()
                 return subprocess.CompletedProcess([], 0, '', '')
@@ -114,6 +131,9 @@ class ValidationExecutorTests(unittest.TestCase):
             attempt = self.attempt(root)
 
             def docker(*args, **kwargs):
+                resource = self.cgroup(args)
+                if resource:
+                    return resource
                 if args[0] == 'inspect':
                     return self.state()
                 return subprocess.CompletedProcess([], 0, '', '')
@@ -127,6 +147,29 @@ class ValidationExecutorTests(unittest.TestCase):
 
             self.assertTrue((attempt / 'service-cleanup.pending').exists())
             self.assertEqual(json.loads((attempt / 'metrics.json').read_text())['exit_code'], 70)
+
+    def test_cgroup_oom_overrides_a_successful_adapter_with_an_infrastructure_exit(self):
+        with tempfile.TemporaryDirectory() as root:
+            attempt = self.attempt(root)
+
+            def docker(*args, **kwargs):
+                resource = self.cgroup(args, oom_kill='1')
+                if resource:
+                    return resource
+                if args[0] == 'inspect':
+                    return self.state()
+                return subprocess.CompletedProcess([], 0, '', '')
+
+            with patch('validation.docker', side_effect=docker), \
+                    patch('validation.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')), \
+                    patch('validation.subprocess.Popen', return_value=self.child()), \
+                    patch('validation._copy_results'), \
+                    patch('validation.cleanup', return_value=True):
+                self.assertEqual(validation.execute(attempt, 'image-id', [], [], {}), 70)
+
+            receipt = json.loads((attempt / 'resources.json').read_text())
+            self.assertEqual(receipt['oom_kill'], 1)
+            self.assertIn('usage_usec 3', receipt['cpu_stat'])
 
     def test_rejects_non_validation_submission_before_resources_are_created(self):
         with tempfile.TemporaryDirectory() as root:
