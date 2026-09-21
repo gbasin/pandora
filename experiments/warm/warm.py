@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import threading
 import time
 import uuid
 from snapshot import encode, freeze
@@ -36,6 +37,28 @@ def write_metadata(path, metadata):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(metadata, indent=2) + '\n')
     temporary.replace(path)
+
+
+def capture_source(repo, destination, heartbeat_seconds=10):
+    """Freeze source while making a slow local capture observable.
+
+    The feedback is local only. It neither starts work remotely nor changes the
+    captured source, and its thread cannot outlive a failed capture.
+    """
+    stopped = threading.Event()
+
+    def heartbeat():
+        while not stopped.wait(heartbeat_seconds):
+            print('[pandora] still freezing local source; this request is preparing; no remote validation has started',
+                  flush=True)
+
+    feedback = threading.Thread(target=heartbeat, name='pandora-capture-feedback')
+    feedback.start()
+    try:
+        return freeze(repo, destination)
+    finally:
+        stopped.set()
+        feedback.join()
 
 
 def main():
@@ -138,7 +161,7 @@ def main():
     cache_key = repository_key(args.repo) if uses_source else None
     if uses_source:
         print('[pandora] freezing current tracked and nonignored source', flush=True)
-        manifest, excluded = freeze(args.repo, output / 'source')
+        manifest, excluded = capture_source(args.repo, output / 'source')
     else:
         print('[pandora] image-only run uses the built image; rebuild to include local source edits', flush=True)
         (output / 'source').mkdir()
