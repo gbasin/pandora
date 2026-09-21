@@ -63,10 +63,13 @@ Cold dependency builds run automatically under the worker resource lease.
 ## Evaluation boundaries
 
 The current controller supports the initial informed and ordinary-command tests.
-FIFO admission serializes remote execution. Local source capture can occur
+Configured workers use resource admission: their declared CPU, RAM, disk, builder,
+and `max_running` limits determine concurrent remote execution. Legacy workers
+without `worker-config.json` retain one FIFO slot. Local source capture can occur
 concurrently; unresolved and legacy data need operator cleanup; and there is no
-universal shell interception. Recovery and startup-race guarantees are limited to the recorded fault tests.
-Unknown terminal state still requires operator recovery.
+universal shell interception. Recovery and startup-race guarantees are limited to
+the recorded fault tests. Unknown terminal state still requires the
+[operator recovery runbook](../warm/notes/operator-recovery.md).
 
 The Claude helper runs the user's subscribed `opus` alias with shell/read tools
 and a validation-only brief. It retains ordinary account authentication. The
@@ -88,10 +91,12 @@ its invocation directory. Pin or recheck this behavior if the skill changes.
 ## Recovery pilot update
 
 The recovery pilot gives each remote worker a systemd service independent of its
-SSH client. Queue admission defaults to 15 minutes, test containers expire after
-20 minutes, and the whole worker receives the accepted queue limit plus 25 minutes.
-Explicit cancellation still
-signals the owned attempt and verifies cleanup.
+SSH client. Queue admission defaults to 15 minutes. A configured worker uses its
+accepted `execution_seconds` value, 1500 seconds in the example configuration;
+the worker service receives the accepted queue limit plus that execution limit and
+180 seconds of stop grace. The follower allows the accepted queue limit plus the execution limit and
+240 seconds for shutdown and artifact retrieval. Explicit cancellation still signals the owned attempt and
+verifies cleanup.
 
 The active-request guard now belongs to the canonical worktree within the chosen
 local state directory. A new launcher session can recover the same request. Keep
@@ -195,19 +200,22 @@ image retention, outputs, and the evaluated repair loop.
 
 ## Admission and deadlines
 
-Requests receive a durable FIFO ticket after remote registration and input
-verification. Upload start time does not determine ticket order. One worker lease
-covers preparation, execution, collection, and cleanup. Waiting commands print
-their ticket, requests ahead, elapsed wait, and queue limit. They start no local
-validation and do not replace existing work.
+Requests receive a durable ticket after remote registration and input verification.
+Upload start time does not determine ticket order. Configured workers apply their
+declared `fair` or `fifo` scheduling policy and admit work only while CPU, RAM,
+disk, exclusive-builder, and `max_running` reservations fit. Legacy workers retain
+one FIFO slot. One worker lease covers preparation, execution, collection, and
+cleanup. Waiting commands print their ticket, elapsed wait, and queue limit. They
+start no local validation and do not replace existing work.
 
 Set the session default with `--queue-timeout-seconds 900` on the launcher.
 A Docker profile may override it with `"queue_timeout_seconds": 900`; this override
 applies only to Docker commands. Both accept integer seconds from 1 through 86400.
 The default is 900 seconds. The accepted attempt records its effective limit.
 Retry retains that limit even if the session configuration changes. The worker
-supervisor allows the queue limit plus 25 minutes; the result follower allows a
-further 45 seconds for shutdown and retrieval.
+supervisor allows the accepted queue limit plus the accepted execution limit and
+180 seconds. The result follower allows the accepted queue limit plus the execution
+limit and 240 seconds for shutdown and retrieval.
 
 A queued cancellation or expired wait starts no validation. A dead waiting
 process can leave the queue. A dead executing process blocks successors until
@@ -224,8 +232,8 @@ code uses only the resource lock and cannot honor the new ticket ordering.
 `pnpm journey <id> --update` and `pnpm validate journey <id> --update` return
 the selected ledger and its route-manifest update automatically to the local worktree.
 Offline-only journeys return the route manifest without creating a ledger.
-The corresponding `pnpm run` forms work. Catalog updates
-remain implementation targets.
+The corresponding `pnpm run` forms work. Catalog updates return their declared
+ledger and route-manifest files through the same verified publication path.
 
 Wait for the command before editing those expectation files. Review the resulting
 `git diff`, then run ordinary validation without `--update`. Pandora preserves
@@ -257,9 +265,10 @@ not synchronize arbitrary source files or promise one atomic multi-file update.
 
 Run `pnpm journeys` from the repository root. Pandora freezes source once and
 runs a remote parent independently of the local client. The parent plans the
-catalog and submits one isolated shard at a time through FIFO admission. The
-launcher option `--suite-shards` sets the partition count (default four). It does
-not change simultaneous worker capacity, which remains one.
+catalog and dispatches isolated shards concurrently up to its accepted
+`max_parallel` value and the worker scheduler's resource capacity. The launcher
+option `--suite-shards` sets the partition count (default four); it does not raise
+the configured worker capacity.
 
 A test failure stops new dispatch by default. Add `--keep-going` to collect test
 failures from later shards. Infrastructure failures and deadlines stop either

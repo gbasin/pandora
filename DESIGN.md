@@ -8,7 +8,7 @@ remain under `tmp/poc/`. Those probes do not establish an integrated system.
 ## Relationship to v0.1
 
 This document describes the original surface pilot and its evaluation. The
-[v0.1 contract](notes/v0.1-contract.md) defines the subsequent proposed scope.
+[v0.1 contract](notes/v0.1-contract.md) defines the accepted v0.1 scope.
 In that scope, a service-backed workflow is required before daily use, selected
 Docker commands are routed, and declared outputs return with conflict checks.
 The integrated surface extension now prepares dependencies automatically and
