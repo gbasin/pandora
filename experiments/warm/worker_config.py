@@ -79,7 +79,8 @@ def demand(submitted, *, cold=False):
     config = validate(submitted['worker_config'])
     workflow = submitted.get('workflow', 'surface')
     roles = ['main']
-    if workflow == 'journey' or workflow == 'suite' and submitted['suite']['action'] != 'plan':
+    service_validation = workflow == 'validation' and submitted['validation']['suite'] in ('postgres', 'browser-integration')
+    if service_validation or workflow == 'journey' or workflow == 'suite' and submitted['suite']['action'] != 'plan':
         roles += ['db', 'pool', 'proxy']
     value = {key: sum(config['limits'][role][key] for role in roles) for key in BUILDER}
     exclusive = []

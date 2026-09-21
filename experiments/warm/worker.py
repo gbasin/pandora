@@ -158,6 +158,9 @@ def main():
     metrics['image_id'] = image_id
     remember_image(root, image)
     (attempt / 'metrics.json').write_text(json.dumps(metrics, indent=2))
+    if submitted.get('workflow') == 'validation':
+        from validation import execute
+        return execute(attempt, image_id, manifest, dep_entries, metrics)
     if submitted.get('workflow') in ('journey', 'suite'):
         from journey import execute
         return execute(attempt, image_id, manifest, dep_entries, metrics)

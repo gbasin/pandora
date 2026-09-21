@@ -61,6 +61,28 @@ class SuiteRoutingTests(unittest.TestCase):
             output = Path(captured[0][captured[0].index('--output') + 1])
             self.assertFalse(output.exists())
 
+    def test_route_passes_a_private_validation_request_to_warm(self):
+        captured = []
+
+        class Child:
+            def wait(self): return 64
+
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / 'state'
+            environment = dict(os.environ, PANDORA_HOST='host', PANDORA_STATE=str(state),
+                               PANDORA_SESSION='session')
+            with patch.object(sys, 'argv', ['route.py', 'test:postgres', 'api', '--foundation-only']), \
+                 patch.dict(os.environ, environment, clear=True), \
+                 patch.object(route.subprocess, 'check_output', return_value=str(Path.cwd())), \
+                 patch.object(route.subprocess, 'Popen', side_effect=lambda command, **_kwargs: captured.append(command) or Child()):
+                self.assertEqual(route.main(), 64)
+            command = captured[0]
+            self.assertEqual(command[command.index('--workflow') + 1], 'validation')
+            request = Path(command[command.index('--validation-request') + 1])
+            self.assertEqual(json.loads(request.read_text()), {
+                'version': 1, 'suite': 'postgres', 'args': ['api', '--foundation-only'],
+            })
+
     def test_surface_route_passes_private_surface_run_request_to_warm(self):
         captured = []
 

@@ -43,9 +43,10 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
-    p.add_argument('--workflow', choices=['surface', 'journey', 'docker', 'suite', 'suite-run', 'surface-run'], default='surface')
+    p.add_argument('--workflow', choices=['surface', 'journey', 'docker', 'suite', 'suite-run', 'surface-run', 'validation'], default='surface')
     p.add_argument('--require-warm', action='store_true')
     p.add_argument('--docker-request')
+    p.add_argument('--validation-request', type=Path)
     p.add_argument('--surface-suite-request', type=Path)
     p.add_argument('--suite-request', type=Path, help='Private plan/shard request JSON; suite routing remains experimental')
     p.add_argument('--attempt', default=None)
@@ -73,6 +74,17 @@ def main():
         artifact_limit = artifact_delivery_limit(args.artifact_delivery_limit_bytes)
     except ValueError as error:
         p.error(str(error))
+    validation = None
+    if args.workflow == 'validation':
+        if args.validation_request is None or args.selectors:
+            p.error('Validation requires --validation-request and no positional selectors')
+        try:
+            from validation_request import validate_request
+            validation = validate_request(json.loads(args.validation_request.read_text()))
+        except (OSError, ValueError) as error:
+            p.error(str(error))
+    elif args.validation_request is not None:
+        p.error('--validation-request requires --workflow validation')
     suite = None
     if args.workflow in ('suite', 'suite-run'):
         if args.suite_request is None or args.selectors:
@@ -136,6 +148,8 @@ def main():
     metadata = {'profile': PROFILE, 'attempt': attempt, 'source_digest': identity, 'excluded': excluded,
                 'repository_key': cache_key, 'workflow': args.workflow, 'selectors': args.selectors, 'require_warm': args.require_warm,
                 'queue_timeout_seconds': timeout, 'snapshot_seconds': time.monotonic() - started}
+    if validation is not None:
+        metadata['validation'] = validation
     if suite is not None:
         metadata['suite'] = suite
         from suite import suite_config

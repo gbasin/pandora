@@ -72,6 +72,58 @@ class CleanupTests(unittest.TestCase):
                 self.assertFalse(cleanup(attempt))
             self.assertTrue((attempt / 'service-cleanup.pending').exists())
 
+    def test_worker_death_cleans_a_validation_attempt_with_pending_service_intent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            attempt = Path(temp) / ('f' * 32)
+            attempt.mkdir()
+            (attempt / 'submission.json').write_text(json.dumps({'workflow': 'validation'}))
+            (attempt / 'service-cleanup.pending').touch()
+            names = [f'pandora-warm-{attempt.name}' + suffix
+                     for suffix in ('-proxy', '-pool', '-db', '')]
+            resources = {name: self.container(name, attempt.name, 'validation', str(index) * 64)
+                         for index, name in enumerate(names, 1)}
+            resources['network'] = self.network(f'pandora-warm-{attempt.name}', attempt.name, '9' * 64)
+
+            def run(argv, **_kwargs):
+                if argv[2:4] == ['container', 'inspect']:
+                    value = resources.get(argv[4])
+                    return subprocess.CompletedProcess(argv, 0 if value else 1,
+                                                       json.dumps(value) if value else '', '')
+                if argv[2:4] == ['network', 'inspect']:
+                    value = resources.get('network')
+                    return subprocess.CompletedProcess(argv, 0 if value else 1,
+                                                       json.dumps(value) if value else '', '')
+                if argv[2:3] == ['rm']:
+                    resources.pop(next(key for key, value in resources.items()
+                                       if value.get('Id') == argv[-1]), None)
+                if argv[2:4] == ['network', 'rm']:
+                    resources.pop('network', None)
+                return subprocess.CompletedProcess(argv, 0, '', '')
+
+            with patch('service_cleanup.subprocess.run', side_effect=run):
+                self.assertTrue(cleanup(attempt))
+            self.assertFalse(resources)
+            self.assertFalse((attempt / 'service-cleanup.pending').exists())
+
+    def test_validation_cleanup_fails_closed_for_a_foreign_workflow_label(self):
+        with tempfile.TemporaryDirectory() as temp:
+            attempt = Path(temp) / ('1' * 32)
+            attempt.mkdir()
+            (attempt / 'submission.json').write_text(json.dumps({'workflow': 'validation'}))
+            (attempt / 'service-cleanup.pending').touch()
+            name = f'pandora-warm-{attempt.name}'
+            foreign = self.container(name, attempt.name, 'journey', '2' * 64)
+
+            def run(argv, **_kwargs):
+                if argv[2:4] == ['container', 'inspect'] and argv[4] == name:
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(foreign), '')
+                return subprocess.CompletedProcess(argv, 1, '', 'No such object')
+
+            with patch('service_cleanup.subprocess.run', side_effect=run) as mocked:
+                self.assertFalse(cleanup(attempt))
+            self.assertFalse(any(call.args[0][2:3] == ['rm'] for call in mocked.call_args_list))
+            self.assertTrue((attempt / 'service-cleanup.pending').exists())
+
     def test_foreign_same_name_container_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp:
             attempt = Path(temp) / ('c' * 32)

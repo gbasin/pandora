@@ -44,8 +44,11 @@ def validate_evidence(stage, attempt, submitted=None):
         if submitted is None:
             raise ValueError('Suite evidence requires its captured submission')
         validate_result(stage, submitted, terminal, manifest)
+    if terminal.get('workflow') == 'validation':
+        from validation_evidence import validate_result
+        validate_result(stage, submitted, terminal, manifest)
     if terminal['exit_code'] == 0:
-        report = {'journey': 'results/journey.json', 'docker': 'results/docker.json'}.get(terminal.get('workflow'), 'results/junit.xml')
+        report = {'journey': 'results/journey.json', 'docker': 'results/docker.json', 'validation': 'results/validation.json'}.get(terminal.get('workflow'), 'results/junit.xml')
         if terminal.get('workflow') == 'surface-run':
             report = 'results/surface-run.json'
         if terminal.get('workflow') == 'surface' and submitted and 'surface_suite' in submitted:

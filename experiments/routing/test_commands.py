@@ -1,8 +1,53 @@
 import unittest
-from commands import classify, suite_request, surface_suite_request
+from commands import classify, suite_request, surface_suite_request, validation_request
 
 
 class CommandsTests(unittest.TestCase):
+    def test_validation_commands_normalize_public_aliases(self):
+        cases = (
+            (['test:unit'], {'version': 1, 'suite': 'unit', 'args': []}),
+            (['validate', 'tools'], {'version': 1, 'suite': 'tools', 'args': []}),
+            (['run', 'test'], {'version': 1, 'suite': 'full', 'args': []}),
+            (['test:browser-integration'], {'version': 1, 'suite': 'browser-integration', 'args': []}),
+            (['validate', 'agent-web'], {'version': 1, 'suite': 'agent-web', 'args': []}),
+            (['test:employee-browser'], {'version': 1, 'suite': 'employee-browser', 'args': []}),
+            (['test:mockup-browser'], {'version': 1, 'suite': 'mockup-browser', 'args': []}),
+            (['validate', 'postgres', 'api', '--foundation-only'],
+             {'version': 1, 'suite': 'postgres', 'args': ['api', '--foundation-only']}),
+        )
+        for argv, expected in cases:
+            with self.subTest(argv=argv):
+                self.assertEqual(validation_request(argv), expected)
+                self.assertEqual(classify(argv), ('validation', [], ''))
+
+    def test_validation_routing_keeps_focused_lightwork_local_and_rejects_unsupported_remote_inputs(self):
+        self.assertEqual(classify(['test:unit', 'apps/api/src/x.test.ts'])[0], 'local')
+        self.assertEqual(classify(['validate', 'tools', 'tools/check.test.mjs'])[0], 'local')
+        action, _, message = classify(['test:tools', 'tools/check.test.mjs'])
+        self.assertEqual(action, 'reject')
+        self.assertIn('pnpm validate tools <test files>', message)
+        # package.json exposes no test:agent-web script; only the planner form
+        # is a remote validation command.
+        self.assertEqual(classify(['test:agent-web'])[0], 'local')
+        for argv in (
+            ['unit'], ['full'], ['postgres', 'api'], ['agent-web'],
+            ['validate', 'test:unit'], ['run', 'validate', 'test:tools'],
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual(classify(argv)[0], 'local')
+        for argv in (
+            ['test', 'apps/api/src/x.test.ts'],
+            ['validate', 'browser-integration', 'one.spec.ts'],
+            ['test:employee-browser', '--headed'],
+            ['validate', 'postgres'],
+            ['test:postgres', 'scenarios', '--foundation-only'],
+            ['validate', 'postgres', 'api', '--foundation-only', 'extra'],
+        ):
+            with self.subTest(argv=argv):
+                action, _, message = classify(argv)
+                self.assertEqual(action, 'reject')
+                self.assertIn('No validation started.', message)
+
     def test_journey_scope(self):
         for prefix in ([], ['run'], ['validate'], ['run', 'validate']):
             for selectors in (
