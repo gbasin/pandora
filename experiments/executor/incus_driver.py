@@ -4,12 +4,13 @@ Why on the worker and not over SSH: the memory watchdog samples the instance
 cgroup several times a second and `execute` polls a log file at the same rate.
 An SSH round trip on this host is ~90 ms, so a remote driver would spend more
 time in transport than in work and would make a 0.08 s clone unmeasurable.
-The control plane instead ships this directory as a content-addressed bundle
-over SSH stdin (the v0.1.1 `worker_bundle` idea, see `bundle.py`) and makes one
-SSH call per operation, each of which runs the whole operation locally.
+The control plane instead ships this directory to the worker — the v0.1.1
+`worker_bundle.py` idea, a content-addressed payload over SSH stdin, verified
+before use — and makes one SSH call per operation, each of which runs the
+whole operation locally. This POC ships it with `rsync -az`; nothing measured
+here depends on which of the two does the shipping.
 
-Everything a run needs lives under /pandora inside the instance and under
-$ROOT/runs/<run_id> on the worker.
+Everything a run needs lives under /pandora inside the instance.
 """
 import glob
 import json
@@ -44,7 +45,7 @@ class IncusDriver(Executor):
     def __init__(self, *, project='pandora', pool='pandorapool', profile='runner',
                  root=None, sudo=True, sample_interval=0.5,
                  thrash_seconds=15.0, thrash_rate=500.0, thrash_pinned=0.95,
-                 thrash_psi=2.0):
+                 thrash_psi=2.0, thrash_window=5.0):
         self.project, self.pool, self.profile = project, pool, profile
         self.root = Path(root or (Path.home() / 'incus-exec'))
         self.base = (['sudo'] if sudo else []) + ['incus', '--project', project]
@@ -61,6 +62,7 @@ class IncusDriver(Executor):
         self.thrash_rate = thrash_rate
         self.thrash_pinned = thrash_pinned
         self.thrash_psi = thrash_psi
+        self.thrash_window = thrash_window
 
     # --- plumbing ----------------------------------------------------------
 
@@ -335,29 +337,54 @@ class IncusDriver(Executor):
                    '< /dev/null > /dev/null 2>&1 & echo $! > %s/pgid' % (GUEST, GUEST, GUEST, GUEST),
                    timeout=120)
 
-    def supervise(self, instance, limits, on_log=None):
+    def poll(self, instance, offset, timeout):
+        """Read new log bytes and the exit code from inside the instance.
+
+        This is the only part of supervision that enters the instance, so it
+        is the only part a memory-capped run can slow down: `incus exec` forks
+        a process inside the cgroup being watched, and under `memory.high`
+        throttling that process is deliberately made to crawl. It is given a
+        short timeout and its failure is never fatal — the watchdog runs off
+        host-side cgroup reads, which nothing inside the run can affect.
+        """
+        rc, out, _ = self.incus('exec', instance.name, '--', 'bash', '-c',
+                                'tail -c +%d %s/log 2>/dev/null; echo "--RC--"; '
+                                'cat %s/rc 2>/dev/null' % (offset + 1, GUEST, GUEST),
+                                check=False, timeout=timeout)
+        if rc != 0:
+            if not self.exists(instance.name):
+                raise InstanceLost('instance %s vanished mid-run' % instance.name)
+            return None, None
+        chunk, _, tail = out.rpartition('--RC--')
+        return chunk, int(tail.strip()) if tail.strip().isdigit() else None
+
+    def supervise(self, instance, limits, on_log=None, poll_timeout=20):
         name, t0, offset = instance.name, time.monotonic(), 0
         samples, peak, evidence = [], 0, {}
         stall_since, outcome, code = None, None, None
         deadline = t0 + limits.wall_seconds
+        next_poll, slow_polls = 0.0, 0
         while True:
-            rc, out, _ = self.incus('exec', name, '--', 'bash', '-c',
-                                    'tail -c +%d %s/log 2>/dev/null; echo "--RC--"; '
-                                    'cat %s/rc 2>/dev/null' % (offset + 1, GUEST, GUEST),
-                                    check=False, timeout=120)
-            if rc != 0:
-                if not self.exists(name):
-                    raise InstanceLost('instance %s vanished mid-run' % name)
-            else:
-                chunk, _, tail = out.rpartition('--RC--')
+            # Host side first and unconditionally: the verdict must not depend
+            # on a probe the run can starve.
+            use = self.usage(instance)
+            if time.monotonic() - t0 >= next_poll:
+                mark = time.monotonic()
+                try:
+                    chunk, code = self.poll(instance, offset, poll_timeout)
+                except subprocess.TimeoutExpired:
+                    chunk, code, slow_polls = None, None, slow_polls + 1
+                spent = time.monotonic() - mark
                 if chunk:
                     offset += len(chunk.encode())
                     if on_log:
                         on_log(chunk)
-                if tail.strip().isdigit():
-                    code = int(tail.strip())
+                if spent > 1.0:
+                    slow_polls += 1
+                # Back off the guest-side probe when the guest is struggling,
+                # so supervision keeps sampling at full rate regardless.
+                next_poll = (time.monotonic() - t0) + min(30.0, max(0.0, spent * 4))
 
-            use = self.usage(instance)
             peak = max(peak, use.memory_peak or use.memory_current)
             samples.append({'t': round(time.monotonic() - t0, 2),
                             'mem': use.memory_current, 'peak': use.memory_peak,
@@ -381,10 +408,14 @@ class IncusDriver(Executor):
             # Kernel did not, and the cgroup is wedged in reclaim. A hard cap
             # is not self-terminating; this is the watchdog the spike asked for.
             now = time.monotonic()
-            rate = 0.0
-            if len(samples) > 1:
-                span = samples[-1]['t'] - samples[-2]['t']
-                rate = (samples[-1]['throttle_events'] - samples[-2]['throttle_events']) / max(span, 1e-3)
+            # Smoothed over a trailing window, not sample to sample: the
+            # instantaneous rate of a real thrash swings between 160/s and
+            # 1,500/s, so a per-sample threshold resets its own timer.
+            rate, window = 0.0, samples[-1]['t'] - self.thrash_window
+            older = next((s for s in samples if s['t'] >= window), samples[0])
+            span = samples[-1]['t'] - older['t']
+            if span > 0:
+                rate = (samples[-1]['throttle_events'] - older['throttle_events']) / span
             # The effective wall is memory.high when it is set, because the
             # cgroup is reclaimed down to it and never reaches memory.max.
             wall = min(x for x in (use.memory_high, use.memory_max) if x) or (1 << 62)
@@ -421,6 +452,7 @@ class IncusDriver(Executor):
         final = self.usage(instance)
         evidence['samples'] = samples[-40:]
         evidence['sample_count'] = len(samples)
+        evidence['slow_guest_polls'] = slow_polls
         return Result(exit_code=code if code is not None else -1, outcome=outcome,
                       seconds=seconds, usage=final, log_bytes=offset, evidence=evidence)
 
