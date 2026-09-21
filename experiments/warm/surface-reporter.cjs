@@ -8,7 +8,11 @@ function row(test) {
 }
 class SurfaceReporter {
   onBegin(_, suite) { this.inventory = suite.allTests().map(row); }
-  onTestEnd(test, result) { tests.set(test.id, result.status); }
+  onTestEnd(test, result) {
+    let status = result.status;
+    if (test.expectedStatus === 'failed') status = status === 'failed' ? 'expected' : status === 'passed' ? 'unexpected' : status;
+    tests.set(test.id, status);
+  }
   onEnd(result) {
     if (!output) return;
     fs.writeFileSync(output, JSON.stringify({ mode, status: result.status, inventory: this.inventory || [],

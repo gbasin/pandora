@@ -15,13 +15,14 @@ const app = request.app || request.plan?.app;
 const pkg = app === 'borrower-web' ? '@eichler/borrower-web' : app === 'desk' ? '@eichler/desk' : null;
 if (!pkg) throw new Error('unsupported surface app');
 const reporter = join(process.env.PANDORA_SURFACE_RUNNER_DIR || source, 'surface-reporter.cjs');
-const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}` : JSON.stringify(value);
+const asciiJSON = value => JSON.stringify(value).replace(/[^\x00-\x7f]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${asciiJSON(key)}:${canonical(value[key])}`).join(',')}}` : asciiJSON(value);
 const hash = value => createHash('sha256').update(canonical(value)).digest('hex');
 const outputManifest = () => {
   const files = [];
   const visit = path => { for (const name of readdirSync(path)) { const item = join(path, name); const stat = lstatSync(item); if (stat.isSymbolicLink()) throw new Error('unsafe surface build output'); if (stat.isDirectory()) visit(item); else if (stat.isFile()) files.push({ path: relative(source, item), sha256: createHash('sha256').update(readFileSync(item)).digest('hex') }); else throw new Error('unsafe surface build output'); } };
-  for (const path of [join(source, 'apps', app, 'dist'), join(source, 'apps', app, 'e2e', 'dist')]) { if (!existsSync(path)) throw new Error('missing generated surface output'); visit(path); }
-  files.sort((a, b) => a.path.localeCompare(b.path)); if (!files.length) throw new Error('empty generated surface output');
+  for (const path of [join(source, 'apps', app, 'dist'), join(source, 'apps', app, 'e2e', 'dist')]) { if (!existsSync(path) || lstatSync(path).isSymbolicLink() || !lstatSync(path).isDirectory()) throw new Error('missing generated surface output'); visit(path); }
+  files.sort((a, b) => Buffer.from(a.path).compare(Buffer.from(b.path))); if (!files.length) throw new Error('empty generated surface output');
   const manifest = { app, files }; return { ...manifest, sha256: hash(manifest) };
 };
 const invoke = (extra, report, mode) => spawnSync('pnpm', ['--filter', pkg, 'exec', 'playwright', 'test', ...extra, '--workers=1', '--reporter=line,junit,' + reporter, '--output=' + join(results, 'playwright')], { cwd: source, env: { ...process.env, PLAYWRIGHT_JUNIT_OUTPUT_FILE: join(results, 'junit.xml'), PANDORA_SURFACE_REPORT: report, PANDORA_SURFACE_REPORT_MODE: mode }, stdio: 'inherit' });

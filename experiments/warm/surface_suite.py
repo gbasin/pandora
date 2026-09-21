@@ -74,7 +74,7 @@ def outputs_manifest(root, app):
         directory = root / output
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError('Missing generated surface output: ' + output)
-        for path in sorted(directory.rglob('*')):
+        for path in sorted(directory.rglob('*'), key=lambda item: item.relative_to(root).as_posix().encode('utf-8')):
             if path.is_symlink():
                 raise ValueError('Unsafe generated surface output: ' + str(path))
             if not path.is_file():

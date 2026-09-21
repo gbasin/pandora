@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
 
 from surface_suite import aggregate, outputs_manifest, plan_digest, surface_request, validate_plan, validate_shard
 
@@ -81,6 +82,21 @@ class SurfaceSuiteTests(unittest.TestCase):
             self.assertEqual([row['path'] for row in manifest['files']], ['apps/desk/dist/x.js', 'apps/desk/e2e/dist/y.js'])
             link = root / 'apps/desk/dist/link'; link.symlink_to(root / 'apps/desk/dist/x.js')
             with self.assertRaises(ValueError): outputs_manifest(root, 'desk')
+
+    def test_unicode_canonical_digest_matches_node_json_escaping(self):
+        value = {'title': 'a › 😀', 'files': ['A.js', 'Z.js', 'é.js']}
+        expected = digest(value)
+        script = """const c=require('node:crypto'); const v=JSON.parse(process.argv[1]); const j=x=>JSON.stringify(x).replace(/[^\\x00-\\x7f]/g,q=>'\\\\u'+q.charCodeAt(0).toString(16).padStart(4,'0')); const f=x=>Array.isArray(x)?'['+x.map(f).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>j(k)+':'+f(x[k])).join(',')+'}':j(x); process.stdout.write(c.createHash('sha256').update(f(v)).digest('hex'));"""
+        actual = subprocess.check_output(['node', '-e', script, json.dumps(value)]).decode()
+        self.assertEqual(actual, expected)
+
+    def test_reporter_converts_expected_failure_and_keeps_last_retry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'report.json'
+            script = """const Reporter=require(process.argv[1]); const r=new Reporter(); const t={id:'x',expectedStatus:'failed',parent:{project:()=>({name:'p'})},location:{file:'x.spec.ts'},titlePath:()=>['x']}; r.onBegin({}, {allTests:()=>[t]}); r.onTestEnd(t,{status:'failed'}); r.onTestEnd(t,{status:'passed'}); r.onEnd({status:'failed'});"""
+            subprocess.run(['node', '-e', script, str(Path(__file__).with_name('surface-reporter.cjs'))],
+                           env={'PATH': __import__('os').environ['PATH'], 'PANDORA_SURFACE_REPORT': str(output), 'PANDORA_SURFACE_REPORT_MODE': 'run'}, check=True)
+            self.assertEqual(json.loads(output.read_text())['outcomes'], [{'id': 'x', 'status': 'unexpected'}])
 
     def test_plan_rejects_unsafe_duplicate_and_empty_build_manifests(self):
         value = plan(); value['build']['files'] = []; value['build']['sha256'] = digest({'app': 'borrower-web', 'files': []}); value['plan_id'] = plan_digest(value)
