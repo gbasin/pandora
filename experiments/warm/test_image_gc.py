@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 from docker_images import publish, reserve, remove
@@ -56,15 +57,53 @@ class ImageGCTests(unittest.TestCase):
                 self.assertEqual(collect(root), [])
                 self.assertEqual(call.call_count, 1)
 
-    def test_corrupt_pin_stops_collection(self):
+    def test_incomplete_pin_defers_collection_without_dropping_images(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'docker-pins').mkdir()
             (root / 'docker-pins' / ('a' * 32 + '.json')).write_text('{')
             with patch('image_gc.subprocess.run') as call:
-                with self.assertRaises(ValueError):
-                    collect(root)
+                self.assertEqual(collect(root), [])
                 call.assert_not_called()
+
+    def test_malformed_image_keeps_acknowledged_pin_and_all_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / 'runs' / ('a' * 32); old.mkdir(parents=True)
+            (old / 'released').touch()
+            (old / 'terminal.json').write_text(json.dumps({'cleanup_verified': True}))
+            pins = root / 'docker-pins'; pins.mkdir()
+            pin = pins / ('a' * 32 + '.json'); pin.write_text('{}')
+            transferring = root / 'runs' / ('b' * 32); transferring.mkdir()
+            for image in ({}, [], ''):
+                (transferring / 'submission.json').write_text(json.dumps({'docker': {'image': image}}))
+                with patch('image_gc.subprocess.run') as docker:
+                    self.assertEqual(collect(root), [])
+                    docker.assert_not_called()
+                    self.assertTrue(pin.exists())
+
+    def test_concurrent_partial_submission_defers_collection_until_metadata_is_complete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / 'runs').mkdir()
+            tag = 'pandora-build:' + 'a' * 32
+            (root / 'docker-collectible.json').write_text(json.dumps([tag]))
+            transferring = root / 'runs' / ('b' * 32); transferring.mkdir()
+            submission = transferring / 'submission.json'
+            opened, finish = threading.Event(), threading.Event()
+            def transfer():
+                submission.write_text('')
+                opened.set(); finish.wait(3)
+                submission.write_text(json.dumps({'docker': {'image': {'image_id': 'sha256:protected'}}}))
+            writer = threading.Thread(target=transfer)
+            writer.start(); self.assertTrue(opened.wait(3))
+            listing = json.dumps({'Repository': 'pandora-build', 'Tag': 'a' * 32, 'ID': 'sha256:protected'}) + '\n'
+            with patch('image_gc.subprocess.run', return_value=subprocess.CompletedProcess([], 0, listing)) as docker:
+                self.assertEqual(collect(root), [])
+                docker.assert_not_called()
+                finish.set(); writer.join(3)
+                self.assertFalse(writer.is_alive())
+                self.assertEqual(collect(root), [])
+                self.assertEqual(docker.call_count, 1)
 
 
 if __name__ == '__main__':
