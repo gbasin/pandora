@@ -224,3 +224,11 @@ placement, arbitrary Docker/Compose commands, detached services, interactive pre
 native macOS/iOS builds, continuous source sync, universal interception, and a CI
 control plane are outside v0.1. The [contract](notes/v0.1-contract.md) records the
 accepted scope. [DESIGN.md](DESIGN.md) preserves the earlier pilot rationale.
+
+## Eichler workload coverage
+
+The [dated workload inventory](notes/eichler-workloads-2026-09-21.md) covers 139
+package script entries, validation/CI families, recorded local durations, and the
+Expo/macOS boundary. It identifies broad unit tests and additional browser/DB
+workflows as candidates after v0.1. These are recommendations, not newly routed
+commands.

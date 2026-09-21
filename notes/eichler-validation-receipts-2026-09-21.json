@@ -1,0 +1,848 @@
+{
+  "generated_at": "2026-09-21T02:23:40.068Z",
+  "scope": {
+    "request_directory": "/Users/garybasin/.local/state/eichler-validation/jobs",
+    "window_start_utc": "2026-09-16T00:00:00.000Z",
+    "window_end_utc": "2026-09-20T23:38:23.374Z",
+    "selection": "requests whose created timestamp is within the window; request fields are used only for time, root classification, and suite fallback"
+  },
+  "coverage": {
+    "request_files_scanned": 1064,
+    "malformed_or_unreadable_request_or_result_files": 0,
+    "in_window_requests": 1064,
+    "request_created_at_utc": {
+      "first": "2026-09-16T17:21:29.551Z",
+      "last": "2026-09-20T23:38:23.374Z"
+    },
+    "result_started_at_utc": {
+      "first": "2026-09-16T17:21:30.019Z",
+      "last": "2026-09-20T23:38:24.359Z"
+    },
+    "result_finished_at_utc": {
+      "first": "2026-09-16T17:21:30.371Z",
+      "last": "2026-09-20T23:38:51.936Z"
+    }
+  },
+  "root_classification": {
+    "ordinary_eichler": {
+      "requests": 1063,
+      "statuses": {
+        "success": 682,
+        "failure": 341,
+        "cancelled": 39,
+        "unresolved": 1,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 664,
+        "failed": 341,
+        "updated": 18,
+        "cancelled": 39
+      },
+      "successful_execution_duration": {
+        "count": 682,
+        "median_ms": 43213.5,
+        "p90_ms": 305330,
+        "max_ms": 2057513
+      },
+      "queue_wait_created_to_started": {
+        "count": 974,
+        "median_ms": 988.5,
+        "p90_ms": 139087,
+        "max_ms": 4129202
+      },
+      "receipt_selectors": {
+        "focused": 465,
+        "full": 509,
+        "unavailable": 89
+      }
+    },
+    "pandora_trial_excluded_from_ordinary_eichler": {
+      "requests": 1,
+      "statuses": {
+        "success": 1,
+        "failure": 0,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 1
+      },
+      "successful_execution_duration": {
+        "count": 1,
+        "median_ms": 27577,
+        "p90_ms": 27577,
+        "max_ms": 27577
+      },
+      "queue_wait_created_to_started": {
+        "count": 1,
+        "median_ms": 985,
+        "p90_ms": 985,
+        "max_ms": 985
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 1,
+        "unavailable": 0
+      }
+    },
+    "non_eichler_excluded": {
+      "requests": 0,
+      "statuses": {
+        "success": 0,
+        "failure": 0,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {},
+      "successful_execution_duration": {
+        "count": 0,
+        "median_ms": null,
+        "p90_ms": null,
+        "max_ms": null
+      },
+      "queue_wait_created_to_started": {
+        "count": 0,
+        "median_ms": null,
+        "p90_ms": null,
+        "max_ms": null
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 0,
+        "unavailable": 0
+      }
+    }
+  },
+  "all_in_window": {
+    "requests": 1064,
+    "statuses": {
+      "success": 683,
+      "failure": 341,
+      "cancelled": 39,
+      "unresolved": 1,
+      "other": 0
+    },
+    "raw_result_statuses": {
+      "passed": 665,
+      "failed": 341,
+      "updated": 18,
+      "cancelled": 39
+    },
+    "successful_execution_duration": {
+      "count": 683,
+      "median_ms": 43032,
+      "p90_ms": 305330,
+      "max_ms": 2057513
+    },
+    "queue_wait_created_to_started": {
+      "count": 975,
+      "median_ms": 985,
+      "p90_ms": 139087,
+      "max_ms": 4129202
+    },
+    "receipt_selectors": {
+      "focused": 465,
+      "full": 510,
+      "unavailable": 89
+    }
+  },
+  "definitions": {
+    "success": "result status passed or updated (both have exit code 0 in observed receipts)",
+    "failure": "result status failed",
+    "cancelled": "result status cancelled",
+    "unresolved": "request has no result receipt",
+    "focused_selector": "result selectors is a non-empty array",
+    "full_selector": "result selectors is an empty array",
+    "unavailable_selector": "result receipt has no selectors array, including unresolved and pre-submission failures"
+  },
+  "limitations": [
+    "Execution duration is finished minus started for successful receipts only. It is wall-clock time and can include queueing or shared-machine contention after start.",
+    "Queue wait is started minus request created where both timestamps are valid. It omits receipts with no start timestamp.",
+    "These receipts contain no CPU, memory, or per-command telemetry, so no resource attribution is possible.",
+    "Root classification is path-name based: any root containing pandora is separated as a Pandora trial; roots without eichler are excluded from Eichler aggregates.",
+    "No command arguments, environment values, source hashes, job IDs, or root paths are included in this aggregate."
+  ],
+  "by_suite_all_eichler_including_pandora": "omitted: use ordinary table and pandora trial aggregate",
+  "by_suite_ordinary_eichler": {
+    "agent-web": {
+      "requests": 44,
+      "statuses": {
+        "success": 26,
+        "failure": 13,
+        "cancelled": 5,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 26,
+        "failed": 13,
+        "cancelled": 5
+      },
+      "successful_execution_duration": {
+        "count": 26,
+        "median_ms": 120281,
+        "p90_ms": 166367,
+        "max_ms": 189449
+      },
+      "queue_wait_created_to_started": {
+        "count": 34,
+        "median_ms": 2125.5,
+        "p90_ms": 320071,
+        "max_ms": 1170250
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 34,
+        "unavailable": 10
+      }
+    },
+    "browser-integration": {
+      "requests": 14,
+      "statuses": {
+        "success": 8,
+        "failure": 4,
+        "cancelled": 2,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 8,
+        "failed": 4,
+        "cancelled": 2
+      },
+      "successful_execution_duration": {
+        "count": 8,
+        "median_ms": 38246.5,
+        "p90_ms": 54019,
+        "max_ms": 54019
+      },
+      "queue_wait_created_to_started": {
+        "count": 10,
+        "median_ms": 34651.5,
+        "p90_ms": 137682,
+        "max_ms": 247007
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 10,
+        "unavailable": 4
+      }
+    },
+    "build": {
+      "requests": 3,
+      "statuses": {
+        "success": 3,
+        "failure": 0,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 3
+      },
+      "successful_execution_duration": {
+        "count": 3,
+        "median_ms": 10207,
+        "p90_ms": 11879,
+        "max_ms": 11879
+      },
+      "queue_wait_created_to_started": {
+        "count": 3,
+        "median_ms": 4805,
+        "p90_ms": 15867,
+        "max_ms": 15867
+      },
+      "receipt_selectors": {
+        "focused": 3,
+        "full": 0,
+        "unavailable": 0
+      }
+    },
+    "check": {
+      "requests": 199,
+      "statuses": {
+        "success": 135,
+        "failure": 56,
+        "cancelled": 8,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "failed": 56,
+        "passed": 135,
+        "cancelled": 8
+      },
+      "successful_execution_duration": {
+        "count": 135,
+        "median_ms": 41118,
+        "p90_ms": 155167,
+        "max_ms": 377472
+      },
+      "queue_wait_created_to_started": {
+        "count": 185,
+        "median_ms": 861,
+        "p90_ms": 41142,
+        "max_ms": 1733160
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 185,
+        "unavailable": 14
+      }
+    },
+    "code": {
+      "requests": 20,
+      "statuses": {
+        "success": 17,
+        "failure": 3,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 17,
+        "failed": 3
+      },
+      "successful_execution_duration": {
+        "count": 17,
+        "median_ms": 16783,
+        "p90_ms": 138350,
+        "max_ms": 704048
+      },
+      "queue_wait_created_to_started": {
+        "count": 20,
+        "median_ms": 3861.5,
+        "p90_ms": 34085,
+        "max_ms": 1594989
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 20,
+        "unavailable": 0
+      }
+    },
+    "docs": {
+      "requests": 47,
+      "statuses": {
+        "success": 42,
+        "failure": 4,
+        "cancelled": 1,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 42,
+        "failed": 4,
+        "cancelled": 1
+      },
+      "successful_execution_duration": {
+        "count": 42,
+        "median_ms": 26063.5,
+        "p90_ms": 64196,
+        "max_ms": 79475
+      },
+      "queue_wait_created_to_started": {
+        "count": 46,
+        "median_ms": 1356,
+        "p90_ms": 175389,
+        "max_ms": 1795104
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 46,
+        "unavailable": 1
+      }
+    },
+    "employee-browser": {
+      "requests": 16,
+      "statuses": {
+        "success": 8,
+        "failure": 7,
+        "cancelled": 1,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 8,
+        "failed": 7,
+        "cancelled": 1
+      },
+      "successful_execution_duration": {
+        "count": 8,
+        "median_ms": 92495,
+        "p90_ms": 97883,
+        "max_ms": 97883
+      },
+      "queue_wait_created_to_started": {
+        "count": 15,
+        "median_ms": 971,
+        "p90_ms": 168134,
+        "max_ms": 473516
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 15,
+        "unavailable": 1
+      }
+    },
+    "full": {
+      "requests": 28,
+      "statuses": {
+        "success": 24,
+        "failure": 4,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 24,
+        "failed": 4
+      },
+      "successful_execution_duration": {
+        "count": 24,
+        "median_ms": 176862,
+        "p90_ms": 239631,
+        "max_ms": 361477
+      },
+      "queue_wait_created_to_started": {
+        "count": 28,
+        "median_ms": 824,
+        "p90_ms": 403305,
+        "max_ms": 4129202
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 28,
+        "unavailable": 0
+      }
+    },
+    "journey": {
+      "requests": 72,
+      "statuses": {
+        "success": 55,
+        "failure": 13,
+        "cancelled": 4,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "failed": 13,
+        "updated": 17,
+        "passed": 38,
+        "cancelled": 4
+      },
+      "successful_execution_duration": {
+        "count": 55,
+        "median_ms": 28877,
+        "p90_ms": 169203,
+        "max_ms": 725926
+      },
+      "queue_wait_created_to_started": {
+        "count": 68,
+        "median_ms": 14217,
+        "p90_ms": 1436100,
+        "max_ms": 1993595
+      },
+      "receipt_selectors": {
+        "focused": 68,
+        "full": 0,
+        "unavailable": 4
+      }
+    },
+    "journeys": {
+      "requests": 36,
+      "statuses": {
+        "success": 20,
+        "failure": 11,
+        "cancelled": 5,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 19,
+        "failed": 11,
+        "updated": 1,
+        "cancelled": 5
+      },
+      "successful_execution_duration": {
+        "count": 20,
+        "median_ms": 1223558.5,
+        "p90_ms": 1686579,
+        "max_ms": 2057513
+      },
+      "queue_wait_created_to_started": {
+        "count": 30,
+        "median_ms": 36492,
+        "p90_ms": 1230467,
+        "max_ms": 3056922
+      },
+      "receipt_selectors": {
+        "focused": 2,
+        "full": 28,
+        "unavailable": 6
+      }
+    },
+    "native": {
+      "requests": 142,
+      "statuses": {
+        "success": 47,
+        "failure": 93,
+        "cancelled": 2,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "failed": 93,
+        "passed": 47,
+        "cancelled": 2
+      },
+      "successful_execution_duration": {
+        "count": 47,
+        "median_ms": 153140,
+        "p90_ms": 336923,
+        "max_ms": 414647
+      },
+      "queue_wait_created_to_started": {
+        "count": 141,
+        "median_ms": 927,
+        "p90_ms": 208571,
+        "max_ms": 1513997
+      },
+      "receipt_selectors": {
+        "focused": 141,
+        "full": 0,
+        "unavailable": 1
+      }
+    },
+    "native-unit": {
+      "requests": 129,
+      "statuses": {
+        "success": 99,
+        "failure": 30,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 99,
+        "failed": 30
+      },
+      "successful_execution_duration": {
+        "count": 99,
+        "median_ms": 22281,
+        "p90_ms": 92860,
+        "max_ms": 219574
+      },
+      "queue_wait_created_to_started": {
+        "count": 123,
+        "median_ms": 736,
+        "p90_ms": 2570,
+        "max_ms": 193761
+      },
+      "receipt_selectors": {
+        "focused": 58,
+        "full": 65,
+        "unavailable": 6
+      }
+    },
+    "node": {
+      "requests": 17,
+      "statuses": {
+        "success": 11,
+        "failure": 5,
+        "cancelled": 1,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 11,
+        "failed": 5,
+        "cancelled": 1
+      },
+      "successful_execution_duration": {
+        "count": 11,
+        "median_ms": 5248,
+        "p90_ms": 10557,
+        "max_ms": 37615
+      },
+      "queue_wait_created_to_started": {
+        "count": 17,
+        "median_ms": 849,
+        "p90_ms": 1545,
+        "max_ms": 2263
+      },
+      "receipt_selectors": {
+        "focused": 17,
+        "full": 0,
+        "unavailable": 0
+      }
+    },
+    "postgres": {
+      "requests": 44,
+      "statuses": {
+        "success": 16,
+        "failure": 28,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 16,
+        "failed": 28
+      },
+      "successful_execution_duration": {
+        "count": 16,
+        "median_ms": 43467.5,
+        "p90_ms": 139553,
+        "max_ms": 139739
+      },
+      "queue_wait_created_to_started": {
+        "count": 22,
+        "median_ms": 100801,
+        "p90_ms": 395305,
+        "max_ms": 904028
+      },
+      "receipt_selectors": {
+        "focused": 22,
+        "full": 0,
+        "unavailable": 22
+      }
+    },
+    "races": {
+      "requests": 3,
+      "statuses": {
+        "success": 3,
+        "failure": 0,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 3
+      },
+      "successful_execution_duration": {
+        "count": 3,
+        "median_ms": 85083,
+        "p90_ms": 95722,
+        "max_ms": 95722
+      },
+      "queue_wait_created_to_started": {
+        "count": 3,
+        "median_ms": 495,
+        "p90_ms": 787,
+        "max_ms": 787
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 3,
+        "unavailable": 0
+      }
+    },
+    "surface": {
+      "requests": 59,
+      "statuses": {
+        "success": 28,
+        "failure": 21,
+        "cancelled": 10,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 28,
+        "cancelled": 10,
+        "failed": 21
+      },
+      "successful_execution_duration": {
+        "count": 28,
+        "median_ms": 268876.5,
+        "p90_ms": 861155,
+        "max_ms": 1179011
+      },
+      "queue_wait_created_to_started": {
+        "count": 48,
+        "median_ms": 2058,
+        "p90_ms": 1153822,
+        "max_ms": 3468597
+      },
+      "receipt_selectors": {
+        "focused": 48,
+        "full": 0,
+        "unavailable": 11
+      }
+    },
+    "tools": {
+      "requests": 19,
+      "statuses": {
+        "success": 18,
+        "failure": 1,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 18,
+        "failed": 1
+      },
+      "successful_execution_duration": {
+        "count": 18,
+        "median_ms": 8539,
+        "p90_ms": 24505,
+        "max_ms": 29608
+      },
+      "queue_wait_created_to_started": {
+        "count": 19,
+        "median_ms": 479,
+        "p90_ms": 1705,
+        "max_ms": 2977
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 19,
+        "unavailable": 0
+      }
+    },
+    "typecheck": {
+      "requests": 30,
+      "statuses": {
+        "success": 26,
+        "failure": 4,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 26,
+        "failed": 4
+      },
+      "successful_execution_duration": {
+        "count": 26,
+        "median_ms": 27575.5,
+        "p90_ms": 71549,
+        "max_ms": 235889
+      },
+      "queue_wait_created_to_started": {
+        "count": 30,
+        "median_ms": 1209,
+        "p90_ms": 65965,
+        "max_ms": 1340015
+      },
+      "receipt_selectors": {
+        "focused": 8,
+        "full": 22,
+        "unavailable": 0
+      }
+    },
+    "unit": {
+      "requests": 141,
+      "statuses": {
+        "success": 96,
+        "failure": 44,
+        "cancelled": 0,
+        "unresolved": 1,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "failed": 44,
+        "passed": 96
+      },
+      "successful_execution_duration": {
+        "count": 96,
+        "median_ms": 43237.5,
+        "p90_ms": 389711,
+        "max_ms": 756328
+      },
+      "queue_wait_created_to_started": {
+        "count": 132,
+        "median_ms": 818,
+        "p90_ms": 3249,
+        "max_ms": 58787
+      },
+      "receipt_selectors": {
+        "focused": 98,
+        "full": 34,
+        "unavailable": 9
+      }
+    }
+  },
+  "by_suite_pandora_trial": {
+    "check": {
+      "requests": 1,
+      "statuses": {
+        "success": 1,
+        "failure": 0,
+        "cancelled": 0,
+        "unresolved": 0,
+        "other": 0
+      },
+      "raw_result_statuses": {
+        "passed": 1
+      },
+      "successful_execution_duration": {
+        "count": 1,
+        "median_ms": 27577,
+        "p90_ms": 27577,
+        "max_ms": 27577
+      },
+      "queue_wait_created_to_started": {
+        "count": 1,
+        "median_ms": 985,
+        "p90_ms": 985,
+        "max_ms": 985
+      },
+      "receipt_selectors": {
+        "focused": 0,
+        "full": 1,
+        "unavailable": 0
+      }
+    }
+  },
+  "focused_vs_full_successful_duration_for_unit_and_native_unit": {
+    "unit": {
+      "focused": {
+        "count": 76,
+        "median_ms": 38585,
+        "p90_ms": 138518,
+        "max_ms": 620602
+      },
+      "full": {
+        "count": 20,
+        "median_ms": 362221,
+        "p90_ms": 607457,
+        "max_ms": 756328
+      },
+      "unavailable": {
+        "count": 0,
+        "median_ms": null,
+        "p90_ms": null,
+        "max_ms": null
+      }
+    },
+    "native-unit": {
+      "focused": {
+        "count": 44,
+        "median_ms": 4647,
+        "p90_ms": 18899,
+        "max_ms": 69773
+      },
+      "full": {
+        "count": 55,
+        "median_ms": 32018,
+        "p90_ms": 109843,
+        "max_ms": 219574
+      },
+      "unavailable": {
+        "count": 0,
+        "median_ms": null,
+        "p90_ms": null,
+        "max_ms": null
+      }
+    }
+  },
+  "statistical_definitions": {
+    "median": "conventional sample median: midpoint of the two central ordered values for an even sample; central value for an odd sample",
+    "p90": "nearest-rank percentile: ordered value at ceil(0.90 × n)"
+  }
+}
