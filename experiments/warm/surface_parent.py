@@ -37,6 +37,7 @@ def execute(parent, submitted):
     state = {'version': 2, 'reserved': children, 'dispatched': [], 'completed': [], 'queue_seconds': 0.0, 'stop_reason': None}
     write(parent / 'suite-state.json', state)
     started = __import__('time').monotonic()
+    print(f'[pandora] surface {parent.name}: building {request["app"]} once and planning {request["shard_count"]} shards', flush=True)
     planner_request = request | {'action': 'plan'}
     planner = _stage(parent, children[0], submitted, planner_request, children)
     state['dispatched'].append(children[0]); write(parent / 'suite-state.json', state)
@@ -57,6 +58,7 @@ def execute(parent, submitted):
         (parent / 'results' / 'exit-code').write_text(str(code) + '\n'); return code
     plan = validate_plan(json.loads((planner / 'results' / 'surface-plan.json').read_text()), submitted)
     write(parent / 'results' / 'surface-plan.json', plan)
+    print(f'[pandora] frozen surface plan {plan["plan_id"][:12]}; {len(plan["tests"])} tests across {len(plan["shards"])} shards', flush=True)
     reports, cancelled = {}, Event()
     def stage(index): return children[index], _stage(parent, children[index], submitted, {'action': 'shard', 'plan': plan, 'shard': index}, children)
     def run(identity, child, event): return _configured_child(parent, child, started, queue, parent.name, submitted['worker_config']['execution_seconds'], event)
@@ -95,6 +97,8 @@ def execute(parent, submitted):
           'waited': waited, 'config_digest': config_identity(submitted['worker_config'])})
     state['stop_reason'] = result['stop_reason']; write(parent / 'suite-state.json', state)
     write(parent / 'results' / 'surface-run.json', result); (parent / 'results' / 'exit-code').write_text(str(result['exit_code']) + '\n')
+    print(f'[pandora] surface {result["status"]}; {len(reports)}/{request["shard_count"]} shard reports; '
+          f'not run: {result["unrun_shards"]}; invocation queue used {waited:.1f}s', flush=True)
     return result['exit_code']
 
 

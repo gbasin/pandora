@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
@@ -57,7 +57,18 @@ if (request.action !== 'shard' || plan.source_digest !== sourceDigest || plan.pa
 if (canonical(outputManifest()) !== canonical(plan.build)) throw new Error('surface build bytes differ from frozen plan');
 const report = join(results, 'surface-observed.json'); const index = request.shard;
 const result = invoke([...plan.selectors, `--shard=${index}/${plan.shard_count}`, '--pass-with-no-tests'], report, 'run');
-if (canonical(outputManifest()) !== canonical(plan.build)) throw new Error('surface tests changed the frozen compiled inputs');
+const after = outputManifest();
+const plannedFiles = new Map(plan.build.files.map(file => [file.path, file.sha256]));
+const afterFiles = new Map(after.files.map(file => [file.path, file.sha256]));
+if (plan.build.files.some(file => afterFiles.get(file.path) !== file.sha256)) {
+  throw new Error('surface tests changed or removed a frozen compiled input');
+}
+for (const file of after.files) {
+  if (plannedFiles.has(file.path)) continue;
+  const destination = join(results, 'generated', file.path);
+  mkdirSync(dirname(destination), { recursive: true });
+  copyFileSync(join(source, file.path), destination);
+}
 const observed = JSON.parse(readFileSync(report, 'utf8'));
 const expected = plan.shards[index - 1].test_ids;
 if (JSON.stringify(observed.inventory.map(x => x.id)) !== JSON.stringify(expected)) throw new Error('surface shard membership changed');
