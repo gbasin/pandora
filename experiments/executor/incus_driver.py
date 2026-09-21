@@ -43,20 +43,24 @@ def run(argv, *, timeout=600, check=True, stdin=None, capture=True):
 class IncusDriver(Executor):
     def __init__(self, *, project='pandora', pool='pandorapool', profile='runner',
                  root=None, sudo=True, sample_interval=0.5,
-                 thrash_seconds=15.0, thrash_rate=500.0, thrash_pinned=0.97):
+                 thrash_seconds=15.0, thrash_rate=500.0, thrash_pinned=0.95,
+                 thrash_psi=2.0):
         self.project, self.pool, self.profile = project, pool, profile
         self.root = Path(root or (Path.home() / 'incus-exec'))
         self.base = (['sudo'] if sudo else []) + ['incus', '--project', project]
         self.sample_interval = sample_interval
-        # A thrash episode is: the cgroup is pinned at its cap AND charging is
-        # failing thousands of times a second. Measured: a hog produces
-        # 3,700-4,000 `memory.events:max` per second and a healthy journey
-        # produces none at all, so the threshold sits two orders of magnitude
-        # below the signal. PSI is recorded as evidence but is NOT the trigger:
-        # a single-threaded thrasher on four CPUs only reaches full avg10 = 8 %.
+        # A thrash episode is three things at once, sustained: the cgroup is
+        # pinned at its effective wall, charges are being refused thousands of
+        # times a second, and the cgroup is actually stalled. Measured: a hog
+        # produces 1,700-4,000 refused charges per second and PSI full avg10
+        # of 6-8 %; a passing journey produces none and 0.0. PSI alone is not
+        # enough (a single-threaded thrasher on four CPUs only reaches 8 %) and
+        # the event rate alone is not enough (memory.high throttling produces
+        # a high rate whenever a run is merely close to its ceiling).
         self.thrash_seconds = thrash_seconds
         self.thrash_rate = thrash_rate
         self.thrash_pinned = thrash_pinned
+        self.thrash_psi = thrash_psi
 
     # --- plumbing ----------------------------------------------------------
 
@@ -357,7 +361,11 @@ class IncusDriver(Executor):
             peak = max(peak, use.memory_peak or use.memory_current)
             samples.append({'t': round(time.monotonic() - t0, 2),
                             'mem': use.memory_current, 'peak': use.memory_peak,
+                            # memory.high suppresses `max` entirely, so the
+                            # watchdog counts both kinds of refused charge.
+                            'throttle_events': use.events.get('max', 0) + use.events.get('high', 0),
                             'max_events': use.events.get('max', 0),
+                            'high_events': use.events.get('high', 0),
                             'oom': use.events.get('oom', 0),
                             'oom_kill': use.events.get('oom_kill', 0),
                             'psi_full10': use.pressure.get('memory_full_avg10', 0.0),
@@ -376,21 +384,27 @@ class IncusDriver(Executor):
             rate = 0.0
             if len(samples) > 1:
                 span = samples[-1]['t'] - samples[-2]['t']
-                rate = (samples[-1]['max_events'] - samples[-2]['max_events']) / max(span, 1e-3)
-            pinned = use.memory_current >= self.thrash_pinned * (use.memory_max or 1 << 62)
-            samples[-1]['max_rate'] = round(rate, 1)
-            if pinned and rate >= self.thrash_rate:
+                rate = (samples[-1]['throttle_events'] - samples[-2]['throttle_events']) / max(span, 1e-3)
+            # The effective wall is memory.high when it is set, because the
+            # cgroup is reclaimed down to it and never reaches memory.max.
+            wall = min(x for x in (use.memory_high, use.memory_max) if x) or (1 << 62)
+            pinned = use.memory_current >= self.thrash_pinned * wall
+            psi = use.pressure.get('memory_full_avg10', 0.0)
+            samples[-1]['throttle_rate'] = round(rate, 1)
+            if pinned and rate >= self.thrash_rate and psi >= self.thrash_psi:
                 stall_since = stall_since or now
                 if now - stall_since >= self.thrash_seconds:
                     outcome = 'oom'
                     evidence = {'reason': 'memory-thrash',
-                                'max_events_per_second': round(rate, 1),
+                                'throttle_events_per_second': round(rate, 1),
                                 'threshold_per_second': self.thrash_rate,
                                 'thrashing_seconds': round(now - stall_since, 1),
                                 'memory_current': use.memory_current,
+                                'memory_wall': wall,
                                 'memory_max': use.memory_max,
+                                'memory_high': use.memory_high,
                                 'psi_memory_some_avg10': use.pressure.get('memory_some_avg10', 0.0),
-                                'psi_memory_full_avg10': use.pressure.get('memory_full_avg10', 0.0),
+                                'psi_memory_full_avg10': psi,
                                 'events': use.events}
                     break
             else:

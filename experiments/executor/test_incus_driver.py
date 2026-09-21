@@ -131,15 +131,27 @@ class ReceiptCleanliness(unittest.TestCase):
 
 
 class Thresholds(unittest.TestCase):
-    def test_defaults_sit_far_below_a_measured_thrash_and_above_a_healthy_run(self):
-        driver = IncusDriver(root='/tmp')
-        self.assertLess(driver.thrash_rate, 3700)     # measured hog rate
-        self.assertGreater(driver.thrash_rate, 10)    # measured healthy rate is 0
+    def setUp(self):
+        self.driver = IncusDriver(root='/tmp')
+
+    def test_rate_sits_below_a_measured_thrash_and_above_a_healthy_run(self):
+        self.assertLess(self.driver.thrash_rate, 1700)   # slowest measured hog rate
+        self.assertGreater(self.driver.thrash_rate, 10)  # measured healthy rate is 0
+
+    def test_psi_sits_below_a_measured_thrash_and_above_a_healthy_run(self):
+        self.assertLess(self.driver.thrash_psi, 6.6)     # lowest measured hog PSI
+        self.assertGreater(self.driver.thrash_psi, 0.0)  # measured healthy PSI is 0.0
 
     def test_pinned_fraction_leaves_room_for_a_run_that_merely_runs_hot(self):
-        driver = IncusDriver(root='/tmp')
-        self.assertGreater(driver.thrash_pinned, 0.9)
-        self.assertLessEqual(driver.thrash_pinned, 1.0)
+        self.assertGreaterEqual(self.driver.thrash_pinned, 0.9)
+        self.assertLessEqual(self.driver.thrash_pinned, 1.0)
+
+    def test_the_effective_wall_is_memory_high_when_it_is_lower(self):
+        # memory.high suppresses memory.events:max entirely, so a watchdog
+        # that compared against memory.max alone would never see a pinned run.
+        for high, maximum, expected in ((0, 512, 512), (460, 512, 460), (0, 0, 1 << 62)):
+            wall = min(x for x in (high, maximum) if x) if (high or maximum) else (1 << 62)
+            self.assertEqual(wall, expected)
 
 
 class LimitsShape(unittest.TestCase):
