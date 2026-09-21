@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 
-from admission import Admission, Store
+from admission import Admission, Store, classify
 from incus_driver import IncusDriver
 from interface import Limits
 from poc import EICHLER, JOURNEY, ROOT, SOURCE, emit, host_pressure, one_run
@@ -60,6 +60,9 @@ def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, ta
     store = admission.store
     for _ in range(3):
         store.record('eichler', 'journey', reservation, 'ok')
+    # The policy's own classifier, applied to the observed peaks: `medium`
+    # (4096 MiB) would make the ceiling bind before the reservation does.
+    store.set_class('eichler', 'journey', classify(store.peaks('eichler', 'journey')))
     hint = cpus_hint or max(1, (os.cpu_count() or 1) // count)
     decisions, results, lock = [], {}, threading.Lock()
 
@@ -92,7 +95,8 @@ def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, ta
           'budget_mib': budget,
           'refused': [d for d in decisions if not d['admitted']],
           'cpus_hint': hint, 'reservation_mib': admitted[0]['reservation_mib'] if admitted else 0,
-          'ceiling_mib': ceiling, 'wall_s': round(wall, 1), 'passed': passed,
+          'ceiling_mib': admitted[0]['ceiling_mib'] if admitted else 0,
+          'size_class': admitted[0]['size_class'] if admitted else '', 'wall_s': round(wall, 1), 'passed': passed,
           'exec_s': [row['exec_s'] for row in rows],
           'exec_s_median': round(statistics.median([row['exec_s'] for row in rows]), 1) if rows else 0,
           'clone_s': [row['clone_s'] for row in rows],

@@ -178,14 +178,13 @@ def neighbour(driver, cap_mib=512, hog='file'):
                             'seconds': 0.0, 'evidence': {}, 'exec_s': 0.0,
                             'peak_mib': 0, 'verdict': ''}
 
-    def hog():
-        lane('bad', lambda: driver.execute(bad, HOGS[hog], cwd='/work', limits=bad_limits).__dict__)
-
-    def good():
-        lane('good', lambda: one_run(driver, golden, 'mem-good',
-                                     Limits(memory_mib=4096, ceiling_mib=5120, cpus_hint=4)))
-
-    threads = [threading.Thread(target=hog), threading.Thread(target=good)]
+    threads = [
+        threading.Thread(target=lane, args=('bad', lambda: driver.execute(
+            bad, HOGS[hog], cwd='/work', limits=bad_limits).__dict__)),
+        threading.Thread(target=lane, args=('good', lambda: one_run(
+            driver, golden, 'mem-good',
+            Limits(memory_mib=4096, ceiling_mib=5120, cpus_hint=4)))),
+    ]
     t0 = time.monotonic()
     for thread in threads:
         thread.start()
