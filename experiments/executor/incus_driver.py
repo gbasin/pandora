@@ -264,14 +264,18 @@ class IncusDriver(Executor):
     def apply(self, name, limits):
         """Admit on memory, CPU soft.
 
-        `limits.memory.enforce=hard` writes memory.max; CPU is a weight and
-        never a quota, so a run alone on the box gets the whole box.
+        `limits.memory.enforce=hard` writes memory.max. CPU uses the
+        *percentage* form of `limits.cpu.allowance`, which Incus writes to
+        `cpu.weight` and leaves `cpu.max` unlimited — a share, not a quota, so
+        a run alone on the box gets the whole box. `limits.cpu.priority` is
+        not used: it only spans cpu.weight 90-100, which is not a usable
+        differential (measured in §6).
         """
         self.incus('config', 'set', name,
                    'limits.memory=%dMiB' % limits.ceiling_mib,
                    'limits.memory.enforce=hard',
                    'limits.memory.swap=false',
-                   'limits.cpu.priority=%d' % max(0, min(10, limits.cpu_weight // 10)))
+                   'limits.cpu.allowance=%d%%' % max(1, min(100, limits.cpu_weight)))
 
     def harden(self, instance, limits):
         """Write the cgroup arrangement the memory investigation settled on.
@@ -449,7 +453,12 @@ class IncusDriver(Executor):
             self.kill(instance)
             code = -9
         seconds = time.monotonic() - t0
-        final = self.usage(instance)
+        try:
+            final = self.usage(instance)
+        except (InstanceLost, subprocess.TimeoutExpired):
+            final = samples and Usage(memory_current=samples[-1]['mem'],
+                                      memory_peak=samples[-1]['peak'],
+                                      cpu_usec=samples[-1]['cpu_usec']) or Usage()
         evidence['samples'] = samples[-40:]
         evidence['sample_count'] = len(samples)
         evidence['slow_guest_polls'] = slow_polls
@@ -463,14 +472,17 @@ class IncusDriver(Executor):
         cgroup, so it can be slow; if it does not land, fall back to the host's
         own `cgroup.kill`, which needs nothing from inside.
         """
-        rc, _, _ = self.incus('exec', instance.name, '--', 'bash', '-c',
-                              'p=$(cat %s/pgid 2>/dev/null); [ -n "$p" ] && kill -9 -"$p" 2>/dev/null; '
-                              'true' % GUEST, check=False, timeout=30)
+        try:
+            rc, _, _ = self.incus('exec', instance.name, '--', 'bash', '-c',
+                                  'p=$(cat %s/pgid 2>/dev/null); [ -n "$p" ] && kill -9 -"$p" 2>/dev/null; '
+                                  'true' % GUEST, check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            rc = -1
         if rc != 0:
             try:
                 run(['sudo', 'tee', os.path.join(self.cgroup(instance.name), 'cgroup.kill')],
                     stdin=b'1', check=False, timeout=30)
-            except InstanceLost:
+            except (InstanceLost, subprocess.TimeoutExpired):
                 pass
 
     # --- usage -------------------------------------------------------------

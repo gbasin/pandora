@@ -160,9 +160,11 @@ class LimitsShape(unittest.TestCase):
         self.assertLess(limits.memory_mib, limits.ceiling_mib)
         self.assertEqual(limits.cpus_hint, 4)
 
-    def test_cpu_weight_maps_into_the_incus_priority_range(self):
-        for weight, expected in ((0, 0), (50, 5), (100, 10), (250, 10)):
-            self.assertEqual(max(0, min(10, weight // 10)), expected)
+    def test_cpu_weight_maps_onto_the_allowance_percentage(self):
+        # limits.cpu.allowance=<N>% writes cpu.weight=N and leaves cpu.max
+        # unlimited. limits.cpu.priority only spans cpu.weight 90-100.
+        for weight, expected in ((0, 1), (25, 25), (100, 100), (250, 100)):
+            self.assertEqual(max(1, min(100, weight)), expected)
 
 
 if __name__ == '__main__':

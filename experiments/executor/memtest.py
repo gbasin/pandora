@@ -170,12 +170,20 @@ def neighbour(driver, cap_mib=512, hog='file'):
     driver.harden(bad, bad_limits)
     results = {}
 
+    def lane(key, work):
+        try:
+            results[key] = work()
+        except Exception as error:                     # noqa: BLE001 - recorded, not raised
+            results[key] = {'outcome': 'driver-error', 'error': repr(error)[:300],
+                            'seconds': 0.0, 'evidence': {}, 'exec_s': 0.0,
+                            'peak_mib': 0, 'verdict': ''}
+
     def hog():
-        results['bad'] = driver.execute(bad, HOGS[hog], cwd='/work', limits=bad_limits).__dict__
+        lane('bad', lambda: driver.execute(bad, HOGS[hog], cwd='/work', limits=bad_limits).__dict__)
 
     def good():
-        results['good'] = one_run(driver, golden, 'mem-good',
-                                  Limits(memory_mib=4096, ceiling_mib=5120, cpus_hint=4))
+        lane('good', lambda: one_run(driver, golden, 'mem-good',
+                                     Limits(memory_mib=4096, ceiling_mib=5120, cpus_hint=4)))
 
     threads = [threading.Thread(target=hog), threading.Thread(target=good)]
     t0 = time.monotonic()
