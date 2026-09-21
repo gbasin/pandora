@@ -1,2 +1,5 @@
 #!/bin/sh
-exec python3 -B "$(dirname "$0")/../expectation_control.py" "$@"
+case "$1" in
+  wait) shift; exec python3 -B "$(dirname "$0")/../wait.py" "$@" ;;
+  *) exec python3 -B "$(dirname "$0")/../expectation_control.py" "$@" ;;
+esac

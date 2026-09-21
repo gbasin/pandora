@@ -111,7 +111,74 @@ def complete_infrastructure_failure(active, record, output, receipt):
         print(f'[pandora] Infrastructure outcome archived; completion marker deferred: {error}', file=sys.stderr)
 
 
-def main(tool='pnpm'):
+def locked(path, nonblocking=False):
+    handle = path.open('a')
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | (fcntl.LOCK_NB if nonblocking else 0))
+    except:
+        handle.close()
+        raise
+    return handle
+
+
+def owner_path(output):
+    return output.parent / (output.name + '.owner.lock')
+
+
+def owner_is_busy(output):
+    try:
+        handle = locked(owner_path(output), nonblocking=True)
+    except BlockingIOError:
+        return True
+    handle.close()
+    return False
+
+
+def legacy_owner_is_busy(state):
+    try:
+        handle = locked(state / 'request.lock', nonblocking=True)
+    except BlockingIOError:
+        return True
+    handle.close()
+    return False
+
+
+def evidence_path(state, record):
+    output = Path(record['output'])
+    if output.parent != state or output.name != record['attempt'] or output.is_symlink():
+        raise ValueError('Active Pandora request has an invalid evidence path')
+    return output
+
+
+def completed_result(repo, output, record):
+    """Report an existing outcome without publishing or creating another request."""
+    if record['state'] == 'infrastructurefailure':
+        validate_operator_result(output, record['attempt'])
+        print('[pandora] This request ended with acknowledged infrastructure failure; it has no test result.', flush=True)
+        return 70
+    terminal = validate_evidence(output, record['attempt'])
+    submitted = json.loads((output / 'submission.json').read_text())
+    request = submitted.get('docker', {}).get('request', {})
+    checks_source = submitted.get('workflow') != 'docker' or request.get('kind') == 'build' or request.get('mount')
+    workflow = catalog_updates if catalog_updates.is_update(submitted) else journey_updates
+    if terminal['exit_code'] == 0 and workflow.is_update(submitted):
+        updates = workflow.declarations(output)
+        source_matches = journey_updates.source_is_current(repo, output, submitted, updates)
+        # Returned expectations are an intentional input change. A subsequent
+        # edit or manual resolution is not evidence for the current bytes.
+        source_matches = source_matches and all(
+            journey_updates.regular_bytes(repo, name, optional=True) == change['target']
+            for name, change in updates.items())
+    else:
+        source_matches = not checks_source or current_digest(repo) == submitted['source_digest']
+    if not source_matches:
+        print('[pandora] Result applies to earlier source. Run the original command to validate current source. Evidence: ' + str(output), file=sys.stderr)
+        return 75
+    print(f'[pandora] attempt={record["attempt"]}; exit={terminal["exit_code"]}; evidence={output}', flush=True)
+    return terminal['exit_code']
+
+
+def main(tool='pnpm', expected_attempt=None, observer=False):
     argv = sys.argv[1:]
     docker_request = None
     config = None
@@ -162,23 +229,23 @@ def main(tool='pnpm'):
     key = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()
     state = Path(os.environ['PANDORA_STATE']) / key
     state.mkdir(parents=True, exist_ok=True)
-    lock = (state / 'request.lock').open('a')
+    lock = locked(state / 'state.lock')
+    owner = None
     try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            print('[pandora] Validation is already active for this worktree. '
-                  'Keep waiting on its existing tool handle. This invocation submitted nothing; '
-                  'changed input does not replace the active request.', file=sys.stderr)
-            return 75
         active = state / 'active.json'
         record = json.loads(active.read_text()) if active.exists() else None
+        expected = expected_attempt
+        if expected and (not record or record.get('attempt') != expected):
+            print('[pandora] The observed request is no longer active. No replacement submitted.', file=sys.stderr)
+            return 75
+        if expected and record.get('state') in ('terminal', 'infrastructurefailure'):
+            return completed_result(repo, evidence_path(state, record), record)
         if record is not None and record.get('state') == 'infrastructurefailure':
             # A crash can follow the durable active-state update but precede the
             # local completion marker. Repair that marker before allowing the
             # next explicit command to create a new attempt.
             try:
-                output = Path(record['output'])
+                output = evidence_path(state, record)
                 receipt = validate_operator_result(output, record['attempt'])
                 write(output / 'completed.json', {'attempt': record['attempt'],
                                                   'outcome': 'infrastructure-failed'})
@@ -191,16 +258,28 @@ def main(tool='pnpm'):
             record = None
         recovering = record is not None and record['state'] == 'active'
         if recovering:
+            if record.get('protocol') != 2 and legacy_owner_is_busy(state):
+                print('[pandora] A legacy active request remains protected by its original client. Keep waiting on that client; no replacement submitted.', file=sys.stderr)
+                return 75
             if record.get('host') != os.environ['PANDORA_HOST'] or record['command'] != argv or record.get('tool', 'pnpm') != tool:
                 print('[pandora] A different request is active. Retry its original command and worker; no replacement submitted.', file=sys.stderr)
                 return 75
-            output = Path(record['output'])
+            output = evidence_path(state, record)
+            if record.get('protocol') == 2 and owner_is_busy(output) and not observer:
+                print(f'[pandora] Validation is already active for this worktree. Use `pandora wait {record["attempt"]}` for feedback; this invocation submitted nothing.', file=sys.stderr)
+                return 75
+            if record.get('protocol') == 2 and not observer:
+                try:
+                    owner = locked(owner_path(output), nonblocking=True)
+                except BlockingIOError:
+                    print(f'[pandora] Validation is already active for this worktree. Use `pandora wait {record["attempt"]}` for feedback; this invocation submitted nothing.', file=sys.stderr)
+                    return 75
             if not (output / 'submission.json').exists():
                 terminal = control(output, 'cancel', record.get('attempt'))
                 if terminal and terminal.get('cleanup_verified'):
                     record.update(state='terminal', terminal=terminal)
                     write(active, record)
-                    print('[pandora] Incomplete capture cancelled. A delayed worker cannot execute it; retry to capture fresh source.', file=sys.stderr)
+                    print('[pandora] Incomplete capture cancelled. Retry to capture fresh source.', file=sys.stderr)
                 else:
                     print('[pandora] Incomplete capture remains unresolved. No new request submitted.', file=sys.stderr)
                 return 75
@@ -209,6 +288,9 @@ def main(tool='pnpm'):
                        os.environ['PANDORA_HOST'], str(output),
                        '--artifact-delivery-limit-bytes', str(delivery_limit)]
         else:
+            if expected:
+                print('[pandora] The observed request cannot be resumed. No replacement submitted.', file=sys.stderr)
+                return 75
             attempt = uuid.uuid4().hex
             output = state / attempt
             try:
@@ -216,13 +298,15 @@ def main(tool='pnpm'):
             except ValueError as error:
                 print('[pandora] ' + str(error), file=sys.stderr)
                 return 64
-            record = {'state': 'active', 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt, 'queue_timeout_seconds': timeout}
+            record = {'state': 'active', 'protocol': 2, 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt, 'queue_timeout_seconds': timeout, 'artifact_delivery_limit_bytes': delivery_limit}
             suite_request_path = None
             if suite is not None:
                 suite_request_path = state / (attempt + '.suite-request.json')
                 write(suite_request_path, suite)
                 record['suite_request'] = str(suite_request_path)
             write(active, record)
+            owner = locked(owner_path(output))
+            print(f'[pandora] accepted {attempt}; recover feedback with `pandora wait {attempt}`. Evidence: {output}', flush=True)
             if suite is not None:
                 policy = ('continue after test failures' if suite['keep_going']
                           else 'stop at the first test failure')
@@ -241,6 +325,10 @@ def main(tool='pnpm'):
                 command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
             if suite_request_path is not None:
                 command += ['--suite-request', str(suite_request_path)]
+        # Allocation is complete. A waiter may now inspect immutable evidence
+        # while the attempt owner retains the per-attempt lock.
+        lock.close()
+        lock = None
         child = None
 
         def interrupted(signum, frame):
@@ -249,14 +337,18 @@ def main(tool='pnpm'):
         signal.signal(signal.SIGTERM, interrupted)
         signal.signal(signal.SIGINT, interrupted)
         try:
-            if recovering and (output / 'terminal.json').exists():
+            if recovering and ((output / 'terminal.json').exists() or (output / 'operator-result.json').exists()):
                 # Verified remote completion can outlive interrupted local delivery.
                 # Do not download over publication state or submit another execution.
                 status = 75  # Validated below before any publication or state change.
             else:
-                child = subprocess.Popen(command, start_new_session=True, pass_fds=(lock.fileno(),))
+                child = subprocess.Popen(command, start_new_session=True,
+                                         pass_fds=((owner.fileno(),) if owner else ()))
                 status = child.wait()
         except KeyboardInterrupt:
+            if observer:
+                print('[pandora] Detached from this observer. The original request continues unchanged.', file=sys.stderr)
+                return 130
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             if child and child.poll() is None:
@@ -273,6 +365,12 @@ def main(tool='pnpm'):
                     break
                 time.sleep(1)
                 terminal = control(output, 'status', record.get('attempt'))
+            lock = locked(state / 'state.lock')
+            current = json.loads(active.read_text()) if active.exists() else None
+            if not current or current.get('state') != 'active' or current.get('attempt') != record['attempt']:
+                print('[pandora] Request ownership changed while cancelling; no state was replaced.', file=sys.stderr)
+                return 130
+            record = current
             if terminal and terminal.get('cleanup_verified'):
                 record.update(state='terminal', terminal=terminal)
                 write(active, record)
@@ -280,6 +378,14 @@ def main(tool='pnpm'):
             else:
                 print('[pandora] Cleanup unresolved; new requests remain blocked.', file=sys.stderr)
             return 130
+        lock = locked(state / 'state.lock')
+        current = json.loads(active.read_text()) if active.exists() else None
+        if current and current.get('attempt') == record['attempt'] and current.get('state') in ('terminal', 'infrastructurefailure'):
+            return completed_result(repo, output, current)
+        if not current or current.get('state') != 'active' or current.get('attempt') != record['attempt']:
+            print('[pandora] This client no longer owns the active request. No state or output changed.', file=sys.stderr)
+            return 75
+        record = current
         terminal_path = output / 'terminal.json'
         if terminal_path.exists():
             try:
@@ -344,7 +450,10 @@ def main(tool='pnpm'):
                 status = 70
         return status if status >= 0 else 128 - status
     finally:
-        lock.close()
+        if lock:
+            lock.close()
+        if owner:
+            owner.close()
 
 
 if __name__ == '__main__':

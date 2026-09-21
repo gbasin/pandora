@@ -37,7 +37,7 @@ def main():
         raise ValueError('Run pandora resolve-expectations from the repository root')
     state = Path(os.environ['PANDORA_STATE']) / hashlib.sha256(str(repo).encode()).hexdigest()
     active = state / 'active.json'
-    lock = (state / 'request.lock').open('a')
+    lock = (state / 'state.lock').open('a')
     try:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

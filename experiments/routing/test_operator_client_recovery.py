@@ -57,6 +57,9 @@ class OperatorRecoveryTests(unittest.TestCase):
             repo = root / 'repo'; repo.mkdir(); state_root = root / 'state'
             state = state_root / hashlib.sha256(str(repo.resolve()).encode()).hexdigest()
             state.mkdir(parents=True)
+            import shutil
+            shutil.copytree(output, state / attempt)
+            output = state / attempt
             record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'borrower-web'],
                       'host': 'unused', 'attempt': attempt}
             route.write(state / 'active.json', record)
