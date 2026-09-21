@@ -84,12 +84,18 @@ Journey results return as `results/journey.json` under the printed evidence path
 they do not publish the surface workflow's build directories.
 
 The original shell invocation stays open until completion. Logs and known test
-artifacts return locally. A repeated request from the same worktree and state directory
-reports the active request and returns 75, even if source or selectors changed.
-It does not replace or submit another run. Unknown cleanup state blocks a new
-request in that worktree. Retrying after client loss recovers the existing attempt
-and verifies its artifacts. A changed local source produces a stale-result notice
-and exit 75, rather than a pass for newer edits.
+artifacts return locally. If an agent loses its shell wait handle, the active-request
+message prints the exact recovery command, `pandora wait <attempt-id>`. Run it from
+the same worktree with the same launcher state. It follows and finalizes the existing
+attempt even while the original client remains alive. It never submits replacement
+work. Interrupting this observer detaches without cancelling the run.
+
+A repeated validation command reports the active request and returns 75, even if
+source or selectors changed. Unknown cleanup state blocks a new request. Retrying
+after client loss recovers the existing attempt and verifies its artifacts. Changed
+local source produces a stale-result notice and exit 75. Waiting on an already
+completed attempt rechecks evidence and source without republishing outputs. A newer
+active attempt cannot be replaced by a late waiter or original client.
 
 Successful surface validation publishes `apps/<app>/dist` and
 `apps/<app>/e2e/dist` at their normal local paths. Each directory is
