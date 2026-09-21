@@ -3,4 +3,524 @@ status: log
 ---
 # An executor driver over Incus, 2026-09-21
 
-PLACEHOLDER
+A six-operation executor seam and an Incus implementation of it, measured on
+the same OVHcloud b3-16 the Firecracker spike used (Ubuntu 26.04, kernel
+7.0.0-14-generic, 4 vCPU, 15 GiB RAM, ext4 root, no swap). Eichler's own
+`journey-runner.mjs` runs `S0-01` to a pass inside a clone with its own
+dockerd, in **56 s wall from nothing to a destroyed instance**, of which the
+driver's own work — clone, inject, destroy — is **1.5 s**.
+
+The spike's one bad result was that a hard memory cap livelocked instead of
+killing the run. §4 reproduces it, explains it, shows that **no cgroup setting
+fixes it**, and gives the watchdog that does.
+
+Everything is under `experiments/executor/`. Python stdlib only.
+
+---
+
+## 1. The seam
+
+`interface.py`. Six operations, no container vocabulary anywhere in it, so the
+Firecracker work can implement the same interface later:
+
+| Operation | Signature |
+| --- | --- |
+| `prepare` | `(toolchain) -> Golden` — build or reuse the warm instance for a fingerprint |
+| `clone` | `(golden, run_id, limits) -> Instance` — copy-on-write, started, limited |
+| `execute` | `(instance, argv, env, cwd, limits, on_log) -> Result` — streamed log, exit code |
+| `usage` | `(instance) -> Usage` — read from the instance cgroup |
+| `collect` | `(instance, paths, into) -> {path: local}` |
+| `destroy` | `(instance) -> Receipt` — and the receipt is machine-checkable |
+
+Typed errors: `BackendUnavailable`, `PrepareFailed`, `CloneFailed`,
+`ExecutionFailed`, `InstanceLost`, `MemoryExceeded`, `DestroyIncomplete`. A
+non-zero exit code from the *command* is not an error — it is a `Result` with
+`outcome='failed'`. Only the backend failing to supervise the command raises.
+
+`Toolchain` is the declarative golden description and its `fingerprint()` is
+the golden's identity: base image, packages, node and pnpm versions,
+pre-pulled service images, the install command, a source identity and env.
+Change any field and the next `prepare` builds a new golden instead of reusing
+the old one (tested).
+
+`Limits` carries two memory numbers that mean different things and are
+enforced in different places — `memory_mib` is the learned reservation the
+scheduler holds against the host budget, `ceiling_mib` is what the instance
+cgroup refuses to exceed — plus `cpu_weight` (a share, never a quota) and
+`cpus_hint`, which becomes `PANDORA_CPUS`.
+
+### Where the driver runs, and why
+
+**On the worker, not over SSH.** The driver samples the instance cgroup twice
+a second and polls the run's log file at the same rate; an SSH round trip on
+this host is ~90 ms, so a remote driver would spend more time in transport
+than in work and would make a 0.06 s clone unmeasurable. The control plane
+ships `experiments/executor/` to the worker and makes one SSH call per
+operation, each of which runs the whole operation locally — the v0.1.1
+`worker_bundle.py` idea (content-addressed payload over SSH stdin) with the
+same shape. For this POC the ship is a plain `rsync -az`; the
+content-addressing is not reimplemented here (**NOT RUN**), because nothing
+measured depends on it.
+
+---
+
+## 2. Golden build
+
+`prepare` launches `images:ubuntu/26.04` into project `pandora` with the
+profile from §7, installs the toolchain, injects the source, starts the
+nested dockerd, runs `pnpm install --frozen-lockfile`, pulls the three service
+images, stops, and snapshots as `warm`.
+
+| Step | Cold (first, incl. image download) | Warm archive/layer caches |
+| --- | --- | --- |
+| launch + systemd ready | 8.29 s | 0.37 s |
+| apt toolchain + node 24.9.0 + pnpm 12.3.4 | 22.81 s | 22.93 s |
+| eichler source in (375 MiB, 4,852 files) | 1.28 s | 1.70 s |
+| dockerd up + `pnpm install --frozen-lockfile` + 3 image pulls | 18.74 s | 19.28 s |
+| stop + `incus snapshot create warm` | 0.93 s | 1.05 s |
+| **total** | **52.0 s** | **45.3 s** |
+
+Size, read from the btrfs qgroup (Incus's own volume state reports
+`usage: null` on a btrfs pool, so the qgroup is the only honest number):
+
+| | Referenced | Exclusive |
+| --- | --- | --- |
+| `containers/pandora_golden-2775adec0be404dd` | 4,258,181,120 B (4.06 GiB) | 57,344 B |
+| its `warm` snapshot | 4,258,177,024 B | 53,248 B |
+| the base image volume | 566,255,616 B | 9,170,944 B |
+
+A second `prepare` with the same fingerprint reuses the instance and returns
+in well under a second. This is the (repo, install fingerprint) key the design
+asked for: it is `Toolchain.fingerprint()`, and it is 16 hex characters of a
+SHA-256 over the declarative description.
+
+Inside the clone: `docker info` reports **Storage Driver overlayfs** (real
+overlay2, not fuse-overlayfs, not vfs) and Cgroup Version 2, unprivileged,
+with `security.idmap.isolated=true`.
+
+---
+
+## 3. Source injection into a clone
+
+The golden already carries the source at its fingerprint; a run puts *its*
+tree over the top. Four ways, all measured against eichler's 375 MiB /
+4,852-file tracked tree, each into a fresh clone of the same golden.
+"Exclusive" is the btrfs qgroup's exclusive bytes — what the clone costs on
+top of the extents it shares with the golden.
+
+| Method | Seconds | Exclusive bytes added | Writable? |
+| --- | --- | --- | --- |
+| `tar` piped through `incus exec` | **1.61** | 284 MiB | yes |
+| `incus file push -r` | 6.48 | 378 MiB | yes |
+| disk device, host tree mounted read-only | **0.04** | 0 | **no** |
+| **disk device + `rsync` over the golden's copy** | **0.48** | **33 MiB** | yes |
+
+The read-only disk device is the fastest and cheapest and is unusable on its
+own: the run writes into its tree (build output, `.turbo`, test artifacts) and
+two runs would share one host directory. Mounting it read-only at `/srcro`,
+`rsync -a --delete --exclude node_modules --exclude .git` it over the
+golden's `/work`, then removing the device gives a writable tree in **0.48 s
+for 33 MiB** — an order of magnitude less disk than streaming the whole tree,
+because rsync only writes what differs from the golden. That is what the
+driver does and what every number below includes.
+
+For comparison, the Firecracker spike's answer was a `dm-snapshot` at 0.06 s
+plus 145 MiB of COW writes, and it needed `losetup`/`dmsetup` lifecycle
+management that leaked a loop device once. This needs neither.
+
+---
+
+## 4. The memory-limit investigation
+
+This was the open risk, and the answer is worse and clearer than expected.
+
+### 4.1 What the spike actually saw
+
+The spike ran `node -e "const a=[];for(;;){a.push(Buffer.alloc(64*1024*1024));}"`
+against `memory.max=512MiB` and recorded 349,230 `max` events in 120 s with
+`oom_kill 0`. Reproduced here exactly:
+
+| Hog | Died? | `max` events / 120 s | `oom_kill` | PSI mem full avg10 | anon | file |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Buffer.alloc(64M)` — the spike's command | **no** | 482,678 | **0** | 31.05 % | 275 MiB | 24 MiB |
+| `Buffer.alloc(64M).fill(1)` — pages actually touched | **yes, rc=137 in <5 s** | 29,603 | **1** | 8.27 % | 50 MiB | 232 MiB |
+| `cat` a 20k-file working set in a loop | **no** | 451,289 | **0** | 8.11 % | 55 MiB | 343 MiB |
+
+The two `Buffer.alloc` rows differ only by `.fill(1)`. `Buffer.alloc(n)` for a
+large `n` is `calloc` of a fresh anonymous mapping, so the pages are never
+written and never become resident: it grows address space, not charge. **The
+spike's repro was never an out-of-memory test.** What it measured was the
+process thrashing its own file-backed pages — the node binary's text and its
+shared objects — which is why `file` is only 24 MiB at the end: reclaim had
+evicted almost all of it and it was refaulting continuously.
+
+### 4.2 Why the kernel does not OOM
+
+Direct from the cgroup, `file` hog, 90 s window:
+
+```
+pgscan  11,703,599      pgsteal 11,701,185      workingset_refault_file 11,491,495
+```
+
+Reclaim succeeded on **99.98 %** of the pages it scanned, and essentially
+every reclaimed page was faulted straight back in. `try_charge()` only calls
+the OOM killer after `MEM_CGROUP_MAX_RECLAIM_RETRIES` rounds that make *no*
+progress. A working set of clean file pages several times the cap always gives
+reclaim something to free, so progress is always made, so the OOM killer is
+never reached. The cgroup is doing exactly what it was told; it is the run
+that is stuck.
+
+This matters far more than the spike's synthetic case, because **this is what
+a real over-limit run looks like**: `pnpm install`, `turbo run typecheck` or a
+test suite against a 1.2 GiB `node_modules` under a ceiling that is too small
+does not allocate a huge heap — it reads a large working set. It will never
+OOM. It will run at 1/50th speed until the wall clock kills it.
+
+### 4.3 No cgroup arrangement fixes it
+
+`file` hog, 512 MiB cap, 90 s window, same clone each time:
+
+| Arrangement | Died? | `max` events | `high` events | `oom_kill` | PSI full avg10 | host MemAvailable |
+| --- | --- | --- | --- | --- | --- | --- |
+| `raw` — whatever Incus writes | no | 451,289 | 0 | 0 | 8.11 % | 14,221 MiB |
+| `bare` — `+ memory.swap.max=0` | no | 350,934 | 0 | 0 | 7.68 % | 14,219 MiB |
+| `oomgroup` — `+ memory.oom.group=1` | no | 347,797 | 0 | 0 | 7.21 % | 14,205 MiB |
+| `high` — `+ memory.high = 0.9 × max` | no | **0** | 76,137 | 0 | 6.66 % | 14,221 MiB |
+| `full` — high + oom.group + swap.max=0 | no | **0** | 75,586 | 0 | 5.36 % | 14,204 MiB |
+
+- **`memory.swap.max=0` changes nothing here** because the host has no swap
+  and no zswap (`SwapTotal: 0`, `/sys/module/zswap/parameters/enabled = N`).
+  It stays in the arrangement because on a host *with* swap it is what stops
+  the run paging instead of failing.
+- **`memory.oom.group=1` changes nothing**, and cannot: it only decides *who*
+  dies once the OOM killer fires, and the OOM killer never fires.
+- **`memory.high` changes the shape and not the outcome.** The cgroup is
+  reclaimed down to `high` and never reaches `max`, so `memory.events:max`
+  stays at **0** while `high` climbs to 76,137. It keeps the host calmer (host
+  PSI full avg10 6.01 % against 7.39 %) and it costs the run more, and the run
+  still never dies.
+- The **host stayed healthy throughout every one of these**: MemAvailable
+  never fell below 14.2 GiB of 15.6 GiB, and host memory PSI full avg10 stayed
+  under 7.4 %. Containment holds. Termination does not.
+
+**Conclusion: a hard cgroup cap is not self-terminating for this workload, and
+there is no setting that makes it so. A watchdog is mandatory, not an
+optimisation.**
+
+### 4.4 The arrangement the driver ships
+
+`IncusDriver.apply` (before start) writes, through Incus:
+
+```
+limits.memory=<ceiling>MiB   limits.memory.enforce=hard   limits.memory.swap=false
+limits.cpu.priority=<weight/10>
+```
+
+`IncusDriver.harden` (after start, because the cgroup does not exist before
+it) writes, directly to `/sys/fs/cgroup/lxc.payload.<project>_<name>`:
+
+```
+memory.swap.max = 0                 nothing to page out to; fail rather than crawl
+memory.high     = 0.9 × ceiling     reclaim early, keep the host calm, raise PSI sooner
+memory.oom.group = 1                if the kernel ever does OOM, take the whole run
+```
+
+and `IncusDriver.supervise` runs the watchdog. A thrash episode is **three
+things at once, sustained for 15 s**:
+
+1. `memory.current ≥ 0.95 × min(memory.high, memory.max)` — pinned at the
+   effective wall. Comparing against `memory.max` alone would never fire once
+   `memory.high` is set, which is the trap this POC walked into first.
+2. refused charges (`max` + `high` events) at **≥ 500/s**. Measured: hogs
+   produce 1,700–4,000/s; a passing journey produces **0**.
+3. cgroup `memory.pressure` full avg10 **≥ 2 %**. Measured: hogs 5.4–8.3 %; a
+   passing journey 0.0 %. PSI alone is not usable as the trigger — a
+   single-threaded thrasher on four CPUs only reaches 8 %, nowhere near the
+   "90 % stalled" a naive threshold would want.
+
+On a verdict the driver kills the run's process group (`kill -9 -<pgid>`,
+falling back to the host's own `cgroup.kill` if `incus exec` cannot get in,
+because an exec into a capped instance is itself charged to that cap), returns
+`outcome='oom'` with the evidence dict, and the caller destroys the instance.
+
+A run that is legitimately pinned at its ceiling with sustained reclaim churn
+is killed. That is not a false positive: the ceiling is an operator decision,
+the cgroup is already refusing the run what it asks for, and `oom` is the
+correct verdict.
+
+### 4.5 Watchdog and neighbour, measured
+
+The `file` hog against a 512 MiB ceiling, with the full arrangement and the
+watchdog live:
+
+```
+outcome oom   exit -9   21.5 s from start of execute to verdict
+reason memory-thrash   thrashing_seconds 15.2   throttle_events_per_second 934.0
+memory_current 482,230,272   memory_wall 482,344,960 (memory.high)   memory_max 536,870,912
+psi_memory_full_avg10 5.65   events {high: 16756, max: 0, oom: 0, oom_kill: 0}
+```
+
+21.5 s is 15.2 s of sustained thrash plus the ~6 s the run took to reach the
+wall in the first place. Destroying the thrashing instance afterwards took
+**0.97 s**.
+
+Two things the first attempt got wrong, both worth writing down because they
+are the kind of thing a watchdog design gets wrong silently:
+
+1. **The probe was throttled by the cap it was watching.** `incus exec` forks
+   a process *inside* the instance's cgroup, so under `memory.high` throttling
+   the driver's own log poll crawled — the first watchdog run sat at two
+   samples in four minutes and reached no verdict at all. Supervision now
+   reads the cgroup host-side every 0.5 s unconditionally and treats the
+   guest-side poll as optional, timing it out at 20 s and backing it off to
+   four times its last duration. Nothing inside a run can starve the verdict.
+2. **The instantaneous event rate is far too noisy to threshold.** Consecutive
+   samples of a real thrash read 1,462 / 680 / 660 / 1,511 / **163** / 1,219
+   per second. A per-sample test resets its own timer on the dips: the run
+   reached `outcome=timeout` at 300 s rather than `oom`. The rate is now
+   smoothed over a 5 s trailing window.
+
+**The neighbour is unaffected.** A 512 MiB run thrashing beside a normal
+journey, both started at the same moment:
+
+| | Thrashing run | Journey beside it |
+| --- | --- | --- |
+| outcome | **`oom`** after 23.5 s | **`ok`**, `S0-01: pass 40.7 s replayed`, 45/45 |
+| evidence | 978.3 refused charges/s, 15.4 s sustained, PSI full avg10 5.41 %, `memory_current 482,365,440` at a `memory_wall` of 482,344,960 | — |
+| `execute` seconds | 23.5 | 56.3 (against 51.4–54.1 alone) |
+| `memory.peak` | 461 MiB of a 512 MiB ceiling | 3,772 MiB |
+
+The journey's own time inside the run (40.7 s replayed) is within the 39.6–41.5 s
+range it takes with the box to itself; the ~4 s on `execute` is the CPU the
+thrasher takes, not anything it does to its neighbour's memory. Host
+MemAvailable never dropped below 14.2 GiB during the episode.
+
+---
+
+## 5. One run, end to end
+
+`poc.py run` — clone, inject, harden, execute, collect, destroy — against a
+golden that already exists:
+
+| Phase | Seconds |
+| --- | --- |
+| `incus copy golden/warm run-<id>` | **0.06–0.09** |
+| `incus start` → systemd ready | 0.26–0.27 |
+| source injection (disk device + rsync) | 0.47–0.51 |
+| write the cgroup arrangement | <0.01 |
+| `execute`: dockerd up + `S0-01` to exit 0 | 51.4–54.1 |
+| `collect` outputs | included above |
+| `destroy` + receipt | **0.89–0.96** |
+| **wall** | **52.9–56.2** |
+
+```
+S0-01: pass 39.6-41.5s replayed
+stage-routes: 45 observed, 45 selected, 45 replayed, 45/45 covered by passing replays
+```
+
+The driver's own work — clone, inject, destroy — is **1.5 s** of a 56 s wall.
+Instance `memory.peak` for the run was 3,139–3,581 MiB. Every run in this note
+returned `receipt_clean: true`.
+
+For comparison with the Firecracker spike on the same host and the same
+journey: 141.4 s wall / 132.4 s journey in a microVM, 62.7 s wall / 50.3 s
+journey in its Incus trial. This is the same order as the spike's Incus
+number, with the driver, the limits, the watchdog and the receipt added.
+
+---
+
+## 6. Concurrency
+
+CONCURRENCY_TABLE
+
+### Mixed: two journeys beside a CPU-heavy job
+
+MIXED_TABLE
+
+### What `PANDORA_CPUS` should be
+
+PANDORA_CPUS_ANSWER
+
+---
+
+## 7. Admission
+
+`admission.py`, ~180 lines, no ledger, no locks, no attempt identities — the
+policy and its tests only, as asked.
+
+```
+reservation = clamp(p95(observed peaks) × 1.25, floor 512 MiB, class ceiling)
+admit while  sum(reservations of running) + reservation ≤ host budget
+```
+
+- **Size classes** are the operator's decision and cap what learning can do:
+  `small 1024 / medium 4096 / large 8192 / xlarge 12288` MiB. The class
+  ceiling is *also* the run's cgroup `memory.max`, so the two numbers the
+  scheduler and the kernel enforce come from one place.
+- **Cold start** — fewer than 3 recorded peaks — reserves the **class
+  ceiling**. Deliberately pessimistic: the first runs of an unknown job are
+  the ones most likely to surprise, and over-reserving delays a run whereas
+  under-reserving oversubscribes the host and slows every run on it.
+- **p95 is nearest-rank**, so it is defined for one sample and deterministic.
+  History is the last 50 peaks per (repo, job), in SQLite so a worker restart
+  does not forget.
+- **Over the reservation, under the ceiling: allowed.** The cgroup never
+  refused anything; the run finishes, its peak is recorded, and the next run
+  of that (repo, job) reserves more. `finish()` returns
+  `over_reservation: true` for the record.
+- **At or over the ceiling: killed as `oom`.** The peak is stored but
+  `Store.peaks` excludes `oom` outcomes from what reservations are learned
+  from — a run killed at its ceiling only tells you it wanted more than the
+  ceiling, which is an operator decision, not a learned one. Tested: five
+  consecutive OOMs leave the reservation unchanged.
+- Refusals name their reason and show the arithmetic (`held_mib`,
+  `budget_mib`), so a queued run has a legible explanation.
+
+40 unit tests in `test_admission.py`, 20 in `test_incus_driver.py` for the
+cgroup parsing, fingerprints, name validation, receipt logic and the watchdog
+thresholds (each threshold test is pinned against the measured hog and
+measured healthy values above, so a later tuning change has to face the
+evidence). `python3 -m unittest discover` in `experiments/executor/`: 60
+tests, all passing, no worker required.
+
+---
+
+## 8. Destroy receipts
+
+`destroy` returns a `Receipt` that is `clean` only if four things are true and
+no leftovers were named:
+
+| Checked | How |
+| --- | --- |
+| instance gone | `incus info <name>` fails |
+| storage volume gone | absent from `incus storage volume list <pool>` |
+| veth gone | `volatile.eth0.host_name` absent from `ip -o link` |
+| cgroup gone | `/sys/fs/cgroup/lxc.payload.<project>_<name>` absent |
+
+Anything else raises `DestroyIncomplete` carrying the receipt. Every run in
+this note returned a clean receipt; destroy times are in the tables.
+
+Against the Firecracker spike, where a `SIGKILL` left four named host objects
+to reap (netns, dm device, loop devices, COW file), an Incus run leaves
+**none** — and the receipt proves it per run rather than by a periodic sweep.
+
+---
+
+## 9. Host setup
+
+`setup.sh init`, all of it named after Pandora and removable by
+`setup.sh teardown`:
+
+- **btrfs pool on a loop file** — `~/incus-exec/pool.img`, 18 GiB, `losetup`
+  to `/dev/loop0`, `incus storage create pandorapool btrfs source=/dev/loop0`.
+  The host root is ext4 so there is no reflink; btrfs is what makes
+  `incus copy` a snapshot rather than a copy.
+- **A dedicated bridge** `pandorabr0` on 10.141.0.1/24, `ipv4.nat=true`,
+  `ipv6.address=none`, plus two explicit `iptables -I FORWARD` ACCEPTs,
+  because the host's FORWARD policy is DROP with only Docker's jumps
+  installed. The host dockerd and its bridges were not touched.
+- **Project `pandora`** with `features.images/profiles/storage.volumes=true`
+  and `features.networks=false` (the bridge lives in the default project).
+- **Profile `runner`**: root disk on the pool, `eth0` on the bridge, and four
+  keys — `security.nesting`, `security.syscalls.intercept.mknod`,
+  `security.syscalls.intercept.setxattr`, `security.idmap.isolated`.
+
+Two things the Firecracker spike warned about were still true and are handled:
+the managed dnsmasq answers AAAA on an IPv4-only bridge (the golden build
+writes `Acquire::ForceIPv4` and uses `curl -4`), and the host FORWARD policy
+is DROP.
+
+One thing it recorded is **no longer true on this Incus version**: the
+instance cgroup is at `/sys/fs/cgroup/lxc.payload.<project>_<name>`, not
+`incus.slice/incus-<name>.scope`. The driver discovers it rather than guessing.
+
+---
+
+## 10. The canary
+
+CANARY_RESULT
+
+---
+
+## 11. Lines of code
+
+| File | Lines |
+| --- | --- |
+| `incus_driver.py` | 591 |
+| `interface.py` | 185 |
+| `admission.py` | 183 |
+| `setup.sh` | 86 |
+| **production subtotal** | **1,045** |
+| `test_admission.py` | 225 |
+| `test_incus_driver.py` | 171 |
+| `canary.py` | 131 |
+| **test and gate subtotal** | **527** |
+| `poc.py`, `memtest.py`, `bench.py` (measurement only) | 536 |
+| **total** | **2,108** |
+
+For scale: the Docker API proxy POC was 1,152 production lines plus 884 test,
+and the Firecracker spike was ~600 lines across 14 scripts plus a kernel and
+rootfs pipeline. The four production files here are 1,045 lines, and
+roughly half of `incus_driver.py` is the watchdog and the receipt —
+i.e. the two things §4 and §8 showed were not optional.
+
+---
+
+## 12. What is left on the worker
+
+WORKER_STATE
+
+---
+
+## 13. What would block this as v0.2's executor
+
+In the order I would fix them.
+
+1. **The watchdog's thresholds are tuned against one hog shape on one host.**
+   500 refused charges/s, PSI full avg10 ≥ 2 %, 15 s sustained, 5 s smoothing.
+   They are pinned in `test_incus_driver.py` against the measured hog and the
+   measured healthy values, so a change has to face the evidence — but the
+   evidence is one repo on a 4-vCPU box. A slower host, a faster disk, or a
+   job that legitimately sits at its ceiling for 15 s have not been tried.
+   This needs a soak across several repos before it kills real runs.
+2. **No per-run disk quota.** This is the memory problem again with no work
+   done on it at all: btrfs qgroups are read for measurement, nothing limits
+   what a run writes, and a run that fills the pool takes its neighbours with
+   it. `incus config device set <name> root size=` plus a pool-level qgroup is
+   the obvious answer and is **NOT RUN**.
+3. **No golden garbage collection.** One golden per fingerprint at ~4 GiB
+   referenced, in an 18 GiB pool. No LRU, no "how many fit", no eviction under
+   pressure. A branch that changes `pnpm-lock.yaml` mints a new golden.
+4. **The pool is a loop file and does not survive a reboot.** `setup.sh init`
+   runs `losetup` by hand and nothing re-attaches it at boot, so after a
+   restart the pool is missing and every instance is unusable. A real worker
+   wants a real device or a systemd unit. **NOT RUN:** reboot.
+5. **Reattach is written but never exercised.** `execute(reattach=True)`
+   re-attaches to the detached run's log and exit-code files, and the run is
+   genuinely detached (its parent is the instance's init), but no test killed
+   the driver mid-run and resumed. **NOT RUN.**
+6. **Admission keeps `running` in memory.** The learned history is in SQLite
+   and survives; what is currently admitted does not. A driver restart
+   forgets its own reservations. The v0.1.1 ledger solves exactly this and
+   was deliberately not ported.
+7. **The bundle ship is `rsync`, not the content-addressed one.** v0.1.1's
+   `worker_bundle.py` verifies every file against a digest before an attempt
+   uses it; this POC does not. **NOT RUN.**
+8. **Nothing is pinned.** `prepare` pulls `images:ubuntu/26.04` from the
+   remote image server and `apt-get install` takes whatever the archive has
+   today, so two goldens with the same fingerprint built a week apart are not
+   the same machine. The fingerprint is honest about the *description* and
+   silent about the *result*.
+9. **`security.idmap.isolated=true` consumes a subuid range per instance.**
+   Not measured; at some instance count the allocation fails and the failure
+   mode is unknown.
+10. **`collect` has no size limit and no streaming.** It shells
+    `incus file pull -r` into a directory. A run that produces a large
+    artifact tree has not been tried.
+11. **One architecture, one distro.** x86_64 Ubuntu 26.04 only. **NOT RUN:**
+    arm64, any other base image, any other repo than eichler.
+12. **`MemoryExceeded` is declared and never raised.** The driver returns
+    `Result(outcome='oom')` instead, because a killed run still has usage and
+    evidence worth returning. Either the exception should go or `execute`
+    should raise it; leaving both is the kind of ambiguity that gets a caller
+    wrong later.
