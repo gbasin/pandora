@@ -13,7 +13,7 @@ def main():
     # Operators with different deadlines can set these before this launcher.
     environment.setdefault('BASH_DEFAULT_TIMEOUT_MS', '2700000')
     environment.setdefault('BASH_MAX_TIMEOUT_MS', '2700000')
-    os.execvpe('claude', ['claude', '-p', *sys.argv[1:]], environment)
+    os.execvpe('claude', ['claude', '-p', '--disallowedTools', 'Monitor', *sys.argv[1:]], environment)
 
 
 if __name__ == '__main__':
