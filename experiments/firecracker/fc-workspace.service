@@ -1,0 +1,14 @@
+[Unit]
+Description=Mount Firecracker per-run workspace disks
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs.target
+Before=docker.service sshd.service
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/fc-workspace
+
+[Install]
+WantedBy=sysinit.target

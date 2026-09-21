@@ -1,0 +1,39 @@
+#!/bin/sh
+# Mount the per-run workspace disks handed to the guest as virtio-blk devices.
+# Selected by filesystem label, not by /dev/vdX order, so the host can attach
+# any subset in any order:
+#
+#   label "work"     the run's workspace         -> /work
+#   label "scratch"  overlay upper for "work"    -> /work becomes an overlayfs
+#   label "out"      declared outputs            -> /out  (read back after shutdown)
+#
+# With work+scratch this is the "no reflink, no virtiofs" copy-on-write hand-off
+# done in the guest. With a host-side device-mapper snapshot there is no scratch
+# disk: "work" is already a private CoW view and mounts read-write directly,
+# which is what dockerd's overlay2 needs (overlay2 refuses an overlayfs backing).
+set -e
+mkdir -p /work /out /mnt/base /mnt/scratch
+# blkid scans the devices directly; /dev/disk/by-label is a udev race at this point
+W=$(blkid -L work || true)
+S=$(blkid -L scratch || true)
+O=$(blkid -L out || true)
+
+if [ -n "$W" ] && [ -n "$S" ]; then
+  mount -o ro "$W" /mnt/base
+  mount "$S" /mnt/scratch
+  mkdir -p /mnt/scratch/upper /mnt/scratch/workdir
+  mount -t overlay overlay \
+    -o lowerdir=/mnt/base,upperdir=/mnt/scratch/upper,workdir=/mnt/scratch/workdir /work
+elif [ -n "$W" ]; then
+  mount "$W" /work
+fi
+
+[ -n "$O" ] && mount "$O" /out || true
+
+# A warm base may carry a pre-populated docker data root and pnpm store.
+if [ -d /work/docker-root ]; then
+  mkdir -p /etc/docker
+  jq '. + {"data-root":"/work/docker-root"}' /etc/docker/daemon.json > /etc/docker/daemon.json.new \
+    && mv /etc/docker/daemon.json.new /etc/docker/daemon.json
+fi
+exit 0

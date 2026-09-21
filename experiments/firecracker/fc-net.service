@@ -1,0 +1,14 @@
+[Unit]
+Description=Firecracker guest network from kernel cmdline
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=network.target sshd.service docker.service
+Wants=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/fc-net
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Configure eth0, hostname and DNS from the kernel command line.
+# Firecracker has no DHCP and no cloud-init here; one cmdline token is enough:
+#   fcnet=<addr/prefix>,<gateway>,<hostname>
+set -e
+val=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^fcnet=//p')
+[ -n "$val" ] || exit 0
+addr=$(echo "$val" | cut -d, -f1)
+gw=$(echo "$val" | cut -d, -f2)
+host=$(echo "$val" | cut -d, -f3)
+
+ip link set lo up
+ip addr add "$addr" dev eth0 2>/dev/null || true
+ip link set eth0 up
+[ -n "$gw" ] && ip route replace default via "$gw" dev eth0
+if [ -n "$host" ]; then
+  hostname "$host"
+  echo "$host" > /etc/hostname
+  grep -q "$host" /etc/hosts || echo "127.0.1.1 $host" >> /etc/hosts
+fi
+printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf

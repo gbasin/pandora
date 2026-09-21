@@ -1,0 +1,58 @@
+# Guest rootfs for the Firecracker spike: systemd + in-guest dockerd + node 24 + pnpm.
+# Built with the host's docker, exported with `docker export`, then written into
+# an ext4 image with `mke2fs -d`. Nothing here is Firecracker-specific except
+# /usr/local/sbin/fc-net (kernel-cmdline network config) and the serial console.
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv systemd-resolved dbus udev kmod \
+      iproute2 iptables nftables iputils-ping \
+      ca-certificates curl xz-utils gnupg \
+      openssh-server git python3 rsync e2fsprogs procps less sudo jq \
+      docker.io docker-compose-v2 docker-buildx \
+    && rm -rf /var/lib/apt/lists/*
+
+# node 24 from nodejs.org (deterministic across distro versions), then pnpm 12.3.4
+ARG NODE_VERSION=24.9.0
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      | tar -xJ -C /usr/local --strip-components=1 \
+    && npm install -g pnpm@12.3.4 \
+    && node --version && pnpm --version
+
+# ssh: key-only root login, host keys generated at build time (spike only)
+RUN mkdir -p /root/.ssh /run/sshd \
+    && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?UseDNS.*/UseDNS no/' /etc/ssh/sshd_config \
+    && ssh-keygen -A
+COPY authorized_keys /root/.ssh/authorized_keys
+RUN chmod 600 /root/.ssh/authorized_keys
+
+# Network + hostname from the kernel cmdline: fcnet=<cidr>,<gw>,<hostname>
+COPY fc-net /usr/local/sbin/fc-net
+COPY fc-net.service /etc/systemd/system/fc-net.service
+COPY fc-workspace /usr/local/sbin/fc-workspace
+COPY fc-workspace.service /etc/systemd/system/fc-workspace.service
+RUN chmod +x /usr/local/sbin/fc-net /usr/local/sbin/fc-workspace \
+    && systemctl enable fc-net.service fc-workspace.service ssh.service docker.service \
+    && systemctl mask systemd-networkd-wait-online.service \
+                      systemd-firstboot.service \
+                      e2scrub_reap.service \
+                      apt-daily.timer apt-daily-upgrade.timer \
+                      man-db.timer motd-news.timer fstrim.timer \
+                      systemd-resolved.service
+
+# resolv.conf is a bind mount during build; build-rootfs.sh writes it into the
+# exported tree instead.
+
+# dockerd: overlay2 on the guest's own disk, no iptables surprises, fast startup
+RUN mkdir -p /etc/docker && printf '%s\n' \
+    '{' \
+    '  "storage-driver": "overlay2",' \
+    '  "exec-opts": ["native.cgroupdriver=systemd"],' \
+    '  "live-restore": false,' \
+    '  "features": {"buildkit": true}' \
+    '}' > /etc/docker/daemon.json
+
+# serial console for boot debugging
+RUN systemctl enable serial-getty@ttyS0.service || true
