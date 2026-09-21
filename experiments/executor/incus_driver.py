@@ -81,13 +81,21 @@ class IncusDriver(Executor):
         raise CloneFailed('instance %s did not become ready in %ss' % (name, timeout))
 
     def cgroup(self, name):
-        """The instance's own cgroup directory, discovered rather than guessed."""
-        for pattern in ('/sys/fs/cgroup/incus.slice/incus-%s-%s.scope',
-                        '/sys/fs/cgroup/incus.slice/incus-%s.scope'):
-            path = pattern % ((self.project, name) if '%s-%s' in pattern else (name,))
+        """The instance's payload cgroup, discovered rather than guessed.
+
+        Incus 6.0.5 on this host puts it at /sys/fs/cgroup/lxc.payload.<project>_<name>
+        (not the incus.slice/incus-<name>.scope the Firecracker spike saw on a
+        default-project instance), so try both and then glob.
+        """
+        for path in ('/sys/fs/cgroup/lxc.payload.%s_%s' % (self.project, name),
+                     '/sys/fs/cgroup/lxc.payload.%s' % name,
+                     '/sys/fs/cgroup/incus.slice/incus-%s-%s.scope' % (self.project, name),
+                     '/sys/fs/cgroup/incus.slice/incus-%s.scope' % name):
             if os.path.isdir(path):
                 return path
-        found = glob.glob('/sys/fs/cgroup/**/incus-*%s*.scope' % name, recursive=True)
+        found = glob.glob('/sys/fs/cgroup/*%s*' % name) or \
+            glob.glob('/sys/fs/cgroup/**/*%s*.scope' % name, recursive=True)
+        found = [p for p in found if 'monitor' not in p and os.path.isdir(p)]
         if not found:
             raise InstanceLost('no cgroup for instance %s' % name)
         return found[0]
@@ -112,8 +120,8 @@ class IncusDriver(Executor):
         if not NAME.fullmatch(name):
             raise PrepareFailed('golden name %r is not an instance name' % name)
         if self.exists(name):
-            rc, out, _ = self.incus('query', '/1.0/instances/%s/snapshots' % name, check=False)
-            if rc == 0 and 'warm' in out:
+            rc, out, _ = self.incus('snapshot', 'list', name, '--format', 'csv', check=False)
+            if rc == 0 and any(line.split(',')[0] == 'warm' for line in out.splitlines()):
                 return Golden(name=name, fingerprint=toolchain.fingerprint(),
                               snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name))
             self.incus('delete', '-f', name, check=False)
@@ -167,13 +175,24 @@ class IncusDriver(Executor):
         return Golden(name=name, fingerprint=toolchain.fingerprint(), snapshot='warm',
                       built_seconds=total, disk_bytes=self.volume_bytes(name))
 
+    def qgroup(self, name):
+        """(referenced, exclusive) bytes of an instance's btrfs subvolume.
+
+        Incus's own volume state reports `usage: null` on a btrfs pool, so read
+        the qgroup directly. `exclusive` is the number that matters for a clone:
+        it is what the clone costs over the golden it shares extents with.
+        """
+        mount = '/var/lib/incus/storage-pools/%s' % self.pool
+        rc, out, _ = run(['sudo', 'btrfs', 'qgroup', 'show', '--raw', mount], check=False, timeout=120)
+        want = 'containers/%s_%s' % (self.project, name)
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[3] == want:
+                return int(parts[1]), int(parts[2])
+        return 0, 0
+
     def volume_bytes(self, name):
-        rc, out, _ = self.incus('query', '/1.0/storage-pools/%s/volumes/container/%s/state'
-                                % (self.pool, name), check=False)
-        try:
-            return int(json.loads(out)['usage']['used'])
-        except Exception:
-            return 0
+        return self.qgroup(name)[0]
 
     # --- source injection --------------------------------------------------
 
@@ -197,6 +216,16 @@ class IncusDriver(Executor):
             # because two runs share it and an idmapped write would surprise.
             self.incus('config', 'device', 'add', name, 'src', 'disk',
                        'source=' + str(source), 'path=' + dest, 'readonly=true', timeout=300)
+        elif method == 'device-rsync':
+            # The usable shape of the above: mount the host tree read-only once
+            # and rsync it over the golden's baked-in copy, so a run gets a
+            # writable tree and pays only for what changed since the golden.
+            self.incus('config', 'device', 'add', name, 'srcro', 'disk',
+                       'source=' + str(source), 'path=/srcro', 'readonly=true', timeout=300)
+            self.sh(name, 'mkdir -p %s && rsync -a --delete --exclude node_modules '
+                          '--exclude .git /srcro/ %s/' % (shlex.quote(dest), shlex.quote(dest)),
+                    timeout=1800)
+            self.incus('config', 'device', 'remove', name, 'srcro', check=False, timeout=300)
         else:
             raise ValueError('unknown injection method ' + method)
         return time.monotonic() - t0

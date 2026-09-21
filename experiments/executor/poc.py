@@ -60,22 +60,25 @@ def golden(driver):
 def measure_injection(driver, golden_ref):
     """Three ways to put a 375 MiB / 4,852-file tree into a clone, timed."""
     rows = []
-    for method in ('tar', 'push', 'device'):
-        name = 'inject-' + method
+    for method in ('tar', 'push', 'device', 'device-rsync'):
+        name = 'inject-' + method.replace('-', '')
         driver.incus('delete', '-f', name, check=False)
         t0 = time.monotonic()
         driver.incus('copy', '%s/warm' % golden_ref.name, name, timeout=900)
         driver.incus('start', name, timeout=300)
         driver.wait_ready(name)
         ready = time.monotonic() - t0
-        before = driver.volume_bytes(name)
+        before = driver.qgroup(name)[1]
         try:
-            seconds = driver.inject(name, SOURCE, '/src', method=method)
-            _, files, _ = driver.sh(name, 'find /src -type f 2>/dev/null | wc -l', check=False)
-            _, bytes_, _ = driver.sh(name, 'du -sm /src 2>/dev/null | cut -f1', check=False)
+            seconds = driver.inject(name, SOURCE, '/work' if method == 'device-rsync' else '/src', method=method)
+            probe = '/work' if method == 'device-rsync' else '/src'
+            _, files, _ = driver.sh(name, 'find %s -type f -not -path "*/node_modules/*" | wc -l' % probe, check=False)
+            _, bytes_, _ = driver.sh(name, 'du -sm --exclude node_modules %s | cut -f1' % probe, check=False)
+            run(['sudo', 'btrfs', 'quota', 'rescan', '-w',
+                 '/var/lib/incus/storage-pools/' + driver.pool], check=False, timeout=300)
             row = {'method': method, 'seconds': round(seconds, 2),
                    'files': files.strip(), 'mib': bytes_.strip(),
-                   'volume_delta_mib': (driver.volume_bytes(name) - before) // 1048576,
+                   'exclusive_delta_mib': (driver.qgroup(name)[1] - before) // 1048576,
                    'clone_ready_s': round(ready, 2)}
         except Exception as error:                     # noqa: BLE001 - recorded, not raised
             row = {'method': method, 'error': str(error)[:300]}
@@ -91,11 +94,18 @@ def one_run(driver, golden_ref, run_id, limits, argv=JOURNEY, collect=True, hard
     instance = driver.clone(golden_ref, run_id, limits=limits)
     marks['clone_s'] = round(instance.clone_seconds, 2)
     marks['start_s'] = round(instance.start_seconds, 2)
+    # The golden already carries the source at its fingerprint; a run rsyncs
+    # its own tree over the top so the golden stays reusable across branches.
+    marks['inject_s'] = round(driver.inject(instance.name, SOURCE, '/work', method='device-rsync'), 2)
     written = driver.harden(instance, limits) if harden else {}
+    log = (ROOT / 'logs' / (run_id + '.log')).open('w')
     result = driver.execute(instance, argv, env={'JOURNEY_REPLAY': 'cover'},
                             cwd='/work', limits=limits,
-                            on_log=lambda chunk: None)
+                            on_log=lambda chunk: (log.write(chunk), log.flush()))
+    log.close()
     marks['exec_s'] = round(result.seconds, 2)
+    marks['verdict'] = ''.join(line for line in (ROOT / 'logs' / (run_id + '.log')).read_text().splitlines(True)
+                               if 'S0-01:' in line or 'stage-routes' in line).strip()[:200]
     files = {}
     if collect:
         files = driver.collect(instance, ['/work/tools/validation'], ROOT / 'out' / run_id)
