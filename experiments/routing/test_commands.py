@@ -1,5 +1,5 @@
 import unittest
-from commands import classify, suite_request
+from commands import classify, suite_request, surface_suite_request
 
 
 class CommandsTests(unittest.TestCase):
@@ -56,6 +56,25 @@ class CommandsTests(unittest.TestCase):
              ['pipeline.spec.ts', '--grep', 'review']),
         ):
             self.assertEqual(classify(command)[:2], ('remote', expected))
+
+    def test_surface_suite_request_keeps_public_selectors_and_accepts_keep_going(self):
+        command = ['test:surface', 'desk', 'pipeline.spec.ts', '--grep', 'review', '--keep-going']
+        self.assertEqual(classify(command)[:2], ('remote', ['pipeline.spec.ts', '--grep', 'review']))
+        self.assertEqual(surface_suite_request(command, 6), {
+            'action': 'run', 'app': 'desk', 'selectors': ['pipeline.spec.ts', '--grep', 'review'],
+            'shard_count': 6, 'keep_going': True,
+        })
+        with self.assertRaisesRegex(ValueError, 'at most one'):
+            surface_suite_request(command + ['--keep-going'], 6)
+
+    def test_surface_keep_going_does_not_rewrite_a_grep_pattern(self):
+        command = ['test:surface', 'desk', '--grep', '--keep-going']
+        self.assertEqual(classify(command)[:2], ('remote', ['--grep', '--keep-going']))
+        self.assertEqual(surface_suite_request(command, 4), {
+            'action': 'run', 'app': 'desk', 'selectors': ['--grep', '--keep-going'],
+            'shard_count': 4, 'keep_going': False,
+        })
+        self.assertEqual(classify(['test:surface', 'desk', '--keep-going', '--keep-going'])[0], 'reject')
 
     def test_three_treatments(self):
         direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1']

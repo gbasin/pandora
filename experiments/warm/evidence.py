@@ -22,6 +22,18 @@ def validate_evidence(stage, attempt, submitted=None):
             raise ValueError('Missing or nonregular artifact: ' + name)
         if digest(target) != expected:
             raise ValueError('Artifact checksum mismatch: ' + name)
+    if terminal.get('workflow') == 'surface-run':
+        if submitted is None:
+            raise ValueError('Surface invocation requires its captured submission')
+        if terminal.get('exit_code') == 130:
+            from surface_cancellation import validate_receipt
+            validate_receipt(stage, submitted, terminal, manifest)
+        else:
+            from surface_parent import validate_result
+            validate_result(stage, submitted, terminal, manifest)
+    if terminal.get('workflow') == 'surface' and submitted and 'surface_suite' in submitted:
+        from surface_child import validate_result
+        validate_result(stage, submitted, terminal, manifest)
     if terminal.get('workflow') == 'suite-run':
         from suite_parent import validate_result
         if submitted is None:
@@ -34,6 +46,10 @@ def validate_evidence(stage, attempt, submitted=None):
         validate_result(stage, submitted, terminal, manifest)
     if terminal['exit_code'] == 0:
         report = {'journey': 'results/journey.json', 'docker': 'results/docker.json'}.get(terminal.get('workflow'), 'results/junit.xml')
+        if terminal.get('workflow') == 'surface-run':
+            report = 'results/surface-run.json'
+        if terminal.get('workflow') == 'surface' and submitted and 'surface_suite' in submitted:
+            report = 'results/surface-' + submitted['surface_suite']['action'] + '.json'
         if terminal.get('workflow') == 'suite-run':
             report = 'results/suite-run.json'
         if terminal.get('workflow') == 'suite':
@@ -62,4 +78,3 @@ def validate_evidence(stage, attempt, submitted=None):
             if result.get('app') != submitted['surface_app']:
                 raise ValueError('Surface evidence disagrees with requested app')
     return terminal
-

@@ -59,10 +59,11 @@ def alive(attempt):
 def receipt(path, identity):
     try:
         data = json.loads(path.read_text())
-        return data.get('attempt') == identity and data.get('cleanup_verified') is True
-    except FileNotFoundError:
+        return (isinstance(data, dict) and data.get('attempt') == identity and
+                data.get('cleanup_verified') is True)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
-    # Corruption is not proof that cleanup finished. Fail closed.
+    # An unreadable receipt is not proof that cleanup finished. Fail closed.
 
 
 def prune(db, root):

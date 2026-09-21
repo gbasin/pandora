@@ -125,7 +125,9 @@ def network(root, item, admitted):
 
 def inventory(args):
     result = subprocess.run(['sudo', 'docker', *args, '--format', '{{json .}}'],
-                            check=True, capture_output=True, text=True, timeout=30)
+                            capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        raise OwnershipUnresolved('Docker inventory failed (' + ' '.join(args) + '): ' + result.stderr.strip())
     return [json.loads(line) for line in result.stdout.splitlines() if line]
 
 

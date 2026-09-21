@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single-slot warm experiment worker. Invoked in an uploaded attempt directory."""
+"""Isolated validation worker with configured resource admission. Invoked in an uploaded attempt directory."""
 import fcntl
 import hashlib
 import json
@@ -49,7 +49,14 @@ def mark_deadline_report(attempt=Path('.')):
     """Keep an already-written suite shard receipt consistent with terminal exit 124."""
     path = Path(attempt, 'results', 'suite-shard.json')
     if not path.is_file():
-        return False
+        surface = Path(attempt, 'results', 'surface-shard.json')
+        if not surface.is_file():
+            return False
+        report = json.loads(surface.read_text())
+        report['exit_code'] = 124
+        report['detail'] = 'Attempt deadline reached'
+        surface.write_text(json.dumps(report, indent=2) + '\n')
+        return True
     report = json.loads(path.read_text())
     errors = report.get('errors') if isinstance(report, dict) else None
     if (not isinstance(errors, dict) or type(errors.get('infrastructureFailures')) is not int or
@@ -79,6 +86,9 @@ def main():
         raise RuntimeError('Worker configuration changed after acceptance; no work started. Reconcile configuration before retry.')
     if configured:
         (attempt / 'execution-config.json').write_text(json.dumps(configured, indent=2) + '\n')
+    if submitted.get('workflow') == 'surface-run':
+        from surface_parent import execute
+        return execute(attempt, submitted)
     if submitted.get('workflow') == 'suite-run':
         from suite_parent import execute
         return execute(attempt, submitted)
@@ -156,6 +166,16 @@ def main():
     surface_app = submitted.get('surface_app', 'borrower-web')
     surface_outputs(surface_app)
     surface_selectors(submitted['selectors'])
+    surface_environment = []
+    if 'surface_suite' in submitted:
+        from surface_child import request
+        surface_task = request(submitted)
+        for key, value in {'PANDORA_SURFACE_SUITE_REQUEST': '/tmp/surface-request.json',
+                           'PANDORA_SURFACE_RUNNER_DIR': '/tmp',
+                           'PANDORA_SURFACE_ACTION': surface_task['action'],
+                           'PANDORA_SOURCE_DIGEST': submitted['source_digest'],
+                           'PANDORA_PARENT_ATTEMPT': submitted['parent_attempt']}.items():
+            surface_environment += ['-e', key + '=' + value]
     created = False
     status = 70
     execution = time.monotonic()
@@ -166,7 +186,7 @@ def main():
                '--label', 'pandora.workflow=surface', '--label', 'pandora.attempt=' + attempt.name,
                *docker_limits(submitted), '--pids-limit=512',
                '--shm-size=1g', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-               '--init', '-e', 'CI=true', '-e', 'PANDORA_SURFACE_APP=' + surface_app, image_id, 'bash', '/tmp/pandora-run.sh',
+               '--init', '-e', 'CI=true', '-e', 'PANDORA_SURFACE_APP=' + surface_app, *surface_environment, image_id, 'bash', '/tmp/pandora-run.sh',
                *submitted['selectors'], stdout=subprocess.DEVNULL)
         created = True
         # Installation inputs already exist byte-for-byte in the keyed image.
@@ -184,6 +204,9 @@ def main():
             docker('cp', '-a', '-', name + ':/workspace/source', stdin=archive)
         overlay.unlink()
         docker('cp', str(attempt / 'in-container.sh'), name + ':/tmp/pandora-run.sh')
+        if 'surface_suite' in submitted:
+            from surface_child import materialize
+            materialize(attempt, submitted, name, docker)
         # docker cp writes root-owned input; dependencies retain node ownership.
         # No writable host source mount is exposed to the test process.
         run('sudo', 'systemd-run', '--quiet', '--unit=' + name + '-deadline',
@@ -260,6 +283,9 @@ if __name__ == '__main__':
         Path('queue.json.tmp').replace('queue.json')
     from suite_parent_cleanup import cleanup as cleanup_suite
     suite_clean = cleanup_suite(Path.cwd())
+    if status == 130:
+        from surface_cancellation import write_receipt
+        write_receipt(Path.cwd(), json.loads(Path('submission.json').read_text()), suite_clean)
     # A terminal record is usable for another submission only when the owned
     # container is absent or stopped. Unknown Docker state cannot clear a job.
     name = 'pandora-warm-' + Path.cwd().name
@@ -281,7 +307,7 @@ if __name__ == '__main__':
     Path('artifacts.json').write_text(json.dumps(artifacts, indent=2) + '\n')
     terminal = {'state': 'terminal', 'attempt': Path.cwd().name, 'exit_code': status,
                 'workflow': json.loads(Path('submission.json').read_text()).get('workflow', 'surface'),
-                'cleanup_verified': suite_clean and not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
+                'cleanup_verified': suite_clean and not Path('surface-cleanup.pending').exists() and not Path('service-cleanup.pending').exists() and not Path('docker-cleanup.pending').exists() and check.returncode == 0 and not check.stdout.strip() and not Path('dependency-cleanup.pending').exists()}
     Path('terminal.json.tmp').write_text(json.dumps(terminal) + '\n')
     Path('terminal.json.tmp').replace('terminal.json')
     from dependency_images import release

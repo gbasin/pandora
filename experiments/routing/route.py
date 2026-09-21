@@ -13,7 +13,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / 'warm'))
-from commands import classify, selected_surface, suite_request
+from commands import classify, selected_surface, suite_request, surface_suite_request
 from workflow_options import surface_outputs
 from transport import query, validate_evidence, validate_operator_result
 from delivery import deliver
@@ -192,6 +192,7 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
         print('[pandora] ' + message, file=sys.stderr)
         return 64
     suite = None
+    surface_suite = None
     if action == 'suite-run':
         error = suite_environment_error(os.environ)
         if error:
@@ -202,6 +203,14 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
         except ValueError as error:
             print('[pandora] ' + str(error), file=sys.stderr)
             return 64
+    if action == 'remote':
+        try:
+            surface_suite = surface_suite_request(
+                argv, suite_shard_count(os.environ.get('PANDORA_SUITE_SHARDS', '4')))
+        except ValueError as error:
+            if str(error) != 'Not a surface command':
+                print('[pandora] ' + str(error), file=sys.stderr)
+                return 64
     repo = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
     if Path.cwd().resolve() != repo.resolve():
         print('[pandora] Run this validation command from the repository root. No validation started.', file=sys.stderr)
@@ -283,6 +292,15 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                 else:
                     print('[pandora] Incomplete capture remains unresolved. No new request submitted.', file=sys.stderr)
                 return 75
+            if not observer and record.get('protocol') == 2:
+                abandoned = control(output, 'abandon-unregistered', record.get('attempt'))
+                if abandoned and abandoned.get('state') == 'abandoned-unregistered':
+                    record.update(state='capture-aborted', remote=abandoned)
+                    write(active, record)
+                    write(output / 'completed.json', {'attempt': record['attempt'],
+                                                      'outcome': 'capture-aborted'})
+                    print('[pandora] Remote worker never registered. This captured request was aborted before work; run the command again to start a fresh request.', file=sys.stderr)
+                    return 75
             print(f'[pandora] Recovering existing request, without resubmitting source. Evidence: {output}', flush=True)
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/transport.py'),
                        os.environ['PANDORA_HOST'], str(output),
@@ -300,10 +318,15 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                 return 64
             record = {'state': 'active', 'protocol': 2, 'tool': tool, 'output': str(output), 'command': argv, 'host': os.environ['PANDORA_HOST'], 'session': os.environ['PANDORA_SESSION'], 'attempt': attempt, 'queue_timeout_seconds': timeout, 'artifact_delivery_limit_bytes': delivery_limit}
             suite_request_path = None
+            surface_suite_request_path = None
             if suite is not None:
                 suite_request_path = state / (attempt + '.suite-request.json')
                 write(suite_request_path, suite)
                 record['suite_request'] = str(suite_request_path)
+            if surface_suite is not None:
+                surface_suite_request_path = state / (attempt + '.surface-suite-request.json')
+                write(surface_suite_request_path, surface_suite)
+                record['surface_suite_request'] = str(surface_suite_request_path)
             write(active, record)
             owner = locked(owner_path(output))
             print(f'[pandora] accepted {attempt}; recover feedback with `pandora wait {attempt}`. Evidence: {output}', flush=True)
@@ -315,12 +338,16 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
             command = [sys.executable, '-B', str(ROOT.parent / 'warm/warm.py'),
                        '--host', os.environ['PANDORA_HOST'], '--repo', str(repo),
                        '--output', str(output), '--attempt', record['attempt'],
-                       '--workflow', action if action in ('journey', 'docker', 'suite-run') else 'surface',
+                       '--workflow', ('surface-run' if surface_suite is not None
+                                      else action if action in ('journey', 'docker', 'suite-run') else 'surface'),
                        '--queue-timeout-seconds', str(record['queue_timeout_seconds']),
                        '--artifact-delivery-limit-bytes', str(delivery_limit),
                        '--selectors-json=' + json.dumps(selectors)]
             if action == 'remote':
-                command += ['--surface-app', selected_surface(argv)]
+                if surface_suite is not None:
+                    command += ['--surface-suite-request', str(surface_suite_request_path)]
+                else:
+                    command += ['--surface-app', selected_surface(argv)]
             if docker_request is not None:
                 command += ['--docker-request', json.dumps({'request': docker_request, 'config': config, 'worktree_key': key})]
             if suite_request_path is not None:
@@ -406,6 +433,9 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                     return 75
                 if terminal['exit_code'] == 0 and submitted.get('workflow', 'surface') == 'surface':
                     deliver(repo, output, outputs=surface_outputs(submitted.get("surface_app", "borrower-web")))
+                if terminal['exit_code'] == 0 and submitted.get('workflow') == 'surface-run':
+                    from surface_delivery import deliver_surface
+                    deliver_surface(repo, output, submitted)
                 if terminal['exit_code'] == 0 and request.get('kind') == 'run':
                     deliver(repo, output, outputs=tuple(x['workspace'] for x in submitted['docker']['config']['outputs']))
                 if updates is not None:

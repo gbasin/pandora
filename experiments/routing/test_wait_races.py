@@ -162,7 +162,8 @@ class WaitRaceTests(unittest.TestCase):
             return 0
         child = type('Child', (), {'wait': lambda self: finished_after_replacement()})()
         env, argv, git, cwd = self.routing()
-        with env, argv, git, cwd, patch('route.subprocess.Popen', return_value=child), \
+        with env, argv, git, cwd, patch('route.control', return_value=None), \
+             patch('route.subprocess.Popen', return_value=child), \
              patch('route.deliver', side_effect=AssertionError('late owner must not publish')):
             self.assertEqual(route.main(), 75)
         self.assertEqual(json.loads((self.state / 'active.json').read_text()), new)
@@ -208,11 +209,33 @@ class WaitRaceTests(unittest.TestCase):
         _, _ = self.active(attempt)
         child = type('Child', (), {'wait': lambda self: 75})()
         env, argv, git, cwd = self.routing()
-        with env, argv, git, cwd, patch('route.subprocess.Popen', return_value=child) as launched:
+        with env, argv, git, cwd, patch('route.control', return_value=None), \
+             patch('route.subprocess.Popen', return_value=child) as launched:
             self.assertEqual(route.main(), 75)
         command = launched.call_args.args[0]
         self.assertIn('transport.py', command[2])
         self.assertEqual(json.loads((self.state / 'active.json').read_text())['attempt'], attempt)
+
+    def test_dead_owner_abandons_only_proven_unregistered_request(self):
+        attempt = '3' * 32
+        output, _ = self.active(attempt)
+        env, argv, git, cwd = self.routing()
+        with env, argv, git, cwd, patch('route.control', return_value={'state': 'abandoned-unregistered'}), \
+             patch('route.subprocess.Popen', side_effect=AssertionError('must not follow abandoned request')):
+            self.assertEqual(route.main(), 75)
+        record = json.loads((self.state / 'active.json').read_text())
+        self.assertEqual(record['state'], 'capture-aborted')
+        self.assertEqual(json.loads((output / 'completed.json').read_text())['outcome'], 'capture-aborted')
+
+    def test_observer_never_attempts_unregistered_abandonment(self):
+        attempt = '4' * 32
+        self.active(attempt)
+        env, argv, git, cwd = self.routing()
+        child = type('Child', (), {'wait': lambda self: 75})()
+        with env, argv, git, cwd, patch('route.control') as control, \
+             patch('route.subprocess.Popen', return_value=child):
+            self.assertEqual(route.main(expected_attempt=attempt, observer=True), 75)
+        control.assert_not_called()
 
     def test_observer_interrupt_never_cancels_original_attempt(self):
         attempt = '2' * 32

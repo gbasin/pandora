@@ -56,6 +56,20 @@ class Delivery(unittest.TestCase):
             deliver(self.repo, self.output)
         self.assertEqual((target / 'source').read_text(), 'keep')
 
+    def test_parent_journal_publishes_outputs_from_reserved_child(self):
+        child_outputs = self.output / 'results/attempts' / ('a' * 32) / 'results/outputs'
+        manifest = {}
+        for name in OUTPUTS:
+            path = child_outputs / name / 'index.html'
+            path.parent.mkdir(parents=True)
+            path.write_text('child-' + name)
+            manifest[str(path.relative_to(self.output))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        (self.output / 'artifacts.json').write_text(json.dumps(manifest))
+        deliver(self.repo, self.output, source_outputs=child_outputs)
+        for index, name in enumerate(OUTPUTS):
+            self.assertEqual((self.repo / name / 'index.html').read_text(), 'child-' + name)
+            self.assertTrue((self.output / 'publication' / str(index)).is_dir())
+
 
 if __name__ == '__main__':
     unittest.main()

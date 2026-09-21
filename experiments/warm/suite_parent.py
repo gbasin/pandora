@@ -267,7 +267,7 @@ def execute_configured(parent, submitted):
     def stop_reason(value):
         nonlocal reason
         priority = {None: 0, 'test-failure': 1, 'planning-failed': 2,
-                    'infrastructure': 2, 'queue-timeout': 3, 'deadline': 4}
+                    'infrastructure': 2, 'cancelled': 3, 'queue-timeout': 3, 'deadline': 4}
         if priority[value] > priority[reason]:
             reason = value
             state['stop_reason'] = value
@@ -303,63 +303,38 @@ def execute_configured(parent, submitted):
     plan = json.loads((planner / 'results/suite-plan.json').read_text())
     write(parent / 'results/suite-plan.json', plan)
 
-    next_shard, futures, cancelled = 1, {}, Event()
-    pool = ThreadPoolExecutor(max_workers=submitted['worker_config']['max_parallel'])
-    try:
-        while (next_shard <= request['shard_count'] and reason is None) or futures:
-            while reason is None and next_shard <= request['shard_count'] and len(futures) < submitted['worker_config']['max_parallel']:
-                identity = children[next_shard]
-                child = stage_child(parent, identity, submitted, {'action': 'shard', 'plan': plan, 'shard': next_shard})
-                state['dispatched'].append(identity); write(parent / 'suite-state.json', state)
-                futures[pool.submit(_configured_child, parent, child, started, queue, parent.name,
-                                     submitted['worker_config']['execution_seconds'], cancelled)] = (identity, child, next_shard)
-                next_shard += 1
-            if not futures: break
-            done, _ = wait(futures, return_when=FIRST_COMPLETED)
-            for future in done:
-                identity, child, index = futures.pop(future)
-                terminal = finish(identity, child, future.result())
-                report_path = child / 'results/suite-shard.json'
-                if not report_path.exists():
-                    stopped = next(row['stopped'] for row in queue.snapshot()['invocations'] if row['identity'] == parent.name)
-                    if stopped == 'test-failure' and terminal['exit_code'] == 75:
-                        stop_reason('test-failure')  # A withdrawn waiter never tested a shard.
-                    else:
-                        stop_reason('queue-timeout' if stopped == 'queue-timeout' else 'infrastructure')
-                else:
-                    report = json.loads(report_path.read_text()); reports[index] = report
-                    infra = (report['errors']['infrastructureFailures'] or report['errors']['unrunJourneys']
-                             or report['exit_code'] not in (0, 1))
-                    if infra: stop_reason('infrastructure')
-                    elif terminal['exit_code'] and not request['keep_going']:
-                        stop_reason('test-failure')
-                if reason:
-                    state['stop_reason'] = reason; write(parent / 'suite-state.json', state)
-                    if reason != 'queue-timeout' and reason != 'deadline': queue.stop(parent.name, reason)
-            if reason and not futures: break
-    except BaseException as error:
-        cancelled.set()
-        failed_reason = 'cancelled' if isinstance(error, KeyboardInterrupt) else 'infrastructure'
-        state['stop_reason'] = failed_reason
-        # Preserve the triggering exception even when the scheduler is already
-        # stopped or unavailable.  No synthetic child receipt is written here.
-        try:
-            queue.stop(parent.name, failed_reason)
-        except BaseException:
-            pass
-        try:
-            write(parent / 'suite-state.json', state)
-        except BaseException:
-            pass
-        # Futures observe the event and reap their children; do not leave the
-        # executor waiting for an execution deadline.
-        try:
-            pool.shutdown(wait=True, cancel_futures=True)
-        except BaseException:
-            pass
-        raise
-    else:
-        pool.shutdown(wait=True)
+    from configured_dispatch import dispatch
+    cancelled = Event()
+    def stage(index):
+        identity = children[index]
+        return identity, stage_child(parent, identity, submitted, {'action': 'shard', 'plan': plan, 'shard': index})
+    def run(identity, child, event):
+        return _configured_child(parent, child, started, queue, parent.name,
+                                 submitted['worker_config']['execution_seconds'], event)
+    def completed(identity, child, stopped):
+        return finish(identity, child, stopped), stopped
+    def classify(index, child, terminal, stopped):
+        report_path = child / 'results/suite-shard.json'
+        if not report_path.exists():
+            ledger = next(row['stopped'] for row in queue.snapshot()['invocations'] if row['identity'] == parent.name)
+            return 'test-failure' if ledger == 'test-failure' and terminal['exit_code'] == 75 else ('queue-timeout' if ledger == 'queue-timeout' else 'infrastructure')
+        report = json.loads(report_path.read_text()); reports[index] = report
+        if report['errors']['infrastructureFailures'] or report['errors']['unrunJourneys'] or report['exit_code'] not in (0, 1): return 'infrastructure'
+        if terminal['exit_code'] and not request['keep_going']: return 'test-failure'
+        return None
+    def stop(current, observed):
+        nonlocal reason
+        stop_reason(observed)
+        if reason not in ('queue-timeout', 'deadline'):
+            queue.stop(parent.name, reason)
+        return reason
+    def persist(kind, value):
+        if kind in ('dispatched', 'completed'): state[kind].append(value)
+        else: state[kind] = value
+        write(parent / 'suite-state.json', state)
+    reason = dispatch(count=request['shard_count'], parallel=submitted['worker_config']['max_parallel'],
+                      stage=stage, run=run, finish=completed, classify=classify, stop=stop,
+                      persist=persist, cancelled=cancelled, wait_for=wait)
     state['queue_seconds'] = _configured_waited(queue, parent.name)
     write(parent / 'queue.json', {'mode': 'resource', 'invocation': parent.name,
           'waited': state['queue_seconds'], 'config_digest': __import__('worker_config').identity(submitted['worker_config'])})
