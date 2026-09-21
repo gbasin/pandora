@@ -108,4 +108,5 @@ briefs, controller start/end records, `root-receipt-audit.json`,
 `agent-action-audit.json`, `timing-audit.json`, host samples, the setup deviation,
 and all 24 authenticated attempts. The controller run is
 `pandora-v01-surface-ramp-20260921`. Runtime and input revision records are stored
-alongside it. No evaluator process remains active.
+alongside it. After all lanes completed, controller cleanup stopped the run supervisor and
+marked the run cleaned. It preserved every worktree and evidence file.
