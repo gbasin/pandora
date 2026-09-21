@@ -77,7 +77,7 @@ golden)
 clone)
   name=$2
   t0=$(date +%s.%N)
-  $I copy fc-golden/warm "$name" --instance-only
+  $I copy fc-golden/warm "$name"
   t1=$(date +%s.%N)
   $I start "$name"
   for _ in $(seq 1 200); do $I exec "$name" -- test -e /run/systemd/system && break; sleep 0.2; done
