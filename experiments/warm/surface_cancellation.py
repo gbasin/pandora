@@ -42,6 +42,7 @@ def validate_receipt(stage, submitted, terminal, manifest):
             or value.get('parent_attempt') != submitted.get('attempt')
             or value.get('source_digest') != submitted.get('source_digest')
             or not isinstance(value.get('children'), list)
+            or not isinstance(value.get('source_digest'), str)
             or not _DIGEST.fullmatch(value['source_digest'])):
         raise ValueError('Invalid surface cancellation receipt')
     registry = stage / 'children.json'

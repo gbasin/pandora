@@ -7,7 +7,7 @@ import unittest
 from evidence import validate_evidence
 from snapshot import digest
 from surface_parent import validate_result
-from surface_parent_evidence import summarize
+from surface_parent_evidence import summarize, output_conflicts
 from surface_suite import outputs_manifest, plan_digest
 from test_surface_suite import plan, report
 from worker_config import identity as config_identity
@@ -127,6 +127,32 @@ class SurfaceParentTests(unittest.TestCase):
         path = self.stage / 'suite-state.json'; value = json.loads(path.read_text())
         value['completed'].append(value['completed'][0]); write(path, value)
         with self.assertRaises(ValueError): validate_result(self.stage, submitted, terminal, manifest)
+
+    def test_conflicting_outputs_are_terminal_nonpass_and_identical_duplicates_are_allowed(self):
+        submitted, terminal, manifest, children = self.fixture()
+        name = 'results/generated/apps/borrower-web/e2e/dist/evidence.png'
+        for index, contents in ((1, 'first'), (2, 'different')):
+            child = self.stage / 'results/attempts' / children[index]
+            (child / name).parent.mkdir(parents=True, exist_ok=True); (child / name).write_text(contents)
+            metadata = json.loads((child / 'submission.json').read_text()); receipt(child, metadata, 0)
+        conflicts = output_conflicts(self.stage, children, 'borrower-web')
+        self.assertEqual(len(conflicts), 1)
+        with self.assertRaisesRegex(ValueError, 'conflicting generated outputs'):
+            validate_result(self.stage, submitted, terminal, manifest)
+        path = self.stage / 'results/surface-run.json'; result = json.loads(path.read_text())
+        frozen = json.loads((self.stage / 'results/surface-plan.json').read_text())
+        result = summarize(frozen, result['reports'], keep_going=False, stop_reason='infrastructure'); write(path, result)
+        state = json.loads((self.stage / 'suite-state.json').read_text()); state['stop_reason'] = 'infrastructure'
+        write(self.stage / 'suite-state.json', state)
+        write(self.stage / 'results/surface-output-error.json', {'version': 1, 'parent_attempt': submitted['attempt'],
+              'source_digest': submitted['source_digest'], 'conflicts': conflicts})
+        terminal, manifest = receipt(self.stage, submitted, 75)
+        validate_result(self.stage, submitted, terminal, manifest)
+        second = self.stage / 'results/attempts' / children[2]
+        (second / name).write_text('first'); receipt(second, json.loads((second / 'submission.json').read_text()), 0)
+        self.assertEqual(output_conflicts(self.stage, children, 'borrower-web'), [])
+        with self.assertRaisesRegex(ValueError, 'conflict differs'):
+            validate_result(self.stage, submitted, terminal, manifest)
 
     def test_nonfinite_queue_clock_is_rejected(self):
         submitted, terminal, manifest, _ = self.fixture()

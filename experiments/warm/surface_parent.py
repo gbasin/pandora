@@ -7,7 +7,7 @@ from threading import Event
 
 from configured_dispatch import dispatch
 from evidence import validate_evidence
-from surface_parent_evidence import summarize
+from surface_parent_evidence import summarize, output_conflicts
 from surface_suite import surface_request, validate_plan, validate_shard
 from suite_parent import _configured_child, reserve, retain, write
 from suite_parent_cleanup import validate_registry
@@ -90,6 +90,15 @@ def execute(parent, submitted):
     reason = dispatch(count=request['shard_count'], parallel=submitted['worker_config']['max_parallel'], stage=stage, run=run,
                       finish=finish, classify=classify, stop=stop, persist=persist, cancelled=cancelled)
     result = summarize(plan, list(reports.values()), keep_going=request['keep_going'], stop_reason=reason)
+    if result['exit_code'] == 0:
+        conflicts = output_conflicts(parent, children, request['app'])
+        if conflicts:
+            write(parent / 'results/surface-output-error.json', {'version': 1, 'parent_attempt': parent.name,
+                  'source_digest': submitted['source_digest'], 'conflicts': conflicts})
+            result = summarize(plan, list(reports.values()), keep_going=request['keep_going'], stop_reason='infrastructure')
+            print('[pandora] Generated outputs conflict between shards. Inspect results/surface-output-error.json; '
+                  'use distinct output names or an operator profile with one shard for the next run. '
+                  'This invocation is complete; no workspace output will be published.', flush=True)
     waited = next(row['waited'] for row in queue.snapshot()['invocations'] if row['identity'] == parent.name)
     state['queue_seconds'] = waited
     from worker_config import identity as config_identity
@@ -179,6 +188,17 @@ def validate_result(stage, submitted, terminal, manifest):
             raise ValueError('Surface planning failure differs from retained evidence')
         return
     result = json.loads((stage / 'results/surface-run.json').read_text())
+    conflicts = output_conflicts(stage, children, request['app'])
+    error_name = 'results/surface-output-error.json'
+    if error_name in manifest:
+        error = json.loads((stage / error_name).read_text())
+        if (not conflicts or state['stop_reason'] != 'infrastructure' or terminal['exit_code'] != 75
+                or len(reports) != request['shard_count'] or any(row['exit_code'] for row in reports)
+                or error != {'version': 1, 'parent_attempt': submitted['attempt'],
+                             'source_digest': submitted['source_digest'], 'conflicts': conflicts}):
+            raise ValueError('Surface output conflict differs from retained artifacts')
+    elif terminal['exit_code'] == 0 and conflicts:
+        raise ValueError('Successful surface invocation has conflicting generated outputs')
     expected_result = summarize(plan, reports, keep_going=request['keep_going'], stop_reason=state['stop_reason'])
     if result != expected_result or terminal['exit_code'] != expected_result['exit_code']:
         raise ValueError('Surface aggregate differs from retained shard receipts')

@@ -39,3 +39,26 @@ def validate_summary(plan, result):
     expected = summarize(plan, result['reports'], keep_going=result['keep_going'], stop_reason=result['stop_reason'])
     if result != expected: raise ValueError('Surface parent summary differs from receipts')
     return result
+
+
+def output_conflicts(stage, children, app):
+    """Find contradictory generated writes in already-authenticated child artifacts."""
+    import json
+    from workflow_options import surface_outputs
+    destinations = {}
+    roots = surface_outputs(app)
+    for index, identity in enumerate(children):
+        child = stage / 'results/attempts' / identity
+        path = child / 'artifacts.json'
+        if not path.exists():
+            continue
+        prefix = 'results/outputs/' if index == 0 else 'results/generated/'
+        for name, digest in json.loads(path.read_text()).items():
+            if not name.startswith(prefix):
+                continue
+            relative = name[len(prefix):]
+            if not any(relative.startswith(root + '/') for root in roots):
+                raise ValueError('Surface artifact is outside declared outputs')
+            destinations.setdefault(relative, []).append((digest, f'results/attempts/{identity}/{name}'))
+    return [{'path': path, 'artifacts': sorted(source for _, source in sources)}
+            for path, sources in sorted(destinations.items()) if len({digest for digest, _ in sources}) > 1]
