@@ -1,6 +1,7 @@
 """Read/cancel exactly one experiment attempt. Sent to the worker over SSH."""
 import json
 import os
+import fcntl
 from pathlib import Path, PurePosixPath
 import re
 import signal
@@ -59,11 +60,38 @@ def main():
     offsets = [int(x) for x in sys.argv[3:5]] or [0, 0]
     if len(offsets) != 2 or any(x < 0 for x in offsets):
         raise ValueError('Invalid log offsets')
-    if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel', 'release', 'artifact-stats', 'operator-result'}:
+    if not re.fullmatch('[0-9a-f]{32}', attempt) or action not in {'status', 'cancel', 'release', 'artifact-stats', 'operator-result', 'abandon-unregistered'}:
         raise ValueError('Invalid attempt/action')
     path = Path.home() / 'pandora-warm/runs' / attempt
     if action == 'artifact-stats':
         print(json.dumps(artifact_stats(path, attempt)))
+        return
+    if action == 'abandon-unregistered':
+        if path.is_symlink() or not path.is_dir():
+            print(json.dumps({'state': 'unresolved'}))
+            return
+        lock_path = path / 'attempt.lock'
+        lock = None
+        try:
+            lock = lock_path.open('a')
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if lock is not None:
+                lock.close()
+            print(json.dumps({'state': 'worker-owned', 'registered': (path / 'worker.json').exists()}))
+            return
+        try:
+            if (path / 'worker.json').exists():
+                print(json.dumps({'state': 'registered', 'registered': True}))
+                return
+            descriptor = os.open(path / 'cancel.request', os.O_WRONLY | os.O_CREAT, 0o600)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            print(json.dumps({'state': 'abandoned-unregistered', 'registered': False}))
+        finally:
+            lock.close()
         return
     if action == 'cancel':
         path.mkdir(parents=True, exist_ok=True)
