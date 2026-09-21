@@ -43,9 +43,10 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--repo', required=True, type=Path)
     p.add_argument('--output', required=True, type=Path)
-    p.add_argument('--workflow', choices=['surface', 'journey', 'docker', 'suite', 'suite-run'], default='surface')
+    p.add_argument('--workflow', choices=['surface', 'journey', 'docker', 'suite', 'suite-run', 'surface-run'], default='surface')
     p.add_argument('--require-warm', action='store_true')
     p.add_argument('--docker-request')
+    p.add_argument('--surface-suite-request', type=Path)
     p.add_argument('--suite-request', type=Path, help='Private plan/shard request JSON; suite routing remains experimental')
     p.add_argument('--attempt', default=None)
     p.add_argument('--journey-update', action='store_true')
@@ -85,6 +86,23 @@ def main():
             p.error(str(error))
     elif args.suite_request is not None:
         p.error('--suite-request requires --workflow suite')
+    surface_suite = None
+    if args.workflow == 'surface-run':
+        if args.surface_suite_request is None:
+            p.error('Surface suite requires --surface-suite-request')
+        try:
+            from surface_suite import surface_request
+            surface_suite = surface_request(json.loads(args.surface_suite_request.read_text()))
+            if surface_suite['action'] != 'run':
+                raise ValueError('Surface parent requires a run request')
+            if args.selectors and args.selectors != surface_suite['selectors']:
+                raise ValueError('Surface selectors differ from the suite request')
+            args.selectors = surface_suite['selectors']
+            args.surface_app = surface_suite['app']
+        except (OSError, ValueError) as error:
+            p.error(str(error))
+    elif args.surface_suite_request is not None:
+        p.error('--surface-suite-request requires --workflow surface-run')
     if args.journey_update:
         if args.workflow != 'journey':
             p.error('--journey-update requires a journey workflow')
@@ -122,7 +140,9 @@ def main():
         metadata['suite'] = suite
         from suite import suite_config
         suite_config(metadata)  # Reject changed source before any remote submission.
-    if args.workflow == 'surface':
+    if surface_suite is not None:
+        metadata['surface_suite'] = surface_suite
+    if args.workflow in ('surface', 'surface-run'):
         metadata['surface_app'] = args.surface_app
     if args.workflow == 'docker':
         metadata['docker'] = spec
@@ -158,6 +178,10 @@ def main():
     if prepared.get('worker_config'):
         from worker_config import validate
         metadata['worker_config'] = validate(prepared['worker_config'])
+    if surface_suite is not None and not metadata.get('worker_config'):
+        print('[pandora] Surface sharding requires a configured worker. Ask the operator to install worker-config.json; no tests started.', flush=True)
+        (output / 'submission.json').unlink()
+        return 64
     home = prepared['home']
     if not re.fullmatch(r'/[a-zA-Z0-9_/-]+', home):
         raise RuntimeError('Unsupported remote home path')

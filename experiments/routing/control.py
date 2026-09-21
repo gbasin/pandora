@@ -130,7 +130,7 @@ def main():
     if result is not None and 'operator_result' not in result:
         if action == 'release' and result.get('cleanup_verified'):
             (path / 'released').touch()
-            if result.get('workflow') == 'suite-run':
+            if result.get('workflow') in ('suite-run', 'surface-run'):
                 sys.path.insert(0, str(path))
                 from suite_parent_cleanup import validate_registry
                 for identity in validate_registry(path, json.loads((path / 'children.json').read_text())):

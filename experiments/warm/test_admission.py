@@ -107,10 +107,20 @@ class AdmissionTests(unittest.TestCase):
         self.running('a' * 32)
         _, b = self.start('b')
         child.kill(); child.join()
+        attempt = self.root / 'runs' / ('a' * 32)
+        # Production cleanup publishes atomically, but a corrupt or externally
+        # interrupted receipt must not crash this waiting worker or release it.
+        (attempt / 'admission-cleanup.json').write_text('{')
         with self.assertRaises(queue.Empty):
             self.events.get(timeout=.15)
-        attempt = self.root / 'runs' / ('a' * 32)
-        (attempt / 'admission-cleanup.json').write_text(json.dumps({'attempt': attempt.name, 'cleanup_verified': True}))
+        self.assertTrue(self.children[-1][0].is_alive())
+        (attempt / 'admission-cleanup.json').write_text('[]')
+        with self.assertRaises(queue.Empty):
+            self.events.get(timeout=.15)
+        self.assertTrue(self.children[-1][0].is_alive())
+        temporary = attempt / 'admission-cleanup.json.tmp'
+        temporary.write_text(json.dumps({'attempt': attempt.name, 'cleanup_verified': True}))
+        temporary.replace(attempt / 'admission-cleanup.json')
         self.running('b' * 32)
         b.set(); self.terminal('b' * 32, 0)
         self.assertFalse((attempt / 'terminal.json').exists())

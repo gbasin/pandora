@@ -22,6 +22,48 @@ def suite_request(argv, shard_count):
             'keep_going': keep_going, 'update': update}
 
 
+def surface_suite_request(argv, shard_count):
+    """Return a bounded surface-run request without changing the public argv."""
+    command = argv[1:] if argv[:1] == ['run'] else argv
+    if command[:1] == ['test:surface']:
+        if len(command) < 2 or command[1] not in APPS:
+            raise ValueError('Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going].')
+        app, options = command[1], command[2:]
+    elif command[:2] == ['validate', 'surface']:
+        if len(command) < 3 or command[2] not in APPS:
+            raise ValueError('Use pnpm validate surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going].')
+        app, options = command[2], command[3:]
+    else:
+        raise ValueError('Not a surface command')
+    selectors, keep_going = surface_suite_options(options)
+    return {'action': 'run', 'app': app, 'selectors': selectors,
+            'shard_count': shard_count, 'keep_going': keep_going}
+
+
+def surface_suite_options(options):
+    """Remove only a standalone keep-going option, never a grep pattern."""
+    selectors = []
+    keep_going = False
+    index = 0
+    while index < len(options):
+        option = options[index]
+        if option == '--grep':
+            selectors.append(option)
+            if index + 1 < len(options):
+                selectors.append(options[index + 1])
+            index += 2
+            continue
+        if option == '--keep-going':
+            if keep_going:
+                raise ValueError('Use at most one --keep-going for surface validation.')
+            keep_going = True
+            index += 1
+            continue
+        selectors.append(option)
+        index += 1
+    return surface_selectors(selectors), keep_going
+
+
 def classify(argv, treatment='normal'):
     command = argv[1:] if argv[:1] == ['run'] else argv
     journey = command[1:] if command[:1] == ['validate'] else command
@@ -60,7 +102,8 @@ def classify(argv, treatment='normal'):
     else:
         return 'local', [], ''
     try:
-        return 'remote', surface_selectors(selectors), ''
+        surface, _ = surface_suite_options(selectors)
+        return 'remote', surface, ''
     except ValueError as error:
         return 'reject', [], str(error) + '. No validation started.'
 
