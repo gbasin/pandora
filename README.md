@@ -7,7 +7,8 @@ repository or other engineers' shells.
 
 The v0.1 implementation supports Eichler browser surfaces, service-backed journeys,
 sharded full suites, expectation updates, and a bounded Docker build/run profile.
-Final twelve-agent evaluation is in progress. [Issue #27](https://github.com/gbasin/pandora/issues/27)
+The evaluated v0.1 passed twelve simultaneous local agent repair loops on a
+two-slot remote worker. [Issue #27](https://github.com/gbasin/pandora/issues/27)
 tracks readiness against the [v0.1 contract](notes/v0.1-contract.md).
 
 ## Start a session
@@ -105,7 +106,11 @@ Logs and reports return under the printed absolute evidence path:
 ```
 
 Surface suites build production and fixture assets once, then run native Playwright
-shards against that build. Shard screenshots return with the compiled outputs.
+shards against that build. Shard screenshots return with the compiled outputs. If shards produce different bytes
+for the same output path, the command returns 75 and retains both artifacts with
+`results/surface-output-error.json`. Use distinct filenames or an operator profile
+with one shard before starting a new run. The completed conflicting run does not
+block that new invocation.
 
 Successful surface validation replaces `apps/<app>/dist` and
 `apps/<app>/e2e/dist`. These are exclusively owned generated directories. Each
@@ -142,7 +147,8 @@ stop dispatching after their first test failure; `--keep-going` collects further
 failures. Already-running shards drain. Infrastructure failure or deadline expiry
 stops dispatch regardless of this flag.
 
-`--suite-shards` partitions both browser and journey suites. It defaults to four and accepts 1–32. Shard count controls partitioning,
+`--suite-shards` partitions both browser and journey suites. It defaults to four
+and accepts 1–32. Shard count controls partitioning,
 not simultaneous resource availability. `--queue-timeout-seconds` defaults to 900
 and accepts 1–86400. A suite consumes one cumulative waiting budget only when work
 is waiting and none of its shards is admitted. Execution has a separate deadline.
@@ -150,6 +156,11 @@ Accepted limits survive reconnection.
 
 The evaluated worker has four CPUs and about 16 GiB RAM, with two admitted slots,
 a 3.5 CPU / 13,000 MiB reservation ceiling, and a 1,500-second execution deadline.
+The twelve-session trial completed all twelve repair loops without coaching or
+infrastructure failures. Maximum invocation queue time was 489 seconds. The
+16 GiB Mac reached warning memory pressure during startup, then returned to normal;
+shell latency stayed low. See the [measurement limits and setup deviation](notes/agent-ramp-2026-09-21-verified.md).
+
 Twelve local sessions therefore queue behind two heavy executions. More sessions
 do not imply twelve simultaneous test containers. Increasing concurrency requires
 more worker resources and a drained configuration change.
@@ -191,6 +202,10 @@ conflict-resolution loops, generated-output recovery, Docker image isolation,
 client/SSH loss, worker loss, OOM, deadlines, disk exhaustion, and artifact-limit
 recovery. Key records:
 
+- [Full browser suites, artifact return, and cancellation](notes/browser-shards-2026-09-20.md)
+- [Headless Claude foreground behavior](notes/headless-cli-2026-09-21-evidence.md)
+- [Earlier twelve-agent recovery trial](notes/agent-ramp-2026-09-20-wait-recovery.md)
+- [Earlier headless failure and local CPU confounder](notes/agent-ramp-2026-09-20-headless-failure.md)
 - [Full catalog return and validation](notes/catalog-return-validation-2026-09-20.md)
 - [Configured overlap and resource fault probes](notes/multislot-resource-probes-2026-09-20.md)
 - [Real-agent expectation conflicts](notes/expectation-conflicts-2026-09-20-agents.md)
@@ -198,7 +213,11 @@ recovery. Key records:
 - [Docker coding loops](notes/remote-docker-2026-09-20-routing.md)
 - [Dependency isolation](notes/remote-surface-2026-09-20-dependency-isolation.md)
 - [Compiled build invalidation](notes/compiled-build-2026-09-20.md)
+- [Verified twelve-agent trial and measured operating limits](notes/agent-ramp-2026-09-21-verified.md)
 - [Initial twelve-agent trial and its failed readiness gate](notes/agent-ramp-2026-09-20-initial.md)
+
+The assembled browser-sharding runtime passed 267 worker tests and 96 routing
+tests. Both complete browser suites passed: 298 Desk tests and 433 borrower tests.
 
 These controlled trials are not long-term reliability measurements. Multi-server
 placement, arbitrary Docker/Compose commands, detached services, interactive previews,
