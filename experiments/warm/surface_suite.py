@@ -1,7 +1,7 @@
 """Immutable request, plan, and shard evidence for sharded browser surfaces."""
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 
 from workflow_options import APPS, surface_outputs, surface_selectors
@@ -75,7 +75,9 @@ def outputs_manifest(root, app):
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError('Missing generated surface output: ' + output)
         for path in sorted(directory.rglob('*')):
-            if path.is_symlink() or not path.is_file():
+            if path.is_symlink():
+                raise ValueError('Unsafe generated surface output: ' + str(path))
+            if not path.is_file():
                 if not path.is_dir():
                     raise ValueError('Unsafe generated surface output: ' + str(path))
                 continue
@@ -142,9 +144,18 @@ def validate_plan(plan, submitted=None):
         raise ValueError('Invalid surface build manifest')
     if build.get('sha256') != _digest({'app': build['app'], 'files': build['files']}):
         raise ValueError('Surface build manifest digest mismatch')
+    if not isinstance(build['files'], list) or not build['files']:
+        raise ValueError('Surface build manifest is empty')
+    paths = set()
+    roots = tuple(path + '/' for path in surface_outputs(plan['app']))
     for row in build['files']:
         if not isinstance(row, dict) or set(row) != {'path', 'sha256'} or not isinstance(row['path'], str):
             raise ValueError('Invalid surface build file')
+        path = PurePosixPath(row['path'])
+        if (path.is_absolute() or '..' in path.parts or '.' in path.parts or str(path) != row['path']
+                or not row['path'].startswith(roots) or row['path'] in paths):
+            raise ValueError('Invalid surface build file')
+        paths.add(row['path'])
         _identity(row['sha256'], 'Surface build file digest')
     tests = _tests(plan['tests'])
     if not tests:
@@ -169,8 +180,10 @@ def validate_shard(report, plan, index):
     plan = validate_plan(plan)
     expected = {'version', 'plan_id', 'parent_attempt', 'source_digest', 'app', 'shard', 'planned_ids',
                 'observed_ids', 'outcomes', 'exit_code', 'detail'}
-    if not isinstance(report, dict) or set(report) != expected or report['version'] != 1:
+    if not isinstance(report, dict) or set(report) != expected or report['version'] != 1 or type(report['shard']) is not int:
         raise ValueError('Invalid surface shard report')
+    if not 1 <= index <= plan['shard_count']:
+        raise ValueError('Surface shard index is outside its plan')
     if (report['plan_id'] != plan['plan_id'] or report['parent_attempt'] != plan['parent_attempt']
             or report['source_digest'] != plan['source_digest'] or report['app'] != plan['app'] or report['shard'] != index):
         raise ValueError('Surface shard report identity mismatch')
@@ -180,10 +193,11 @@ def validate_shard(report, plan, index):
     if not isinstance(report['outcomes'], list) or not isinstance(report['detail'], str) or type(report['exit_code']) is not int or report['exit_code'] < 0:
         raise ValueError('Invalid surface shard report')
     outcomes = {row.get('id'): row for row in report['outcomes'] if isinstance(row, dict) and set(row) == {'id', 'status'}}
-    if len(outcomes) != len(report['outcomes']) or set(outcomes) != set(planned) or any(row['status'] not in ('passed', 'failed', 'skipped', 'timedOut', 'interrupted') for row in outcomes.values()):
+    statuses = ('passed', 'failed', 'skipped', 'timedOut', 'interrupted', 'expected', 'unexpected')
+    if len(outcomes) != len(report['outcomes']) or set(outcomes) != set(planned) or any(row['status'] not in statuses for row in outcomes.values()):
         raise ValueError('Invalid surface shard outcomes')
-    if report['exit_code'] == 0 and any(row['status'] != 'passed' for row in outcomes.values()):
-        raise ValueError('Successful surface shard has nonpassing outcomes')
+    if report['exit_code'] == 0 and any(row['status'] in ('failed', 'timedOut', 'interrupted', 'unexpected') for row in outcomes.values()):
+        raise ValueError('Successful surface shard has failing outcomes')
     return report
 
 
