@@ -42,16 +42,21 @@ def run(argv, *, timeout=600, check=True, stdin=None, capture=True):
 
 class IncusDriver(Executor):
     def __init__(self, *, project='pandora', pool='pandorapool', profile='runner',
-                 root=None, sudo=True, sample_interval=0.25,
-                 pressure_seconds=20.0, pressure_full=80.0):
+                 root=None, sudo=True, sample_interval=0.5,
+                 thrash_seconds=15.0, thrash_rate=500.0, thrash_pinned=0.97):
         self.project, self.pool, self.profile = project, pool, profile
         self.root = Path(root or (Path.home() / 'incus-exec'))
         self.base = (['sudo'] if sudo else []) + ['incus', '--project', project]
         self.sample_interval = sample_interval
-        # A thrash episode is "the cgroup spent most of the last window stalled
-        # on memory and made no forward progress". Both halves are required.
-        self.pressure_seconds = pressure_seconds
-        self.pressure_full = pressure_full
+        # A thrash episode is: the cgroup is pinned at its cap AND charging is
+        # failing thousands of times a second. Measured: a hog produces
+        # 3,700-4,000 `memory.events:max` per second and a healthy journey
+        # produces none at all, so the threshold sits two orders of magnitude
+        # below the signal. PSI is recorded as evidence but is NOT the trigger:
+        # a single-threaded thrasher on four CPUs only reaches full avg10 = 8 %.
+        self.thrash_seconds = thrash_seconds
+        self.thrash_rate = thrash_rate
+        self.thrash_pinned = thrash_pinned
 
     # --- plumbing ----------------------------------------------------------
 
@@ -300,21 +305,31 @@ class IncusDriver(Executor):
         env.setdefault('PANDORA_CPUS', str(limits.cpus_hint))
         env.setdefault('PANDORA_RUN_ID', instance.run_id)
         if not reattach:
-            script = '\n'.join(
-                ['#!/bin/bash', 'cd %s' % shlex.quote(cwd)] +
-                ['export %s=%s' % (k, shlex.quote(str(v))) for k, v in sorted(env.items())] +
-                ['systemctl start docker >/dev/null 2>&1 || true',
-                 'for i in $(seq 100); do docker info >/dev/null 2>&1 && break; sleep 0.2; done',
-                 'exec ' + ' '.join(shlex.quote(a) for a in argv)])
-            self.incus('exec', name, '--', 'bash', '-c',
-                       'mkdir -p %s && rm -f %s/rc %s/log && cat > %s/cmd.sh' % (GUEST, GUEST, GUEST, GUEST),
-                       stdin=script.encode(), timeout=120)
-            # setsid + its own pgid: the watchdog kills the group, not one pid.
-            self.incus('exec', name, '--', 'bash', '-c',
-                       'setsid bash -c \'bash %s/cmd.sh > %s/log 2>&1; echo $? > %s/rc\' '
-                       '< /dev/null > /dev/null 2>&1 & echo $! > %s/pgid' % (GUEST, GUEST, GUEST, GUEST),
-                       timeout=120)
+            self.start(name, argv, env, cwd)
         return self.supervise(instance, limits, on_log)
+
+    def start(self, name, argv, env=None, cwd='/work', docker=True):
+        """Write the run script and launch it detached under its own pgid.
+
+        The argv never goes through a shell command line: it is quoted into a
+        file that is piped in over stdin, so a journey's quoting is not the
+        driver's problem.
+        """
+        script = '\n'.join(
+            ['#!/bin/bash', 'cd %s' % shlex.quote(cwd)] +
+            ['export %s=%s' % (k, shlex.quote(str(v))) for k, v in sorted((env or {}).items())] +
+            (['systemctl start docker >/dev/null 2>&1 || true',
+              'for i in $(seq 100); do docker info >/dev/null 2>&1 && break; sleep 0.2; done']
+             if docker else []) +
+            ['exec ' + ' '.join(shlex.quote(a) for a in argv)])
+        self.incus('exec', name, '--', 'bash', '-c',
+                   'mkdir -p %s && rm -f %s/rc %s/log && cat > %s/cmd.sh' % (GUEST, GUEST, GUEST, GUEST),
+                   stdin=script.encode(), timeout=120)
+        # setsid + its own pgid: the watchdog kills the group, not one pid.
+        self.incus('exec', name, '--', 'bash', '-c',
+                   'setsid bash -c \'bash %s/cmd.sh > %s/log 2>&1; echo $? > %s/rc\' '
+                   '< /dev/null > /dev/null 2>&1 & echo $! > %s/pgid' % (GUEST, GUEST, GUEST, GUEST),
+                   timeout=120)
 
     def supervise(self, instance, limits, on_log=None):
         name, t0, offset = instance.name, time.monotonic(), 0
@@ -357,16 +372,25 @@ class IncusDriver(Executor):
                 break
             # Kernel did not, and the cgroup is wedged in reclaim. A hard cap
             # is not self-terminating; this is the watchdog the spike asked for.
-            full = use.pressure.get('memory_full_avg10', 0.0)
-            if full >= self.pressure_full and use.memory_current >= 0.95 * (use.memory_max or 1 << 62):
-                stall_since = stall_since or time.monotonic()
-                if time.monotonic() - stall_since >= self.pressure_seconds:
+            now = time.monotonic()
+            rate = 0.0
+            if len(samples) > 1:
+                span = samples[-1]['t'] - samples[-2]['t']
+                rate = (samples[-1]['max_events'] - samples[-2]['max_events']) / max(span, 1e-3)
+            pinned = use.memory_current >= self.thrash_pinned * (use.memory_max or 1 << 62)
+            samples[-1]['max_rate'] = round(rate, 1)
+            if pinned and rate >= self.thrash_rate:
+                stall_since = stall_since or now
+                if now - stall_since >= self.thrash_seconds:
                     outcome = 'oom'
-                    evidence = {'reason': 'memory-stall',
-                                'psi_full_avg10': full,
-                                'stalled_seconds': round(time.monotonic() - stall_since, 1),
+                    evidence = {'reason': 'memory-thrash',
+                                'max_events_per_second': round(rate, 1),
+                                'threshold_per_second': self.thrash_rate,
+                                'thrashing_seconds': round(now - stall_since, 1),
                                 'memory_current': use.memory_current,
                                 'memory_max': use.memory_max,
+                                'psi_memory_some_avg10': use.pressure.get('memory_some_avg10', 0.0),
+                                'psi_memory_full_avg10': use.pressure.get('memory_full_avg10', 0.0),
                                 'events': use.events}
                     break
             else:
@@ -387,10 +411,21 @@ class IncusDriver(Executor):
                       seconds=seconds, usage=final, log_bytes=offset, evidence=evidence)
 
     def kill(self, instance):
-        """Kill the run's process group, leaving the instance inspectable."""
-        self.incus('exec', instance.name, '--', 'bash', '-c',
-                   'p=$(cat %s/pgid 2>/dev/null); [ -n "$p" ] && kill -9 -"$p" 2>/dev/null; '
-                   'pkill -9 -f journey-runner; true' % GUEST, check=False, timeout=60)
+        """Kill the run's process group, leaving the instance inspectable.
+
+        `incus exec` into a thrashing instance is itself charged to the capped
+        cgroup, so it can be slow; if it does not land, fall back to the host's
+        own `cgroup.kill`, which needs nothing from inside.
+        """
+        rc, _, _ = self.incus('exec', instance.name, '--', 'bash', '-c',
+                              'p=$(cat %s/pgid 2>/dev/null); [ -n "$p" ] && kill -9 -"$p" 2>/dev/null; '
+                              'true' % GUEST, check=False, timeout=30)
+        if rc != 0:
+            try:
+                run(['sudo', 'tee', os.path.join(self.cgroup(instance.name), 'cgroup.kill')],
+                    stdin=b'1', check=False, timeout=30)
+            except InstanceLost:
+                pass
 
     # --- usage -------------------------------------------------------------
 
