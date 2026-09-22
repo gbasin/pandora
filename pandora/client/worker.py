@@ -65,15 +65,31 @@ class Worker:
         self.link = transfer.Link(host, self.state / 'ssh', persist=persist)
         self.source_root = source_root
         self._bundle = None
+        self._root = engine_root if engine_root.startswith('/') else None
+
+    def root(self):
+        """The engine root as an absolute path on the worker.
+
+        A relative root is resolved against the worker's home directory, once.
+        It has to be absolute before anything uses it, because the engine runs
+        with its working directory inside the shipped bundle and rsync resolves
+        a relative destination against the login directory -- two different
+        answers for one configured string, which is how an engine ends up
+        writing its ledger inside its own bundle.
+        """
+        if self._root is None:
+            _, out, _ = self.link.run(['sh', '-c', 'cd "$HOME" && pwd'], timeout=60)
+            self._root = out.strip().rstrip('/') + '/' + self.engine_root.lstrip('./')
+        return self._root
 
     def bundle_path(self):
         if self._bundle is None:
-            self._bundle = bundle.ensure(self.link, self.engine_root,
+            self._bundle = bundle.ensure(self.link, self.root(),
                                          source_root=self.source_root)
         return self._bundle['path']
 
     def engine(self, argv, **kwargs):
-        return bundle.call(self.link, self.bundle_path(), self.engine_root, argv, **kwargs)
+        return bundle.call(self.link, self.bundle_path(), self.root(), argv, **kwargs)
 
     # -- submission --------------------------------------------------------
 
@@ -87,7 +103,7 @@ class Worker:
 
         mark = time.monotonic()
         source = transfer.send(self.link, manifest, worktree=worktree,
-                               root=cache_root or self.engine_root,
+                               root=cache_root or self.root(),
                                repo=plan['repo'], input_id=input_id)
         marks['ship'] = round(time.monotonic() - mark, 2)
 
@@ -169,7 +185,7 @@ class Worker:
                  for path in output['paths']]
         if not paths:
             return {'paths': [], 'fetched': False}
-        remote = '%s/runs/%s/outputs' % (self.engine_root, run_id)
+        remote = '%s/runs/%s/outputs' % (self.root(), run_id)
         transfer.fetch(self.link, remote, worktree, timeout=900)
         present = [path for path in paths if (Path(worktree) / path).exists()]
         return {'paths': paths, 'present': present,

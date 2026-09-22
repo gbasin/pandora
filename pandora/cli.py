@@ -291,9 +291,9 @@ def cmd_worker(args):
         if args.action == 'canary':
             path, _ = loader.resolve(repo['root'], repo.get('config') or None)
             toolchain = loader.load(path)['worker']
-            remote = '%s/toolchain-canary.json' % config['worker']['engine_root']
+            remote = '%s/toolchain-canary.json' % worker.root()
             worker.link.run(['sh', '-c', 'mkdir -p %s && cat > %s'
-                             % (config['worker']['engine_root'], remote)],
+                             % (worker.root(), remote)],
                             stdin=json.dumps(toolchain).encode())
             answer = worker.engine(['canary', '--toolchain', remote, '--hog', args.hog],
                                    timeout=900)

@@ -48,6 +48,7 @@ from pathlib import Path
 payload = sys.stdin.read()
 digest = sys.argv[1]
 root = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home() / 'pandora-engine'
+
 if hashlib.sha256(payload.encode()).hexdigest() != digest:
     raise SystemExit('bundle digest mismatch')
 target = root / 'bundles' / digest
@@ -89,7 +90,7 @@ def ensure(link, root, *, source_root=None):
                              % (root, digest)], timeout=60)
     if out.strip() == digest:
         return {'digest': digest, 'path': '%s/bundles/%s' % (root, digest), 'sent': False}
-    _, out, _ = link.feed(BOOTSTRAP, [digest, root], timeout=300)
+    _, out, _ = link.feed(BOOTSTRAP, [digest, root], stdin=text.encode(), timeout=300)
     answer = json.loads(out.strip().splitlines()[-1])
     answer['sent'] = True
     return answer

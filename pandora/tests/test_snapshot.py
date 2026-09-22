@@ -118,8 +118,7 @@ class FreezeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
             manifest, _, _ = snapshot.freeze(repo)
-            snapshot.verify(repo, [item for item in manifest if item['path'] == 'a.txt']) \
-                if False else None
+            snapshot.verify(repo, manifest)
             (repo / 'a.txt').write_text('tampered\n')
             with self.assertRaises(SnapshotError):
                 snapshot.verify(repo, manifest)
@@ -140,7 +139,13 @@ class TransferPathTest(unittest.TestCase):
             self.assertIn('ControlMaster=auto', link.options)
             self.assertIn('ControlPersist=10m', link.options)
             self.assertTrue(any(item.endswith('/ssh-%C') for item in link.options))
-            self.assertEqual(oct(os.stat(Path(tmp) / 'ssh').st_mode & 0o777), '0o700')
+            self.assertEqual(oct(os.stat(link.control_dir).st_mode & 0o777), '0o700')
+            # A unix socket path is capped near 104 bytes and ssh appends its own
+            # suffix, so the whole control path must stay well short of that.
+            path = next(item for item in link.options if item.endswith('/ssh-%C'))
+            self.assertLess(len(path) + 40 + 20, 104 + 40,
+                            'the control path would overflow a unix socket name')
+            self.assertLess(len(str(link.control_dir)), 45)
 
 
 if __name__ == '__main__':

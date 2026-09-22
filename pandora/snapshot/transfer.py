@@ -40,14 +40,35 @@ def ssh_options(control_path, *, persist='10m'):
             '-o', 'ServerAliveCountMax=3']
 
 
+def control_dir_for(anchor):
+    """A short, private directory for the control socket.
+
+    A unix socket path is capped at ~104 bytes and ssh appends a temporary
+    suffix of its own, so `<state>/ssh/ssh-%C` overflows for any state directory
+    inside a home directory of normal length -- and so does macOS's own TMPDIR,
+    which is a 49-character path under /var/folders. `/tmp` is used when it is
+    writable, which is the only place short enough on this platform, with a name
+    taken from a digest of the state directory so that two daemons never share a
+    socket.
+    """
+    import hashlib
+    import tempfile
+    tag = hashlib.sha256(str(anchor).encode()).hexdigest()[:8]
+    base = Path('/tmp') if os.path.isdir('/tmp') and os.access('/tmp', os.W_OK) \
+        else Path(tempfile.gettempdir())
+    path = base / ('pandora-%d-%s' % (os.getuid(), tag))
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, 0o700)
+    return path
+
+
 class Link:
     """One host, one control socket, every call in one conversation."""
 
     def __init__(self, host, control_dir, *, persist='10m'):
         self.host = host
-        self.control_dir = Path(control_dir)
-        self.control_dir.mkdir(parents=True, exist_ok=True)
-        os.chmod(self.control_dir, 0o700)
+        self.anchor = Path(control_dir)
+        self.control_dir = control_dir_for(self.anchor)
         self.options = ssh_options(self.control_dir, persist=persist)
 
     @property
@@ -69,11 +90,19 @@ class Link:
                                 % (argv[0], proc.returncode, err.strip()[:600]))
         return proc.returncode, out, err
 
-    def feed(self, script, args=(), *, timeout=600, check=True):
-        """Run a Python program on the worker, handed over stdin. No files to install."""
-        command = ' '.join(['python3', '-'] + [shlex.quote(str(item)) for item in args])
+    def feed(self, script, args=(), *, stdin=b'', timeout=600, check=True):
+        """Run a Python program on the worker with nothing installed there.
+
+        The program travels on the *command line* (`python3 -c`) rather than on
+        stdin, because stdin is where its input goes: handing the interpreter
+        its own source over stdin consumes the channel the program then wants to
+        read from, which is a mistake that shows up as a checksum that never
+        matches.
+        """
+        command = ' '.join(['python3', '-c', shlex.quote(script)]
+                           + [shlex.quote(str(item)) for item in args])
         proc = subprocess.run(['ssh', *self.options, self.host, command],
-                              input=script.encode(), stdout=subprocess.PIPE,
+                              input=stdin, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=timeout)
         out = (proc.stdout or b'').decode('utf-8', 'replace')
         err = (proc.stderr or b'').decode('utf-8', 'replace')

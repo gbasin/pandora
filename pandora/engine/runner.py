@@ -313,8 +313,10 @@ def spawn(root, run_id, *, python=None):
     attempt.mkdir(parents=True, exist_ok=True)
     stderr = (attempt / 'supervisor.err').open('a')
     proc = subprocess.Popen(
-        [python or 'python3', '-m', 'pandora.engine.service', 'supervise',
-         '--root', str(paths.root), '--run', run_id],
+        # `--root` is a parser-level option, so it must precede the subcommand;
+        # after it, argparse hands the whole thing to the subparser and refuses.
+        [python or 'python3', '-m', 'pandora.engine.service',
+         '--root', str(paths.root), 'supervise', '--run', run_id],
         stdin=subprocess.DEVNULL, stdout=stderr, stderr=stderr,
         start_new_session=True, cwd=str(Path(__file__).resolve().parents[2]))
     stderr.close()
