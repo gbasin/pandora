@@ -245,6 +245,8 @@ def main(argv=None):
     parser.add_argument('--sock', required=True)
     parser.add_argument('--real', required=True)
     parser.add_argument('--state', default=None)
+    parser.add_argument('--detach', action='store_true',
+                        help='print the run id once accepted and return; the run keeps going')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
@@ -259,6 +261,12 @@ def main(argv=None):
         would have loaded. What cannot be reproduced is the local *queue*: this
         runs under the slot budget instead, and says so.
         """
+        if args.detach:
+            # Detaching needs a run id, and only the daemon issues them. A
+            # local run in the foreground would be the opposite of what was asked.
+            notice('%s; nothing was started. Without the daemon there is no run to '
+                   'detach from.' % message)
+            return INFRA
         declared = marker_policy(command)
         verdict = fallback_module.decide(
             cause=cause,
@@ -291,6 +299,10 @@ def main(argv=None):
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')
+        if code == 'passthrough' and args.detach:
+            notice((frame.get('msg') or 'not routed') + '; nothing was started. '
+                   'Only a routed command can be detached; run it directly.')
+            return INFRA
         if code == 'passthrough':
             # Pandora has no opinion about this invocation -- not enrolled, not
             # claimed, or typed in a subdirectory with a path in the argv. It is
@@ -326,6 +338,13 @@ def main(argv=None):
     else:
         notice('run %s on the worker as %s%s'
                % (frame['run'], remote, ' (' + '; '.join(extra) + ')' if extra else ''))
+    if args.detach:
+        # Closing the socket is a detach, never a cancel: the daemon keeps the
+        # run and `pandora wait <id>` re-attaches. The id is the only stdout.
+        sock.close()
+        sys.stdout.write(frame['run'] + '\n')
+        sys.stdout.flush()
+        return 0
     sock.settimeout(None)
     stream = Stream(args.sock, frame['run'], reader, sock)
     signal.signal(signal.SIGINT, stream.cancel)

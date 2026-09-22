@@ -1,42 +1,40 @@
-"""`pandora`: run this repository's heavy commands on a Linux worker.
+"""`pandora`: this repository's heavy commands, run on a Linux worker.
 
-Written for an agent. Type the command you would have typed; Pandora routes it
-if the repository claims that form, and otherwise gets out of the way.
+Type the command you would have typed, from the repository root. Pandora routes
+it if the repository claims it and otherwise gets out of the way.
 
-    pandora ps [--json]                 what is running, and what just ran
-    pandora wait <id> [--max-wait S]    re-attach to a detached run; exits as it exits
-    pandora logs <id>                   that run's output, replayed from disk
-    pandora result <id>                 that run's result JSON, including its hint
-    pandora cancel <id>                 stop it; the instance is destroyed
-    pandora stats [--since 24h] [--json]  what routed, what waited, what did not route
+INVARIANTS
+  * Same cwd, environment and exit code as a local run; `$?` and traps behave.
+  * Declared results are in your worktree before the command exits. A missing
+    report is reported as missing, never as zero failures.
+  * Run from the repository root. In a subdirectory, an argument naming a path
+    makes the command run locally, and it says so.
+  * Exit codes that are not the command's own:
+      70  infrastructure failure, never a test verdict
+      75  busy or stale: a validation already active here, or the tree changed
+     124  `--max-wait` elapsed; the run was NOT stopped
+     130  cancelled
+  * `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
+  * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
+    `pandora: hint: ...`: the next action, derived from evidence.
 
-    pandora daemon                      the client daemon, in the foreground
-    pandora enrol <repo> [--config F]   mark a repository routable, all worktrees
-    pandora unenrol <repo>
-    pandora run -- <argv>               what the shim calls
-    pandora worker status|canary|gc|goldens|reconcile|provision    the machine
+RUNS
+  pandora ps [--json]              what is running and what just ran
+  pandora wait <id> [--max-wait S] re-attach; exits as the run exits
+  pandora logs <id>                replay a run's output
+  pandora result <id> [--json]     outcome, exit, hint; --json for everything
+  pandora cancel <id>              stop it; a remote instance is destroyed
+  pandora stats [--since 24h|7d] [--json]   what routed, waited, fell back
 
-THE INVARIANTS. These hold, or Pandora reports an infrastructure failure; it
-never reports a pass it did not observe.
+FANOUT (for orchestrators; plain commands never need it)
+  pandora run --detach -- <pnpm args>   submit, print the run id, return
+  pandora wait <id> <id> ...            one outcome line per id; non-zero if
+                                        any did not pass
+  PANDORA_SHARDS=8 <command>            shard count for this one run
+  pandora result <id> --json            per-shard outcomes and the input digest
 
-  * Same cwd, same environment, same exit code as running it locally. Your
-    `$?` and your traps behave as if the shim were not installed.
-  * Declared results are in your worktree before the command exits. A declared
-    output that was not produced is reported as missing, which is not the same
-    fact as zero failures.
-  * Run it from the repository root. A command typed in a subdirectory with a
-    path in its arguments passes through locally and says so.
-  * Exit codes: the command's own when it reached a verdict. Otherwise
-    70 infrastructure (Pandora could not finish or find the run),
-    75 stale or busy (a duplicate, an exclusivity rule, a full fallback budget),
-    124 still running (`--max-wait` elapsed; the run was NOT stopped),
-    130 cancelled (SIGINT, and the worker confirmed the instance is gone).
-  * `PANDORA_OFF=1 <command>` runs it here, silently, with no Pandora in the
-    path at all. That is the escape hatch for debugging a routed failure.
-  * Everything Pandora says about itself goes to stderr, prefixed `pandora:`,
-    so a caller piping stdout gets the command's output and nothing else. The
-    last such line, when there is one, is `pandora: hint: ...` -- one sentence
-    naming the next action, derived from evidence, never guessed.
+MACHINE
+  pandora daemon | enrol <repo> | unenrol <repo> | worker <verb>
 """
 import argparse
 import json
@@ -141,44 +139,98 @@ def cmd_run(args):
     from .client import shim
     state, _ = state_of(args)
     command = args.argv[1:] if args.argv[:1] == ['--'] else args.argv
+    if command[:1] == ['pnpm']:
+        command = command[1:]          # `pandora run -- pnpm journey X` reads naturally
     return shim.main(['--sock', str(state / 'client.sock'),
                       '--real', args.real or os.environ.get('PANDORA_REAL_PNPM', 'pnpm'),
-                      '--state', str(state), '--', *command])
+                      '--state', str(state)] + (['--detach'] if args.detach else [])
+                     + ['--', *command])
 
 
-def cmd_wait(args):
-    """Re-attach to a run the shim detached from, and exit as it exits."""
+def attach(sock_path, run_id, *, quiet=False, deadline=None):
+    """Follow one run to its exit. Returns its code, or None if cut off."""
     from .client import shim
-    state, _ = state_of(args)
-    sock_path = state / 'client.sock'
     try:
         sock = shim.connect(str(sock_path), timeout=5.0)
     except OSError as error:
         notice('daemon unreachable: %s' % error)
         return INFRA
-    sock.sendall(dump({'v': VERSION, 'op': 'attach', 'run': args.run, 'from': 0}))
+    sock.sendall(dump({'v': VERSION, 'op': 'attach', 'run': run_id, 'from': 0}))
     reader = Reader(sock)
     frame = reader.line()
     if frame is None or frame.get('t') != 'accepted':
-        notice('cannot attach to %s: %s' % (args.run, frame))
+        notice('cannot attach to %s: %s' % (run_id, (frame or {}).get('msg') or frame))
+        sock.close()
         return INFRA
-    sock.settimeout(None)
-    stream = shim.Stream(str(sock_path), args.run, reader, sock)
-    if args.max_wait:
+    timer = None
+    if deadline is not None:
         # A deadline changes what the caller learns, not what the run does: the
         # run keeps going and 124 says so.
         import threading
-        timer = threading.Timer(args.max_wait, lambda: sock.close())
+        timer = threading.Timer(max(0.0, deadline - time.monotonic()), sock.close)
         timer.daemon = True
         timer.start()
-    code = stream.pump()
-    if code is None:
-        if args.max_wait:
-            notice('run %s is still going after %ss; it was not stopped. '
-                   'Re-attach with: pandora wait %s' % (args.run, args.max_wait, args.run))
-            return STILL_RUNNING
-        return INFRA
-    return code
+    sock.settimeout(None)
+    try:
+        if not quiet:
+            return shim.Stream(str(sock_path), run_id, reader, sock).pump()
+        while True:
+            try:
+                frame = reader.line()
+            except (OSError, ValueError):
+                return None
+            if frame is None:
+                return None
+            if frame.get('t') == 'exit':
+                return int(frame['code'])
+    finally:
+        if timer is not None:
+            timer.cancel()
+        sock.close()
+
+
+def cmd_wait(args):
+    """Re-attach to one run and exit as it exits, or to several and summarise.
+
+    With one id the output streams exactly as the original caller saw it. With
+    several it would be an interleaving nobody can read, so each run gets one
+    line on stdout instead -- id, outcome, exit, hint -- and the exit is the
+    first non-zero one in the order given, or 124 if any is still going.
+    """
+    state, _ = state_of(args)
+    sock_path = state / 'client.sock'
+    deadline = time.monotonic() + args.max_wait if args.max_wait else None
+    if len(args.run) == 1:
+        code = attach(sock_path, args.run[0], deadline=deadline)
+        if code is None:
+            if deadline is not None:
+                notice('run %s is still going after %ss; it was not stopped. '
+                       'Re-attach with: pandora wait %s' % (args.run[0], args.max_wait,
+                                                           args.run[0]))
+                return STILL_RUNNING
+            return INFRA
+        return code
+    worst, still = 0, False
+    for run_id in args.run:
+        code = attach(sock_path, run_id, quiet=True, deadline=deadline)
+        meta = read_json(state / 'runs' / run_id / 'meta.json') or {}
+        if code is None:
+            still = still or deadline is not None
+            print('%-14s %-14s %4s' % (run_id, 'still-running' if deadline else 'lost', '-'))
+            continue
+        print('%-14s %-14s %4d%s' % (run_id, meta.get('state') or '?', code,
+                                     '  hint: ' + meta['hint'] if meta.get('hint') else ''))
+        if code and not worst:
+            worst = code
+    sys.stdout.flush()
+    return worst or (STILL_RUNNING if still else 0)
+
+
+def read_json(path):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def cmd_ps(args):
@@ -264,11 +316,36 @@ def cmd_logs(args):
 def cmd_result(args):
     state, _ = state_of(args)
     path = state / 'runs' / args.run / 'result.json'
-    if not path.is_file():
+    result = read_json(path)
+    if result is None:
         notice('no result for run %s (still running, or it never reached the worker)' % args.run)
         return 1
-    print(path.read_text().rstrip())
+    if args.json:
+        print(json.dumps(result, indent=1, sort_keys=True))
+        return 0
+    print(render_result(args.run, result))
     return 0
+
+
+def render_result(run_id, result):
+    """A few lines: the verdict, where it ran, the shards, the hint."""
+    lines = ['%s: %s, exit %s, %.1fs, %s lane%s' % (
+        run_id, result.get('outcome'), result.get('cli_exit'),
+        float(result.get('wall_seconds') or 0), result.get('lane') or 'remote',
+        ', peak %s MiB' % result['peak_mib'] if result.get('peak_mib') is not None else '')]
+    if result.get('input_id'):
+        lines.append('  input %s%s' % (result['input_id'],
+                                       ' (same as %s)' % result['same_input_as']
+                                       if result.get('same_input_as') else ''))
+    for row in (result.get('evidence') or {}).get('shards') or []:
+        lines.append('  shard %s: %s, exit %s' % (row.get('shard'), row.get('outcome'),
+                                                  row.get('exit_code')))
+    missing = (result.get('outputs') or {}).get('missing') or []
+    if missing:
+        lines.append('  missing: ' + ', '.join(missing))
+    if result.get('hint'):
+        lines.append('  hint: ' + result['hint'])
+    return '\n'.join(lines)
 
 
 def cmd_cancel(args):
@@ -315,7 +392,10 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--state', default=None)
     parser.add_argument('--config', default=None, help='path to config.toml')
-    sub = parser.add_subparsers(dest='which', required=True)
+    # The description above is the whole help; argparse's own list of
+    # subcommands would repeat it, worse, below the fold.
+    sub = parser.add_subparsers(dest='which', required=True, metavar='<command>',
+                                help=argparse.SUPPRESS)
 
     sub.add_parser('daemon', help='run the client daemon in the foreground'
                    ).set_defaults(func=cmd_daemon)
@@ -333,11 +413,13 @@ def main(argv=None):
 
     run = sub.add_parser('run', help='what the shim calls')
     run.add_argument('--real', default=None)
+    run.add_argument('--detach', action='store_true',
+                     help='print the run id once accepted and return')
     run.add_argument('argv', nargs=argparse.REMAINDER)
     run.set_defaults(func=cmd_run)
 
-    wait = sub.add_parser('wait', help='re-attach to a run')
-    wait.add_argument('run')
+    wait = sub.add_parser('wait', help='re-attach to one run, or summarise several')
+    wait.add_argument('run', nargs='+')
     wait.add_argument('--max-wait', type=float, default=0)
     wait.set_defaults(func=cmd_wait)
 
@@ -349,6 +431,8 @@ def main(argv=None):
     for name, function in (('logs', cmd_logs), ('result', cmd_result), ('cancel', cmd_cancel)):
         node = sub.add_parser(name)
         node.add_argument('run')
+        if name == 'result':
+            node.add_argument('--json', action='store_true')
         node.set_defaults(func=function)
 
     stats = sub.add_parser('stats', help='what routed, what waited, what did not route')

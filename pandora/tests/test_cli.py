@@ -1,0 +1,93 @@
+"""The agent-facing verbs: `--help`, `run --detach`, `wait <ids>`, `result`."""
+import contextlib
+import io
+import json
+import os
+import unittest
+
+from pandora import cli
+from pandora.client import shim
+from pandora.tests.test_fallback import DaemonCase
+
+
+def capture(function, *args):
+    """(code, stdout, stderr), with real `.buffer`s, since streams write bytes."""
+    out, err = (io.TextIOWrapper(io.BytesIO(), encoding='utf-8') for _ in range(2))
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = function(*args)
+    out.flush()
+    err.flush()
+    return code, out.buffer.getvalue().decode(), err.buffer.getvalue().decode()
+
+
+class Help(unittest.TestCase):
+    def test_one_screen_with_the_invariants_and_the_fanout_verbs(self):
+        code, out, _ = capture(lambda: _exit_code(cli.main, ['--help']))
+        self.assertEqual(code, 0)
+        self.assertLessEqual(len(out.splitlines()), 50)
+        for needle in ('70', '75', '124', '130', 'PANDORA_OFF=1', 'repository root',
+                       'pandora ps', 'pandora wait', 'pandora logs', 'pandora cancel',
+                       'pandora result', 'pandora stats', 'run --detach',
+                       'wait <id> <id>', 'PANDORA_SHARDS', 'result <id> --json',
+                       'pandora: hint:'):
+            self.assertIn(needle, out)
+
+
+def _exit_code(function, argv):
+    try:
+        return function(argv)
+    except SystemExit as stop:
+        return stop.code
+
+
+class Verbs(DaemonCase):
+    def pandora(self, *argv):
+        return capture(cli.main, ['--state', str(self.state),
+                                  '--config', str(self.root / 'config.toml'), *argv])
+
+    def detach(self, *command):
+        here = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, here)
+        return capture(shim.main, ['--sock', str(self.daemon.socket_path), '--real', 'pnpm',
+                                   '--state', str(self.state), '--detach', '--', *command])
+
+    def test_detach_prints_only_the_id_and_the_run_completes(self):
+        code, out, _ = self.detach('unit')
+        self.assertEqual(code, 0)
+        run_id = out.strip()
+        self.assertRegex(run_id, r'^[0-9a-f]{12}$')
+        code, out, _ = self.pandora('wait', run_id)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.result_of(run_id)['outcome'], 'passed')
+
+    def test_detach_refuses_a_passthrough_rather_than_running_it_in_the_foreground(self):
+        code, out, err = self.detach('not-claimed-anything')
+        self.assertEqual(code, 70)
+        self.assertEqual(out, '')
+        self.assertIn('nothing was started', err)
+
+    def test_wait_on_several_prints_a_line_each_and_the_first_failure(self):
+        first = self.detach('unit')[1].strip()
+        second = self.detach('unit')[1].strip()
+        code, out, _ = self.pandora('wait', first, second)
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual([line.split()[0] for line in lines], [first, second])
+        self.assertTrue(all(line.split()[1] == 'passed' for line in lines), lines)
+        code, out, _ = self.pandora('wait', first, 'nosuchrun000')
+        self.assertEqual(code, 70)
+        self.assertEqual(len(out.splitlines()), 2)
+
+    def test_result_is_a_summary_and_json_is_everything(self):
+        run_id = self.detach('unit')[1].strip()
+        self.pandora('wait', run_id)
+        code, out, _ = self.pandora('result', run_id)
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith(run_id + ': passed, exit 0'), out)
+        code, out, _ = self.pandora('result', run_id, '--json')
+        self.assertEqual(json.loads(out)['outcome'], 'passed')
+
+
+if __name__ == '__main__':
+    unittest.main()
