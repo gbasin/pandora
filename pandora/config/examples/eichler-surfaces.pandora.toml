@@ -25,7 +25,7 @@ root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
 [matching]
 strip_prefixes = [["run"], ["validate"]]
-subdirectory = "local"
+subdirectory = "reroot"
 
 [feedback]
 reject_suffix = "No validation started."

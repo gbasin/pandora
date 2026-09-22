@@ -547,6 +547,8 @@ def validate(value):
 
     repo = _keys(value['repo'], 'repo', {'name', 'entrypoints'}, {'root_markers'})
     matching = _keys(value.get('matching', {}), 'matching', (), {'strip_prefixes', 'subdirectory'})
+    subdirectory = _choice(matching.get('subdirectory', 'reroot'), 'matching.subdirectory',
+                           ('reroot', 'local', 'reject'))
     feedback = _keys(value.get('feedback', {}), 'feedback', (), {'reject_suffix', 'extra_message'})
     secrets = _keys(value.get('secrets', {}), 'secrets', (), {'exclude_globs'})
     environment = _keys(value.get('env', {}), 'env', (),
@@ -597,8 +599,10 @@ def validate(value):
         'matching': {
             'strip_prefixes': [_strs(x, 'matching.strip_prefixes entry')
                                for x in matching.get('strip_prefixes', [])],
-            'subdirectory': _choice(matching.get('subdirectory', 'local'), 'matching.subdirectory',
-                                    ('local', 'reject')),
+            # `reroot`: run from the worktree root when no argument names a
+            # path, refuse with 64 when one does. `local` is its old name, from
+            # when the second case passed through to an unbounded local run.
+            'subdirectory': {'local': 'reroot'}.get(subdirectory, subdirectory),
         },
         'feedback': {
             'reject_suffix': _str(feedback.get('reject_suffix', ''), 'feedback.reject_suffix',

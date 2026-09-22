@@ -496,7 +496,9 @@ class Daemon:
         if verdict['decision'] == 'local':
             raise NotClaimed(verdict['reason'])
         if verdict['decision'] == 'reject':
-            raise Refused(verdict['message'])
+            error = Refused(verdict['message'])
+            error.code, error.exit = verdict.get('code') or 'rejected', verdict.get('exit')
+            raise error
         # Re-rooting is the run's whole difference from a root invocation, so it
         # is applied once, here, and said out loud rather than inferred later.
         verdict['worktree'] = str(root)
@@ -542,7 +544,8 @@ class Daemon:
             self.deny(conn, 'passthrough', str(error))
             return
         except Refused as error:
-            self.deny(conn, 'rejected', str(error))
+            self.deny(conn, getattr(error, 'code', 'rejected'), str(error),
+                      exit=getattr(error, 'exit', None))
             return
         except ConfigError as error:
             self.deny(conn, 'rejected', str(error))

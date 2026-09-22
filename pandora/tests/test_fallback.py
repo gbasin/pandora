@@ -28,7 +28,7 @@ version = 1
 name = "demo"
 entrypoints = ["pnpm"]
 [matching]
-subdirectory = "local"
+subdirectory = "reroot"
 [[jobs]]
 id = "unit"
 size = "small"
@@ -296,15 +296,16 @@ class SubdirectoryInvocations(DaemonCase):
         self.assertTrue(any('worktree root' in line for line in answer.notices),
                         answer.notices)
 
-    def test_an_argument_that_names_a_path_here_passes_through(self):
+    def test_an_argument_that_names_a_path_here_is_refused_and_nothing_runs(self):
         (self.repo / 'sub' / 'x.test.ts').write_text('')
         answer = self.call(['pnpm', 'unit', 'x.test.ts'], cwd=self.repo / 'sub')
-        self.assertEqual(answer.error['code'], 'passthrough')
+        self.assertEqual((answer.error['code'], answer.exit), ('subdirectory', 64))
         self.assertEqual(answer.error['msg'], 'run from the repo root to route')
+        self.assertFalse(self.marker.exists(), 'a subdirectory invocation ran')
 
-    def test_a_slash_in_an_argument_passes_through_without_touching_the_disk(self):
+    def test_a_slash_in_an_argument_is_refused_without_touching_the_disk(self):
         answer = self.call(['pnpm', 'unit', 'src/nothing.test.ts'], cwd=self.repo / 'sub')
-        self.assertEqual(answer.error['code'], 'passthrough')
+        self.assertEqual((answer.error['code'], answer.exit), ('subdirectory', 64))
 
     def test_an_unenrolled_directory_passes_through_rather_than_refusing(self):
         answer = self.call(['pnpm', 'unit'], cwd=self.root)
@@ -350,6 +351,16 @@ class WithoutADaemon(unittest.TestCase):
         self.assertTrue(self.ran.exists())
         log = (self.state / 'passthrough.jsonl').read_text()
         self.assertIn('daemon-unreachable', log)
+
+    def test_a_path_typed_in_a_subdirectory_is_refused_without_the_daemon_too(self):
+        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+                     'writeback': False}])
+        (self.root / 'repo' / 'apps').mkdir()
+        os.chdir(self.root / 'repo' / 'apps')
+        self.assertEqual(self.run_shim(['unit', 'src/x.test.ts']), 64)
+        self.assertFalse(self.ran.exists())
+        self.assertEqual(self.run_shim(['unit', 'fast']), 0)
+        self.assertTrue(self.ran.exists())
 
     def test_a_large_job_is_refused_rather_than_run_here(self):
         self.enrol([{'prefix': ['surface'], 'size': 'large', 'fallback': 'auto',

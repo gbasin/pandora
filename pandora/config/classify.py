@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 from ..errors import NotClaimed, Refused, ValidationRejected
+from ..exits import USAGE
 
 PLAN_VERSION = 2
 
@@ -209,6 +210,9 @@ def _message(config, text):
     return text
 
 
+SUBDIRECTORY_MESSAGE = 'run from the repo root to route'
+
+
 def path_like(tokens, exists=None):
     """The first token that could name a file, or None.
 
@@ -256,8 +260,14 @@ def classify(config, argv, *, cwd='.', env=None, exists=None):
                     'message': _message(config, 'Run this command from the repository root.')}
         offender = path_like(rest, exists)
         if offender is not None:
-            return {'decision': 'local', 'job': job['id'], 'plan': None, 'forwarded': [],
-                    'reason': 'run from the repo root to route',
+            # Refused, never passed through. The command is claimed -- heavy by
+            # the repository's own account -- and a pass-through would run it on
+            # this Mac with no queue, no admission and no receipt, which is the
+            # shape of the 2026-09-22 accident. Re-rooting would silently change
+            # which file the path names. So the caller is told where to stand.
+            return {'decision': 'reject', 'job': job['id'], 'plan': None, 'forwarded': [],
+                    'code': 'subdirectory', 'exit': USAGE,
+                    'message': SUBDIRECTORY_MESSAGE,
                     'rerooted': None, 'blocked_by': offender}
         rerooted = cwd
     for name in [*config['env']['reject_if_set'], *job['reject_if_set']]:

@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..exits import CANCELLED, INFRA, STALE
+from ..exits import CANCELLED, INFRA, STALE, USAGE
 from . import enrolment, envfilter, fallback as fallback_module
 from .protocol import Reader, VERSION, dump
 
@@ -139,6 +139,30 @@ def marker_policy(command):
     if not marker:
         return None
     return enrolment.policy_for(command, marker)
+
+
+def subdirectory_offender(command):
+    """The daemon's subdirectory rule, for when there is no daemon to apply it.
+
+    A claimed command typed below the worktree root with an argument that names
+    a path is refused, never run -- with or without the daemon. Returns the
+    offending token, or None.
+    """
+    here = os.getcwd()
+    root = enrolment.worktree_root(here)
+    if root is None or Path(here).resolve() == Path(root).resolve():
+        return None
+    try:
+        _common, marker = enrolment.marker_for(here)
+    except OSError:
+        marker = None
+    if not marker:
+        return None
+    from ..config.classify import path_like
+    declared = enrolment.policy_for(command, marker)
+    rest = enrolment.key_of(command, marker.get('strip') or [])
+    rest = rest[len(declared['prefix']) if declared else 1:]
+    return path_like(rest, exists=lambda token: Path(here, token).exists())
 
 
 class Stream:
@@ -267,6 +291,9 @@ def main(argv=None):
             notice('%s; nothing was started. Without the daemon there is no run to '
                    'detach from.' % message)
             return INFRA
+        if subdirectory_offender(command) is not None:
+            notice('run from the repo root to route')
+            return USAGE
         declared = marker_policy(command)
         verdict = fallback_module.decide(
             cause=cause,

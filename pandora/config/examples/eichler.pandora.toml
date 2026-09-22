@@ -22,10 +22,12 @@ root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
 [matching]
 strip_prefixes = [["run"], ["validate"]]
-# A subdirectory invocation runs locally with a notice rather than being
-# re-rooted: re-rooting silently changes which files a selector names, and the
-# direction note chose the honest option.
-subdirectory = "local"
+# A claimed command typed in a subdirectory runs from the worktree root when no
+# argument names a path (`pnpm journey S0-01` means the same thing anywhere),
+# and is refused with `pandora: run from the repo root to route`, exit 64, when
+# one does -- re-rooting would change which file it names, and passing it
+# through would run a claimed command on this Mac unbounded.
+subdirectory = "reroot"
 
 [feedback]
 reject_suffix = "No validation started."

@@ -227,19 +227,27 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(verdict['decision'], 'remote')
         self.assertEqual(verdict['rerooted'], 'apps/agent')
 
-    def test_a_subdirectory_invocation_with_a_path_stays_local(self):
+    def test_a_subdirectory_invocation_with_a_path_is_refused_with_64(self):
+        # Never passed through: a claimed command run here unbounded is the
+        # accident the fallback rule exists to prevent.
         verdict = classify.classify(self.config, ['pnpm', 'unit', 'src/x.test.ts'],
                                     cwd='apps/agent')
-        self.assertEqual(verdict['decision'], 'local')
-        self.assertEqual(verdict['reason'], 'run from the repo root to route')
+        self.assertEqual(verdict['decision'], 'reject')
+        self.assertEqual((verdict['code'], verdict['exit']), ('subdirectory', 64))
+        self.assertEqual(verdict['message'], 'run from the repo root to route')
         self.assertEqual(verdict['blocked_by'], 'src/x.test.ts')
 
-    def test_a_bare_name_that_is_a_real_file_here_also_stays_local(self):
+    def test_a_bare_name_that_is_a_real_file_here_is_refused_too(self):
         # No slash, but it exists relative to where it was typed, so re-rooting
         # it would silently change which file the selector names.
         verdict = classify.classify(self.config, ['pnpm', 'unit', 'x.test.ts'],
                                     cwd='apps/agent', exists=lambda token: token == 'x.test.ts')
-        self.assertEqual(verdict['decision'], 'local')
+        self.assertEqual((verdict['decision'], verdict['exit']), ('reject', 64))
+
+    def test_the_old_name_for_re_rooting_still_loads(self):
+        text = EXAMPLE.read_text().replace('subdirectory = "reroot"', 'subdirectory = "local"')
+        self.assertEqual(loader.validate(tomllib.loads(text))['matching']['subdirectory'],
+                         'reroot')
 
     def test_the_root_invocation_is_never_re_rooted(self):
         verdict = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'])
