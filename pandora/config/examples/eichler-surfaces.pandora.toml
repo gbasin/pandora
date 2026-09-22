@@ -1,0 +1,108 @@
+# Eichler's browser surface suites, sharded. The tier-2 half of the contract.
+#
+# This is a second file rather than another job in `eichler.pandora.toml` for one
+# reason: `[worker]` is the golden's identity, and a surface run needs a golden
+# with Playwright's chromium in it while a journey run needs one with the service
+# images in it. One file per toolchain keeps each golden honest about what it
+# contains. When path templating lands (`{p.app}` in the contract draft) and the
+# two toolchains are reconciled, these merge.
+#
+# What sharding adds over the journey job, and nothing else does:
+#
+#   plan          one instance builds the app once and lists the partition
+#   plan_outputs  the build that instance produced, mounted into every shard
+#   expect_flag   each shard is handed the frozen plan and refuses to run
+#                 anything else
+#   report        where each shard writes what it actually ran, which is what
+#                 Pandora checks against the plan before it will say `passed`
+
+version = 1
+
+[repo]
+name = "eichler"
+entrypoints = ["pnpm"]
+root_markers = ["pnpm-workspace.yaml", "turbo.json"]
+
+[matching]
+strip_prefixes = [["run"], ["validate"]]
+subdirectory = "local"
+
+[feedback]
+reject_suffix = "No validation started."
+extra_message = "{job} takes an app name."
+
+[fallback]
+action = "local"
+on = ["worker-unreachable", "queue-timeout"]
+notice = "Remote worker unavailable; running this command locally instead."
+
+[env]
+# The surface runner's profile is explicit environment and never a question it
+# asks the host, so state all four here rather than letting the worker's shell
+# decide. `SURFACE_WORKERS = 1` is the one worth arguing about: it makes a shard
+# a single browser, so N shards are N browsers and a wall-clock comparison
+# across N measures the fan-out rather than Playwright's own pool. The rule the
+# hint should follow is PANDORA_CPUS, which this file cannot yet reference.
+set = { SURFACE_UNSET_APP_URLS = "1", SURFACE_CI = "0", SURFACE_WORKERS = "1" }
+passthrough = ["TZ"]
+unset = ["CI"]
+reject_if_set = []
+
+[secrets]
+exclude_globs = [".dev.vars", ".dev.vars.*", "**/.env", "**/.env.*", "**/*.pem", "**/.npmrc"]
+
+# A surfaces golden: node, pnpm, the workspace install, and chromium with its
+# system dependencies. No service images -- a surface suite is Playwright against
+# a static fixture build and touches no database.
+[worker]
+base_image = "images:ubuntu/26.04"
+packages = ["docker.io", "docker-compose-v2", "docker-buildx", "ca-certificates",
+            "curl", "xz-utils", "git", "python3", "jq", "rsync"]
+node_version = "24.9.0"
+pnpm_version = "12.3.4"
+service_images = []
+install_command = "set -o pipefail\npnpm install --frozen-lockfile 2>&1 | tail -2\npnpm --filter @eichler/desk exec playwright install --with-deps chromium 2>&1 | tail -5\nls /root/.cache/ms-playwright"
+source_id = "eichler-surfaces"
+workdir = "/work"
+
+[[jobs]]
+id = "surface"
+summary = "One browser surface suite"
+size = "medium"
+args = "required"
+usage = "Use pnpm test:surface <borrower-web|desk> [Playwright selectors] [--grep <pattern>]."
+timeout_minutes = 30
+forms = [{ prefix = ["test:surface"] }, { prefix = ["surface"] }]
+# `--grep`'s value is a Playwright pattern, not a path, so it must not be
+# checked as one.
+value_flags = ["--grep"]
+validate = { argv = ["node", "tools/validation/surface-runner.mjs", "validate", "{args}"], timeout_ms = 4000 }
+run = { argv = ["node", "tools/validation/surface-runner.mjs", "run", "{args}", "--no-build"] }
+
+# Pandora and the runner own these between them; a caller who set one by hand
+# would be planning one thing and running another.
+[[jobs.reject]]
+args = ["--shard", "--shards", "--no-build", "--expect", "--report", "--out"]
+message = "Sharding, build skipping and report paths belong to Pandora and the surface runner."
+
+[jobs.shards]
+strategy = "argv"
+template = "--shard={i}/{n}"
+default = 2
+max = 8
+# One instance, one build, one inventory. `--build` makes the bytes and the
+# partition the same step, which is what lets every shard prove with `--expect`
+# that it ran against the build the plan described.
+plan = ["node", "tools/validation/surface-runner.mjs", "plan", "{args}",
+        "--build", "--shards", "{n}", "--out", "{plan}"]
+expect_flag = "--expect"
+report = "apps/*/test-results/surface-run-{i}-of-{n}.json"
+# Both apps are listed because this file cannot yet say "the one in {args}". A
+# directory the run did not produce is reported missing and costs nothing.
+plan_outputs = ["apps/desk/dist", "apps/desk/e2e/dist",
+                "apps/borrower-web/dist", "apps/borrower-web/e2e/dist"]
+
+[[jobs.outputs]]
+kind = "artifacts"
+paths = ["apps/desk/test-results", "apps/desk/playwright-report",
+         "apps/borrower-web/test-results", "apps/borrower-web/playwright-report"]

@@ -66,8 +66,10 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_state ON attempts(state);
 CREATE INDEX IF NOT EXISTS attempts_input ON attempts(repo, job, input_id);
-CREATE INDEX IF NOT EXISTS attempts_parent ON attempts(parent);
 '''
+# The parent index is created by `migrate`, not here: on a ledger that predates
+# sharding the table already exists, `CREATE TABLE IF NOT EXISTS` does nothing,
+# and an index over a column that is one statement away from existing fails.
 
 # `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so a
 # worker whose ledger predates sharding needs the columns added by hand. Every
