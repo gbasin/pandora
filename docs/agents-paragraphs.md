@@ -1,39 +1,64 @@
 # What agents are told
 
-Two drafts for the target repository's `AGENTS.md`. The owner chose **A**: agents
-keep typing the commands they type today and learn only what changes when a
-command runs somewhere else. **B** is the fan-out vocabulary; it lives in
-`pandora --help` and in the fanout skill, and is promoted to `AGENTS.md` only if
-the pilot shows agents reaching for it.
+The owner chose **A**: agents keep typing the commands they type today and learn
+only what changes when a command runs somewhere else. The text below is final.
+It is written for eichler and lands in eichler's own PR; nothing here edits
+eichler.
 
-## A — nothing changes for you (final text)
+The fan-out vocabulary (draft **B**) is not in either file. It is the `FANOUT`
+section of `pandora --help`, for orchestrators that ask for it.
 
-> Validation runs where it runs best: broad suites on the Pandora worker, focused
-> ones on this machine. Use the same commands as before. Results, reports and
-> artifacts are in your worktree before the command returns, and the exit code
-> is the command's own. Run validation from the repository root; a command typed
-> in a subdirectory with a path in its arguments runs locally and says so.
+## `AGENTS.md`
+
+Replaces the sentence "Local validation shares machine capacity through Pueue.
+Read [...] for setup, suite selection, cancellation, and recovery." in the
+"Run `pnpm check`" bullet.
+
+> Validation runs where it runs best: broad suites on the Pandora worker,
+> focused ones on this machine. Use the same commands as before, from the
+> repository root. Results, reports and artifacts are in your worktree before
+> the command returns, and the exit code is the command's own. Exit 70 is an
+> infrastructure failure, never a test verdict: retry, or run the command here
+> with `PANDORA_OFF=1`. Exit 75 means a validation is already active in this
+> worktree or the source changed during the run. When Pandora has advice, it is
+> the last line, `pandora: hint: ...`; act on it. Read
+> [`tools/notes/local-validation.md`](tools/notes/local-validation.md) for
+> suite selection, cancellation, and recovery.
+
+## `tools/notes/local-validation.md`
+
+Replaces the opening paragraph and the whole "Machine setup" section. The
+"Commands during iteration" table and everything after it stay.
+
+> Local validation runs through Pandora. Type the same commands as before. A
+> broad suite runs on the Pandora worker; a focused one runs on this machine in
+> the same queue. GitHub Actions executes the same commands directly.
 >
-> Exit codes that are not the command's: 70 is an infrastructure failure, never a
-> test verdict (retry, or run it here with `PANDORA_OFF=1 <command>`); 75 means a
-> validation is already active in this worktree or your source changed during the
-> run; 124 means the run is still going (`pandora wait <id>` re-attaches); 130
-> means you cancelled it. `pandora ps` lists runs, `pandora logs <id>` replays
-> one, `pandora cancel <id>` stops one. Do not edit the worktree while its
-> validation runs. When Pandora has advice it is the last line, `pandora: hint:
-> ...`; it is derived from evidence, so act on it.
-
-## B — the fan-out vocabulary (in `pandora --help`, not in AGENTS.md)
-
-> `pandora run --detach -- <command>` submits and returns an id at once.
-> `pandora wait <id...>` blocks on a set and exits non-zero if any did not pass,
-> printing one outcome line per id. `PANDORA_SHARDS=8 <command>` overrides the
-> shard count for one run. `pandora result <id> --json` gives the outcome, the
-> per-shard results and the input digest, so two runs of the same tree can be
-> told apart from a change. `pandora fetch <id> <path>` pulls any file from a
-> failed run's tree.
-
-Why B stays out of `AGENTS.md` for now: every extra verb is something an agent
-can get wrong, and `--detach` is exactly the shape that produced orphaned runs
-and duplicate submissions under the previous queue. The fanout skill can use it
-deliberately; an agent reading the repository's instructions should not need it.
+> ## What changes for you
+>
+> Nothing about the commands. Run them from the repository root. A command typed
+> in a subdirectory with a path in its arguments runs locally, and says so.
+>
+> Results, reports and artifacts are in your worktree before the command
+> returns. A report the runner did not write is reported as missing. Missing is
+> not zero failures.
+>
+> The exit code is the command's own. Four codes are Pandora's:
+>
+> | Exit | Meaning | Do this |
+> |---|---|---|
+> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_OFF=1 <command>`. |
+> | 75 | A validation is already active in this worktree, or the source changed during the run. | Wait for the other run. Do not edit the worktree while a validation runs. |
+> | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
+> | 130 | You cancelled it. | Nothing. |
+>
+> Pandora's own lines go to stderr and start with `pandora:`. The last one can
+> be `pandora: hint: ...`. A hint comes from measured evidence, such as a memory
+> peak or a report that is absent. Act on it.
+>
+> `pandora ps` lists runs. `pandora logs <id>` replays one. `pandora cancel <id>`
+> stops one. `pandora result <id>` shows its outcome and hint. `pandora stats`
+> shows what ran, where, and what fell back. `pandora --help` lists the rest.
+>
+> To run a command on this machine with no Pandora at all, set `PANDORA_OFF=1`.
+> Use it to debug a routed failure, never to skip the queue.
