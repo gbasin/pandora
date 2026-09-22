@@ -36,8 +36,9 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > ## What changes for you
 >
-> Nothing about the commands. Run them from the repository root. A command typed
-> in a subdirectory with a path in its arguments runs locally, and says so.
+> Nothing about the commands. Run them from the repository root. A validation
+> typed in a subdirectory with a path in its arguments is refused (exit 64) with
+> `pandora: run from the repo root to route`; it never runs locally by accident.
 >
 > Results, reports and artifacts are in your worktree before the command
 > returns. A report the runner did not write is reported as missing. Missing is
