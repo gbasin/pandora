@@ -336,11 +336,20 @@ class IncusDriver(Executor):
             # The usable shape of the above: mount the host tree read-only once
             # and rsync it over the golden's baked-in copy, so a run gets a
             # writable tree and pays only for what changed since the golden.
+            #
+            # By content, and without copying times. A file whose bytes equal
+            # the golden's keeps the golden's mtime; a changed one gets now.
+            # With `-a`'s times, a fresh `git worktree add` -- same bytes, new
+            # mtimes -- handed every file a date after the golden's install,
+            # and pnpm's verify-deps-before-run, which judges patches by mtime
+            # alone, refused every `pnpm <script>` with "Patches were modified".
+            # Measured on eichler: 0.53 s, against 0.12 s for a tree whose
+            # mtimes already matched.
             self.incus('config', 'device', 'add', name, 'srcro', 'disk',
                        'source=' + str(source), 'path=/srcro', 'readonly=true', timeout=300)
-            self.sh(name, 'mkdir -p %s && rsync -a --delete --exclude node_modules '
-                          '--exclude .git /srcro/ %s/' % (shlex.quote(dest), shlex.quote(dest)),
-                    timeout=1800)
+            self.sh(name, 'mkdir -p %s && rsync -a --no-times --checksum --delete '
+                          '--exclude node_modules --exclude .git /srcro/ %s/'
+                    % (shlex.quote(dest), shlex.quote(dest)), timeout=1800)
             self.incus('config', 'device', 'remove', name, 'srcro', check=False, timeout=300)
         elif method == 'device-rsync-over':
             # The same mount, grafting rather than replacing: no --delete, so a
