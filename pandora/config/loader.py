@@ -200,8 +200,13 @@ def _output(value, where):
     return output
 
 
-def _argv_with_args(value, where, *, allow_args=True):
-    """An argv list that may splice the forwarded arguments once, at `{args}`."""
+def _argv_with_args(value, where, *, allow_args=True, tokens=True):
+    """An argv list that may splice the forwarded arguments once, at `{args}`.
+
+    `tokens=False` leaves the remaining braces to the caller, which is what the
+    shard plan needs: it substitutes `{n}` and `{plan}` as well, and checking
+    those here would mean this function knowing about sharding.
+    """
     argv = _strs(value, where)
     if not argv:
         raise ConfigError(where + ' must not be empty')
@@ -211,7 +216,7 @@ def _argv_with_args(value, where, *, allow_args=True):
     if splices and not allow_args:
         raise ConfigError(where + ' may not use {args}')
     for item in argv:
-        if item != '{args}':
+        if tokens and item != '{args}':
             _no_template(item, where)
     return argv, (splices[0] if splices else None)
 
@@ -266,7 +271,7 @@ def _shard_text(text, where, pattern, *, required=()):
 
 def _plan_argv(value, where):
     """The tier-2 plan command: `{args}` once, plus `{n}` and `{plan}`."""
-    argv, args_at = _argv_with_args(value, where)
+    argv, args_at = _argv_with_args(value, where, tokens=False)
     rendered = [item if item == '{args}'
                 else _shard_text(item, where + ' entry', PLAN_TOKEN) for item in argv]
     if not any('{plan}' in item for item in rendered):

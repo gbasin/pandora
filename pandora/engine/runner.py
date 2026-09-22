@@ -17,6 +17,7 @@ Two properties this file exists to hold:
   admitted. Killing the client, the daemon or the SSH connection does not touch
   it; only `cancel` does.
 """
+import dataclasses
 import json
 import os
 import signal
@@ -70,6 +71,10 @@ class Paths:
     def outputs(self, run_id):
         return self.attempt(run_id) / 'outputs'
 
+    def planout(self, run_id):
+        """What a tier-2 plan attempt produced, for its shards to mount."""
+        return self.attempt(run_id) / 'planout'
+
     def ensure(self):
         for path in (self.runs, self.src):
             path.mkdir(parents=True, exist_ok=True)
@@ -85,6 +90,13 @@ def supervise(root, run_id, *, driver=None):
         raise SystemExit('no attempt %s' % run_id)
     if row['state'] == 'finished':
         return json.loads(paths.result(run_id).read_text())
+    if (row['role'] or 'single') == 'parent':
+        # A parent owns instances only through its children. Imported here
+        # rather than at the top because the fan-out is written in terms of
+        # this module's own steps.
+        from .fanout import supervise_parent
+        ledger.close()
+        return supervise_parent(root, run_id, driver=driver)
 
     attempt = paths.attempt(run_id)
     attempt.mkdir(parents=True, exist_ok=True)
@@ -127,6 +139,14 @@ def supervise(root, run_id, *, driver=None):
         durations['inject'] = round(
             driver.inject(instance.name, row['source_path'], '/work', method='device-rsync'), 2)
         marks = time.monotonic()
+        # A shard mounts what its parent's plan built, on top of the source it
+        # shares with its siblings. It is injected after the source rsync, not
+        # before, because that rsync runs with --delete.
+        graft = attempt / 'planout'
+        if graft.is_dir():
+            durations['graft'] = round(
+                driver.inject(instance.name, graft, '/work', method='device-rsync-over'), 2)
+            marks = time.monotonic()
         evidence['cgroup'] = driver.harden(instance, limits)
         mark('harden')
 
@@ -144,6 +164,16 @@ def supervise(root, run_id, *, driver=None):
 
         env = dict(plan['env'])
         env.pop('__toolchain__', None)
+        # PANDORA_CPUS is decided here, not at admission. The hint is a *share*
+        # -- host cores divided by the runs actually admitted -- and admission
+        # happens before the instance exists, so a run admitted while it was
+        # alone would otherwise start believing it owns four cores while three
+        # siblings started beside it. The environment of a started process
+        # cannot be rewritten, so the only moment this can be right is the last
+        # one before the command starts.
+        limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
+        ledger.update(run_id, cpus_hint=limits.cpus_hint)
+        note('cpus hint %d' % limits.cpus_hint)
         result = driver.execute(instance, plan['argv'], env=env, cwd='/work',
                                 limits=limits, on_log=log_handle.write, on_tick=tick)
         durations['execute'] = round(result.seconds, 2)
@@ -214,6 +244,22 @@ def supervise(root, run_id, *, driver=None):
     return result_json
 
 
+def cpus_now(paths, ledger):
+    """Host cores over the runs admitted *at this instant*, never below one.
+
+    Read under the admission lock so it cannot land between a sibling's
+    admission and that sibling's ledger row, which is precisely the window
+    that made the slice's proof 7 report 4 and 2 on a four-core box.
+    """
+    with gate(paths.root):
+        store = admission.Store(str(paths.peaks))
+        try:
+            scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
+            return scheduler.cpus_hint(scheduler.lanes())
+        finally:
+            store.close()
+
+
 def collect(driver, instance, outputs, into):
     """Pull every declared artifact path out of the instance.
 
@@ -246,7 +292,7 @@ def collect(driver, instance, outputs, into):
 
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
-                 durations, evidence, receipt):
+                 durations, evidence, receipt, extra=None):
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt)
     item = row_to_dict(row)
@@ -279,7 +325,12 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         'created': item['created'],
         'finished': item['finished'],
         'wall_seconds': round((item['finished'] or 0) - item['created'], 2),
+        'role': item.get('role') or 'single',
+        'shard': ('%s/%s' % (item['shard_index'], item['shard_total'])
+                  if item.get('shard_index') else None),
+        'parent': item.get('parent'),
     }
+    result.update(extra or {})
     paths.attempt(run_id).mkdir(parents=True, exist_ok=True)
     paths.result(run_id).write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
     return result

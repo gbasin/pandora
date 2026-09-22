@@ -93,7 +93,7 @@ class Worker:
 
     # -- submission --------------------------------------------------------
 
-    def submit(self, *, plan, worktree, request_id, cache_root=None):
+    def submit(self, *, plan, worktree, request_id, cache_root=None, control=None):
         """Freeze, ship and submit. Raises before the worker acknowledges anything."""
         marks = {}
         started = time.monotonic()
@@ -111,6 +111,11 @@ class Worker:
         request = {'request_id': request_id, 'input_id': input_id,
                    'source_path': source['path'], 'plan': plan,
                    'manifest_files': len(manifest), 'dropped': len(dropped)}
+        # How many shards the caller asked for and whether a failing shard stops
+        # the rest. Decisions about *this invocation*, not about the repository,
+        # so they travel beside the plan rather than inside it.
+        request.update({key: value for key, value in (control or {}).items()
+                        if key in ('want_shards', 'keep_going')})
         answer = self.engine(['submit'], stdin=json.dumps(request), timeout=120)
         marks['submit'] = round(time.monotonic() - mark, 2)
         if not answer.get('ok'):

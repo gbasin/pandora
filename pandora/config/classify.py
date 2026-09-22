@@ -188,6 +188,9 @@ def build_plan(config, job, forwarded, chosen):
         'env_passthrough': list(config['env']['passthrough']),
         'secrets_exclude_globs': list(config['secrets']['exclude_globs']),
         'outputs': outputs,
+        # None means one shard and no fan-out. The engine owns the count, not
+        # the client: only the worker knows how many lanes are free.
+        'shards': job['shards'],
         'timeout_minutes': job['timeout_minutes'],
         'fallback': job['fallback'],
         'worker': config['worker'],

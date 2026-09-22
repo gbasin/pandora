@@ -75,7 +75,14 @@ class Scheduler:
         return reserve, admission.ceiling_for(size_class), size_class, len(peaks)
 
     def live_rows(self):
-        return [row for row in self.ledger.live() if row['state'] in LIVE]
+        """Live attempts that occupy the box.
+
+        A fan-out parent is excluded on purpose: it reserves no memory, holds no
+        instance and runs no command, so counting it would divide the CPU hint
+        by a run that is not using a core and would spend a slot on bookkeeping.
+        """
+        return [row for row in self.ledger.live()
+                if row['state'] in LIVE and (row['role'] or 'single') != 'parent']
 
     def held_mib(self, exclude=None):
         return sum(row['reservation_mib'] or 0 for row in self.live_rows()

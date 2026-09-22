@@ -498,19 +498,23 @@ class Daemon:
                                'msg': error.stderr or str(error), 'exit': error.code}))
             return
 
-        run = Run(self.state, uuid.uuid4().hex[:12],
-                  dict(request, repo=repo['name'], job=job['id']))
-        run.lane = 'local'
-        run.save()
+        # The id exists before the run does, so an exclusivity refusal leaves no
+        # row at all: a `queued` line in `pandora ps` for a job that was told to
+        # go away would be a lie the next reader has to un-learn.
+        run_id = uuid.uuid4().hex[:12]
         try:
-            self.budget.reserve(run.id, repo=repo['name'], job=job['id'],
-                                worktree=worktree, singleton=job['singleton'])
+            self.budget.reserve(run_id, repo=repo['name'], job=job['id'],
+                                worktree=worktree, singleton=job['singleton'],
+                                size=plan['size'])
         except Busy as error:
             # Not a pre-accept fallback: running it locally anyway is the exact
             # thing the rule exists to prevent.
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
                                'msg': str(error), 'exit': STALE}))
             return
+        run = Run(self.state, run_id, dict(request, repo=repo['name'], job=job['id']))
+        run.lane = 'local'
+        run.save()
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
@@ -518,14 +522,17 @@ class Daemon:
                                           timeout=self.local.queue_timeout)
         except Busy as error:
             self.budget.finish(run.id, 0, 'lost')
+            run.finish(STALE, state='refused')
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
                                'msg': str(error), 'exit': STALE}))
             return
         except OSError:
             self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
+            run.finish(STALE, state='refused')
             return
         if admission is None:
             self.budget.finish(run.id, 0, 'lost')
+            run.finish(STALE, state='refused')
             self.deny(conn, 'queue-timeout',
                       'the local queue did not admit this job within its wait')
             return

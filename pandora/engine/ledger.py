@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS attempts (
   cpus_hint INTEGER,
   peak_mib INTEGER,
   cancel_requested INTEGER NOT NULL DEFAULT 0,
+  role TEXT NOT NULL DEFAULT 'single',
+  parent TEXT,
+  shard_index INTEGER,
+  shard_total INTEGER,
   same_input_as TEXT,
   durations TEXT NOT NULL DEFAULT '{}',
   evidence TEXT NOT NULL DEFAULT '{}',
@@ -62,7 +66,21 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_state ON attempts(state);
 CREATE INDEX IF NOT EXISTS attempts_input ON attempts(repo, job, input_id);
+CREATE INDEX IF NOT EXISTS attempts_parent ON attempts(parent);
 '''
+
+# `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so a
+# worker whose ledger predates sharding needs the columns added by hand. Every
+# one of them is nullable or defaulted, so an old row reads as what it was: a
+# single, unsharded attempt.
+ADDED = (('role', "TEXT NOT NULL DEFAULT 'single'"),
+         ('parent', 'TEXT'),
+         ('shard_index', 'INTEGER'),
+         ('shard_total', 'INTEGER'))
+
+# A parent holds the fan-out and runs nothing itself; `plan` is the build-once
+# attempt a tier-2 parent runs before there are any shards to dispatch.
+ROLES = ('single', 'parent', 'plan', 'shard')
 
 
 def now():
@@ -77,6 +95,14 @@ class Ledger:
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA busy_timeout=30000')
         self.db.executescript(SCHEMA)
+        self.migrate()
+
+    def migrate(self):
+        have = {row['name'] for row in self.db.execute('PRAGMA table_info(attempts)')}
+        for name, declaration in ADDED:
+            if name not in have:
+                self.db.execute('ALTER TABLE attempts ADD COLUMN %s %s' % (name, declaration))
+        self.db.execute('CREATE INDEX IF NOT EXISTS attempts_parent ON attempts(parent)')
 
     def close(self):
         self.db.close()
@@ -84,28 +110,36 @@ class Ledger:
     # -- writing -----------------------------------------------------------
 
     def claim(self, request_id, run_id, *, repo, job, input_id, source_path, argv,
-              env, cwd, outputs, size_class):
+              env, cwd, outputs, size_class, role='single', parent=None,
+              shard_index=None, shard_total=None):
         """Insert a queued attempt, or return the existing one for this request.
 
         Returns (row, created). `created` false means the caller is a duplicate
         submission and must attach rather than start anything.
         """
+        if role not in ROLES:
+            raise StaleRun('unknown role %r' % role)
         existing = self.by_request(request_id)
         if existing is not None:
             return existing, False
-        previous = self.db.execute(
-            'SELECT run_id FROM attempts WHERE repo=? AND job=? AND input_id=? '
-            'AND run_id<>? ORDER BY created DESC LIMIT 1',
+        # A shard is not "the same input as" its siblings: they share a source
+        # tree and run different thirds of it, so linking them would make a
+        # cache-hit claim Pandora has not earned. Only whole attempts compare.
+        previous = None if role == 'shard' else self.db.execute(
+            "SELECT run_id FROM attempts WHERE repo=? AND job=? AND input_id=? "
+            "AND run_id<>? AND role IN ('single','parent') ORDER BY created DESC LIMIT 1",
             (repo, job, input_id, run_id)).fetchone()
         stamp = now()
         try:
             self.db.execute(
                 'INSERT INTO attempts (run_id, request_id, repo, job, input_id, source_path,'
-                ' argv, env, cwd, outputs, size_class, state, same_input_as, created, updated)'
-                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                ' argv, env, cwd, outputs, size_class, state, same_input_as, created, updated,'
+                ' role, parent, shard_index, shard_total)'
+                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (run_id, request_id, repo, job, input_id, source_path,
                  json.dumps(argv), json.dumps(env), cwd, json.dumps(outputs),
-                 size_class, 'queued', previous['run_id'] if previous else None, stamp, stamp))
+                 size_class, 'queued', previous['run_id'] if previous else None, stamp, stamp,
+                 role, parent, shard_index, shard_total))
         except sqlite3.IntegrityError:
             row = self.by_request(request_id)
             if row is None:
@@ -162,6 +196,10 @@ class Ledger:
         marks = ','.join('?' * len(LIVE))
         return self.db.execute('SELECT * FROM attempts WHERE state IN (%s) ORDER BY created'
                                % marks, LIVE).fetchall()
+
+    def children(self, parent):
+        return self.db.execute('SELECT * FROM attempts WHERE parent=? ORDER BY shard_index',
+                               (parent,)).fetchall()
 
     def recent(self, limit=25):
         return self.db.execute('SELECT * FROM attempts ORDER BY created DESC LIMIT ?',

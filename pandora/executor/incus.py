@@ -237,6 +237,16 @@ class IncusDriver(Executor):
                           '--exclude .git /srcro/ %s/' % (shlex.quote(dest), shlex.quote(dest)),
                     timeout=1800)
             self.incus('config', 'device', 'remove', name, 'srcro', check=False, timeout=300)
+        elif method == 'device-rsync-over':
+            # The same mount, grafting rather than replacing: no --delete, so a
+            # tree laid over an already-injected source adds to it instead of
+            # becoming it. This is how a shard receives what its parent's plan
+            # step built without paying for a second copy of the whole worktree.
+            self.incus('config', 'device', 'add', name, 'graft', 'disk',
+                       'source=' + str(source), 'path=/graft', 'readonly=true', timeout=300)
+            self.sh(name, 'mkdir -p %s && rsync -a /graft/ %s/'
+                    % (shlex.quote(dest), shlex.quote(dest)), timeout=1800)
+            self.incus('config', 'device', 'remove', name, 'graft', check=False, timeout=300)
         else:
             raise ValueError('unknown injection method ' + method)
         return time.monotonic() - t0

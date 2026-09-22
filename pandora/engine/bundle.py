@@ -31,6 +31,8 @@ MEMBERS = (
     'engine/ledger.py',
     'engine/scheduler.py',
     'engine/runner.py',
+    'engine/fanout.py',
+    'engine/shards.py',
     'engine/service.py',
     'executor/__init__.py',
     'executor/interface.py',

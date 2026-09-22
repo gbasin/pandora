@@ -62,6 +62,7 @@ def cmd_submit(args):
     request = json.loads(sys.stdin.read())
     paths, ledger = open_ledger(args.root)
     plan = request['plan']
+    fanned = bool(plan.get('shards'))
     run_id = 'r' + uuid.uuid4().hex[:15]
     with gate(paths.root):
         row, created = ledger.claim(
@@ -69,7 +70,7 @@ def cmd_submit(args):
             repo=plan['repo'], job=plan['job'], input_id=request['input_id'],
             source_path=request['source_path'], argv=plan['argv'],
             env=plan['env'], cwd=plan['cwd'], outputs=plan['outputs'],
-            size_class=plan['size'])
+            size_class=plan['size'], role='parent' if fanned else 'single')
         if not created:
             return emit({'ok': True, 'duplicate': True, 'run_id': row['run_id'],
                          'state': row['state'], 'same_input_as': row['same_input_as'],
@@ -79,6 +80,26 @@ def cmd_submit(args):
         (paths.attempt(run_id) / 'toolchain.json').write_text(json.dumps(plan['worker']))
         (paths.attempt(run_id) / 'request.json').write_text(json.dumps(request, indent=1))
         paths.log(run_id).touch()
+        if fanned:
+            # A parent reserves nothing and occupies no lane: it runs no command
+            # and holds no instance. Its children are admitted one at a time, by
+            # the parent, as the box has room for them -- so a fan-out cannot
+            # hold memory it is not using while another repository waits.
+            (paths.attempt(run_id) / 'shards.json').write_text(json.dumps({
+                'shards': plan['shards'], 'args': plan.get('args') or [],
+                'want': request.get('want_shards'),
+                'keep_going': bool(request.get('keep_going'))}, indent=1))
+            ledger.update(run_id, state='admitted', reservation_mib=0, ceiling_mib=0)
+            pid = runner.spawn(paths.root, run_id, python=args.python)
+            ledger.update(run_id, supervisor_pid=pid)
+            verdict = {'admitted': True, 'fanout': True, 'reservation_mib': 0,
+                       'shards': {'default': plan['shards']['default'],
+                                  'max': plan['shards']['max'],
+                                  'tier': 2 if plan['shards']['plan'] else 1}}
+            return emit({'ok': True, 'run_id': run_id, 'state': 'admitted',
+                         'duplicate': False, 'same_input_as': row['same_input_as'],
+                         'admission': verdict, 'supervisor_pid': pid,
+                         'engine': ENGINE_VERSION})
         store = admission.Store(str(paths.peaks))
         scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
         verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])
