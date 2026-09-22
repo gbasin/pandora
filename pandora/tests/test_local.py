@@ -118,6 +118,15 @@ class BudgetRules(unittest.TestCase):
         self.assertEqual(local.budget_from({'reserve_mib': 1024}), total - 1024)
         self.assertEqual(local.budget_from({'budget_mib': 777}), 777)
 
+    def test_the_declared_size_class_is_the_ceiling(self):
+        pool = budget()
+        pool.reserve('a', repo='eichler', job='validate-node', worktree='/a',
+                     singleton=False, size='small')
+        admitted = pool.admit('a', repo='eichler', job='validate-node')
+        self.assertEqual(admitted['size_class'], 'small')
+        self.assertEqual(admitted['ceiling_mib'], 1024)
+        self.assertEqual(admitted['reservation_mib'], 1024)
+
     def test_a_job_that_can_never_fit_is_refused_rather_than_queued(self):
         pool = budget(budget_mib=1024)
         pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)

@@ -120,7 +120,7 @@ class Budget:
 
     # -- the rules that refuse rather than queue ---------------------------
 
-    def reserve(self, run_id, *, repo, job, worktree, singleton):
+    def reserve(self, run_id, *, repo, job, worktree, singleton, size=None):
         """Take the exclusive holds, or raise `Busy`. Never blocks.
 
         These are refusals, not queue positions, and on purpose: an agent whose
@@ -129,6 +129,11 @@ class Budget:
         """
         key = str(Path(worktree).resolve())
         with self.lock:
+            if size is not None and self.admission.store.size_class(repo, job, '') != size:
+                # The configuration's size class is the ceiling; without this the
+                # store's `medium` default would silently override a job declared
+                # `small` or `large`. Peaks are learned; the ceiling is declared.
+                self.admission.store.set_class(repo, job, size)
             if singleton and job in self.singletons:
                 raise Busy('%s already runs on this machine as %s; stop it with '
                            '`pandora cancel %s`.' % (job, self.singletons[job],

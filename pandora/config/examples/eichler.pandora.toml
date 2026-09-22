@@ -84,3 +84,75 @@ outputs = [
     "packages/scenarios/fixtures/write-routes.json",
   ] },
 ]
+
+# --- the local lane ---------------------------------------------------------
+#
+# Work that stays on this Mac but still has to be *scheduled*. `where = "local"`
+# hands it to the client daemon's own executor: the same queue, the same memory
+# admission, the same receipt, the same `pandora ps/wait/cancel/logs` and the
+# same exit-code contract as a routed job -- and no Pueue.
+#
+# Each of these runs eichler's existing validation planner with
+# `EICHLER_QUEUE=direct`, which is the planner's "you are already the scheduled
+# process" mode. Pandora owns the queue; eichler still owns what the suite is,
+# which selectors are legal, and its own source-fingerprint receipt.
+
+[[jobs]]
+id = "check"
+summary = "The static checks CI runs"
+where = "local"
+size = "large"
+args = "none"
+timeout_minutes = 45
+forms = [{ prefix = ["check"] }]
+run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
+
+[[jobs]]
+id = "check-docs"
+summary = "Documentation policy, briefs, mockups, design contracts"
+where = "local"
+size = "medium"
+args = "none"
+timeout_minutes = 30
+forms = [{ prefix = ["check:docs"] }]
+run = { argv = ["pnpm", "validate", "docs"], env = { EICHLER_QUEUE = "direct" } }
+
+[[jobs]]
+id = "validate-node"
+summary = "Focused node --test files"
+where = "local"
+size = "small"
+args = "required"
+timeout_minutes = 20
+usage = "Use pnpm validate node <test-file.mjs> [...files]."
+forms = [{ prefix = ["node"] }]
+# eichler's planner is the only thing that knows a node test file from a flag,
+# and it answers in milliseconds without an install.
+validate = { argv = ["node", "tools/validate.mjs", "plan", "node", "{args}"], timeout_ms = 5000 }
+run = { argv = ["pnpm", "validate", "node", "{args}"], env = { EICHLER_QUEUE = "direct" } }
+
+[[jobs]]
+id = "unit"
+summary = "Focused Vitest units"
+where = "local"
+size = "medium"
+args = "optional"
+timeout_minutes = 30
+forms = [{ prefix = ["test:unit"] }, { prefix = ["unit"] }]
+validate = { argv = ["node", "tools/validate.mjs", "plan", "unit", "{args}"], timeout_ms = 5000 }
+run = { argv = ["pnpm", "validate", "unit", "{args}"], env = { EICHLER_QUEUE = "direct" } }
+
+# The development stack is a *long-lived* local job: one per machine, alive
+# until someone cancels it. That is the whole of what `eichler-stacks` was,
+# expressed as `singleton` rather than as a Pueue group of one slot.
+[[jobs]]
+id = "dev-stack"
+summary = "The development stack, one per machine"
+where = "local"
+singleton = true
+size = "large"
+args = "optional"
+timeout_minutes = 1440
+forms = [{ prefix = ["dev:stack"] }]
+reject = [{ args = ["status", "logs", "stop", "prune"], message = "The stack is a pandora run now: `pandora ps` lists it, `pandora logs <id>` follows it, `pandora cancel <id>` stops it with its own teardown." }]
+run = { argv = ["node", "tools/stack/stack.mjs", "--foreground", "{args}"] }
