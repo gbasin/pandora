@@ -2,7 +2,9 @@
 import os
 import subprocess
 import tempfile
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from pandora.errors import SnapshotError
@@ -180,3 +182,57 @@ class TransferPathTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DigestsTest(unittest.TestCase):
+    def aged(self, repo):
+        """As if every file were older than the racy window, as a worktree's are.
+        (`os.utime` cannot age a ctime, so the window is closed instead.)"""
+        patch = mock.patch.object(snapshot.Digests, 'RACY_NS', 0)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def counting(self):
+        calls = []
+        real = snapshot.digest
+
+        def counted(path):
+            calls.append(path.name)
+            return real(path)
+        return calls, mock.patch.object(snapshot, 'digest', counted)
+
+    def test_an_unchanged_file_is_not_read_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', 'b.txt': 'b\n'})
+            self.aged(repo)
+            cache = Path(tmp) / 'cache'
+            first = snapshot.freeze(repo, cache=cache)
+            calls, patch = self.counting()
+            with patch:
+                second = snapshot.freeze(repo, cache=cache)
+            self.assertEqual(second, first)
+            self.assertEqual(calls, [])
+
+    def test_a_changed_file_is_read_and_changes_the_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', 'b.txt': 'b\n'})
+            self.aged(repo)
+            cache = Path(tmp) / 'cache'
+            first = snapshot.freeze(repo, cache=cache)
+            (repo / 'a.txt').write_text('A\n')          # same size, new bytes
+            calls, patch = self.counting()
+            with patch:
+                second = snapshot.freeze(repo, cache=cache)
+            self.assertNotEqual(second[2], first[2])
+            self.assertIn('a.txt', calls)
+            self.assertNotIn('b.txt', calls)
+
+    def test_a_file_written_just_now_is_never_trusted_to_its_stat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            cache = Path(tmp) / 'cache'
+            snapshot.freeze(repo, cache=cache)       # a.txt is seconds old: racy
+            calls, patch = self.counting()
+            with patch:
+                snapshot.freeze(repo, cache=cache)
+            self.assertIn('a.txt', calls)

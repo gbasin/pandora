@@ -101,7 +101,8 @@ class Worker:
         marks = {}
         started = time.monotonic()
         manifest, dropped, input_id = snapshot.freeze(
-            worktree, exclude_globs=plan['secrets_exclude_globs'])
+            worktree, exclude_globs=plan['secrets_exclude_globs'],
+            cache=getattr(self, 'state', None) and self.state / 'digests')
         marks['freeze'] = round(time.monotonic() - started, 2)
 
         mark = time.monotonic()

@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from ..errors import SnapshotError
@@ -131,8 +132,12 @@ def excluded(name, globs=()):
     return any(fnmatch.fnmatch(name, glob) or fnmatch.fnmatch(base, glob) for glob in globs)
 
 
-def entry(root, name):
-    """One manifest record, or None for a tracked file that has been deleted."""
+def entry(root, name, known=None):
+    """One manifest record, or None for a tracked file that has been deleted.
+
+    `known` is a `Digests`: a file whose stat matches what it recorded is not
+    read again.
+    """
     path = root / name
     if path.is_symlink():
         target = os.readlink(path)
@@ -150,8 +155,70 @@ def entry(root, name):
             text = ''
         if any(marker in text for marker in NPMRC_MARKERS):
             raise SnapshotError('credential-bearing .npmrc cannot be submitted: ' + name)
-    return {'path': name, 'sha256': digest(path),
-            'executable': bool(path.stat().st_mode & 0o111)}
+    stat = path.stat()
+    sha = known.get(name, stat) if known is not None else None
+    if sha is None:
+        sha = digest(path)
+        if known is not None:
+            known.put(name, stat, sha)
+    return {'path': name, 'sha256': sha, 'executable': bool(stat.st_mode & 0o111)}
+
+
+class Digests:
+    """sha256 by (size, mtime, ctime, inode), kept between freezes of one worktree.
+
+    Git's index idea. Freezing eichler read 375 MiB twice -- 6 s with the files
+    in the page cache and 21 s without, on a loaded Mac, which is most of what a
+    warm remote `check` cost its caller. A file whose stat is unchanged since
+    the last freeze is not read again, and the freeze's own second pass becomes
+    a stat comparison.
+
+    A stat taken within `RACY_NS` of the file's mtime is never stored: a write
+    that lands in the same timestamp tick as our read would otherwise be
+    invisible to the next freeze. Such a file is simply hashed every time.
+    """
+    RACY_NS = 2 * 10 ** 9
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.now = time.time_ns()
+        try:
+            self.table = json.loads(self.path.read_text())
+        except (OSError, ValueError):
+            self.table = {}
+        self.fresh = {}
+
+    @staticmethod
+    def key(stat):
+        return [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino]
+
+    def get(self, name, stat):
+        item = self.fresh.get(name) or self.table.get(name)
+        if item and item[:4] == self.key(stat):
+            self.fresh[name] = item
+            return item[4]
+        return None
+
+    def put(self, name, stat, sha):
+        if self.now - max(stat.st_mtime_ns, stat.st_ctime_ns) < self.RACY_NS:
+            return
+        self.fresh[name] = self.key(stat) + [sha]
+
+    def save(self):
+        """Keep exactly what this freeze saw. Never fatal: a lost cache is a slow freeze."""
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_name(self.path.name + '.%d' % os.getpid())
+            temporary.write_text(json.dumps(self.fresh, separators=(',', ':')))
+            os.replace(temporary, self.path)
+        except OSError:
+            pass
+
+
+def digests_for(directory, repo):
+    """The `Digests` file for one worktree under a state directory."""
+    name = hashlib.sha256(str(Path(repo).resolve()).encode()).hexdigest()[:16]
+    return Digests(Path(directory) / (name + '.json'))
 
 
 def encode(manifest):
@@ -163,7 +230,7 @@ def input_id(manifest):
     return hashlib.sha256(encode(manifest)).hexdigest()
 
 
-def freeze(repo, *, exclude_globs=()):
+def freeze(repo, *, exclude_globs=(), cache=None):
     """Return (manifest, excluded_names, input_id) for a worktree.
 
     Nothing is copied. The manifest is read twice and the second read must agree
@@ -174,8 +241,12 @@ def freeze(repo, *, exclude_globs=()):
     from "tracked" (see `git_status`). That is part of the identity on purpose:
     two trees with equal bytes and a different tracked set make checks that ask
     git answer differently, so they are different inputs.
+
+    `cache` is a directory for per-worktree `Digests`; without one every file
+    is read twice, which is correct and slow.
     """
     repo = Path(repo).resolve()
+    known = digests_for(cache, repo) if cache is not None else None
 
     def read():
         nested = nested_worktree_prefixes(repo)
@@ -184,7 +255,7 @@ def freeze(repo, *, exclude_globs=()):
         selected = [name for name in first if not excluded(name, exclude_globs)]
         manifest = []
         for name in selected:
-            record = entry(repo, name)
+            record = entry(repo, name, known)
             if record is None:
                 continue
             if name in marks:
@@ -196,6 +267,8 @@ def freeze(repo, *, exclude_globs=()):
     if read() != (nested, first, manifest):
         raise SnapshotError('the worktree changed while it was being frozen; retry')
     dropped = [name for name in first if excluded(name, exclude_globs)]
+    if known is not None:
+        known.save()
     return manifest, dropped + nested, input_id(manifest)
 
 
