@@ -195,10 +195,6 @@ class FakeDriver:
     def inject(self, name, source, dest, method='device-rsync'):
         return 0.4
 
-    def attach_cache(self, name, source, dest):
-        self.cache = (name, str(source), dest)
-        return (True, '')
-
     def synthetic_git(self, name, dest, marks, message):
         if self.explode == 'git':
             from pandora.executor.interface import ExecutionFailed
@@ -211,7 +207,7 @@ class FakeDriver:
 
     def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
                 on_tick=None, reattach=False):
-        self.executed = True
+        self.executed, self.env = True, dict(env or {})
         if on_log:
             on_log(self.log)
         if on_tick and on_tick() == 'cancel':
@@ -291,6 +287,25 @@ class SuperviseTest(unittest.TestCase):
         self.assertEqual((result['outcome'], result['layer']), ('infra_failed', 'executor'))
         self.assertFalse(hasattr(driver, 'executed'))
         self.assertEqual(driver.destroyed, ['run-r1'])
+
+    def test_a_run_is_pointed_at_the_workers_turbo_cache_when_it_answers(self):
+        from pandora.tests.test_turbocache import Running
+        running = Running(self.root / 'turbo-cache')
+        try:
+            driver = FakeDriver()
+            result = self.run_with(driver)
+        finally:
+            running.stop()
+        self.assertTrue(driver.env['TURBO_API'].endswith('/r/' + PLAN['repo']))
+        self.assertEqual(driver.env['TURBO_CACHE'], 'remote:rw')
+        self.assertEqual(result['evidence']['turbo_cache']['team'], 'linux')
+
+    def test_a_cache_that_does_not_answer_costs_the_run_nothing_but_speed(self):
+        driver = FakeDriver()
+        result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertNotIn('TURBO_API', driver.env)
+        self.assertIn('no cache server', result['evidence']['turbo_cache']['error'])
 
     def test_a_non_zero_exit_is_the_commands_failure_and_keeps_its_code(self):
         result = self.run_with(FakeDriver(outcome='failed', exit_code=7))

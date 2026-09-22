@@ -330,6 +330,61 @@ def add_parser(sub):
     return worker
 
 
+def cmd_cache(args):
+    """`pandora cache stats|clear`: the worker's turbo remote cache."""
+    host, engine_root, control = target(args)
+    remote = Remote(host, control_dir=control, engine_root=engine_root)
+    try:
+        argv = ['cache-' + args.action] + (['--repo', args.repo]
+                                           if getattr(args, 'repo', None) else [])
+        answer = remote.engine(argv, timeout=120)
+    finally:
+        remote.close()
+    if args.json or not answer.get('ok'):
+        print(json.dumps(answer, indent=1, sort_keys=True))
+    elif args.action == 'clear':
+        print('cleared %s: %d entries, %.1f MiB' % (args.repo or 'every repository',
+                                                     answer['removed'],
+                                                     answer['bytes'] / 1048576))
+    else:
+        print(render_cache(answer))
+    return 0 if answer.get('ok') else 1
+
+
+def render_cache(answer):
+    endpoint = answer.get('endpoint') or {}
+    server = answer.get('server')
+    lines = ['turbo cache  %.1f of %.0f MiB, %d entries; server %s' % (
+        answer['bytes'] / 1048576, answer['max_bytes'] / 1048576, answer['entries'],
+        ('%s:%s' % (endpoint.get('host'), endpoint.get('port'))) if server
+        else 'NOT ANSWERING')]
+    for name, item in sorted(answer['namespaces'].items()):
+        lines.append('  %-24s %6d entries %9.1f MiB' % (name, item['entries'],
+                                                         item['bytes'] / 1048576))
+    if server:
+        counters = server.get('counters') or {}
+        gets = counters.get('hits', 0) + counters.get('misses', 0)
+        lines.append('  since start: %d hits, %d misses (%s), %d puts, %d evictions' % (
+            counters.get('hits', 0), counters.get('misses', 0),
+            ('%.0f%% hit' % (100.0 * counters.get('hits', 0) / gets)) if gets else 'no reads',
+            counters.get('puts', 0), counters.get('evictions', 0)))
+    return '\n'.join(lines)
+
+
+def add_cache_parser(sub):
+    """Hang `pandora cache <action>` off the top-level parser."""
+    cache = sub.add_parser('cache', help="the worker's turbo remote cache")
+    cache.add_argument('--host', default=None)
+    cache.add_argument('--engine-root', default=None)
+    cache.add_argument('--json', action='store_true')
+    actions = cache.add_subparsers(dest='action', required=True)
+    actions.add_parser('stats', help='bytes, entries, hits and misses').set_defaults(func=cmd_cache)
+    node = actions.add_parser('clear', help='empty the cache, or one repository of it')
+    node.add_argument('--repo', default=None)
+    node.set_defaults(func=cmd_cache)
+    return cache
+
+
 def dispatch(args):
     try:
         return args.func(args)

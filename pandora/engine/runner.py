@@ -20,7 +20,6 @@ Two properties this file exists to hold:
 import dataclasses
 import json
 import os
-import re
 import signal
 import subprocess
 import time
@@ -32,41 +31,12 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_for
 from .scheduler import Scheduler, gate
-from . import admission
+from . import admission, turbocache
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
 # to know whether a failure came from the code under test or from us.
 LAYERS = ('command', 'watchdog', 'executor', 'engine', 'client')
-
-# The one cache worth building before the HTTP cache server is decided: turbo's
-# own local filesystem cache, kept on the worker between runs. It is namespaced
-# by repository and by *platform*, because turbo's hash covers the inputs and
-# the task but not the operating system that produced the artefact, and a
-# darwin entry is not a linux one. `linux` is the only platform a run has.
-CACHE_PLATFORM = 'linux'
-CACHE_GUEST = '/pandora/turbo-cache'
-CACHE_REPO = re.compile(r'[a-z][a-z0-9-]*\Z')
-
-
-def cache_dir(paths, repo):
-    """The host directory this repository's turbo cache lives in, or None.
-
-    0777 because the directory belongs to the engine user while every run is
-    root inside its own namespace; the mode governs only who may create an
-    entry, and the shifted mount makes the entries themselves shared. Returns
-    None rather than raising: an unshared cache is slower, not wrong.
-    """
-    if not CACHE_REPO.fullmatch(repo or ''):
-        return None
-    path = paths.root / 'cache' / repo / 'turbo' / CACHE_PLATFORM
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        os.chmod(path, 0o777)
-    except OSError:
-        return None
-    return path
-
 
 def submitted_request(paths, run_id):
     """The request as the client sent it, from the attempt's own `request.json`."""
@@ -211,21 +181,13 @@ def supervise(root, run_id, *, driver=None):
                 'pandora %s' % row['input_id']), 2)
             marks = time.monotonic()
             note('synthetic git repository in %.1fs' % durations['git'])
-        # Attached after the source is in place and before the command starts,
-        # which is the only window where the instance exists and nothing is
-        # running in it yet.
-        cache_env = {}
-        cache = cache_dir(paths, row['repo'])
-        if cache is not None:
-            attached, why = driver.attach_cache(instance.name, cache, CACHE_GUEST)
-            evidence['cache'] = {'attached': attached, 'host': str(cache),
-                                 'guest': CACHE_GUEST, 'platform': CACHE_PLATFORM}
-            if attached:
-                cache_env['TURBO_CACHE_DIR'] = CACHE_GUEST
-                note('turbo cache %s -> %s' % (cache, CACHE_GUEST))
-            else:
-                evidence['cache']['error'] = why
-                note('turbo cache not attached: ' + why)
+        # turbo's remote cache, served by this worker on the runs' bridge
+        # (`turbocache`). Probed, never required: a run the cache cannot serve
+        # is slower, not wrong, so the reason goes in the log and the evidence.
+        cache_env, why = turbocache.env_for(paths.root / 'turbo-cache', row['repo'])
+        evidence['turbo_cache'] = ({'api': cache_env['TURBO_API'], 'team': cache_env['TURBO_TEAM']}
+                                   if cache_env else {'error': why})
+        note('turbo cache %s' % (cache_env['TURBO_API'] if cache_env else 'off: ' + why))
         evidence['cgroup'] = driver.harden(instance, limits)
         mark('harden')
 
@@ -244,7 +206,7 @@ def supervise(root, run_id, *, driver=None):
         env = dict(plan['env'])
         env.pop('__toolchain__', None)
         # The repository's own `[env] set` wins: a job that states its cache
-        # directory meant it, and the engine's default is only a default.
+        # meant it, and the engine's default is only a default.
         for key, value in cache_env.items():
             env.setdefault(key, value)
         # PANDORA_CPUS is decided here, not at admission. The hint is a *share*

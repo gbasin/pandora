@@ -288,21 +288,43 @@ if [ "$(cat "$boot" 2>/dev/null || true)" != "$wanted_boot" ]; then
 else
   step present engine-boot "$boot"
 fi
+# The engine's one long-lived process: turbo's remote cache for runs, on the
+# runs' bridge only (`pandora.engine.turbocache`). It runs from the newest
+# shipped bundle, so it needs one to exist; until the first run ships it, the
+# unit exits 75 and systemd retries.
+serve=$ROOT/bin/engine-serve
+wanted_serve="#!/bin/sh
+set -eu
+b=\$(ls -1dt \"$ENGINE_ROOT\"/bundles/*/ 2>/dev/null | head -1)
+[ -n \"\$b\" ] || { echo 'no engine bundle shipped yet' >&2; exit 75; }
+cd \"\$b\"
+PYTHONPATH=\"\$b\" exec python3 -m pandora.engine.turbocache --root \"$ENGINE_ROOT\" serve --bridge $BRIDGE"
+if [ "$(cat "$serve" 2>/dev/null || true)" != "$wanted_serve" ]; then
+  printf '%s\n' "$wanted_serve" > "$serve"
+  chmod 755 "$serve"
+  step changed engine-serve "$serve"
+else
+  step present engine-serve "$serve"
+fi
 mkdir -p "$USER_UNITS"
 wanted_engine="[Unit]
-Description=Pandora engine: layout, pool wait and boot reconcile
+Description=Pandora engine: boot reconcile, then turbo's remote cache for runs
 After=default.target
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=$boot
+Type=simple
+ExecStartPre=$boot
+ExecStart=$serve
+Restart=always
+RestartSec=5
 [Install]
 WantedBy=default.target"
 if [ "$(cat "$USER_UNITS/pandora-engine.service" 2>/dev/null || true)" != "$wanted_engine" ]; then
   printf '%s\n' "$wanted_engine" > "$USER_UNITS/pandora-engine.service"
   systemctl --user daemon-reload
   systemctl --user enable pandora-engine.service >/dev/null 2>&1
-  step changed pandora-engine.service 'written and enabled'
+  # A oneshot that already ran reads as active; the new shape has to start.
+  systemctl --user restart pandora-engine.service >/dev/null 2>&1 || true
+  step changed pandora-engine.service 'written, enabled and restarted'
 elif ! systemctl --user is-enabled pandora-engine.service >/dev/null 2>&1; then
   systemctl --user enable pandora-engine.service >/dev/null 2>&1
   step changed pandora-engine.service 'enabled'

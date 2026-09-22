@@ -21,6 +21,8 @@ would make a 0.06 s clone unmeasurable.
     reconcile after a restart: adopt or fail, never fabricate
     retain    delete old attempt directories
     canary    the worker's own health gate
+    cache-stats   the turbo remote cache: bytes, entries, what the server counted
+    cache-clear   empty it, or one repository's share of it
     supervise (internal) the detached per-run supervisor
 """
 import argparse
@@ -290,6 +292,26 @@ def cmd_retain(args):
                                              keep_failed_seconds=args.keep_failed)})
 
 
+def cmd_cache_stats(args):
+    from pandora.engine import turbocache
+    root = Path(args.root) / 'turbo-cache'
+    store = turbocache.Store(root)
+    try:
+        endpoint = json.loads((root / 'endpoint.json').read_text())
+    except (OSError, ValueError):
+        endpoint = None
+    return emit({'ok': True, **store.usage(), 'endpoint': endpoint,
+                 'server': turbocache.server_counters(root)})
+
+
+def cmd_cache_clear(args):
+    from pandora.engine import turbocache
+    store = turbocache.Store(Path(args.root) / 'turbo-cache')
+    if args.repo and not turbocache.REPO.match(args.repo):
+        return emit({'ok': False, 'code': 'bad-repo', 'repo': args.repo})
+    return emit({'ok': True, 'repo': args.repo, **store.clear(args.repo)})
+
+
 def cmd_supervise(args):
     result = runner.supervise(args.root, args.run)
     return emit({'ok': True, 'run_id': args.run, 'outcome': result['outcome']})
@@ -379,6 +401,10 @@ def main(argv=None):
     retain.add_argument('--keep', type=int, default=86400)
     retain.add_argument('--keep-failed', type=int, default=86400)
     retain.set_defaults(func=cmd_retain)
+    sub.add_parser('cache-stats').set_defaults(func=cmd_cache_stats)
+    clear = sub.add_parser('cache-clear')
+    clear.add_argument('--repo', default=None)
+    clear.set_defaults(func=cmd_cache_clear)
     canary = sub.add_parser('canary')
     canary.add_argument('--run', default='canary')
     canary.add_argument('--toolchain', required=True)

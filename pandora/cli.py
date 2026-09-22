@@ -450,6 +450,7 @@ def main(argv=None):
     # to work on a host no client has adopted yet, so it owns its own parser.
     from .worker import cli as worker_cli
     worker_cli.add_parser(sub)
+    worker_cli.add_cache_parser(sub)
 
     args = parser.parse_args(argv)
     try:

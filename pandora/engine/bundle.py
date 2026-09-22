@@ -35,6 +35,7 @@ MEMBERS = (
     'engine/fanout.py',
     'engine/shards.py',
     'engine/service.py',
+    'engine/turbocache.py',
     'executor/__init__.py',
     'executor/interface.py',
     'executor/incus.py',

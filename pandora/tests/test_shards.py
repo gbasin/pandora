@@ -264,9 +264,6 @@ class WritingDriver:
     def inject(self, name, source, dest, method='device-rsync'):
         return 0.1
 
-    def attach_cache(self, name, source, dest):
-        return (True, '')
-
     def harden(self, instance, limits):
         return {}
 

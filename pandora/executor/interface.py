@@ -1,9 +1,9 @@
 """The executor seam: what a run backend must implement, and nothing more.
 
-Seven operations. A run is prepared once per (repo, install fingerprint),
-cloned per run, given whatever persistent cache the machine keeps for its
-repository, executed, sampled, collected and destroyed. Nothing here mentions
-containers, so a microVM driver can implement the same seven.
+A run is prepared once per (repo, install fingerprint), cloned per run,
+given a repository if its job asked for one, executed, sampled, collected and
+destroyed. Nothing here mentions containers, so a microVM driver can implement
+the same operations.
 """
 from dataclasses import dataclass, field, asdict
 import hashlib
@@ -177,7 +177,7 @@ class Receipt:
 
 
 class Executor:
-    """The seven operations. Implementations must raise the errors above."""
+    """The operations. Implementations must raise the errors above."""
 
     def prepare(self, toolchain):
         """Return a Golden for this toolchain, building it if absent."""
@@ -185,14 +185,6 @@ class Executor:
 
     def clone(self, golden, run_id):
         """Return a started Instance copy-on-write from `golden`."""
-        raise NotImplementedError
-
-    def attach_cache(self, instance, source, dest):
-        """Mount a host directory that outlives the run at `dest`, writable.
-
-        Returns `(attached, reason)` rather than raising: a cache that will
-        not mount is a slow run, never a failed one.
-        """
         raise NotImplementedError
 
     def synthetic_git(self, instance, dest, marks, message):
