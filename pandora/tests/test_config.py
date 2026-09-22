@@ -87,6 +87,64 @@ run = { argv = ["node", "other.mjs"] }
             load_text(text)
         self.assertIn('inside the worktree', str(caught.exception))
 
+    def test_fallback_is_a_word(self):
+        for spelling, action in (('"local"', 'local'), ('"refuse"', 'refuse')):
+            job = load_text(MINIMAL + '\nfallback = %s\n' % spelling)['jobs']['suite']
+            self.assertEqual(job['fallback']['action'], action)
+
+    def test_an_undeclared_fallback_stays_undeclared(self):
+        # Not a default of `local` and not a default of `refuse`: "nobody said"
+        # is the third answer, and it is the one the size class decides.
+        config = load_text(MINIMAL)
+        self.assertIsNone(config['fallback'])
+        self.assertIsNone(config['jobs']['suite']['fallback'])
+
+    def test_the_repository_level_table_is_inherited_by_every_job(self):
+        config = load_text(MINIMAL + '\n[fallback]\naction = "local"\non = ["queue-timeout"]\n')
+        self.assertEqual(config['jobs']['suite']['fallback']['on'], ['queue-timeout'])
+
+    def test_the_v01_spelling_fail_still_loads_as_refuse(self):
+        config = load_text(MINIMAL + '\n[fallback]\naction = "fail"\n')
+        self.assertEqual(config['fallback']['action'], 'refuse')
+
+    def test_an_unknown_fallback_cause_is_refused(self):
+        with self.assertRaises(ConfigError) as caught:
+            load_text(MINIMAL + '\n[fallback]\naction = "local"\non = ["the-vibes"]\n')
+        self.assertIn('the-vibes', str(caught.exception))
+
+    def test_a_cancel_contract_has_a_signal_and_a_grace(self):
+        job = load_text(MINIMAL + '\ncancel = { signal = "SIGINT", grace_ms = 240000 }\n'
+                        )['jobs']['suite']
+        self.assertEqual(job['cancel'], {'signal': 'SIGINT', 'grace_ms': 240000})
+
+    def test_the_default_cancel_is_sigterm_and_fifteen_seconds(self):
+        self.assertEqual(load_text(MINIMAL)['jobs']['suite']['cancel'],
+                         {'signal': 'SIGTERM', 'grace_ms': 15000})
+
+    def test_sigkill_is_not_offered_as_a_cancel_signal(self):
+        # It is what the grace escalates to, not a thing a job may ask for.
+        with self.assertRaises(ConfigError) as caught:
+            load_text(MINIMAL + '\ncancel = { signal = "SIGKILL" }\n')
+        self.assertIn('SIGTERM', str(caught.exception))
+
+    def test_drift_belongs_to_the_job_when_the_job_says_so(self):
+        self.assertEqual(load_text(MINIMAL + '\ndrift = "off"\n')['jobs']['suite']['drift'], 'off')
+        self.assertIsNone(load_text(MINIMAL)['jobs']['suite']['drift'])
+
+    def test_a_local_job_declares_evidence_not_artifacts(self):
+        local = MINIMAL + '\nwhere = "local"\n'
+        job = load_text(local + 'outputs = [{ kind = "evidence", paths = ["tmp/marker"] }]\n'
+                        )['jobs']['suite']
+        self.assertEqual(job['outputs'][0]['kind'], 'evidence')
+        with self.assertRaises(ConfigError) as caught:
+            load_text(local + 'outputs = [{ kind = "artifacts", paths = ["tmp"] }]\n')
+        self.assertIn('evidence', str(caught.exception))
+
+    def test_a_remote_job_may_not_declare_evidence(self):
+        with self.assertRaises(ConfigError) as caught:
+            load_text(MINIMAL + '\noutputs = [{ kind = "evidence", paths = ["tmp"] }]\n')
+        self.assertIn('artifacts', str(caught.exception))
+
 
 class ResolveTest(unittest.TestCase):
     def test_the_repo_root_wins_over_the_enrolment(self):
@@ -162,9 +220,36 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(verdict['decision'], 'reject')
         self.assertIn('JOURNEY_SHARD', verdict['message'])
 
-    def test_a_subdirectory_invocation_stays_local(self):
+    def test_a_subdirectory_invocation_is_re_rooted_when_nothing_names_a_path(self):
+        # `S0-01` means the same thing in every directory, because the repository
+        # resolves it against its own catalogue.
         verdict = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
+        self.assertEqual(verdict['decision'], 'remote')
+        self.assertEqual(verdict['rerooted'], 'apps/agent')
+
+    def test_a_subdirectory_invocation_with_a_path_stays_local(self):
+        verdict = classify.classify(self.config, ['pnpm', 'unit', 'src/x.test.ts'],
+                                    cwd='apps/agent')
         self.assertEqual(verdict['decision'], 'local')
+        self.assertEqual(verdict['reason'], 'run from the repo root to route')
+        self.assertEqual(verdict['blocked_by'], 'src/x.test.ts')
+
+    def test_a_bare_name_that_is_a_real_file_here_also_stays_local(self):
+        # No slash, but it exists relative to where it was typed, so re-rooting
+        # it would silently change which file the selector names.
+        verdict = classify.classify(self.config, ['pnpm', 'unit', 'x.test.ts'],
+                                    cwd='apps/agent', exists=lambda token: token == 'x.test.ts')
+        self.assertEqual(verdict['decision'], 'local')
+
+    def test_the_root_invocation_is_never_re_rooted(self):
+        verdict = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'])
+        self.assertIsNone(verdict['rerooted'])
+
+    def test_a_subdirectory_can_be_refused_instead(self):
+        config = loader.load(EXAMPLE)
+        config['matching']['subdirectory'] = 'reject'
+        verdict = classify.classify(config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
+        self.assertEqual(verdict['decision'], 'reject')
 
     def test_update_arms_the_writeback_output(self):
         plain = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'])['plan']
@@ -185,6 +270,14 @@ class ClassifyTest(unittest.TestCase):
                                                   '--fault', '../weird'])
         self.assertEqual(verdict['decision'], 'remote')
         self.assertEqual(verdict['forwarded'][-2:], ['--fault', '../weird'])
+
+    def test_the_policy_index_carries_size_and_fallback_to_the_marker(self):
+        index = {tuple(item['prefix']): item
+                 for item in classify.policy_index(self.config)}
+        self.assertEqual(index[('journey',)]['size'], 'large')
+        self.assertTrue(index[('journey',)]['writeback'])
+        self.assertEqual(index[('node',)]['size'], 'small')
+        self.assertFalse(index[('node',)]['writeback'])
 
     def test_the_claim_index_is_what_the_shim_reads(self):
         self.assertEqual(classify.claim_index(self.config),

@@ -21,8 +21,20 @@ too high a price for changing a hostname.
     reserve_mib = 4096                  # what the agents, the editors and the OS keep
     max_running = 4
     one_active_per_worktree = true
-    drift = "warn"                      # off | warn | fail
+    drift = "warn"                      # off | warn | fail; a job may override it
     queue_timeout_seconds = 0           # 0: wait for the budget as long as it takes
+
+    # The "stop piling onto a broken machine" gate. Sampled when something wants
+    # in, never on a timer. A job held here has provably not run; a job that waits
+    # the whole of max_wait_seconds exits 70 rather than being started anyway.
+    [local.pause]
+    enabled = true
+    sample_seconds = 3
+    swap_growth_mib_per_minute = 256    # growth, not level: yesterday's swap is not news
+    psi_full_avg10 = 20.0               # Linux /proc/pressure/memory
+    free_percent = 5.0                  # macOS memory_pressure -Q, or the vm_stat sum
+    load_per_cpu = 8.0                  # the backstop signal; 0 disables it
+    max_wait_seconds = 300
 
     [[repos]]
     name = "eichler"
@@ -34,6 +46,7 @@ import tomllib
 from pathlib import Path
 
 from ..errors import ConfigError
+from . import pressure
 
 DEFAULT_PATH = Path('~/.config/pandora/config.toml')
 DEFAULT_STATE = Path('~/.local/state/pandora/default')
@@ -52,7 +65,7 @@ DEFAULTS = {
     # a number typed into a file goes stale the moment the Mac is replaced.
     'local': {'budget_mib': 0, 'reserve_mib': 4096, 'max_running': 4,
               'one_active_per_worktree': True, 'drift': 'warn',
-              'queue_timeout_seconds': 0},
+              'queue_timeout_seconds': 0, 'pause': dict(pressure.DEFAULTS)},
 }
 
 
@@ -74,6 +87,20 @@ def normalise(raw):
                               % (section, '' if len(unknown) == 1 else 's', ', '.join(unknown),
                                  ', '.join(sorted(DEFAULTS[section]))))
         config[section].update(block)
+    # `[local.pause]` is the one nested table, and its keys are checked with the
+    # same closed-schema rule as everything else: a misspelled threshold that is
+    # silently ignored is a gate that is silently off.
+    pause = dict(pressure.DEFAULTS)
+    given = config['local'].get('pause') or {}
+    if not isinstance(given, dict):
+        raise ConfigError('[local.pause] must be a table')
+    unknown = sorted(set(given) - set(pressure.DEFAULTS))
+    if unknown:
+        raise ConfigError('[local.pause] has unknown key%s %s; allowed: %s'
+                          % ('' if len(unknown) == 1 else 's', ', '.join(unknown),
+                             ', '.join(sorted(pressure.DEFAULTS))))
+    pause.update(given)
+    config['local']['pause'] = pause
     config['client']['state'] = _expand(config['client']['state'])
     for index, item in enumerate(raw.get('repos', [])):
         if not isinstance(item, dict):

@@ -10,7 +10,11 @@
     pandora result <id>                 one run's result JSON
     pandora cancel <id>
     pandora stats                       routed and, just as importantly, not routed
+    pandora worker provision            make a host into a worker, idempotently
+    pandora worker status               versions, drift, pool, goldens, ready state
     pandora worker canary               the worker's own health gate
+    pandora worker gc [--dry-run]       leaked instances, volumes, old goldens
+    pandora worker goldens              what is baked in, and what it cost
     pandora worker reconcile            after an engine restart
 
 Everything Pandora says about itself goes to stderr, prefixed `pandora:`, so a
@@ -87,6 +91,7 @@ def cmd_enrol(args):
     text = enrolment.render(socket_path=str(state / 'client.sock'),
                             repo=args.name or repo_config['repo']['name'],
                             claims=claims,
+                            policies=classifier.policy_index(repo_config),
                             strip_prefixes=repo_config['matching']['strip_prefixes'],
                             origin=str(path),
                             home=str(Path(__file__).resolve().parents[1]))
@@ -159,8 +164,10 @@ def cmd_wait(args):
 
 def cmd_ps(args):
     state, _ = state_of(args)
+    pause = {}
     try:
-        rows = ask(state / 'client.sock', {'op': 'ps'})['data']
+        answer = ask(state / 'client.sock', {'op': 'ps'})
+        rows, pause = answer['data'], answer.get('pause') or {}
     except OSError:
         rows = []
         for meta in sorted((state / 'runs').glob('*/meta.json')):
@@ -170,8 +177,14 @@ def cmd_ps(args):
                 continue
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
     if args.json:
-        print(json.dumps(rows, indent=1, sort_keys=True))
+        print(json.dumps({'runs': rows, 'pause': pause} if pause else rows,
+                         indent=1, sort_keys=True))
         return 0
+    if pause.get('paused'):
+        # First line, not a footnote: a queue that is not admitting is the most
+        # important fact on the screen.
+        print('local lane PAUSED: %s (max wait %gs)'
+              % (pause.get('evidence'), pause.get('max_wait_seconds', 0)))
     print('%-14s %-6s %-10s %-16s %5s  %s'
           % ('run', 'lane', 'state', 'remote', 'exit', 'command'))
     for row in rows[:args.limit]:
@@ -271,6 +284,14 @@ def cmd_stats(args):
                  len(local.get('running') or []),
                  ', singleton %s' % ', '.join(sorted(local['singletons']))
                  if local.get('singletons') else ''))
+    pause = local.get('pause') or {}
+    if pause:
+        print('  pause gate: %s, %d episode(s), %gs paused, %d job(s) delayed, %d refused%s'
+              % ('PAUSED (%s)' % pause.get('evidence') if pause.get('paused')
+                 else ('open' if pause.get('enabled') else 'disabled'),
+                 pause.get('episodes', 0), pause.get('paused_seconds', 0),
+                 pause.get('jobs_delayed', 0), pause.get('jobs_refused', 0),
+                 '; last %s' % pause['last_evidence'] if pause.get('last_evidence') else ''))
     worker = data.get('worker') or {}
     if worker.get('ok'):
         scheduler = worker['scheduler']
@@ -284,40 +305,6 @@ def cmd_stats(args):
     elif worker:
         print('worker: unreachable (%s)' % worker.get('error'))
     return 0
-
-
-def cmd_worker(args):
-    from .client.worker import Worker
-    state, config = state_of(args)
-    if not config['repos']:
-        notice('no repository is enrolled in ' + str(config.get('source')))
-        return 1
-    repo = config['repos'][0]
-    worker = Worker(config['worker']['host'], state=state,
-                    engine_root=config['worker']['engine_root'])
-    try:
-        if args.action == 'canary':
-            path, _ = loader.resolve(repo['root'], repo.get('config') or None)
-            toolchain = loader.load(path)['worker']
-            remote = '%s/toolchain-canary.json' % worker.root()
-            worker.link.run(['sh', '-c', 'mkdir -p %s && cat > %s'
-                             % (worker.root(), remote)],
-                            stdin=json.dumps(toolchain).encode())
-            answer = worker.engine(['canary', '--toolchain', remote, '--hog', args.hog],
-                                   timeout=900)
-        elif args.action == 'reconcile':
-            answer = worker.reconcile()
-        elif args.action == 'retain':
-            answer = worker.engine(['retain'], timeout=300)
-        else:
-            answer = worker.stats()
-    except PandoraError as error:
-        notice('%s: %s' % (type(error).__name__, error))
-        return INFRA
-    finally:
-        worker.close()
-    print(json.dumps(answer, indent=1, sort_keys=True))
-    return 0 if answer.get('ok') else 1
 
 
 def main(argv=None):
@@ -365,10 +352,10 @@ def main(argv=None):
     stats.add_argument('--json', action='store_true')
     stats.set_defaults(func=cmd_stats)
 
-    worker = sub.add_parser('worker')
-    worker.add_argument('action', choices=('canary', 'reconcile', 'retain', 'stats'))
-    worker.add_argument('--hog', default='file')
-    worker.set_defaults(func=cmd_worker)
+    # `pandora worker ...` is about the machine rather than the run, and it has
+    # to work on a host no client has adopted yet, so it owns its own parser.
+    from .worker import cli as worker_cli
+    worker_cli.add_parser(sub)
 
     args = parser.parse_args(argv)
     try:

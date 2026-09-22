@@ -14,8 +14,9 @@ import time
 import unittest
 from pathlib import Path
 
-from pandora.client import local
+from pandora.client import local, pressure
 from pandora.client.local import Budget, Busy, LocalExecutor, Supervisor, cli_exit
+from pandora.client.pressure import Gate, Paused
 from pandora.engine.admission import Store
 
 
@@ -47,10 +48,30 @@ class FakeRun:
         return b''.join(chunk for _which, chunk in self.chunks).decode()
 
 
-def budget(**config):
+def budget(gate=None, **config):
     settings = {'budget_mib': 4096, 'max_running': 4, 'one_active_per_worktree': True}
     settings.update(config)
-    return Budget(settings, store=Store(':memory:'))
+    return Budget(settings, store=Store(':memory:'),
+                  gate=gate if gate is not None else Gate({'enabled': False}))
+
+
+class Fake:
+    """A host that says whatever the test needs, as many times as it needs."""
+
+    def __init__(self, *readings):
+        self.readings = list(readings)
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return self.readings[min(self.calls - 1, len(self.readings) - 1)]
+
+
+def healthy(**extra):
+    reading = {'platform': 'linux', 'swap_used_mib': 100.0, 'free_percent': 60.0,
+               'psi_full_avg10': 0.0, 'load_per_cpu': 0.5}
+    reading.update(extra)
+    return reading
 
 
 class BudgetRules(unittest.TestCase):
@@ -143,6 +164,100 @@ class BudgetRules(unittest.TestCase):
                                      cancelled=lambda: True, timeout=10))
 
 
+class PauseGate(unittest.TestCase):
+    """The machine's own gate: evidence, waiting, and a refusal that is not a run."""
+
+    def test_a_healthy_host_is_not_evidence_of_anything(self):
+        self.assertIsNone(Gate(reader=Fake(healthy())).closed())
+
+    def test_a_memory_stall_pauses_the_lane(self):
+        gate = Gate(reader=Fake(healthy(psi_full_avg10=41.0)))
+        self.assertIn('PSI full avg10 41.0', gate.closed())
+
+    def test_swap_growth_not_swap_level_is_the_signal(self):
+        clock = [0.0]
+        # 4 GiB of swap, sitting still: a Mac that swapped yesterday.
+        gate = Gate(reader=Fake(healthy(swap_used_mib=4096.0)),
+                    clock=lambda: clock[0])
+        self.assertIsNone(gate.closed())
+        clock[0] = 60.0
+        self.assertIsNone(gate.sample())
+
+    def test_swap_climbing_fast_pauses_the_lane(self):
+        clock = [0.0]
+        gate = Gate(reader=Fake(healthy(swap_used_mib=100.0), healthy(swap_used_mib=900.0)),
+                    clock=lambda: clock[0])
+        self.assertIsNone(gate.closed())
+        clock[0] = 60.0
+        self.assertIn('swap growing 800 MiB/min', gate.sample())
+
+    def test_a_starved_mac_pauses_on_free_percentage(self):
+        gate = Gate(reader=Fake(healthy(free_percent=1.5, psi_full_avg10=None)))
+        self.assertIn('1.5% of memory free', gate.closed())
+
+    def test_the_gate_can_be_turned_off_entirely(self):
+        gate = Gate({'enabled': False}, reader=Fake(healthy(psi_full_avg10=99.0)))
+        self.assertIsNone(gate.closed())
+
+    def test_a_reading_is_reused_until_it_is_stale(self):
+        reader = Fake(healthy())
+        gate = Gate({'sample_seconds': 30}, reader=reader, clock=lambda: 5.0)
+        gate.closed()
+        gate.closed()
+        self.assertEqual(reader.calls, 1)
+
+    def test_a_pause_that_clears_admits_the_waiting_job(self):
+        reader = Fake(healthy(psi_full_avg10=50.0), healthy())
+        pool = budget(gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 30}, reader=reader))
+        notes = []
+        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        admitted = pool.admit('a', repo='eichler', job='check', poll=0.01, note=notes.append)
+        self.assertTrue(admitted['admitted'])
+        self.assertTrue(any('local lane paused' in note for note in notes), notes)
+        self.assertTrue(any('resumed' in note for note in notes), notes)
+
+    def test_a_pause_that_never_clears_refuses_rather_than_running_anyway(self):
+        pool = budget(gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 0.2},
+                                reader=Fake(healthy(psi_full_avg10=50.0))))
+        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        with self.assertRaises(Paused) as caught:
+            pool.admit('a', repo='eichler', job='check', poll=0.01)
+        self.assertIn('PSI', str(caught.exception))
+        self.assertIn('PANDORA_OFF=1', str(caught.exception))
+
+    def test_the_counters_are_what_pandora_stats_prints(self):
+        gate = Gate({'sample_seconds': 0, 'max_wait_seconds': 0.1},
+                    reader=Fake(healthy(psi_full_avg10=50.0)))
+        pool = budget(gate=gate)
+        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        with self.assertRaises(Paused):
+            pool.admit('a', repo='eichler', job='check', poll=0.01)
+        state = pool.snapshot()['pause']
+        self.assertTrue(state['paused'])
+        self.assertEqual(state['episodes'], 1)
+        self.assertEqual(state['jobs_delayed'], 1)
+        self.assertEqual(state['jobs_refused'], 1)
+        self.assertIn('PSI', state['last_evidence'])
+
+    def test_counters_survive_a_daemon_restart(self):
+        with tempfile.TemporaryDirectory() as home:
+            store = Path(home) / 'pause.json'
+            first = Gate({'sample_seconds': 0}, reader=Fake(healthy(psi_full_avg10=50.0)),
+                         store=store)
+            first.closed()
+            first.refused()
+            second = Gate({'sample_seconds': 0}, reader=Fake(healthy()), store=store)
+            self.assertEqual(second.state()['episodes'], 1)
+            self.assertEqual(second.state()['jobs_refused'], 1)
+
+    def test_this_machine_can_be_read_without_raising(self):
+        # Not an assertion about this Mac's health -- an assertion that the
+        # platform probes parse whatever this platform actually prints.
+        reading = pressure.read_host()
+        self.assertIn(reading['platform'], ('darwin', 'linux'))
+        self.assertIsNotNone(reading['load_per_cpu'])
+
+
 class SupervisorBehaviour(unittest.TestCase):
     def test_it_streams_both_pipes_and_reports_the_exit(self):
         seen = []
@@ -189,6 +304,40 @@ class SupervisorBehaviour(unittest.TestCase):
             time.sleep(0.6)
             self.assertEqual(marker.stat().st_size, size,
                              'the grandchild outlived the cancel')
+
+    def test_the_job_chooses_the_signal_and_the_grace(self):
+        with tempfile.TemporaryDirectory() as home:
+            seen = Path(home) / 'caught'
+            # Traps SIGINT, writes what it caught, and then leaves.
+            script = ('trap \'echo int > %s; exit 7\' INT; echo up; '
+                      'while :; do sleep 0.05; done' % seen)
+            supervisor = Supervisor(['sh', '-c', script], cwd=home, env=dict(os.environ),
+                                    timeout_seconds=60, on_log=lambda *_: None,
+                                    cancel={'signal': 'SIGINT', 'grace_ms': 5000})
+            stop = threading.Event()
+            threading.Timer(0.8, stop.set).start()
+            outcome, _code = supervisor.run(stop.is_set)
+            self.assertEqual(outcome, 'cancelled')
+            self.assertEqual(seen.read_text().strip(), 'int')
+
+    def test_a_grace_that_expires_escalates_to_sigkill(self):
+        # A job may take as long as its grace to clean up; it may not decline.
+        script = 'trap "" TERM INT; echo up; while :; do sleep 0.05; done'
+        supervisor = Supervisor(['sh', '-c', script], cwd='.', env=dict(os.environ),
+                                timeout_seconds=60, on_log=lambda *_: None,
+                                cancel={'signal': 'SIGTERM', 'grace_ms': 300})
+        stop = threading.Event()
+        threading.Timer(0.5, stop.set).start()
+        started = time.time()
+        outcome, _code = supervisor.run(stop.is_set)
+        self.assertEqual(outcome, 'cancelled')
+        self.assertLess(time.time() - started, 15, 'the 15 s default grace was used')
+
+    def test_an_unknown_signal_name_falls_back_to_sigterm(self):
+        supervisor = Supervisor(['true'], cwd='.', env={}, timeout_seconds=1,
+                                on_log=lambda *_: None,
+                                cancel={'signal': 'SIGNOPE', 'grace_ms': 1})
+        self.assertEqual(supervisor.cancel_signal, signal.SIGTERM)
 
     def test_a_timeout_is_not_a_command_failure(self):
         supervisor = Supervisor(['sh', '-c', 'sleep 30'], cwd='.', env=dict(os.environ),
@@ -247,15 +396,18 @@ class ExecutorEndToEnd(unittest.TestCase):
         subprocess.run(['git', '-C', str(self.root), 'commit', '-qm', 'one'], check=True)
         return self.root
 
-    def execute(self, argv, *, drift='warn', worktree=None, run_id='r0'):
+    def execute(self, argv, *, drift='warn', worktree=None, run_id='r0', drift_job=None, **plan):
+        # `drift` is the machine's setting; `drift_job` is the job's override.
         worktree = worktree or self.root
+        if drift_job is not None:
+            plan['drift'] = drift_job
         pool = budget()
         executor = LocalExecutor(pool, drift=drift)
         run = FakeRun(self.root / 'run', run_id)
         run.dir.mkdir(parents=True, exist_ok=True)
         pool.reserve(run.id, repo='eichler', job='fake', worktree=worktree, singleton=False)
         admission = pool.admit(run.id, repo='eichler', job='fake')
-        result = executor.execute(run, plan_for(argv), repo='eichler', job='fake',
+        result = executor.execute(run, plan_for(argv, **plan), repo='eichler', job='fake',
                                   worktree=worktree, request_env={}, admission=admission,
                                   note=run.note)
         return run, result, pool
@@ -308,6 +460,46 @@ class ExecutorEndToEnd(unittest.TestCase):
         _run, result, _pool = self.execute(['sh', '-c', 'true'], drift='fail')
         self.assertIsNone(result['source_before'])
         self.assertFalse(result['drifted'])
+
+    def test_the_job_overrides_the_machines_drift_setting(self):
+        self.git_worktree()
+        # The machine says `fail`; this job says `off`, which is the
+        # recommendation for `small` jobs whose run is shorter than the freeze.
+        _run, result, _pool = self.execute(['sh', '-c', 'echo two >> file.txt'],
+                                           drift='fail', drift_job='off')
+        self.assertEqual(result['drift'], 'off')
+        self.assertIsNone(result['source_before'])
+        self.assertEqual(result['outcome'], 'passed')
+
+    def test_a_job_can_ask_for_fail_on_a_warning_machine(self):
+        self.git_worktree()
+        _run, result, _pool = self.execute(['sh', '-c', 'echo two >> file.txt'],
+                                           drift='warn', drift_job='fail')
+        self.assertEqual(result['outcome'], 'drifted')
+        self.assertEqual(result['cli_exit'], 75)
+
+    def test_declared_evidence_paths_are_recorded_in_the_receipt(self):
+        # The answer to EICHLER_VALIDATION_DIRECTORY: the job says where it
+        # writes, and the receipt says what was there afterwards.
+        outputs = [{'kind': 'evidence', 'paths': ['cleanup-required', 'logs/*.txt']}]
+        _run, result, _pool = self.execute(
+            ['sh', '-c', 'mkdir -p logs && echo x > logs/one.txt && echo y > cleanup-required'],
+            outputs=outputs)
+        found = {item['path']: item for item in result['outputs']['evidence']}
+        self.assertTrue(found['cleanup-required']['present'])
+        self.assertTrue(found['logs/one.txt']['present'])
+        self.assertEqual(found['logs/one.txt']['bytes'], 2)
+
+    def test_a_declared_path_that_is_absent_is_a_fact_not_a_silence(self):
+        outputs = [{'kind': 'evidence', 'paths': ['cleanup-required']}]
+        _run, result, _pool = self.execute(['sh', '-c', 'true'], outputs=outputs)
+        self.assertEqual(result['outputs']['evidence'],
+                         [{'path': 'cleanup-required', 'present': False, 'bytes': None}])
+
+    def test_a_local_run_records_the_cancel_contract_it_ran_under(self):
+        _run, result, _pool = self.execute(['sh', '-c', 'true'],
+                                           cancel={'signal': 'SIGINT', 'grace_ms': 240000})
+        self.assertEqual(result['cancel'], {'signal': 'SIGINT', 'grace_ms': 240000})
 
     def test_a_cancelled_run_exits_130_and_releases_its_holds(self):
         pool = budget()

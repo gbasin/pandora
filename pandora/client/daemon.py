@@ -31,11 +31,12 @@ from pathlib import Path
 
 from ..config import classify as classifier
 from ..config import loader
-from ..errors import (ConfigError, EngineError, PandoraError, Refused, SnapshotError,
-                      TransferError, ValidationRejected, WorkerUnreachable)
-from ..exits import STALE
-from . import enrolment, settings
+from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refused,
+                      SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
+from ..exits import INFRA, STALE
+from . import enrolment, fallback as policy, settings
 from .local import Budget, Busy, LocalExecutor
+from .pressure import Gate, Paused
 from .protocol import Reader, VERSION, dump, log_frame
 from .worker import Worker
 
@@ -65,6 +66,11 @@ class Run:
         self.state = 'queued'
         self.remote = None
         self.lane = 'remote'
+        # Why this run is in the lane it is in. Empty for the ordinary case;
+        # `fallback:<cause>` when a remote submission did not proceed, because a
+        # receipt that says `lane: local` and nothing else cannot be told apart
+        # from a job that was always local.
+        self.reason = request.get('reason') or ''
         self.result = None
         self.started = now()
 
@@ -72,7 +78,7 @@ class Run:
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
                    'remote': self.remote, 'repo': self.request.get('repo'),
-                   'lane': self.lane, 'job': self.request.get('job'),
+                   'lane': self.lane, 'reason': self.reason, 'job': self.request.get('job'),
                    'started': self.started, 'updated': now()}
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
@@ -170,9 +176,13 @@ class Daemon:
         self.worker_factory = Worker
         # One local queue per daemon, built once: its learned peaks live in a
         # SQLite file beside the runs, so a restart does not forget what a job
-        # costs and re-reserve every class ceiling.
+        # costs and re-reserve every class ceiling. The pause gate's counters
+        # live beside them, for the same reason.
+        self.gate = Gate(self.config['local'].get('pause') or {},
+                         store=self.state / 'pause.json')
         self.budget = Budget(self.config['local'],
-                             store_path=self.state / 'local-peaks.sqlite3')
+                             store_path=self.state / 'local-peaks.sqlite3',
+                             gate=self.gate)
         self.local = LocalExecutor(self.budget,
                                    drift=self.config['local'].get('drift', 'warn'),
                                    queue_timeout=float(
@@ -320,8 +330,14 @@ class Daemon:
             except OSError:
                 pass
 
-    def deny(self, conn, code, message):
-        conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code, 'msg': message}))
+    # What each refusal costs the caller. The client no longer invents an exit
+    # code for a daemon verdict, so the verdict has to carry one.
+    EXITS = {'queue-timeout': STALE, 'busy': STALE, 'version': INFRA,
+             'unauthorized': INFRA, 'local-paused': INFRA, 'fallback-refused': INFRA}
+
+    def deny(self, conn, code, message, exit=None):
+        conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code, 'msg': message,
+                           'exit': exit if exit is not None else self.EXITS.get(code, 1)}))
 
     def dispatch(self, conn):
         self.refresh()
@@ -345,7 +361,9 @@ class Daemon:
         elif op == 'stats':
             conn.sendall(dump({'v': VERSION, 't': 'stats', 'data': self.stats()}))
         elif op == 'ps':
-            conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps()}))
+            self.gate.sample()          # a person asked; answer about now, not about then
+            conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
+                               'pause': self.gate.state()}))
         elif op == 'run':
             self.serve_run(conn, reader, first)
         elif op == 'attach':
@@ -361,25 +379,36 @@ class Daemon:
     # -- the routed path ---------------------------------------------------
 
     def plan_for(self, request):
-        """Classify one request. Raises the pre-accept refusals; returns a plan."""
+        """Classify one request. Raises the pre-accept refusals; returns a plan.
+
+        The worktree, not the enrolment's root: one enrolment covers every
+        worktree of a repository, and the command was typed in exactly one of
+        them. The *invocation* directory inside that worktree is what decides
+        whether the job can be re-rooted -- see `classify.path_like`.
+        """
         cwd = request.get('cwd') or ''
         repo = settings.enrolment_for(self.config, cwd)
         if repo is None:
             repo = self.enrolment_by_git(cwd)
         if repo is None:
-            raise Refused('cwd is not inside an enrolled repository')
+            raise NotClaimed('cwd is not inside an enrolled repository')
         config = self.repo_config(repo)
-        root = Path(repo['root'])
+        root = Path(enrolment.worktree_root(cwd) or repo['root'])
         try:
-            relative = Path(cwd).resolve().relative_to(Path(cwd).resolve())
-        except ValueError:                        # pragma: no cover - resolve of itself
+            relative = Path(cwd).resolve().relative_to(root.resolve())
+        except ValueError:
             relative = Path('.')
+        here = Path(cwd)
         verdict = classifier.classify(config, request.get('argv') or [],
-                                      cwd='.', env=request.get('env') or {})
+                                      cwd=str(relative), env=request.get('env') or {},
+                                      exists=lambda token: (here / token).exists())
         if verdict['decision'] == 'local':
-            raise Refused(verdict['reason'])
+            raise NotClaimed(verdict['reason'])
         if verdict['decision'] == 'reject':
             raise Refused(verdict['message'])
+        # Re-rooting is the run's whole difference from a root invocation, so it
+        # is applied once, here, and said out loud rather than inferred later.
+        verdict['worktree'] = str(root)
         return repo, config, verdict
 
     def enrolment_by_git(self, cwd):
@@ -401,9 +430,26 @@ class Daemon:
                 continue
         return None
 
+    def tell(self, conn, text):
+        """One line of Pandora's own commentary, before `accepted`.
+
+        The client prints it on stderr as it arrives. It is a frame rather than
+        a log line because there is no run yet -- and every one of these is said
+        at a moment where nothing has executed.
+        """
+        try:
+            conn.sendall(dump({'v': VERSION, 't': 'notice', 'msg': text}))
+        except OSError:
+            pass
+
     def serve_run(self, conn, reader, request):
         try:
             repo, config, verdict = self.plan_for(request)
+        except NotClaimed as error:
+            # Not a fallback and not a refusal: Pandora has no opinion about
+            # this invocation, so the client runs it as if the shim were absent.
+            self.deny(conn, 'passthrough', str(error))
+            return
         except Refused as error:
             self.deny(conn, 'rejected', str(error))
             return
@@ -412,16 +458,19 @@ class Daemon:
             return
         plan = verdict['plan']
         job = config['jobs'][verdict['job']]
-        worktree = request['cwd']
+        worktree = verdict.get('worktree') or request['cwd']
+        if verdict.get('rerooted'):
+            self.tell(conn, 'running from the worktree root; you typed this in %s and no '
+                            'argument names a path' % verdict['rerooted'])
 
         if job['where'] == 'local':
-            self.serve_local(conn, reader, request, repo, job, plan)
+            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree)
             return
 
         if plan['options'].get('update'):
             self.deny(conn, 'rejected',
                       '--update write-back is not in this build; run it locally with '
-                      'PANDORA_OFF=1 until write-back lands.')
+                      'PANDORA_OFF=1 until write-back lands.', exit=INFRA)
             return
 
         # The repository's own opinion of the arguments, before anything queues.
@@ -437,27 +486,37 @@ class Daemon:
                   dict(request, repo=repo['name'], job=job['id']))
         run.state = 'queued'
         run.save()
+        # Every way a submission can fail to proceed, through one door. Each of
+        # them is provably non-executing -- that is what earns the fallback --
+        # and each of them is decided by the same policy rather than by whatever
+        # the client happened to do with that error code.
         try:
             worker = self.worker_for(repo)
             submission = worker.submit(plan=plan, worktree=worktree,
                                        request_id=run.id + ':' + plan['job'],
                                        control=request)
         except WorkerUnreachable as error:
-            self.deny(conn, 'worker-unreachable', str(error))
+            self.fall_back(conn, reader, request, repo, job, plan, worktree,
+                           'worker-unreachable', str(error), checked)
             return
-        except (SnapshotError,) as error:
-            self.deny(conn, 'snapshot-failed', str(error))
+        except SnapshotError as error:
+            self.fall_back(conn, reader, request, repo, job, plan, worktree,
+                           'snapshot-failed', str(error), checked)
             return
-        except (TransferError,) as error:
-            self.deny(conn, 'transfer-failed', str(error))
+        except TransferError as error:
+            self.fall_back(conn, reader, request, repo, job, plan, worktree,
+                           'transfer-failed', str(error), checked)
             return
         except EngineError as error:
-            code = 'rejected'
+            cause = 'engine-error'
             try:
-                code = json.loads(str(error)).get('code', 'rejected')
+                named = json.loads(str(error)).get('code')
             except ValueError:
-                pass
-            self.deny(conn, code, str(error))
+                named = None
+            if named in policy.CAUSES:
+                cause = named
+            self.fall_back(conn, reader, request, repo, job, plan, worktree,
+                           cause, str(error), checked)
             return
 
         run.remote = submission.run_id
@@ -479,9 +538,36 @@ class Daemon:
         threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
         self.stream(conn, reader, run, 0)
 
+    # -- the one fallback path ---------------------------------------------
+
+    def fall_back(self, conn, reader, request, repo, job, plan, worktree, cause, detail,
+                  checked=None):
+        """A remote submission did not proceed. Decide once, then admit or refuse.
+
+        There is no third option, and in particular there is no `exec`. A job
+        that may fall back is *admitted into the local lane with its size class*,
+        so twelve agents whose worker just died queue behind one budget instead
+        of starting twelve browser suites on one Mac -- which is the accident
+        this whole path exists to make impossible.
+        """
+        verdict = policy.decide(cause=cause, size=plan['size'],
+                                writeback=bool(plan['options'].get('update'))
+                                          or plan.get('writeback'),
+                                declared=job['fallback'],
+                                notice=(job['fallback'] or {}).get('notice'))
+        if verdict['action'] == 'refuse':
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'fallback-refused',
+                               'msg': '%s (%s): %s' % (cause, detail, verdict['reason']),
+                               'exit': INFRA}))
+            return
+        self.tell(conn, '%s (%s); %s' % (cause, detail, verdict['reason']))
+        self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
+                         reason='fallback:' + cause, checked=checked)
+
     # -- the local path ----------------------------------------------------
 
-    def serve_local(self, conn, reader, request, repo, job, plan):
+    def serve_local(self, conn, reader, request, repo, job, plan, *, worktree=None,
+                    reason='', checked=None):
         """The same conversation as a routed run, with this Mac as the worker.
 
         Ordering is the whole contract. The repository's own validator, then the
@@ -489,14 +575,15 @@ class Daemon:
         way this can end badly before the frame is a way that provably ran
         nothing, exactly as it is for a remote run.
         """
-        worktree = request['cwd']
-        try:
-            checked = classifier.preflight(job, plan['args'], root=worktree,
-                                           extra_env=self.validator_env(request, plan))
-        except ValidationRejected as error:
-            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'invalid-arguments',
-                               'msg': error.stderr or str(error), 'exit': error.code}))
-            return
+        worktree = worktree or request['cwd']
+        if checked is None:
+            try:
+                checked = classifier.preflight(job, plan['args'], root=worktree,
+                                               extra_env=self.validator_env(request, plan))
+            except ValidationRejected as error:
+                conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'invalid-arguments',
+                                   'msg': error.stderr or str(error), 'exit': error.code}))
+                return
 
         # The id exists before the run does, so an exclusivity refusal leaves no
         # row at all: a `queued` line in `pandora ps` for a job that was told to
@@ -512,19 +599,29 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
                                'msg': str(error), 'exit': STALE}))
             return
-        run = Run(self.state, run_id, dict(request, repo=repo['name'], job=job['id']))
+        run = Run(self.state, run_id,
+                  dict(request, repo=repo['name'], job=job['id'], reason=reason))
         run.lane = 'local'
         run.save()
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
                                           cancelled=run.cancelled.is_set,
-                                          timeout=self.local.queue_timeout)
+                                          timeout=self.local.queue_timeout,
+                                          note=lambda text: self.tell(conn, text))
         except Busy as error:
             self.budget.finish(run.id, 0, 'lost')
             run.finish(STALE, state='refused')
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
                                'msg': str(error), 'exit': STALE}))
+            return
+        except Paused as error:
+            # The machine, not the queue. Waiting longer would not have helped
+            # and starting anyway is the one thing this gate exists to prevent.
+            self.budget.finish(run.id, 0, 'lost')
+            run.finish(INFRA, state='refused')
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'local-paused',
+                               'msg': str(error), 'exit': INFRA}))
             return
         except OSError:
             self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
@@ -541,22 +638,25 @@ class Daemon:
         with self.runs_lock:
             self.runs[run.id] = run
         conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'lane': 'local',
-                           'remote': None,
+                           'remote': None, 'reason': run.reason,
                            'reservation_mib': admission.get('reservation_mib'),
                            'cpus_hint': admission.get('cpus_hint')}))
+        if run.reason:
+            run.note('lane: local, reason: ' + run.reason)
         if checked.get('ran') is False and checked.get('reason') != 'no validator declared':
             run.note(checked['reason'] + '; the arguments were not pre-checked')
         threading.Thread(target=self.execute_local,
-                         args=(run, repo, job, plan, request, admission), daemon=True).start()
+                         args=(run, repo, job, plan, request, admission, worktree),
+                         daemon=True).start()
         self.stream(conn, reader, run, 0)
 
-    def execute_local(self, run, repo, job, plan, request, admission):
+    def execute_local(self, run, repo, job, plan, request, admission, worktree=None):
         try:
             result = self.local.execute(run, plan, repo=repo['name'], job=job['id'],
-                                        worktree=request['cwd'],
+                                        worktree=worktree or request['cwd'],
                                         request_env=request.get('env') or {},
                                         admission=admission, note=run.note,
-                                        started=run.started)
+                                        started=run.started, reason=run.reason)
         except Exception as error:                     # noqa: BLE001 - never a silent pass
             self.budget.finish(run.id, 0, 'lost')
             run.note('%s: %s' % (type(error).__name__, error))
@@ -770,7 +870,7 @@ class Daemon:
             except PandoraError as error:
                 worker = {'ok': False, 'error': str(error)}
         return {'runs': self.ps(), 'passthrough': passthrough, 'worker': worker,
-                'local': self.budget.snapshot(), 'config': self.config.get('source')}
+                'local': self.budget.snapshot(sample=True), 'config': self.config.get('source')}
 
 
 def main(argv=None):

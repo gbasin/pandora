@@ -38,6 +38,14 @@ RESULT_VERSION = 2
 LAYERS = ('command', 'watchdog', 'executor', 'engine', 'client')
 
 
+def submitted_plan(paths, run_id):
+    """The plan as the client sent it, from the attempt's own `request.json`."""
+    try:
+        return json.loads((paths.attempt(run_id) / 'request.json').read_text())['plan']
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def toolchain_of(spec):
     return Toolchain(base_image=spec['base_image'],
                      packages=tuple(spec['packages']),
@@ -46,7 +54,11 @@ def toolchain_of(spec):
                      service_images=tuple(spec['service_images']),
                      install_command=spec['install_command'],
                      source_id=spec['source_id'],
-                     env=tuple(sorted(spec['env'].items())))
+                     env=tuple(sorted(spec['env'].items())),
+                     # Absent on every toolchain written before pinning existed,
+                     # and an empty `pins` fingerprints as if the field were not
+                     # there, so an old attempt still names its own golden.
+                     pins=tuple(sorted((spec.get('pins') or {}).items())))
 
 
 class Paths:
@@ -102,11 +114,19 @@ def supervise(root, run_id, *, driver=None):
     attempt.mkdir(parents=True, exist_ok=True)
     plan = row_to_dict(row)
     driver = driver or IncusDriver(root=paths.root)
+    # The ledger stores the fields it schedules on; the submitted plan is kept
+    # whole beside the attempt, which is where the parts the *executor* needs but
+    # the scheduler does not -- the cancel contract -- are read from. No column,
+    # no migration, and an attempt written before this existed reads as the
+    # default, which is the old behaviour exactly.
+    cancel = (submitted_plan(paths, run_id) or {}).get('cancel') or {}
     limits = Limits(memory_mib=row['reservation_mib'] or 2048,
                     ceiling_mib=row['ceiling_mib'] or 4096,
                     cpu_weight=100,
                     cpus_hint=row['cpus_hint'] or 1,
-                    wall_seconds=int(plan['env'].get('PANDORA_WALL_SECONDS', 1800)))
+                    wall_seconds=int(plan['env'].get('PANDORA_WALL_SECONDS', 1800)),
+                    cancel_signal=cancel.get('signal') or 'SIGKILL',
+                    cancel_grace_ms=int(cancel.get('grace_ms') or 0))
     durations, marks = {}, time.monotonic()
     log_handle = paths.log(run_id).open('a', buffering=1)
     instance = None
@@ -363,6 +383,28 @@ def budget_of(paths):
     except OSError:
         pass
     return 4096
+
+
+def disk_headroom(paths, driver=None):
+    """Whether the pool has room for another run. See `IncusDriver.capacity`.
+
+    Memory admission has a ledger to reason with; disk has none, so this is a
+    floor and nothing cleverer. The floor is the worker's, read from the
+    manifest `pandora worker provision` wrote, with an environment override for
+    a person who needs to open the gate by hand.
+    """
+    floor = os.environ.get('PANDORA_DISK_FLOOR_GIB') or ''
+    if not floor.isdigit():
+        floor = read_text(Path(paths.root) / 'disk_floor') or '4'
+    return (driver or IncusDriver(root=paths.root)).capacity(
+        floor_gib=int(floor) if floor.isdigit() else 4)
+
+
+def read_text(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return ''
 
 
 def spawn(root, run_id, *, python=None):

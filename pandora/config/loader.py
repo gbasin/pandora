@@ -44,11 +44,22 @@ NAME = re.compile(r'[a-z][a-z0-9-]*\Z')
 FLAG = re.compile(r'-{1,2}[A-Za-z][A-Za-z0-9-]*\Z')
 TOKEN = re.compile(r'\{([^{}]+)\}')
 VARIABLE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*\Z')
-FAULTS = ('worker-unreachable', 'queue-timeout', 'admission-refused')
-OUTPUTS = ('artifacts', 'writeback')
+# Every way a remote submission can fail to proceed, named once. The list is
+# closed because it is also the fallback policy's vocabulary: a cause nobody can
+# spell is a cause nobody can decide about.
+FAULTS = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
+          'worker-unreachable', 'snapshot-failed', 'transfer-failed',
+          'queue-timeout', 'admission-refused', 'engine-error')
+OUTPUTS = ('artifacts', 'writeback', 'evidence')
 EXTRA = ('local', 'reject')
 ARGS = ('none', 'required', 'optional')
 SIZES = ('small', 'medium', 'large', 'xlarge')
+# The local lane's fallback verdicts. `fail` is the v0.1 spelling of `refuse`.
+FALLBACKS = ('local', 'refuse')
+DRIFTS = ('off', 'warn', 'fail')
+# What a cancel is allowed to send first. SIGKILL is not offered: it is what the
+# grace escalates to, and a job that asks for it directly is asking for no grace.
+SIGNALS = ('SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT')
 FILENAME = 'pandora.toml'
 
 
@@ -119,7 +130,7 @@ def _names(value, where):
 
 def _choice(value, where, allowed):
     if value not in allowed:
-        raise ConfigError('%s must be one of %s' % (where, ', '.join(allowed)))
+        raise ConfigError('%s must be one of %s, not %r' % (where, ', '.join(allowed), value))
     return value
 
 
@@ -175,15 +186,43 @@ def _reject(value, where):
 
 
 def _fallback(value, where):
+    """`fallback = "local"` or `"refuse"`, or the long form with an `on` list.
+
+    The short form is the one a job should use, because the decision it expresses
+    is binary: when a remote submission does not proceed, is this job allowed
+    into the local lane or not. The long form survives because a repository may
+    want the answer to depend on *why*, and because v0.1 wrote it.
+
+    Declaring nothing is not the same as declaring `local`. An undeclared job is
+    decided by its size class at the moment it would fall back, which is the rule
+    that keeps a `large` browser suite off this Mac without anyone remembering to
+    write it down.
+    """
+    if isinstance(value, str):
+        return {'action': _choice(value, where, FALLBACKS), 'on': list(FAULTS), 'notice': None}
     _keys(value, where, {'action'}, {'on', 'notice'})
+    action = _choice(value['action'], where + '.action', FALLBACKS + ('fail',))
     fallback = {
-        'action': _choice(value['action'], where + '.action', ('local', 'fail')),
+        'action': 'refuse' if action == 'fail' else action,
         'on': _strs(value.get('on', list(FAULTS)), where + '.on', unique=True),
         'notice': _str(value['notice'], where + '.notice') if 'notice' in value else None,
     }
     for item in fallback['on']:
         _choice(item, where + '.on entry', FAULTS)
     return fallback
+
+
+def _cancel(value, where):
+    """How a cancel reaches this job's process tree: one signal, then a grace.
+
+    Real suites need real graces -- eichler's journeys ask for 240 s to tear down
+    a compose stack, its surfaces ask for SIGINT so Playwright writes its trace.
+    Pandora's own escalation to SIGKILL is not configurable: the grace is how
+    long a job gets to clean up, never whether it may refuse to die.
+    """
+    _keys(value, where, (), {'signal', 'grace_ms'})
+    return {'signal': _choice(value.get('signal', 'SIGTERM'), where + '.signal', SIGNALS),
+            'grace_ms': _int(value.get('grace_ms', 15000), where + '.grace_ms', 0, 3600000)}
 
 
 def _output(value, where):
@@ -351,7 +390,8 @@ def _shards(value, where):
 JOB_REQUIRED = {'id', 'forms', 'run'}
 JOB_OPTIONAL = {'summary', 'tool', 'size', 'args', 'options', 'value_flags', 'reject',
                 'outputs', 'fallback', 'on_extra', 'usage', 'reject_if_set',
-                'timeout_minutes', 'validate', 'where', 'singleton', 'shards'}
+                'timeout_minutes', 'validate', 'where', 'singleton', 'shards',
+                'cancel', 'drift'}
 
 
 def _job(value, index):
@@ -385,6 +425,12 @@ def _job(value, index):
         # One at a time on this machine, across every worktree. What `dev:stack`
         # is, and the only reason a local job may hold a port.
         'singleton': _bool(value.get('singleton', False), where + '.singleton'),
+        'cancel': _cancel(value['cancel'], where + '.cancel') if 'cancel' in value
+                  else {'signal': 'SIGTERM', 'grace_ms': 15000},
+        # None means "whatever the machine says". Freezing a 4,900-file worktree
+        # twice is right for a 60-second suite and absurd for a 4-second
+        # `node --test`, so the answer belongs to the job when the job has one.
+        'drift': _choice(value['drift'], where + '.drift', DRIFTS) if 'drift' in value else None,
         'args': args,
         'options': options,
         'value_flags': _strs(value.get('value_flags', []), where + '.value_flags', FLAG, unique=True),
@@ -415,9 +461,18 @@ def _job(value, index):
                                   'declare the artifacts that bring it home')
     if job['singleton'] and job['where'] != 'local':
         raise ConfigError(where + ".singleton is a machine-wide rule and needs where = 'local'")
-    if job['where'] == 'local' and job['outputs']:
-        raise ConfigError(where + ' runs in the worktree, so it declares no outputs to '
-                                  'bring home; remove outputs or set where = "remote"')
+    # A local job's outputs are not brought home -- it ran in the worktree, the
+    # files are already there. What it declares is *evidence*: the paths a reader
+    # of the receipt must look at, which is the answer to "should the local lane
+    # set EICHLER_VALIDATION_DIRECTORY". No, it should not: a job that writes a
+    # cleanup marker declares where it writes it, and the receipt records it.
+    for output in job['outputs']:
+        if job['where'] == 'local' and output['kind'] != 'evidence':
+            raise ConfigError('%s runs in the worktree, so it brings nothing home; declare '
+                              'kind = "evidence" paths or set where = "remote"' % where)
+        if job['where'] != 'local' and output['kind'] == 'evidence':
+            raise ConfigError('%s.outputs kind evidence is for where = "local" jobs; a remote '
+                              'run brings its paths home as artifacts' % where)
     if job['value_flags'] and args == 'none':
         raise ConfigError(where + ".value_flags needs args = 'required' or 'optional'")
     if job['reject'] and args == 'none':
@@ -540,8 +595,10 @@ def validate(value):
                                                '{job} runs as one complete job and takes no '
                                                'arguments.'), 'feedback.extra_message'),
         },
-        'fallback': _fallback(value['fallback'], 'fallback') if 'fallback' in value
-                    else {'action': 'fail', 'on': list(FAULTS), 'notice': None},
+        # None, not a default: "nobody said" is a third answer, and it is the one
+        # that lets the size class decide. A repository that writes this table
+        # overrides that for every job it does not override individually.
+        'fallback': _fallback(value['fallback'], 'fallback') if 'fallback' in value else None,
         'jobs': jobs,
     }
     for job in jobs.values():

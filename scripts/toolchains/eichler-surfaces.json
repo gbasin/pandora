@@ -1,0 +1,9 @@
+{"base_image": "images:ubuntu/26.04",
+ "packages": ["docker.io", "docker-compose-v2", "docker-buildx", "ca-certificates", "curl", "xz-utils", "git", "python3", "jq", "rsync"],
+ "node_version": "24.9.0",
+ "pnpm_version": "12.3.4",
+ "service_images": [],
+ "install_command": "set -o pipefail\npnpm install --frozen-lockfile 2>&1 | tail -2\npnpm --filter @eichler/desk exec playwright install --with-deps chromium 2>&1 | tail -5\nls /root/.cache/ms-playwright",
+ "source_id": "eichler-surfaces",
+ "env": {},
+ "workdir": "/work"}

@@ -1,16 +1,26 @@
 """The routed half of the shim: connect, stream, and get the exit code right.
 
-The whole file is organised around one rule. Before the daemon says `accepted`
-the command provably has not run, so any problem at all means "print one line and
-run it locally". After `accepted` the command is on a worker, so falling back
+Two rules, and the second one is new.
+
+**Before `accepted`** the command provably has not run, so falling back is
+*permitted*. **After `accepted`** the command is on a worker, so falling back
 could run it twice; from that point a failure is an infrastructure failure
 (exit 70) and never a local run.
 
-The one exception to "any problem means local" is the repository's own verdict.
-When the daemon reports `invalid-arguments`, the repository's runner has already
-looked at the arguments and refused them; running it locally would only reproduce
-the same refusal more slowly, so the client prints that message and exits with
-that code.
+Permitted is not the same as wise, and this file used to treat them as the same
+thing: every pre-accept error code became `exec pnpm`, which is how a refused
+submission turned into 302 browser tests on this Mac. So the second rule is that
+**this process never decides to run a claimed command locally while the daemon
+is alive**. A daemon that answers has the configuration, the size classes, the
+local queue and the host's own pressure; its answer is final, whatever it is. It
+falls back by admitting the job into its local lane and streaming it back here,
+which arrives as an ordinary `accepted` frame carrying `lane: local`.
+
+That leaves exactly one decision here: what to do when the daemon cannot be
+reached at all. There is no local lane to admit into, so the client applies the
+same policy from the enrolment marker -- a `refuse` verdict exits 70 with one
+line, and a `local` verdict runs under the file-lock slot budget and says that
+is what it did.
 """
 import argparse
 import base64
@@ -23,7 +33,7 @@ import time
 from pathlib import Path
 
 from ..exits import CANCELLED, INFRA, STALE
-from . import envfilter, fallback as fallback_module
+from . import enrolment, envfilter, fallback as fallback_module
 from .protocol import Reader, VERSION, dump
 
 HANDSHAKE_SECONDS = 20.0     # freeze + ship + submit happen before `accepted`
@@ -103,9 +113,30 @@ def handshake(sock, request):
             return reader, None
         if frame.get('t') in ('accepted', 'error'):
             return reader, frame
+        if frame.get('t') == 'notice':
+            # Said before anything ran: a fallback, a re-root, a paused lane.
+            notice(frame.get('msg') or '')
+            continue
         if frame.get('t') == 'queued':
             sock.settimeout(None)       # admitted to a queue: wait as long as it takes
             continue
+
+
+def marker_policy(command):
+    """What the enrolment marker says about this argv: size, fallback, writeback.
+
+    Only ever consulted when the daemon is unreachable. A marker written before
+    this rule existed has no `policy` lines, and the caller treats that as
+    unknown -- which is decided as `large`, because a client that cannot say how
+    big a job is has not earned the right to start it here.
+    """
+    try:
+        _common, marker = enrolment.marker_for(os.getcwd())
+    except OSError:
+        marker = None
+    if not marker:
+        return None
+    return enrolment.policy_for(command, marker)
 
 
 class Stream:
@@ -218,43 +249,62 @@ def main(argv=None):
     state = args.state or str(Path(args.sock).parent)
     updating = '--update' in command
 
-    def give_up(reason, message):
-        """Pre-acceptance exit. Local, unless the run would write back."""
-        if updating:
-            notice('%s; --update runs are never run locally, because a local run would '
-                   'write files the worker should have written.' % message)
+    def no_daemon(cause, message):
+        """The daemon is not there to decide, so decide the same way it would.
+
+        The size class and the declared policy come from the enrolment marker,
+        which `pandora enrol` writes from the very configuration the daemon
+        would have loaded. What cannot be reproduced is the local *queue*: this
+        runs under the slot budget instead, and says so.
+        """
+        declared = marker_policy(command)
+        verdict = fallback_module.decide(
+            cause=cause,
+            size=(declared or {}).get('size', 'large'),
+            writeback=updating or bool((declared or {}).get('writeback')),
+            declared=None if not declared or declared['fallback'] == 'auto'
+                     else {'action': declared['fallback'], 'on': list(fallback_module.CAUSES)})
+        if verdict['action'] == 'refuse':
+            notice('%s; %s' % (message, verdict['reason']))
             return INFRA
-        notice('%s; running locally instead.' % message)
-        return run_local(args.real, command, state=state, reason=reason)
+        notice('%s; running it here under the fallback slot budget, because the local '
+               'queue needs the daemon that is missing.' % message)
+        return run_local(args.real, command, state=state, reason=cause)
 
     request = build_request(command)
     try:
         sock = connect(args.sock, timeout=2.0)
     except (OSError, socket.timeout) as error:
-        return give_up('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
+        return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
     sock.settimeout(HANDSHAKE_SECONDS)
     try:
         reader, frame = handshake(sock, request)
     except (OSError, socket.timeout, ValueError) as error:
         sock.close()
-        return give_up('handshake-timeout', 'daemon did not answer within %ds (%s)'
-                       % (HANDSHAKE_SECONDS, type(error).__name__))
+        return no_daemon('handshake-timeout', 'daemon did not answer within %ds (%s)'
+                         % (HANDSHAKE_SECONDS, type(error).__name__))
     if frame is None:
         sock.close()
-        return give_up('daemon-closed', 'daemon closed the connection before accepting')
+        return no_daemon('daemon-closed', 'daemon closed the connection before accepting')
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')
-        if code in ('invalid-arguments', 'busy'):
-            # Two different refusals, one rule: running it locally would be
-            # worse than not running it. `invalid-arguments` is the repository's
-            # own verdict on the argv; `busy` is an exclusivity rule that exists
-            # precisely to stop a second copy of this job on this machine.
-            sys.stderr.write((frame.get('msg') or '').rstrip() + '\n')
-            sys.stderr.flush()
-            return int(frame.get('exit') or 1)
-        return give_up(code or 'refused',
-                       'daemon refused this run (%s: %s)' % (code, frame.get('msg')))
+        if code == 'passthrough':
+            # Pandora has no opinion about this invocation -- not enrolled, not
+            # claimed, or typed in a subdirectory with a path in the argv. It is
+            # not a fallback, so it takes no slot; it is what would have happened
+            # if the shim were not installed.
+            notice(frame.get('msg') or 'not routed')
+            return run_local(args.real, command, state=state, claimed=False,
+                             reason='passthrough')
+        # Everything else is the daemon's own verdict, and the daemon is the one
+        # thing that knows this machine's queue, this job's size and this repo's
+        # policy. It has already decided whether a local run is allowed; there is
+        # nothing left here to decide and nothing to second-guess it with.
+        sys.stderr.write((frame.get('msg') or ('daemon refused this run (%s)' % code))
+                         .rstrip() + '\n')
+        sys.stderr.flush()
+        return int(frame.get('exit') or 1)
 
     remote = frame.get('remote')
     extra = []

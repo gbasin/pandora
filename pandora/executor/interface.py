@@ -59,10 +59,27 @@ class Toolchain:
     install_command: str = ''
     source_id: str = ''          # identity of the source tree baked in
     env: tuple = ()              # (key, value) pairs, sorted by the caller
+    # The *resolved* inputs, as (key, value) pairs sorted by the caller:
+    # `base_image` as an image fingerprint, `lockfile:<name>` as a content
+    # digest, `service:<image>` as a registry manifest digest. The fields above
+    # describe what to build; these say what the description resolved to on the
+    # day it was resolved, which is the difference between two goldens with one
+    # fingerprint and two goldens that are the same machine.
+    pins: tuple = ()
 
     def fingerprint(self):
-        payload = json.dumps(asdict(self), sort_keys=True, separators=(',', ':'))
+        body = asdict(self)
+        # An *unpinned* toolchain hashes exactly as it did before pinning
+        # existed, so adding the field does not orphan every golden on every
+        # worker. A pinned one hashes differently on purpose.
+        if not body['pins']:
+            body.pop('pins')
+        payload = json.dumps(body, sort_keys=True, separators=(',', ':'))
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    @property
+    def pinned(self):
+        return bool(self.pins)
 
 
 @dataclass(frozen=True)
@@ -100,6 +117,14 @@ class Limits:
     cpu_weight: int = 100
     cpus_hint: int = 1
     wall_seconds: int = 1800
+    # What a cancel sends before SIGKILL, and how long it waits. The instance is
+    # destroyed either way; the grace is the run's chance to tear down a compose
+    # stack or flush a trace first.
+    cancel_signal: str = 'SIGKILL'
+    cancel_grace_ms: int = 0
+    # The run's own root-disk quota, enforced by the pool rather than watched.
+    # 0 means unlimited, which is what every run had before this existed.
+    disk_gib: int = 0
 
 
 @dataclass(frozen=True)

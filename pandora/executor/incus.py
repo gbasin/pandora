@@ -29,6 +29,12 @@ NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
 
 
+def untagged(image):
+    """`postgres:16` -> `postgres`, leaving a registry's port alone."""
+    host, _, last = image.rpartition('/')
+    return '%s/%s' % (host, last.split(':')[0]) if host else last.split(':')[0]
+
+
 def run(argv, *, timeout=600, check=True, stdin=None, capture=True):
     """One subprocess. Never a shell unless the caller wrote the shell line."""
     proc = subprocess.run(argv, input=stdin, timeout=timeout,
@@ -138,7 +144,16 @@ class IncusDriver(Executor):
             self.incus('delete', '-f', name, check=False)
 
         marks, t0 = {}, time.monotonic()
-        self.incus('launch', toolchain.base_image, name, '-p', self.profile, timeout=900)
+        # A pinned toolchain launches the image *fingerprint*, not the alias:
+        # `images:ubuntu/26.04` is whatever the image server published today,
+        # and two goldens built a week apart from one alias are not the same
+        # machine even though the description that built them is identical.
+        pins = dict(toolchain.pins)
+        base = toolchain.base_image
+        if pins.get('base_image'):
+            remote = base.split(':', 1)[0] if ':' in base else 'images'
+            base = '%s:%s' % (remote, pins['base_image'])
+        self.incus('launch', base, name, '-p', self.profile, timeout=900)
         self.wait_ready(name)
         marks['launch'] = time.monotonic() - t0
 
@@ -173,7 +188,15 @@ class IncusDriver(Executor):
         if toolchain.install_command:
             self.sh(name, 'set -e\ncd /work\n' + toolchain.install_command, timeout=3600)
         for image in toolchain.service_images:
-            self.sh(name, 'docker pull -q %s' % shlex.quote(image), timeout=1800)
+            # Same rule one layer down: a pinned service image is pulled by
+            # manifest digest, so `postgres:16` cannot become a different
+            # postgres between two runs that claim one fingerprint.
+            digest = pins.get('service:' + image)
+            ref = ('%s@%s' % (untagged(image), digest)) if digest else image
+            self.sh(name, 'docker pull -q %s' % shlex.quote(ref), timeout=1800)
+            if digest:
+                self.sh(name, 'docker tag %s %s' % (shlex.quote(ref), shlex.quote(image)),
+                        timeout=300, check=False)
         marks['deps'] = time.monotonic() - mark
 
         mark = time.monotonic()
@@ -204,6 +227,88 @@ class IncusDriver(Executor):
 
     def volume_bytes(self, name):
         return self.qgroup(name)[0]
+
+    # --- inventory and headroom --------------------------------------------
+
+    def pool_mount(self):
+        return '/var/lib/incus/storage-pools/%s' % self.pool
+
+    def qgroups(self):
+        """{path: (referenced, exclusive)} for every subvolume in the pool."""
+        rc, out, _ = run(['sudo', 'btrfs', 'qgroup', 'show', '--raw', self.pool_mount()],
+                         check=False, timeout=120)
+        found = {}
+        if rc != 0:
+            return found
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0][:1].isdigit() and parts[1].isdigit():
+                found[parts[3]] = (int(parts[1]), int(parts[2]))
+        return found
+
+    def pool_usage(self):
+        """Total, used and free bytes of the pool, read from btrfs itself.
+
+        `df` on a btrfs filesystem reports allocation, not what is available to
+        a new file, and Incus's own volume state reports `usage: null` on this
+        driver. `filesystem usage --raw` is the only number that answers "may I
+        start another run".
+        """
+        rc, out, _ = run(['sudo', 'btrfs', 'filesystem', 'usage', '--raw', self.pool_mount()],
+                         check=False, timeout=120)
+        total = used = free = 0
+        for line in out.splitlines():
+            text = line.strip()
+            if text.startswith('Device size:'):
+                total = int(text.split()[-1])
+            elif text.startswith('Used:'):
+                used = int(text.split()[-1])
+            elif text.startswith('Free (estimated):'):
+                # "Free (estimated): <bytes> (min: <bytes>)" -- the third word.
+                free = int(text.split()[2])
+        if rc != 0:
+            return {'ok': False, 'pool': self.pool, 'error': 'btrfs usage unreadable'}
+        return {'ok': True, 'pool': self.pool, 'mount': self.pool_mount(),
+                'total_bytes': total, 'used_bytes': used, 'free_bytes': free,
+                'free_gib': round(free / (1 << 30), 2),
+                'used_fraction': round(used / total, 4) if total else 0.0}
+
+    def capacity(self, floor_gib=0):
+        """May the box take another run? The engine's admission hook.
+
+        Memory admission has a ledger to reason with; disk has none, because a
+        run's appetite for disk is not learned anywhere. So this is a floor and
+        nothing cleverer: below it, new runs are refused with the arithmetic in
+        the refusal, and the runs already going are left alone to finish.
+        """
+        usage = self.pool_usage()
+        if not usage.get('ok'):
+            # Unreadable headroom is not a refusal: a pool that cannot be
+            # measured would otherwise stop every run on the worker, which is a
+            # worse failure than admitting one run too many.
+            # `usage` carries its own `ok`, so it is spread first and the
+            # verdict written over it -- the other order answers the question
+            # "could the pool be read" when it was asked "may a run start".
+            return {**usage, 'ok': True, 'measured': False, 'floor_gib': floor_gib}
+        ok = usage['free_gib'] >= floor_gib
+        answer = {**usage, 'ok': ok, 'measured': True, 'floor_gib': floor_gib}
+        if not ok:
+            answer['reason'] = ('pool %s has %.2f GiB free, below the %d GiB floor'
+                                % (self.pool, usage['free_gib'], floor_gib))
+        return answer
+
+    def instances(self):
+        """[{name, state, created}] for every instance in the project."""
+        rc, out, _ = self.incus('list', '--format', 'csv', '-c', 'nsD', check=False, timeout=180)
+        rows = []
+        if rc != 0:
+            return rows
+        for line in out.splitlines():
+            parts = line.split(',')
+            if len(parts) >= 2 and parts[0]:
+                rows.append({'name': parts[0], 'state': parts[1],
+                             'created': ','.join(parts[2:]).strip('"')})
+        return rows
 
     # --- source injection --------------------------------------------------
 
@@ -286,6 +391,41 @@ class IncusDriver(Executor):
                    'limits.memory.enforce=hard',
                    'limits.memory.swap=false',
                    'limits.cpu.allowance=%d%%' % max(1, min(100, limits.cpu_weight)))
+        gib = getattr(limits, 'disk_gib', 0) or self.default_disk_gib()
+        if gib:
+            self.quota(name, gib)
+
+    def default_disk_gib(self):
+        """The worker's own per-run quota, written beside the ledger.
+
+        Read here rather than plumbed through the scheduler because a disk
+        quota is a property of the *machine* -- an operator's number, like the
+        size classes -- and nothing about a run predicts it.
+        """
+        try:
+            value = (self.root / 'run_disk_gib').read_text().strip()
+        except OSError:
+            return 0
+        return int(value) if value.isdigit() else 0
+
+    def quota(self, name, gib):
+        """Cap what one run may write, enforced by the pool, not by a watchdog.
+
+        The root disk comes from the profile, so it has to be *overridden* onto
+        the instance before a size can be set on it; `config device set` alone
+        answers "The profile device doesn't exist". On btrfs this becomes a
+        qgroup limit on the instance's own subvolume, so the run sees ENOSPC
+        from the kernel at the moment of the write rather than after it has
+        taken the pool down with it.
+        """
+        rc, _, err = self.incus('config', 'device', 'override', name, 'root',
+                                'size=%dGiB' % gib, check=False, timeout=300)
+        if rc != 0:
+            rc, _, err = self.incus('config', 'device', 'set', name, 'root',
+                                    'size=%dGiB' % gib, check=False, timeout=300)
+        if rc != 0:
+            raise CloneFailed('disk quota %dGiB on %s: %s' % (gib, name, err.strip()[:200]))
+        return gib
 
     def harden(self, instance, limits):
         """Write the cgroup arrangement the memory investigation settled on.
@@ -472,7 +612,14 @@ class IncusDriver(Executor):
             time.sleep(self.sample_interval)
 
         if outcome in ('oom', 'timeout', 'cancelled'):
-            self.kill(instance)
+            # Only a cancel gets a grace. An `oom` or a wall timeout is a machine
+            # that is already not working, and waiting politely on it is how a
+            # thrashing instance holds the box for another four minutes.
+            if outcome == 'cancelled':
+                self.kill(instance, signal=limits.cancel_signal,
+                          grace_ms=limits.cancel_grace_ms)
+            else:
+                self.kill(instance)
             code = -9
         seconds = time.monotonic() - t0
         try:
@@ -487,17 +634,28 @@ class IncusDriver(Executor):
         return Result(exit_code=code if code is not None else -1, outcome=outcome,
                       seconds=seconds, usage=final, log_bytes=offset, evidence=evidence)
 
-    def kill(self, instance):
+    def kill(self, instance, *, signal='SIGKILL', grace_ms=0):
         """Kill the run's process group, leaving the instance inspectable.
 
         `incus exec` into a thrashing instance is itself charged to the capped
         cgroup, so it can be slow; if it does not land, fall back to the host's
         own `cgroup.kill`, which needs nothing from inside.
+
+        With a grace, the first signal is the job's own and SIGKILL follows only
+        if the group is still alive when it expires. The escalation is not
+        optional: a grace is how long a run may take to clean up, never whether
+        it may decline to stop.
         """
+        grace = max(0, int(grace_ms) // 1000)
+        script = ('p=$(cat %s/pgid 2>/dev/null); [ -n "$p" ] || exit 0; '
+                  'kill -%s -"$p" 2>/dev/null; '
+                  'end=$(( $(date +%%s) + %d )); '
+                  'while kill -0 -"$p" 2>/dev/null && [ "$(date +%%s)" -lt "$end" ]; '
+                  'do sleep 0.5; done; '
+                  'kill -9 -"$p" 2>/dev/null; true') % (GUEST, signal, grace)
         try:
-            rc, _, _ = self.incus('exec', instance.name, '--', 'bash', '-c',
-                                  'p=$(cat %s/pgid 2>/dev/null); [ -n "$p" ] && kill -9 -"$p" 2>/dev/null; '
-                                  'true' % GUEST, check=False, timeout=30)
+            rc, _, _ = self.incus('exec', instance.name, '--', 'bash', '-c', script,
+                                  check=False, timeout=30 + grace)
         except subprocess.TimeoutExpired:
             rc = -1
         if rc != 0:

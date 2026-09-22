@@ -40,10 +40,14 @@ from ..engine.admission import Admission, Store
 from ..errors import PandoraError, SnapshotError
 from ..exits import CANCELLED, INFRA, STALE
 from ..snapshot.freeze import freeze
+from .pressure import Gate, Paused
 
 RESULT_VERSION = 1
 SAMPLE_SECONDS = 1.0
-KILL_GRACE_SECONDS = 15.0
+# What a job gets when its configuration says nothing. The signal is the one
+# every supervisor understands; the grace is the v0.1 constant, now a default
+# rather than a law.
+DEFAULT_CANCEL = {'signal': 'SIGTERM', 'grace_ms': 15000}
 # Handed to the child as a hint, never enforced. Mirrors the worker's rule:
 # cores divided by admitted runs, floor one.
 CORES = os.cpu_count() or 4
@@ -106,12 +110,17 @@ class Budget:
     caller is a shim running when the daemon is gone.
     """
 
-    def __init__(self, config, *, store_path=None, store=None):
+    def __init__(self, config, *, store_path=None, store=None, gate=None):
         self.config = dict(config)
         self.admission = Admission(
             budget_mib=budget_from(config),
             store=store if store is not None else Store(str(store_path or ':memory:')),
             max_running=int(config.get('max_running') or 4))
+        # The machine's own gate, in front of the budget's. It answers a
+        # different question and it answers it first: a host that is thrashing
+        # has no free memory to admit against anyway, and admitting on a stale
+        # reservation is how the thrash gets worse.
+        self.gate = gate if gate is not None else Gate(config.get('pause') or {})
         self.lock = threading.Lock()
         self.wake = threading.Condition(self.lock)
         self.worktrees = {}                 # resolved worktree -> run id
@@ -151,12 +160,42 @@ class Budget:
 
     # -- the rule that queues ----------------------------------------------
 
-    def admit(self, run_id, *, repo, job, cancelled=None, timeout=0.0, poll=0.25):
+    def wait_for_the_machine(self, *, cancelled=None, note=None, poll=0.5):
+        """Hold here while the host is in no state to be given work.
+
+        Deliberately outside the lock: a job waiting on the machine must not
+        also hold up the release of a job that is finishing, which is the very
+        thing that would let the machine recover.
+        """
+        evidence = self.gate.closed()
+        if not evidence:
+            return
+        deadline = time.monotonic() + float(self.gate.config['max_wait_seconds'])
+        self.gate.delayed()
+        if note is not None:
+            note('local lane paused: %s' % evidence)
+        while True:
+            if cancelled is not None and cancelled():
+                return
+            time.sleep(poll)
+            evidence = self.gate.closed()
+            if not evidence:
+                if note is not None:
+                    note('local lane resumed')
+                return
+            if time.monotonic() >= deadline:
+                self.gate.refused()
+                raise Paused('this Mac has been under pressure for %ds (%s), so nothing new '
+                             'is being started here. Wait, or run it with PANDORA_OFF=1.'
+                             % (self.gate.config['max_wait_seconds'], evidence))
+
+    def admit(self, run_id, *, repo, job, cancelled=None, timeout=0.0, poll=0.25, note=None):
         """Block until the memory fits, then return the admission record.
 
         Returns None if the caller cancelled or the deadline passed, which are
         both still pre-accept: nothing has run.
         """
+        self.wait_for_the_machine(cancelled=cancelled, note=note)
         deadline = (time.monotonic() + timeout) if timeout else None
         with self.lock:
             reservation = self.admission.reservation(repo, job)[0]
@@ -195,13 +234,16 @@ class Budget:
             self.wake.notify_all()
         return learned
 
-    def snapshot(self):
+    def snapshot(self, *, sample=False):
+        if sample:
+            self.gate.sample()
         with self.lock:
             return {'budget_mib': self.admission.budget_mib,
                     'held_mib': self.admission.held(),
                     'running': sorted(self.held),
                     'worktrees': dict(self.worktrees),
-                    'singletons': dict(self.singletons)}
+                    'singletons': dict(self.singletons),
+                    'pause': self.gate.state()}
 
 
 def child_environment(plan, request_env, *, cpus_hint, run_id, directory):
@@ -232,13 +274,18 @@ def child_environment(plan, request_env, *, cpus_hint, run_id, directory):
 class Supervisor:
     """One local command, its process group, its peak and its verdict."""
 
-    def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None):
+    def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None):
         self.argv = list(argv)
         self.cwd = str(cwd)
         self.env = dict(env)
         self.timeout_seconds = timeout_seconds
         self.on_log = on_log
         self.on_tick = on_tick
+        cancel = cancel or DEFAULT_CANCEL
+        # Resolved once, here, so a configuration naming a signal this platform
+        # does not have fails at the first cancel rather than at the SIGKILL.
+        self.cancel_signal = getattr(signal, cancel.get('signal') or 'SIGTERM', signal.SIGTERM)
+        self.grace_seconds = max(0.0, float(cancel.get('grace_ms', 15000)) / 1000.0)
         self.peak_mib = 0
         self.proc = None
         self.killed_at = None
@@ -303,12 +350,12 @@ class Supervisor:
                 if (cancelled() or over) and not asked:
                     asked, timed_out = True, over
                     self.killed_at = time.monotonic()
-                    self.signal_group(signal.SIGTERM)
-                elif asked and time.monotonic() - self.killed_at > KILL_GRACE_SECONDS:
+                    self.signal_group(self.cancel_signal)
+                elif asked and time.monotonic() - self.killed_at > self.grace_seconds:
                     # The grace is over. SIGKILL the group, not the child: the
                     # child is usually a shell whose death orphans the tree.
                     self.signal_group(signal.SIGKILL)
-                    self.killed_at = time.monotonic() + KILL_GRACE_SECONDS
+                    self.killed_at = time.monotonic() + max(self.grace_seconds, 1.0)
         finally:
             stop.set()
             # Anything the tree left running keeps these pipes open; the readers
@@ -344,8 +391,42 @@ class LocalExecutor:
         self.drift = drift
         self.queue_timeout = queue_timeout
 
-    def fingerprint(self, worktree, plan):
-        if self.drift == 'off':
+    def drift_for(self, plan):
+        """The job's answer if it has one, else the machine's.
+
+        `warn` is the default because a verdict about a tree that no longer
+        exists is worth a sentence; `off` is the recommendation for `small`
+        jobs, where freezing 4,900 files twice costs more than the run.
+        """
+        return plan.get('drift') or self.drift
+
+    def evidence(self, worktree, plan):
+        """The paths the job declared, and whether they are there.
+
+        This is the answer to `EICHLER_VALIDATION_DIRECTORY`: Pandora does not
+        invent a directory and hope the job writes its cleanup marker into it.
+        The job declares where it writes, and the receipt says what was found --
+        so a missing marker is a fact in the receipt rather than a silence.
+        """
+        found = []
+        root = Path(worktree)
+        for output in plan.get('outputs') or []:
+            if output.get('kind') != 'evidence':
+                continue
+            for pattern in output['paths']:
+                matches = sorted(root.glob(pattern)) if any(
+                    char in pattern for char in '*?[') else (
+                        [root / pattern] if (root / pattern).exists() else [])
+                if matches:
+                    found.extend({'path': str(item.relative_to(root)), 'present': True,
+                                  'bytes': item.stat().st_size if item.is_file() else None}
+                                 for item in matches)
+                else:
+                    found.append({'path': pattern, 'present': False, 'bytes': None})
+        return found
+
+    def fingerprint(self, worktree, plan, drift):
+        if drift == 'off':
             return None
         try:
             _manifest, _dropped, input_id = freeze(
@@ -355,27 +436,31 @@ class LocalExecutor:
             return None
 
     def execute(self, run, plan, *, repo, job, worktree, request_env, admission,
-                note=None, started=None):
+                note=None, started=None, reason=None):
         """Run one admitted local job and return its result dict.
 
         `admission` is the record the daemon already took, because admission has
         to happen before the client is told `accepted` and this method is called
-        after it.
+        after it. `reason` is how this job came to be in the local lane --
+        `fallback:<cause>` when a remote submission did not proceed, and absent
+        when the job declares `where = "local"`.
         """
         note = note or (lambda text: None)
         started = started if started is not None else time.time()
-        before = self.fingerprint(worktree, plan)
+        drift = self.drift_for(plan)
+        before = self.fingerprint(worktree, plan, drift)
         env = child_environment(plan, request_env, cpus_hint=admission.get('cpus_hint', 1),
                                 run_id=run.id, directory=run.dir)
         supervisor = Supervisor(
             plan['argv'], cwd=Path(worktree) / (plan.get('cwd') or '.'), env=env,
             timeout_seconds=60 * int(plan.get('timeout_minutes') or 30),
+            cancel=plan.get('cancel'),
             on_log=lambda which, chunk: run.stream_local(which, chunk))
         outcome, code = supervisor.run(run.cancelled.is_set)
-        after = self.fingerprint(worktree, plan)
+        after = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after
         if drifted:
-            if self.drift == 'fail':
+            if drift == 'fail':
                 note('the worktree changed while this job ran, so its verdict describes a '
                      'tree that no longer exists. Re-run it.')
                 if outcome == 'passed':
@@ -391,6 +476,7 @@ class LocalExecutor:
             'version': RESULT_VERSION,
             'run_id': run.id,
             'lane': 'local',
+            'reason': reason,
             'repo': repo,
             'job': job,
             'argv': list(plan['argv']),
@@ -405,7 +491,10 @@ class LocalExecutor:
             'cpus_hint': admission.get('cpus_hint'),
             'source_before': before,
             'source_after': after,
+            'drift': drift,
             'drifted': drifted,
+            'cancel': dict(plan.get('cancel') or DEFAULT_CANCEL),
+            'outputs': {'evidence': self.evidence(worktree, plan)},
             'learned': learned,
             'created': started,
             'finished': finished,

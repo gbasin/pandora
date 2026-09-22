@@ -1,0 +1,157 @@
+"""The versions manifest: what a worker is supposed to be made of.
+
+One file, read on the control machine, written to the worker, and compared
+against what is actually installed every time anybody asks. Drift is reported,
+never silently corrected: a worker that has drifted is a worker whose last
+canary result is about a different machine.
+
+The digest covers the *declaration* only. `generated` and `host` are facts
+about one provisioning run and change on every call, so including them would
+make two identical workers look different.
+
+    [packages]                  # apt packages; the value is an exact dpkg
+    incus = "6.0.5-8"           # version, or "*" for "any, but present"
+    btrfs-progs = "*"
+
+    [worker]
+    root = "~/pandora"          # directory layout root
+    engine_root = "~/pandora-engine"
+    pool = "pandorapool"
+    device = ""                 # a real block device; empty means loop file
+    loop_size_gib = 18
+    disk_floor_gib = 4          # admission stops below this much pool free
+    golden_keep = 2             # goldens kept per repo by `worker gc`
+"""
+import hashlib
+import json
+import tomllib
+from pathlib import Path
+
+from ..errors import ConfigError
+
+# Docker is deliberately absent. It runs *inside* a golden, on the run's own
+# nested dockerd, and a dockerd on the host would be a second trust domain with
+# a second image store on the same disk.
+PACKAGES = {
+    'incus': '*',
+    'incus-client': '*',
+    'btrfs-progs': '*',
+    'git': '*',
+    'rsync': '*',
+    'python3': '*',
+}
+
+WORKER = {
+    'root': '~/pandora',
+    'engine_root': '~/pandora-engine',
+    'project': 'pandora',
+    'pool': 'pandorapool',
+    'profile': 'runner',
+    'bridge': 'pandorabr0',
+    'subnet': '10.141.0.1/24',
+    'device': '',
+    'loop_size_gib': 18,
+    'disk_floor_gib': 4,
+    'run_disk_gib': 12,
+    'golden_keep': 2,
+    'unattended_upgrades': False,
+    'user': 'ubuntu',
+}
+
+INTS = ('loop_size_gib', 'disk_floor_gib', 'run_disk_gib', 'golden_keep')
+
+
+def normalise(raw):
+    """Validate a parsed versions.toml and fill in the defaults."""
+    unknown = sorted(set(raw) - {'packages', 'worker'})
+    if unknown:
+        raise ConfigError('versions.toml has unknown table%s %s; allowed: packages, worker'
+                          % ('' if len(unknown) == 1 else 's', ', '.join(unknown)))
+    packages = dict(PACKAGES)
+    for name, version in (raw.get('packages') or {}).items():
+        if not isinstance(version, str):
+            raise ConfigError('packages.%s must be a string version or "*"' % name)
+        packages[name] = version
+    worker = dict(WORKER)
+    block = raw.get('worker') or {}
+    strange = sorted(set(block) - set(WORKER))
+    if strange:
+        raise ConfigError('[worker] has unknown key%s %s; allowed: %s'
+                          % ('' if len(strange) == 1 else 's', ', '.join(strange),
+                             ', '.join(sorted(WORKER))))
+    worker.update(block)
+    for key in INTS:
+        if not isinstance(worker[key], int) or isinstance(worker[key], bool):
+            raise ConfigError('[worker] %s must be an integer' % key)
+    if not isinstance(worker['unattended_upgrades'], bool):
+        raise ConfigError('[worker] unattended_upgrades must be true or false')
+    if worker['device'] and not worker['device'].startswith('/dev/'):
+        raise ConfigError('[worker] device must be a /dev path, not %r' % worker['device'])
+    return {'packages': packages, 'worker': worker}
+
+
+def load(path=None):
+    if path is None:
+        return normalise({})
+    path = Path(path).expanduser()
+    if not path.is_file():
+        raise ConfigError('no versions manifest at %s' % path)
+    try:
+        return normalise(tomllib.loads(path.read_text()))
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError('%s is not valid TOML: %s' % (path, error)) from None
+
+
+def digest(manifest):
+    """The identity of a declaration, ignoring facts about one run of it."""
+    body = {'packages': manifest['packages'], 'worker': manifest['worker']}
+    return hashlib.sha256(json.dumps(body, sort_keys=True,
+                                     separators=(',', ':')).encode()).hexdigest()[:16]
+
+
+def drift(manifest, installed):
+    """What the worker has that the manifest did not ask for, and vice versa.
+
+    A wanted version of `*` is satisfied by any version, so `*` reports a
+    package that is *missing* and never one that is merely a different build.
+    Everything else is compared exactly, because "pinned" that tolerates a
+    near-miss is not pinned.
+    """
+    items = []
+    have = installed.get('packages') or {}
+    for name, want in sorted(manifest['packages'].items()):
+        got = have.get(name)
+        if got is None:
+            items.append({'kind': 'package', 'name': name, 'want': want, 'have': None,
+                          'detail': 'not installed'})
+        elif want != '*' and got != want:
+            items.append({'kind': 'package', 'name': name, 'want': want, 'have': got,
+                          'detail': 'version differs'})
+    for key, want in sorted(manifest['worker'].items()):
+        if key not in (installed.get('worker') or {}):
+            continue
+        got = installed['worker'][key]
+        if str(got) != str(want):
+            items.append({'kind': 'worker', 'name': key, 'want': want, 'have': got,
+                          'detail': 'differs from the manifest'})
+    for name, detail in sorted((installed.get('missing') or {}).items()):
+        items.append({'kind': 'object', 'name': name, 'want': 'present', 'have': None,
+                      'detail': detail})
+    return items
+
+
+def render(manifest):
+    """The manifest as the TOML a person would have written."""
+    lines = ['# Written by `pandora worker provision`. Edit and re-provision to change.',
+             '', '[packages]']
+    for name, version in sorted(manifest['packages'].items()):
+        lines.append('%s = "%s"' % (name, version))
+    lines += ['', '[worker]']
+    for key, value in sorted(manifest['worker'].items()):
+        if isinstance(value, bool):
+            lines.append('%s = %s' % (key, 'true' if value else 'false'))
+        elif isinstance(value, int):
+            lines.append('%s = %d' % (key, value))
+        else:
+            lines.append('%s = "%s"' % (key, value))
+    return '\n'.join(lines) + '\n'

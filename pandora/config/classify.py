@@ -193,6 +193,10 @@ def build_plan(config, job, forwarded, chosen):
         'shards': job['shards'],
         'timeout_minutes': job['timeout_minutes'],
         'fallback': job['fallback'],
+        'cancel': job['cancel'],
+        'drift': job['drift'],
+        'where': job['where'],
+        'writeback': any(output['kind'] == 'writeback' for output in outputs),
         'worker': config['worker'],
     }
 
@@ -204,12 +208,36 @@ def _message(config, text):
     return text
 
 
-def classify(config, argv, *, cwd='.', env=None):
+def path_like(tokens, exists=None):
+    """The first token that could name a file, or None.
+
+    This is the whole of the subdirectory rule. `pnpm journey S0-01` typed three
+    directories down means the same thing everywhere, because `S0-01` is a
+    selector the repository resolves against its own catalogue; `pnpm unit
+    ./foo.test.ts` does not, because the path is relative to where it was typed.
+    So the first is re-rooted and the second is not -- and "could name a file" is
+    answered by a slash or by the filesystem, never by guessing at extensions.
+    """
+    for token in tokens:
+        if token.startswith('-'):
+            continue
+        if '/' in token:
+            return token
+        if exists is not None and exists(token):
+            return token
+    return None
+
+
+def classify(config, argv, *, cwd='.', env=None, exists=None):
     """Return {'decision', 'reason'|'message', 'plan', 'job', 'forwarded'}.
 
     `remote` means Pandora will run it. `local` means no configured job claims
     it, which is not an error. `reject` means a claimed job will not take this
     argv, which is the repository's opinion reported verbatim.
+
+    `cwd` is where the command was typed, relative to the worktree root. When it
+    is not the root, the verdict carries `rerooted` naming that directory, and
+    the caller runs the job from the root instead.
     """
     tokens, tool = list(argv), None
     if tokens[:1] and tokens[0] in config['repo']['entrypoints']:
@@ -220,12 +248,17 @@ def classify(config, argv, *, cwd='.', env=None):
         return {'decision': 'local', 'reason': 'no configured job claims this command',
                 'plan': None, 'job': None, 'forwarded': []}
     job, form, rest = found
+    rerooted = None
     if cwd not in ('', '.'):
-        if config['matching']['subdirectory'] == 'local':
-            return {'decision': 'local', 'reason': 'routed jobs run from the repository root',
-                    'plan': None, 'job': job['id'], 'forwarded': []}
-        return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
-                'message': _message(config, 'Run this command from the repository root.')}
+        if config['matching']['subdirectory'] == 'reject':
+            return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
+                    'message': _message(config, 'Run this command from the repository root.')}
+        offender = path_like(rest, exists)
+        if offender is not None:
+            return {'decision': 'local', 'job': job['id'], 'plan': None, 'forwarded': [],
+                    'reason': 'run from the repo root to route',
+                    'rerooted': None, 'blocked_by': offender}
+        rerooted = cwd
     for name in [*config['env']['reject_if_set'], *job['reject_if_set']]:
         if (env or {}).get(name):
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
@@ -255,7 +288,8 @@ def classify(config, argv, *, cwd='.', env=None):
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': forwarded,
                     'message': _message(config, '%s (%s)' % (usage_of(job), error))}
     return {'decision': 'remote', 'reason': '', 'job': job['id'], 'forwarded': forwarded,
-            'chosen': chosen, 'plan': build_plan(config, job, forwarded, chosen)}
+            'chosen': chosen, 'rerooted': rerooted,
+            'plan': build_plan(config, job, forwarded, chosen)}
 
 
 def claim_index(config):
@@ -274,6 +308,24 @@ def claim_index(config):
                 claims.append(prefix)
     claims.sort(key=lambda item: (len(item), item))
     return claims
+
+
+def policy_index(config):
+    """Each claimed form's size class and fallback verdict, for the marker.
+
+    Written into the enrolment so the client can answer "may this run on this
+    Mac" without the daemon -- which matters precisely because the commonest
+    reason to ask is that the daemon is not there to be asked.
+    """
+    policies = []
+    for job in config['jobs'].values():
+        writeback = any(output['kind'] == 'writeback' for output in job['outputs'])
+        for form in job['forms']:
+            policies.append({'prefix': list(form['prefix']), 'size': job['size'],
+                             'fallback': (job['fallback'] or {}).get('action', 'auto'),
+                             'writeback': writeback})
+    policies.sort(key=lambda item: (len(item['prefix']), item['prefix']))
+    return policies
 
 
 def claimed_or_raise(config, argv, **kwargs):

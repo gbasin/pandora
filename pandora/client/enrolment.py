@@ -45,11 +45,34 @@ def common_dir(start):
     return None
 
 
-def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None, home=None):
+def worktree_root(start):
+    """The worktree `start` is inside, or None.
+
+    Not the same question as `common_dir`: that one identifies the *repository*,
+    which is what enrolment is a property of. This one identifies the checkout,
+    which is what a job runs in and what a subdirectory invocation is measured
+    against.
+    """
+    here = Path(start).resolve()
+    for directory in [here, *here.parents]:
+        dot = directory / '.git'
+        if dot.is_dir() or dot.is_file():
+            return str(directory)
+    return None
+
+
+def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None, home=None,
+           policies=()):
     """The marker text.  One directive per line, first word is the key.
 
     `home` is the directory the `pandora` package lives in, so a shim installed
     anywhere on PATH can find the client without an absolute path baked into it.
+
+    `policy` lines carry each claimed form's size class and declared fallback.
+    The POSIX shim never reads them -- its `case` matches four keys and ignores
+    the rest -- but the Python client does, and it is the only thing that can
+    answer "may this run here" when the daemon that owns the configuration is
+    the thing that is gone.
     """
     lines = ['# pandora enrolment v1 -- written by pandora enrol, safe to delete',
              'sock ' + socket_path, 'repo ' + repo]
@@ -59,13 +82,17 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
         lines.append('origin ' + origin)
     lines += ['strip ' + ' '.join(prefix) for prefix in strip_prefixes]
     lines += ['claim ' + ' '.join(claim) for claim in claims]
+    lines += ['policy %s %s %d %s' % (item['size'], item['fallback'],
+                                      1 if item.get('writeback') else 0,
+                                      ' '.join(item['prefix']))
+              for item in policies]
     lines += ['heavy ' + ' '.join(item) for item in heavy]
     return '\n'.join(lines) + '\n'
 
 
 def parse(text):
     marker = {'sock': None, 'repo': None, 'origin': None, 'home': None,
-              'strip': [], 'claim': [], 'heavy': []}
+              'strip': [], 'claim': [], 'heavy': [], 'policy': []}
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith('#'):
@@ -75,6 +102,12 @@ def parse(text):
             marker[key] = rest.strip()
         elif key in ('strip', 'claim', 'heavy'):
             marker[key].append(rest.split())
+        elif key == 'policy':
+            parts = rest.split()
+            if len(parts) >= 4:
+                marker['policy'].append({'size': parts[0], 'fallback': parts[1],
+                                         'writeback': parts[2] == '1',
+                                         'prefix': parts[3:]})
     return marker
 
 
@@ -116,6 +149,21 @@ def claimed(argv, marker):
         if rest[:len(claim)] == claim:
             return True
     return False
+
+
+def policy_for(argv, marker):
+    """The longest claimed form matching this argv, and what it declares.
+
+    None means the marker is older than this rule, which the caller must treat
+    as "unknown", not as "fine": an unknown job is decided as if it were large.
+    """
+    rest = key_of(argv, marker.get('strip') or [])
+    best = None
+    for item in marker.get('policy') or []:
+        prefix = item['prefix']
+        if rest[:len(prefix)] == prefix and (best is None or len(prefix) > len(best['prefix'])):
+            best = item
+    return best
 
 
 def heavy(argv, marker):

@@ -100,6 +100,16 @@ def cmd_submit(args):
                          'duplicate': False, 'same_input_as': row['same_input_as'],
                          'admission': verdict, 'supervisor_pid': pid,
                          'engine': ENGINE_VERSION})
+        # Disk is admitted before memory and by a floor rather than a
+        # reservation, because nothing learns how much a run will write. A run
+        # already going is never touched by this; only the next one is refused.
+        room = runner.disk_headroom(paths)
+        if not room.get('ok'):
+            runner.write_result(paths, ledger, run_id, outcome='infra_failed',
+                                layer='engine', exit_code=None, peak_mib=0,
+                                durations={}, evidence={'capacity': room}, receipt=None)
+            return emit({'ok': False, 'code': 'disk-floor', 'run_id': run_id,
+                         'capacity': room, 'engine': ENGINE_VERSION})
         store = admission.Store(str(paths.peaks))
         scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
         verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])

@@ -38,6 +38,17 @@ MEMBERS = (
     'executor/interface.py',
     'executor/incus.py',
     'executor/memtest.py',
+    # The worker half: provisioning runs from the control machine, but the
+    # canary, the sweeps and the status survey all read cgroups, btrfs qgroups
+    # and the Incus socket, so they run here for the same reason the driver does.
+    'worker/__init__.py',
+    'worker/service.py',
+    'worker/facts.py',
+    'worker/canary.py',
+    'worker/gc.py',
+    'worker/goldens.py',
+    'worker/pins.py',
+    'worker/versions.py',
 )
 
 # Unpacks a verified bundle under ~/pandora-engine/bundles/<digest>/ and prints
