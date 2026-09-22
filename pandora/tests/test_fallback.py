@@ -10,6 +10,7 @@ import base64
 import json
 import os
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -472,3 +473,89 @@ class Policy(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WorkerKnownDown(DaemonCase):
+    """The health poll's one job: a known-down worker costs no SSH timeout."""
+
+    def test_a_known_down_worker_falls_back_without_submitting(self):
+        FakeWorker.health_raises = WorkerUnreachable('ssh: connect timed out')
+        self.daemon.health.poll()
+        self.assertTrue(self.daemon.health.known_down())
+        FakeWorker.raises = AssertionError('submit must not be called for a known-down worker')
+        started = time.monotonic()
+        answer = self.call(['pnpm', 'unit'])
+        self.assertLess(time.monotonic() - started, 5.0)
+        self.assertEqual(answer.exit, 0)
+        self.assertTrue(self.marker.exists())
+        self.assertTrue(any('worker-down' in note for note in answer.notices), answer.notices)
+        meta = json.loads((self.state / 'runs' / answer.accepted['run'] / 'meta.json').read_text())
+        self.assertEqual(meta['lane'], 'local')
+        self.assertEqual(meta['reason'], 'fallback:worker-down')
+
+    def test_ps_carries_the_worker_state(self):
+        FakeWorker.health_raises = WorkerUnreachable('gone')
+        self.daemon.health.poll()
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'ps'}))
+        frame = Reader(sock).line()
+        sock.close()
+        self.assertEqual(frame['worker']['worker'], 'down')
+        self.assertIn('gone', frame['worker']['reason'])
+
+    def test_a_refused_submission_asks_for_a_recheck_rather_than_declaring_down(self):
+        before = self.daemon.health.state()['polls']
+        FakeWorker.raises = WorkerUnreachable('no route to host')
+        self.call(['pnpm', 'unit'])
+        deadline = time.monotonic() + 5
+        while self.daemon.health.state()['polls'] == before and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertGreater(self.daemon.health.state()['polls'], before, 'the nudge polled')
+        # The health call still answers, so a refused submit is not a down worker.
+        self.assertEqual(self.daemon.health.state()['worker'], 'reachable')
+
+
+class Hints(DaemonCase):
+    """The last line a caller sees names the next action, and only from evidence."""
+
+    def test_an_oom_result_carries_the_engines_hint_to_the_caller(self):
+        original = FakeWorker.follow
+        FakeWorker.follow = lambda self, run_id, **k: (
+            {'outcome': 'oom', 'cli_exit': 137, 'job': 'unit', 'peak_mib': 4096,
+             'ceiling_mib': 4096, 'evidence': {'reason': 'memory-thrash'},
+             'hint': 'watchdog killed for file-cache thrash; likely a large build or install '
+                     '-- declare size large for job unit (peak 4096 MiB of a 4096 MiB ceiling)'},
+            0)
+        self.addCleanup(setattr, FakeWorker, 'follow', original)
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 137)
+        self.assertIn(b'pandora: hint: watchdog killed for file-cache thrash', answer.err)
+        result = self.result_of(answer.accepted['run'])
+        self.assertIn('declare size large', result['hint'])
+
+    def test_a_client_side_rule_fills_in_when_the_engine_has_none(self):
+        ignored = self.repo / 'tmp' / 'fixture.json'
+        ignored.parent.mkdir()
+        ignored.write_text('{}')
+        (self.repo / '.gitignore').write_text('tmp/\n')
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        original = FakeWorker.follow
+
+        def follow(self, run_id, *, on_log=None, **k):
+            on_log(b"Error: Cannot find module 'tmp/fixture.json'\n")
+            return {'outcome': 'command_failed', 'cli_exit': 1, 'job': 'unit',
+                    'hint': None}, 0
+
+        FakeWorker.follow = follow
+        self.addCleanup(setattr, FakeWorker, 'follow', original)
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 1)
+        self.assertIn(b'tmp/fixture.json exists locally but is gitignored', answer.err)
+        self.assertIn('[sync] include', self.result_of(answer.accepted['run'])['hint'])
+
+    def test_a_passing_run_says_nothing(self):
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0)
+        self.assertNotIn(b'pandora: hint', answer.err)
+        self.assertIsNone(self.result_of(answer.accepted['run']).get('hint'))

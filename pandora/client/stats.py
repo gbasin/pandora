@@ -252,7 +252,7 @@ def render_worker(worker):
     """What the one health call said. `unreachable` is a line, not a silence."""
     if not worker:
         return ['worker: not polled']
-    if worker.get('error') or worker.get('state') == 'down':
+    if worker.get('error') or 'down' in (worker.get('state'), worker.get('worker')):
         return ['worker: unreachable (%s)' % (worker.get('error')
                                               or worker.get('reason') or 'no answer')]
     health = worker.get('health') or worker
