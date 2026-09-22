@@ -234,6 +234,14 @@ def collect(driver, instance, outputs, into):
             code, _, err = driver.incus('file', 'pull', '-r', instance.name + guest,
                                         str(target.parent), check=False, timeout=900)
             got[path] = 'present' if code == 0 and target.exists() else 'missing'
+    # `incus file pull` runs under sudo, so what lands here is owned by root with
+    # the instance's own modes. The engine runs as an ordinary user and has to be
+    # able to hand these to rsync, so take ownership of what was just pulled.
+    if any(state == 'present' for state in got.values()):
+        subprocess.run(['sudo', 'chown', '-R', '%d:%d' % (os.getuid(), os.getgid()), str(into)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(['chmod', '-R', 'u+rwX', str(into)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     return got
 
 

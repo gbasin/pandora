@@ -74,6 +74,29 @@ class Run:
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
 
+    def consumed(self):
+        """How many bytes of the *remote* log have been copied into this one.
+
+        Kept in its own file rather than in meta.json, because it is written
+        once per streamed chunk and meta.json is written once per state change.
+        """
+        try:
+            return int((self.dir / 'remote-offset').read_text().strip() or 0)
+        except (OSError, ValueError):
+            return 0
+
+    def stream_in(self, chunk):
+        """One chunk of the remote log: framed for clients, then acknowledged.
+
+        The offset is written after the bytes are on disk, so a crash between
+        the two replays a chunk rather than losing one.
+        """
+        self.append(log_frame('out', chunk))
+        try:
+            (self.dir / 'remote-offset').write_text(str(self.consumed() + len(chunk)))
+        except OSError:
+            pass
+
     def append(self, frame):
         with self.lock:
             with self.log.open('ab') as handle:
@@ -442,43 +465,73 @@ class Daemon:
                 base[name] = request['env'][name]
         return base
 
+    ATTEMPTS = 6
+    BACKOFF = 2.0
+
     def execute(self, run, repo, plan):
-        """Follow the remote run, stream it, bring its outputs home."""
-        worker = self.worker_for(repo)
-        offset = 0
-        try:
-            result, offset = worker.follow(
-                run.remote, offset=offset,
-                on_log=lambda chunk: run.append(log_frame('out', chunk)),
-                should_cancel=run.cancelled.is_set)
-            self.deliver(run, repo, plan, result)
-        except (WorkerUnreachable, EngineError) as error:
-            run.note('lost the worker while run %s was executing: %s' % (run.remote, error))
-            run.finish(70, state='infra_failed')
-        except Exception as error:                 # noqa: BLE001 - never a silent pass
-            run.note('%s: %s' % (type(error).__name__, error))
-            run.finish(70, state='infra_failed')
+        """Follow the remote run, stream it, bring its outputs home.
+
+        The connection is not the run. A broken SSH conversation says nothing
+        about what the worker is doing, so it is retried from the byte offset
+        already streamed rather than turned into a verdict; only after the
+        worker has been unreachable across every attempt does this become an
+        infrastructure failure. And when *this daemon* is the thing going away,
+        the run is left alone entirely: its row stays `running` so the next
+        daemon resumes it, because a shutdown here is not a fact about the run.
+        """
+        offset = run.consumed()
+        for attempt in range(self.ATTEMPTS):
+            try:
+                worker = self.worker_for(repo)
+                result, offset = worker.follow(
+                    run.remote, offset=offset,
+                    on_log=lambda chunk: run.stream_in(chunk),
+                    should_cancel=run.cancelled.is_set)
+                self.deliver(run, repo, plan, result)
+                return
+            except (WorkerUnreachable, EngineError) as error:
+                if self.stopping.is_set():
+                    return
+                offset = run.consumed()
+                if attempt + 1 < self.ATTEMPTS:
+                    time.sleep(self.BACKOFF)
+                    continue
+                run.note('lost the worker while run %s was executing, after %d attempts: %s'
+                         % (run.remote, self.ATTEMPTS, error))
+                run.finish(70, state='infra_failed')
+                return
+            except Exception as error:             # noqa: BLE001 - never a silent pass
+                run.note('%s: %s' % (type(error).__name__, error))
+                run.finish(70, state='infra_failed')
+                return
 
     def reattach(self, run):
-        """Same as `execute`, for a run this daemon adopted rather than started."""
+        """Same as `execute`, for a run this daemon adopted rather than started.
+
+        It resumes from the remote byte offset the previous daemon recorded, so
+        a restart costs a few hundred milliseconds of log and never a duplicated
+        line. The outputs to collect are taken from what the run actually
+        produced, because the plan that asked for them belonged to a process
+        that is gone.
+        """
         repo = next((item for item in self.config['repos']
                      if item['name'] == (run.request.get('repo') or '')), None)
         if repo is None:
             run.note('this daemon no longer has an enrolment for run %s' % run.id)
             run.finish(70, state='infra_failed')
             return
-        offset = run.size() and 0 or 0
+        collected = None
         try:
             worker = self.worker_for(repo)
-            result, _ = worker.follow(run.remote, offset=0,
-                                      on_log=lambda chunk: run.append(log_frame('out', chunk)),
+            result, _ = worker.follow(run.remote, offset=run.consumed(),
+                                      on_log=lambda chunk: run.stream_in(chunk),
                                       should_cancel=run.cancelled.is_set)
-            config = self.repo_config(repo)
-            plan = {'outputs': (result.get('evidence', {}).get('collected') and
-                                [{'kind': 'artifacts',
-                                  'paths': list(result['evidence']['collected'])}] or [])}
+            collected = list((result.get('evidence') or {}).get('collected') or [])
+            plan = {'outputs': [{'kind': 'artifacts', 'paths': collected}] if collected else []}
             self.deliver(run, repo, plan, result)
         except (WorkerUnreachable, EngineError) as error:
+            if self.stopping.is_set():
+                return
             run.note('could not re-attach to run %s: %s' % (run.remote, error))
             run.finish(70, state='infra_failed')
 

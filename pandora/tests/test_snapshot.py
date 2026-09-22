@@ -114,14 +114,23 @@ class FreezeTest(unittest.TestCase):
                              'a nested worktree would ship the repository twice')
             self.assertIn('inner/', dropped)
 
-    def test_verify_catches_a_tree_that_does_not_match_its_manifest(self):
+    def test_verify_accepts_a_materialised_tree_and_rejects_a_tampered_one(self):
+        # `verify` is for the tree the worker materialised, which contains the
+        # manifest and nothing else -- not for the worktree it came from, which
+        # also has .git in it.
+        import shutil
         with tempfile.TemporaryDirectory() as tmp:
-            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', 'src/b.js': 'b\n'})
             manifest, _, _ = snapshot.freeze(repo)
-            snapshot.verify(repo, manifest)
-            (repo / 'a.txt').write_text('tampered\n')
+            materialised = Path(tmp) / 'shipped'
+            for record in manifest:
+                target = materialised / record['path']
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(repo / record['path'], target)
+            snapshot.verify(materialised, manifest)
+            (materialised / 'a.txt').write_text('tampered\n')
             with self.assertRaises(SnapshotError):
-                snapshot.verify(repo, manifest)
+                snapshot.verify(materialised, manifest)
 
 
 class TransferPathTest(unittest.TestCase):
