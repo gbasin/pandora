@@ -16,9 +16,15 @@ fallback policy. What the slice drops, and why:
   `services` / network pod    a run is a machine with its own dockerd, so the
                               repository's compose stack boots unmodified and
                               there is nothing for Pandora to wire.
-  `shards` / `plan`           one-shard jobs only in the slice.
   `pins`                      the golden's toolchain is pinned by `[worker]`,
                               whose fingerprint is the golden's identity.
+
+`shards` is in, in both tiers. Tier 1 is a shard index handed to the job and
+nothing else; tier 2 adds a `plan` command that emits a JSON inventory, the
+build-once outputs the shards mount, and a per-shard report Pandora checks
+against that inventory. The difference is a receipt, not a speed: a tier-1
+result says `unverified`, because `--shard=2/4` on its own proves only that
+something was asked to run, never that the partition was complete.
 
 The loader does not re-implement the repository's command line. A job declares
 the literal forms Pandora claims, the options Pandora itself consumes, the flags
@@ -241,10 +247,106 @@ def _validate(value, where):
             'timeout_ms': _int(value.get('timeout_ms', 5000), where + '.timeout_ms', 50, 60000)}
 
 
+WHERE = ('remote', 'local')
+
+SHARD_TOKEN = re.compile(r'\{(i|n)\}')
+PLAN_TOKEN = re.compile(r'\{(n|plan)\}')
+
+
+def _shard_text(text, where, pattern, *, required=()):
+    """A string in which only the named tokens may appear."""
+    for match in TOKEN.finditer(text):
+        if not pattern.fullmatch(match.group(0)):
+            raise ConfigError('%s uses unknown template value %s' % (where, match.group(0)))
+    missing = [token for token in required if token not in text]
+    if missing:
+        raise ConfigError('%s must use %s' % (where, ', '.join(missing)))
+    return text
+
+
+def _plan_argv(value, where):
+    """The tier-2 plan command: `{args}` once, plus `{n}` and `{plan}`."""
+    argv, args_at = _argv_with_args(value, where)
+    rendered = [item if item == '{args}'
+                else _shard_text(item, where + ' entry', PLAN_TOKEN) for item in argv]
+    if not any('{plan}' in item for item in rendered):
+        raise ConfigError(where + ' must write its inventory to {plan}')
+    if not any('{n}' in item for item in rendered):
+        raise ConfigError(where + ' must be told the shard count with {n}')
+    return rendered, args_at
+
+
+def _shards(value, where):
+    """How a job is cut into shards, and what proves the cut was honest.
+
+    Two strategies, because two real repositories need different ones: `argv`
+    appends a rendered flag to the command, `env` sets named variables. Both
+    also get `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`, so a runner that
+    wants neither spelling can read the pair.
+
+    `plan` is what makes a result *verified*. Without it Pandora can say a shard
+    ran; with it Pandora holds the planned partition beside every shard's own
+    report and refuses a fan-out whose observed test ids are not exactly that
+    partition. `plan` without `report` is therefore refused: an inventory that
+    nothing is checked against is decoration.
+    """
+    _keys(value, where, {'strategy'},
+          {'template', 'env', 'default', 'max', 'plan', 'expect_flag', 'report',
+           'plan_outputs'})
+    strategy = _choice(value['strategy'], where + '.strategy', ('argv', 'env'))
+    shards = {'strategy': strategy, 'template': None, 'env': {},
+              'plan': None, 'plan_args_at': None, 'expect_flag': None,
+              'report': None, 'plan_outputs': []}
+
+    if strategy == 'argv':
+        if 'env' in value:
+            raise ConfigError(where + ".env belongs to strategy = 'env'")
+        if 'template' not in value:
+            raise ConfigError(where + " with strategy = 'argv' needs a template")
+        shards['template'] = _shard_text(_str(value['template'], where + '.template'),
+                                         where + '.template', SHARD_TOKEN,
+                                         required=('{i}', '{n}'))
+    else:
+        if 'template' in value:
+            raise ConfigError(where + ".template belongs to strategy = 'argv'")
+        shards['env'] = _env(value.get('env', {}), where + '.env')
+        if not shards['env']:
+            raise ConfigError(where + " with strategy = 'env' needs at least one variable")
+        for key, item in shards['env'].items():
+            _shard_text(item, '%s.env.%s' % (where, key), SHARD_TOKEN)
+
+    shards['default'] = _int(value.get('default', 1), where + '.default', 1, 64)
+    shards['max'] = _int(value.get('max', shards['default']), where + '.max', 1, 64)
+    if shards['max'] < shards['default']:
+        raise ConfigError('%s.max %d is below its default %d'
+                          % (where, shards['max'], shards['default']))
+
+    if 'plan' in value:
+        shards['plan'], shards['plan_args_at'] = _plan_argv(value['plan'], where + '.plan')
+        if value.get('expect_flag'):
+            shards['expect_flag'] = _str(value['expect_flag'], where + '.expect_flag', FLAG)
+        if 'report' not in value:
+            raise ConfigError(where + '.plan needs a report path: an inventory nothing is '
+                                      'checked against proves nothing')
+        shards['report'] = _inside(_shard_text(_str(value['report'], where + '.report'),
+                                               where + '.report', SHARD_TOKEN),
+                                   where + '.report')
+        shards['plan_outputs'] = _strs(value.get('plan_outputs', []),
+                                       where + '.plan_outputs', unique=True)
+        for path in shards['plan_outputs']:
+            _inside(path, where + '.plan_outputs')
+    else:
+        for key in ('expect_flag', 'report', 'plan_outputs'):
+            if key in value:
+                raise ConfigError('%s.%s needs a plan; without one there is nothing to '
+                                  'check against' % (where, key))
+    return shards
+
+
 JOB_REQUIRED = {'id', 'forms', 'run'}
 JOB_OPTIONAL = {'summary', 'tool', 'size', 'args', 'options', 'value_flags', 'reject',
                 'outputs', 'fallback', 'on_extra', 'usage', 'reject_if_set',
-                'timeout_minutes', 'validate'}
+                'timeout_minutes', 'validate', 'where', 'singleton', 'shards'}
 
 
 def _job(value, index):
@@ -269,6 +371,15 @@ def _job(value, index):
         'summary': _str(value.get('summary', job_id), where + '.summary'),
         'tool': _str(value['tool'], where + '.tool') if 'tool' in value else None,
         'size': _choice(value.get('size', 'medium'), where + '.size', SIZES),
+        # Which lane runs it. `local` is not "Pandora declines": it is the
+        # client daemon's own executor, with the same queue, receipt and exit
+        # contract as the worker -- for work that must stay on this machine
+        # (a dev stack owning a port) or is not worth shipping (a focused
+        # `node --test`).
+        'where': _choice(value.get('where', 'remote'), where + '.where', WHERE),
+        # One at a time on this machine, across every worktree. What `dev:stack`
+        # is, and the only reason a local job may hold a port.
+        'singleton': _bool(value.get('singleton', False), where + '.singleton'),
         'args': args,
         'options': options,
         'value_flags': _strs(value.get('value_flags', []), where + '.value_flags', FLAG, unique=True),
@@ -279,6 +390,7 @@ def _job(value, index):
                   for position, item in enumerate(value['forms'])],
         'run': run,
         'validate': _validate(value['validate'], where + '.validate') if 'validate' in value else None,
+        'shards': _shards(value['shards'], where + '.shards') if 'shards' in value else None,
         'outputs': [_output(item, '%s.outputs[%d]' % (where, position))
                     for position, item in enumerate(value.get('outputs', []))],
         'timeout_minutes': _int(value['timeout_minutes'], where + '.timeout_minutes', 1, 1440)
@@ -290,6 +402,17 @@ def _job(value, index):
     }
     if not job['forms']:
         raise ConfigError(where + '.forms must not be empty')
+    if job['shards'] and job['where'] == 'local':
+        raise ConfigError(where + ' is sharded, which is a fan-out across worker '
+                                  "instances; it cannot also be where = 'local'")
+    if job['shards'] and job['shards']['plan'] and not job['outputs']:
+        raise ConfigError(where + '.shards.plan writes a per-shard report, so the job must '
+                                  'declare the artifacts that bring it home')
+    if job['singleton'] and job['where'] != 'local':
+        raise ConfigError(where + ".singleton is a machine-wide rule and needs where = 'local'")
+    if job['where'] == 'local' and job['outputs']:
+        raise ConfigError(where + ' runs in the worktree, so it declares no outputs to '
+                                  'bring home; remove outputs or set where = "remote"')
     if job['value_flags'] and args == 'none':
         raise ConfigError(where + ".value_flags needs args = 'required' or 'optional'")
     if job['reject'] and args == 'none':

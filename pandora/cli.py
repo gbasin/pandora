@@ -172,11 +172,12 @@ def cmd_ps(args):
     if args.json:
         print(json.dumps(rows, indent=1, sort_keys=True))
         return 0
-    print('%-14s %-10s %-16s %5s  %s' % ('run', 'state', 'remote', 'exit', 'command'))
+    print('%-14s %-6s %-10s %-16s %5s  %s'
+          % ('run', 'lane', 'state', 'remote', 'exit', 'command'))
     for row in rows[:args.limit]:
-        print('%-14s %-10s %-16s %5s  %s' % (
-            row.get('id', '')[:14], (row.get('state') or '')[:10],
-            (row.get('remote') or '-')[:16],
+        print('%-14s %-6s %-10s %-16s %5s  %s' % (
+            row.get('id', '')[:14], (row.get('lane') or 'remote')[:6],
+            (row.get('state') or '')[:10], (row.get('remote') or '-')[:16],
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
@@ -263,6 +264,13 @@ def cmd_stats(args):
             print('  %-28s %5d %9d %9d %9.1f  %s'
                   % (key, len(group), percentile(durations, 0.5), percentile(durations, 0.95),
                      sum(durations) / 1000.0, why))
+    local = data.get('local') or {}
+    if local:
+        print('local lane: %d MiB held of %d, %d running%s'
+              % (local.get('held_mib', 0), local.get('budget_mib', 0),
+                 len(local.get('running') or []),
+                 ', singleton %s' % ', '.join(sorted(local['singletons']))
+                 if local.get('singletons') else ''))
     worker = data.get('worker') or {}
     if worker.get('ok'):
         scheduler = worker['scheduler']

@@ -33,7 +33,9 @@ from ..config import classify as classifier
 from ..config import loader
 from ..errors import (ConfigError, EngineError, PandoraError, Refused, SnapshotError,
                       TransferError, ValidationRejected, WorkerUnreachable)
+from ..exits import STALE
 from . import enrolment, settings
+from .local import Budget, Busy, LocalExecutor
 from .protocol import Reader, VERSION, dump, log_frame
 from .worker import Worker
 
@@ -62,6 +64,7 @@ class Run:
         self.exit_code = None
         self.state = 'queued'
         self.remote = None
+        self.lane = 'remote'
         self.result = None
         self.started = now()
 
@@ -69,7 +72,8 @@ class Run:
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
                    'remote': self.remote, 'repo': self.request.get('repo'),
-                   'job': self.request.get('job'), 'started': self.started, 'updated': now()}
+                   'lane': self.lane, 'job': self.request.get('job'),
+                   'started': self.started, 'updated': now()}
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -84,6 +88,10 @@ class Run:
             return int((self.dir / 'remote-offset').read_text().strip() or 0)
         except (OSError, ValueError):
             return 0
+
+    def stream_local(self, which, chunk):
+        """One chunk from a local child. No offset: there is no remote to resume."""
+        self.append(log_frame(which, chunk))
 
     def stream_in(self, chunk):
         """One chunk of the remote log: framed for clients, then acknowledged.
@@ -160,6 +168,15 @@ class Daemon:
         self.repo_stamps = {}
         self.workers = {}
         self.worker_factory = Worker
+        # One local queue per daemon, built once: its learned peaks live in a
+        # SQLite file beside the runs, so a restart does not forget what a job
+        # costs and re-reserve every class ceiling.
+        self.budget = Budget(self.config['local'],
+                             store_path=self.state / 'local-peaks.sqlite3')
+        self.local = LocalExecutor(self.budget,
+                                   drift=self.config['local'].get('drift', 'warn'),
+                                   queue_timeout=float(
+                                       self.config['local'].get('queue_timeout_seconds') or 0))
 
     # -- configuration -----------------------------------------------------
 
@@ -397,6 +414,10 @@ class Daemon:
         job = config['jobs'][verdict['job']]
         worktree = request['cwd']
 
+        if job['where'] == 'local':
+            self.serve_local(conn, reader, request, repo, job, plan)
+            return
+
         if plan['options'].get('update'):
             self.deny(conn, 'rejected',
                       '--update write-back is not in this build; run it locally with '
@@ -419,7 +440,8 @@ class Daemon:
         try:
             worker = self.worker_for(repo)
             submission = worker.submit(plan=plan, worktree=worktree,
-                                       request_id=run.id + ':' + plan['job'])
+                                       request_id=run.id + ':' + plan['job'],
+                                       control=request)
         except WorkerUnreachable as error:
             self.deny(conn, 'worker-unreachable', str(error))
             return
@@ -456,6 +478,87 @@ class Daemon:
             run.note(checked['reason'] + '; the arguments were not pre-checked')
         threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
         self.stream(conn, reader, run, 0)
+
+    # -- the local path ----------------------------------------------------
+
+    def serve_local(self, conn, reader, request, repo, job, plan):
+        """The same conversation as a routed run, with this Mac as the worker.
+
+        Ordering is the whole contract. The repository's own validator, then the
+        exclusivity rules, then the queue, and only then `accepted` -- so every
+        way this can end badly before the frame is a way that provably ran
+        nothing, exactly as it is for a remote run.
+        """
+        worktree = request['cwd']
+        try:
+            checked = classifier.preflight(job, plan['args'], root=worktree,
+                                           extra_env=self.validator_env(request, plan))
+        except ValidationRejected as error:
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'invalid-arguments',
+                               'msg': error.stderr or str(error), 'exit': error.code}))
+            return
+
+        run = Run(self.state, uuid.uuid4().hex[:12],
+                  dict(request, repo=repo['name'], job=job['id']))
+        run.lane = 'local'
+        run.save()
+        try:
+            self.budget.reserve(run.id, repo=repo['name'], job=job['id'],
+                                worktree=worktree, singleton=job['singleton'])
+        except Busy as error:
+            # Not a pre-accept fallback: running it locally anyway is the exact
+            # thing the rule exists to prevent.
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
+                               'msg': str(error), 'exit': STALE}))
+            return
+        try:
+            conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
+            admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
+                                          cancelled=run.cancelled.is_set,
+                                          timeout=self.local.queue_timeout)
+        except Busy as error:
+            self.budget.finish(run.id, 0, 'lost')
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
+                               'msg': str(error), 'exit': STALE}))
+            return
+        except OSError:
+            self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
+            return
+        if admission is None:
+            self.budget.finish(run.id, 0, 'lost')
+            self.deny(conn, 'queue-timeout',
+                      'the local queue did not admit this job within its wait')
+            return
+        run.state = 'running'
+        run.save()
+        with self.runs_lock:
+            self.runs[run.id] = run
+        conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'lane': 'local',
+                           'remote': None,
+                           'reservation_mib': admission.get('reservation_mib'),
+                           'cpus_hint': admission.get('cpus_hint')}))
+        if checked.get('ran') is False and checked.get('reason') != 'no validator declared':
+            run.note(checked['reason'] + '; the arguments were not pre-checked')
+        threading.Thread(target=self.execute_local,
+                         args=(run, repo, job, plan, request, admission), daemon=True).start()
+        self.stream(conn, reader, run, 0)
+
+    def execute_local(self, run, repo, job, plan, request, admission):
+        try:
+            result = self.local.execute(run, plan, repo=repo['name'], job=job['id'],
+                                        worktree=request['cwd'],
+                                        request_env=request.get('env') or {},
+                                        admission=admission, note=run.note,
+                                        started=run.started)
+        except Exception as error:                     # noqa: BLE001 - never a silent pass
+            self.budget.finish(run.id, 0, 'lost')
+            run.note('%s: %s' % (type(error).__name__, error))
+            run.finish(70, state='infra_failed')
+            return
+        run.note('%s in %.1fs (local, peak %s MiB of %s reserved)'
+                 % (result['outcome'], result['wall_seconds'], result['peak_mib'],
+                    result['reservation_mib']))
+        run.finish(result['cli_exit'], state=result['outcome'], result=result)
 
     def validator_env(self, request, plan):
         base = {'PATH': os.environ.get('PATH', ''), 'HOME': os.environ.get('HOME', ''),
@@ -660,7 +763,7 @@ class Daemon:
             except PandoraError as error:
                 worker = {'ok': False, 'error': str(error)}
         return {'runs': self.ps(), 'passthrough': passthrough, 'worker': worker,
-                'config': self.config.get('source')}
+                'local': self.budget.snapshot(), 'config': self.config.get('source')}
 
 
 def main(argv=None):

@@ -80,7 +80,11 @@ class Store:
     """Peaks per (repo, job). SQLite so a worker restart does not forget."""
 
     def __init__(self, path=':memory:'):
-        self.db = sqlite3.connect(path, isolation_level=None)
+        # `check_same_thread=False` because the client daemon admits from one
+        # thread per connection and serialises every touch of this store behind
+        # its own lock; SQLite's assertion would protect nothing and cost the
+        # local lane its learned peaks.
+        self.db = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.execute('''CREATE TABLE IF NOT EXISTS peaks (
             id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, job TEXT NOT NULL,

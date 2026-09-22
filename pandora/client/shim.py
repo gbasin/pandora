@@ -191,9 +191,20 @@ def build_request(command, *, cwd=None):
     forwarded, secrets, platform = envfilter.split(os.environ)
     for line in envfilter.notices(secrets, platform):
         notice(line)
-    return {'v': VERSION, 'op': 'run', 'cwd': cwd or os.getcwd(),
-            'argv': ['pnpm', *command], 'tty': sys.stdin.isatty(),
-            'env': forwarded}
+    request = {'v': VERSION, 'op': 'run', 'cwd': cwd or os.getcwd(),
+               'argv': ['pnpm', *command], 'tty': sys.stdin.isatty(),
+               'env': forwarded}
+    # Pandora's own control variables never travel to the run -- `envfilter`
+    # drops every PANDORA_* name -- so the two that change what Pandora does
+    # are lifted out here and carried as fields of the request instead.
+    # `--shards` is not read: the shard flag belongs to the repository's runner
+    # and Pandora does not parse the repository's command line.
+    raw = os.environ.get('PANDORA_SHARDS', '').strip()
+    if raw.isdigit() and int(raw) >= 1:
+        request['want_shards'] = int(raw)
+    if os.environ.get('PANDORA_KEEP_GOING', '') not in ('', '0'):
+        request['keep_going'] = True
+    return request
 
 
 def main(argv=None):
@@ -234,9 +245,11 @@ def main(argv=None):
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')
-        if code == 'invalid-arguments':
-            # The repository itself refused these arguments. Nothing to route,
-            # and nothing a local run would do differently.
+        if code in ('invalid-arguments', 'busy'):
+            # Two different refusals, one rule: running it locally would be
+            # worse than not running it. `invalid-arguments` is the repository's
+            # own verdict on the argv; `busy` is an exclusivity rule that exists
+            # precisely to stop a second copy of this job on this machine.
             sys.stderr.write((frame.get('msg') or '').rstrip() + '\n')
             sys.stderr.flush()
             return int(frame.get('exit') or 1)
@@ -249,8 +262,13 @@ def main(argv=None):
         extra.append('same input as ' + frame['same_input_as'])
     if frame.get('source_reused'):
         extra.append('source cache hit')
-    notice('run %s on the worker as %s%s' % (frame['run'], remote,
-                                             ' (' + '; '.join(extra) + ')' if extra else ''))
+    if frame.get('lane') == 'local':
+        extra.append('%s MiB reserved' % frame.get('reservation_mib'))
+        notice('run %s in the local lane%s'
+               % (frame['run'], ' (' + '; '.join(extra) + ')' if extra else ''))
+    else:
+        notice('run %s on the worker as %s%s'
+               % (frame['run'], remote, ' (' + '; '.join(extra) + ')' if extra else ''))
     sock.settimeout(None)
     stream = Stream(args.sock, frame['run'], reader, sock)
     signal.signal(signal.SIGINT, stream.cancel)

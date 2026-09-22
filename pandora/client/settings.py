@@ -16,6 +16,14 @@ too high a price for changing a hostname.
     fallback_slots = 2
     fallback_wait_seconds = 0
 
+    [local]
+    budget_mib = 0                      # 0: this machine's RAM minus the reserve
+    reserve_mib = 4096                  # what the agents, the editors and the OS keep
+    max_running = 4
+    one_active_per_worktree = true
+    drift = "warn"                      # off | warn | fail
+    queue_timeout_seconds = 0           # 0: wait for the budget as long as it takes
+
     [[repos]]
     name = "eichler"
     root = "/Users/me/Code/eichler"     # the git common dir's worktree, or any worktree
@@ -39,6 +47,12 @@ DEFAULTS = {
     # The fake backend stays available, because a test that needs a worker is a
     # test that does not run. `mode` is only consulted when it is not "worker".
     'backend': {'mode': 'worker'},
+    # The local lane's budget and its two exclusivity rules. `budget_mib` of 0
+    # means "this machine's RAM minus the reserve", which is the honest default:
+    # a number typed into a file goes stale the moment the Mac is replaced.
+    'local': {'budget_mib': 0, 'reserve_mib': 4096, 'max_running': 4,
+              'one_active_per_worktree': True, 'drift': 'warn',
+              'queue_timeout_seconds': 0},
 }
 
 
@@ -48,8 +62,9 @@ def _expand(value):
 
 def normalise(raw):
     config = {'worker': dict(DEFAULTS['worker']), 'client': dict(DEFAULTS['client']),
-              'backend': dict(DEFAULTS['backend']), 'repos': []}
-    for section in ('worker', 'client', 'backend'):
+              'backend': dict(DEFAULTS['backend']), 'local': dict(DEFAULTS['local']),
+              'repos': []}
+    for section in ('worker', 'client', 'backend', 'local'):
         block = raw.get(section, {})
         if not isinstance(block, dict):
             raise ConfigError('[%s] must be a table' % section)
