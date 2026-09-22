@@ -356,6 +356,28 @@ class IncusDriver(Executor):
             raise ValueError('unknown injection method ' + method)
         return time.monotonic() - t0
 
+    # --- persistent caches --------------------------------------------------
+
+    def attach_cache(self, name, source, dest):
+        """Mount a host directory the run may write and later runs will read.
+
+        `shift=true` is the whole of why this works. The runner profile sets
+        `security.idmap.isolated`, so without a shifted mount the second run
+        would meet the first run's files owned by a uid its own namespace
+        cannot name, and a cache nobody may read is not a cache. With it every
+        run is root on the same bytes. Measured on the worker before this
+        landed: two instances from the same golden, one writing, the other
+        reading, appending and creating -- all four succeeded.
+
+        Never fatal. A cache that will not mount costs a run its warm start;
+        it must not cost it its verdict, so the failure is returned, not
+        raised, and the caller leaves `TURBO_CACHE_DIR` unset.
+        """
+        rc, _, err = self.incus('config', 'device', 'add', name, 'cache', 'disk',
+                                'source=' + str(source), 'path=' + dest,
+                                'shift=true', check=False, timeout=300)
+        return (True, '') if rc == 0 else (False, err.strip()[:200])
+
     # --- clone -------------------------------------------------------------
 
     def clone(self, golden, run_id, limits=None):

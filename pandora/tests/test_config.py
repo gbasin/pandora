@@ -281,8 +281,9 @@ class ClassifyTest(unittest.TestCase):
 
     def test_the_claim_index_is_what_the_shim_reads(self):
         self.assertEqual(classify.claim_index(self.config),
-                         [['check'], ['check:docs'], ['dev:stack'], ['journey'],
-                          ['node'], ['test:unit'], ['unit']])
+                         [['check'], ['check:code'], ['check:docs'], ['dev:stack'],
+                          ['journey'], ['native-unit'], ['node'],
+                          ['test:native-unit'], ['test:unit'], ['unit']])
 
 
 class PreflightTest(unittest.TestCase):

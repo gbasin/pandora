@@ -93,6 +93,69 @@ outputs = [
   ] },
 ]
 
+# --- tier 1: the tooling suites --------------------------------------------
+#
+# Two jobs with no sharding, no plan step and no services: one instance, one
+# command, one exit code. They are here because they are what an agent actually
+# types, dozens of times a day, and because a tooling suite is the case the
+# 1-CPU quota of v0.1.1 got worst -- so they are also the measurement that says
+# whether CPU-by-weight fixed it. `notes/v0.2-check-profile-2026-09-22.md` has
+# the numbers and the reasoning behind each `where` below.
+
+[[jobs]]
+id = "check"
+summary = "The static checks CI runs"
+# Measured 2026-09-22: on a four-core worker with a warm turbo cache a remote
+# `check` is faster in wall clock than the same check on a loaded Mac, and not
+# much slower on an idle one. `remote` is the default because the Mac's load is
+# the common case, not the exception.
+where = "remote"
+# `large` would keep it out of the local lane on fallback, and that is the wrong
+# answer for a suite whose whole job is to be run constantly: when the worker
+# cannot take it, running it here beats refusing it.
+size = "medium"
+args = "none"
+timeout_minutes = 45
+# `pnpm check` and `pnpm validate check` are one form: `[matching] strip_prefixes`
+# has already removed `validate` by the time a form is matched.
+#
+# KNOWN OVER-RUN, recorded rather than hidden: a job has one `run`, so all three
+# forms execute the full `check`. Asking for `check:docs` therefore also pays for
+# lint and typecheck. With a warm turbo cache that is ~10 s; cold it is the whole
+# suite. The fix is one loader change -- a per-form `run` override, or three jobs
+# sharing a validator -- and it is not in this slice.
+forms = [{ prefix = ["check"] }, { prefix = ["check:docs"] }, { prefix = ["check:code"] }]
+# The cheapest existing pre-check that rejects a bad suite name: eichler's own
+# planner, asked to plan rather than to run. Measured at 45-52 ms, and it exits
+# 1 with the repository's own message on an unknown suite. It reads no lockfile
+# and installs nothing, which is what makes it safe on the submission path.
+validate = { argv = ["node", "tools/validate.mjs", "plan", "check"], timeout_ms = 3000 }
+run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
+# Turbo writes into its own cache while it runs, which is a tree change a
+# `drift = "fail"` machine would refuse. `warn` is the honest setting for a job
+# that edits nothing a verdict depends on.
+drift = "warn"
+
+[[jobs]]
+id = "native-unit"
+summary = "The Expo app's Jest units"
+# Measured 2026-09-22. Unlike `check`, this suite has no turbo cache to warm:
+# it is one `jest` process, so every run pays the same price and the comparison
+# is a straight CPU one.
+where = "remote"
+size = "medium"
+# The unfiltered form only. `pnpm test:native-unit <selectors>` is what AGENTS.md
+# tells an agent to use while iterating, and a focused Jest run is seconds of
+# this Mac against a whole worktree freeze and transfer -- so extra arguments
+# fall out of the claim rather than being rejected.
+args = "none"
+on_extra = { action = "local" }
+timeout_minutes = 30
+forms = [{ prefix = ["test:native-unit"] }, { prefix = ["native-unit"] }]
+validate = { argv = ["node", "tools/validate.mjs", "plan", "native-unit"], timeout_ms = 3000 }
+run = { argv = ["pnpm", "validate", "native-unit"], env = { EICHLER_QUEUE = "direct" } }
+drift = "warn"
+
 # --- the local lane ---------------------------------------------------------
 #
 # Work that stays on this Mac but still has to be *scheduled*. `where = "local"`
@@ -104,30 +167,6 @@ outputs = [
 # `EICHLER_QUEUE=direct`, which is the planner's "you are already the scheduled
 # process" mode. Pandora owns the queue; eichler still owns what the suite is,
 # which selectors are legal, and its own source-fingerprint receipt.
-
-[[jobs]]
-id = "check"
-summary = "The static checks CI runs"
-where = "local"
-size = "large"
-args = "none"
-timeout_minutes = 45
-forms = [{ prefix = ["check"] }]
-run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
-# Turbo writes into its own cache while it runs, which is a tree change this
-# machine's `drift = "fail"` would refuse. `warn` is the honest setting for a
-# job that edits nothing a verdict depends on.
-drift = "warn"
-
-[[jobs]]
-id = "check-docs"
-summary = "Documentation policy, briefs, mockups, design contracts"
-where = "local"
-size = "medium"
-args = "none"
-timeout_minutes = 30
-forms = [{ prefix = ["check:docs"] }]
-run = { argv = ["pnpm", "validate", "docs"], env = { EICHLER_QUEUE = "direct" } }
 
 [[jobs]]
 id = "validate-node"
