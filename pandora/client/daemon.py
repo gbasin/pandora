@@ -80,6 +80,7 @@ class Run:
         # `pandora stats` cannot derive from anything else afterwards.
         self.accepted = None
         self.hint = None
+        self.shipped = frozenset()      # the snapshot's paths, for the gitignored hint
 
     def save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
@@ -401,7 +402,7 @@ class Daemon:
                                'runs': len(self.runs)}))
         elif op == 'stats':
             conn.sendall(dump({'v': VERSION, 't': 'stats',
-                               'data': self.stats(since=first.get('since'))}))
+                               'data': self.stats(first.get('since'))}))
         elif op == 'ps':
             self.gate.sample()          # a person asked; answer about now, not about then
             conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
@@ -578,6 +579,7 @@ class Daemon:
             return
 
         run.remote = submission.run_id
+        run.shipped = getattr(submission, 'shipped', frozenset())
         run.state = 'running'
         run.accepted = now()
         run.save()
@@ -845,7 +847,8 @@ class Daemon:
             # a cost paid on every green run.
             return None
         try:
-            return hints.for_run(result, worktree=worktree, log_path=run.log)
+            return hints.for_run(result, worktree=worktree, log_path=run.log,
+                                 shipped=run.shipped)
         except Exception:                        # noqa: BLE001 - a courtesy, never a verdict
             return None
 

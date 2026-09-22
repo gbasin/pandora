@@ -531,6 +531,8 @@ class Hints(DaemonCase):
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.exit, 137)
         self.assertIn(b'pandora: hint: watchdog killed for file-cache thrash', answer.err)
+        self.assertTrue(answer.err.rstrip().splitlines()[-1].startswith(b'pandora: hint: '),
+                        'the hint is the final stderr line')
         result = self.result_of(answer.accepted['run'])
         self.assertIn('declare size large', result['hint'])
 
@@ -553,9 +555,59 @@ class Hints(DaemonCase):
         self.assertEqual(answer.exit, 1)
         self.assertIn(b'tmp/fixture.json exists locally but is gitignored', answer.err)
         self.assertIn('[sync] include', self.result_of(answer.accepted['run'])['hint'])
+        self.assertTrue(answer.err.rstrip().splitlines()[-1].startswith(b'pandora: hint: '))
+
+    def test_a_path_the_snapshot_shipped_is_not_blamed(self):
+        ignored = self.repo / 'tmp' / 'fixture.json'
+        ignored.parent.mkdir()
+        ignored.write_text('{}')
+        (self.repo / '.gitignore').write_text('tmp/\n')
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        original_submit, original_follow = FakeWorker.submit, FakeWorker.follow
+
+        def submit(self, **kwargs):
+            submission = Submission()
+            submission.shipped = frozenset({'tmp/fixture.json'})   # a [sync] include
+            return submission
+
+        def follow(self, run_id, *, on_log=None, **k):
+            on_log(b"Error: Cannot find module 'tmp/fixture.json'\n")
+            return {'outcome': 'command_failed', 'cli_exit': 1, 'job': 'unit',
+                    'hint': None}, 0
+
+        FakeWorker.submit, FakeWorker.follow = submit, follow
+        self.addCleanup(setattr, FakeWorker, 'submit', original_submit)
+        self.addCleanup(setattr, FakeWorker, 'follow', original_follow)
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 1)
+        self.assertNotIn(b'pandora: hint', answer.err)
 
     def test_a_passing_run_says_nothing(self):
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.exit, 0)
         self.assertNotIn(b'pandora: hint', answer.err)
         self.assertIsNone(self.result_of(answer.accepted['run']).get('hint'))
+
+
+class StatsOverTheSocket(DaemonCase):
+    """`pandora stats --since` reaches the daemon and comes back as one report."""
+
+    def ask(self, request):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(30)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump(dict({'v': VERSION}, **request)))
+        try:
+            return Reader(sock).line()
+        finally:
+            sock.close()
+
+    def test_a_windowed_report_counts_a_run_and_carries_the_worker(self):
+        self.assertEqual(self.call(['pnpm', 'unit']).exit, 0)
+        frame = self.ask({'op': 'stats', 'since': '24h'})
+        data = frame['data']
+        self.assertEqual(data['window'], '24h')
+        self.assertEqual(data['runs'], 1)
+        self.assertEqual(data['by_job'][0]['job'], 'unit')
+        self.assertEqual(data['worker']['worker'], 'reachable')
+        self.assertEqual(data['queue_wait_seconds']['remote']['n'], 1)

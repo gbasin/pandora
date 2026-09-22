@@ -51,14 +51,19 @@ class Rules(unittest.TestCase):
                                                 'collected': {'r.xml': 'missing'}}))
 
     def test_drift_names_the_paths(self):
-        hint = rules.hint_for({'outcome': 'command_failed', 'drifted': True,
+        hint = rules.hint_for({'outcome': 'command_failed', 'drifted': True, 'drift': 'fail',
                                'drift_paths': ['src/a.ts', 'src/b.ts']})
         self.assertIn('changed during the run at src/a.ts, src/b.ts', hint)
 
     def test_drift_caps_the_list_and_counts_the_rest(self):
-        hint = rules.drifted({'drifted': True,
+        hint = rules.drifted({'drifted': True, 'drift': 'fail',
                               'drift_paths': ['p%d' % index for index in range(9)]})
         self.assertIn('and 4 more', hint)
+
+    def test_drift_under_warn_is_not_a_hint(self):
+        # The verdict stands under `warn`, and the run's own notice said so.
+        self.assertIsNone(rules.hint_for({'outcome': 'passed', 'drifted': True,
+                                          'drift': 'warn', 'drift_paths': ['src/a.ts']}))
 
     def test_a_passing_run_gets_no_hint(self):
         self.assertIsNone(rules.hint_for({'outcome': 'passed', 'job': 'unit',

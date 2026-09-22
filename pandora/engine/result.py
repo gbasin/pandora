@@ -100,8 +100,12 @@ def missing_report(facts):
 
 
 def drifted(facts):
-    """The tree changed underneath the run, so the verdict is about a ghost."""
-    if not facts.get('drifted'):
+    """`drift = "fail"` refused a verdict because the tree changed under the run.
+
+    Only `fail`: under `warn` the verdict stands and the run's own notice
+    already said so, so a hint would be a second copy of the same sentence.
+    """
+    if not facts.get('drifted') or facts.get('drift') != 'fail':
         return None
     paths = list(facts.get('drift_paths') or [])
     where = ', '.join(paths[:5]) if paths else 'an undetermined path'
@@ -165,6 +169,7 @@ def facts_from_result(result, **extra):
         'evidence': {key: value for key, value in evidence.items() if key != 'samples'},
         'collected': evidence.get('collected') or {},
         'drifted': result.get('drifted'),
+        'drift': result.get('drift'),
     }
     facts.update(extra)
     return facts
