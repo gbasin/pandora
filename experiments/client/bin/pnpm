@@ -1,0 +1,124 @@
+#!/bin/sh
+# Pandora pnpm shim.  POSIX sh, and the non-enrolled path forks nothing.
+#
+# Order matters.  Every check before the socket connect is a shell builtin, so
+# an invocation in a repository Pandora knows nothing about costs one `sh`
+# startup and one exec -- no git, no python, no file parsing.
+#
+#   1. kill switches        PANDORA_OFF, PANDORA_ROUTE_DEPTH
+#   2. find the real pnpm   walk PATH, skip our own directory
+#   3. find the repo        walk up for .git; a worktree's .git is a FILE
+#   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
+#   5. claim                read the marker with the `read` builtin, no fork
+#   6. hand off             client.py (claimed) or passthrough.py (heavy) or exec
+#
+# Anything that goes wrong before the daemon says `accepted` ends in a local
+# exec with one line on stderr.  After `accepted`, client.py never falls back.
+
+self=$0
+case $self in */*) selfdir=${self%/*} ;; *) selfdir=. ;; esac
+
+# --- 2. the real pnpm: next on PATH that is not this shim --------------------
+real=
+IFS=:
+for dir in $PATH; do
+    [ -n "$dir" ] || dir=.
+    [ "$dir" = "$selfdir" ] && continue
+    if [ -x "$dir/pnpm" ] && [ ! -d "$dir/pnpm" ]; then real=$dir/pnpm; break; fi
+done
+unset IFS
+if [ -z "$real" ]; then
+    echo "pandora: no real pnpm on PATH behind the shim" >&2
+    exit 127
+fi
+
+# --- 1. kill switches --------------------------------------------------------
+# PANDORA_ROUTE_DEPTH is the recursion guard.  eichler's own scripts re-enter
+# this shim up to three times for one `pnpm check` (root script -> `pnpm
+# validate check` -> tools/validation/run.mjs spawning a bare `pnpm`), so only
+# the outermost invocation is ever allowed to route.
+if [ -n "$PANDORA_OFF" ] || [ -n "$PANDORA_ROUTE_DEPTH" ]; then
+    PANDORA_ROUTE_DEPTH=${PANDORA_ROUTE_DEPTH:-1}
+    export PANDORA_ROUTE_DEPTH
+    exec "$real" "$@"
+fi
+
+# --- 3. repo root, without running git ---------------------------------------
+common=
+dir=$PWD
+while :; do
+    if [ -d "$dir/.git" ]; then common=$dir/.git; break; fi
+    if [ -f "$dir/.git" ]; then
+        # A linked worktree: ".git" holds "gitdir: <path>/.git/worktrees/<name>".
+        IFS= read -r pointer < "$dir/.git" || pointer=
+        case $pointer in
+            "gitdir: "*)
+                target=${pointer#gitdir: }
+                case $target in /*) ;; *) target=$dir/$target ;; esac
+                case $target in */worktrees/*) target=${target%/worktrees/*} ;; esac
+                common=$target
+                ;;
+        esac
+        break
+    fi
+    [ "$dir" = "/" ] && break
+    dir=${dir%/*}
+    [ -n "$dir" ] || dir=/
+done
+
+# --- 4. enrolment: one stat, and it covers every worktree of the repo --------
+if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
+    PANDORA_ROUTE_DEPTH=1; export PANDORA_ROUTE_DEPTH
+    exec "$real" "$@"
+fi
+
+# --- 5. claim, using the shell's own reader ----------------------------------
+sock=
+claimed=0
+heavy=0
+strip_run=0
+# The two keys any claim can match: one token, or two.
+k1=$1
+k2="$1 $2"
+while IFS=' ' read -r key rest; do
+    case $key in
+        sock) sock=$rest ;;
+        strip) [ "$rest" = "run" ] && strip_run=1 ;;
+        claim)
+            [ "$rest" = "$k1" ] && claimed=1
+            [ "$rest" = "$k2" ] && claimed=1
+            ;;
+        heavy)
+            [ "$rest" = "$k1" ] && heavy=1
+            [ "$rest" = "$k2" ] && heavy=1
+            ;;
+    esac
+done < "$common/pandora-enrolled"
+
+# `pnpm run test:unit` is `pnpm test:unit`; re-key once if the marker says so.
+if [ "$claimed" = 0 ] && [ "$strip_run" = 1 ] && [ "$1" = "run" ]; then
+    k1=$2
+    k2="$2 $3"
+    while IFS=' ' read -r key rest; do
+        case $key in
+            claim) { [ "$rest" = "$k1" ] || [ "$rest" = "$k2" ]; } && claimed=1 ;;
+            heavy) { [ "$rest" = "$k1" ] || [ "$rest" = "$k2" ]; } && heavy=1 ;;
+        esac
+    done < "$common/pandora-enrolled"
+fi
+
+# --- 6. hand off -------------------------------------------------------------
+PANDORA_REAL_PNPM=$real
+PANDORA_ROUTE_DEPTH=1
+export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
+python=${PANDORA_PYTHON:-python3}
+here=${PANDORA_CLIENT_DIR:-$selfdir/..}
+
+if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
+    exec "$python" -B "$here/client.py" --sock "$sock" --real "$real" -- "$@"
+fi
+if [ "$heavy" = 1 ] && [ -n "$sock" ]; then
+    exec "$python" -B "$here/passthrough.py" --real "$real" --repo "$common" \
+        --state "${sock%/*}" -- "$@"
+fi
+exec "$real" "$@"
