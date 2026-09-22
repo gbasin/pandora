@@ -7,8 +7,8 @@ INVARIANTS
   * Same cwd, environment and exit code as a local run; `$?` and traps behave.
   * Declared results are in your worktree before the command exits. A missing
     report is reported as missing, never as zero failures.
-  * Run from the repository root. In a subdirectory, an argument naming a path
-    makes the command run locally, and it says so.
+  * Run from the repository root. In a subdirectory, a routed command whose
+    arguments name a path is refused (exit 64) rather than run locally.
   * Exit codes that are not the command's own:
       70  infrastructure failure, never a test verdict
       75  busy or stale: a validation already active here, or the tree changed
