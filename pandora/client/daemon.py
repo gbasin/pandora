@@ -46,6 +46,53 @@ def now():
     return time.time()
 
 
+def client_alive(conn):
+    """False when the peer has closed its end; a peek, never a read."""
+    try:
+        return conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) != b''
+    except (BlockingIOError, InterruptedError):
+        return True
+    except OSError:
+        return False
+
+
+class Heartbeat:
+    """`working` frames every few seconds while the pre-accept work runs.
+
+    The shim's handshake timeout is a silence timeout: every frame restarts it.
+    Without these, a freeze that took 21 s on a loaded Mac -- measured, on a
+    fresh worktree whose files were out of the page cache -- was indistinguishable
+    from a dead daemon, the shim fell back to a local run, and the daemon went on
+    to submit the same command to the worker. A send that fails is the other half:
+    it is how the daemon learns the caller has gone before it submits anything.
+    """
+
+    EVERY = 5.0
+
+    def __init__(self, conn):
+        self.conn, self.every = conn, self.EVERY
+        self.stopped, self.gone = threading.Event(), threading.Event()
+        self.thread = threading.Thread(target=self.beat, daemon=True)
+
+    def beat(self):
+        while not self.stopped.wait(self.every):
+            try:
+                self.conn.sendall(dump({'v': VERSION, 't': 'working'}))
+            except OSError:
+                self.gone.set()
+                return
+
+    def start(self):
+        self.thread.start()
+        return self
+
+    def stop(self):
+        """Stop beating; True when the caller is known to have left."""
+        self.stopped.set()
+        self.thread.join()
+        return self.gone.is_set()
+
+
 class Run:
     """One routed attempt. Its log file is the single source of truth."""
 
@@ -544,11 +591,17 @@ class Daemon:
         # them is provably non-executing -- that is what earns the fallback --
         # and each of them is decided by the same policy rather than by whatever
         # the client happened to do with that error code.
+        beat = Heartbeat(conn).start()
         try:
-            worker = self.worker_for(repo)
-            submission = worker.submit(plan=plan, worktree=worktree,
-                                       request_id=run.id + ':' + plan['job'],
-                                       control=request)
+            try:
+                worker = self.worker_for(repo)
+                submission = worker.submit(plan=plan, worktree=worktree,
+                                           request_id=run.id + ':' + plan['job'],
+                                           control=request)
+            finally:
+                # Stopped before any other frame is written: two threads never
+                # share the socket.
+                left = beat.stop()
         except WorkerUnreachable as error:
             # Paid the timeout once; the next command should not. This asks the
             # question immediately rather than answering it: a worker that
@@ -578,6 +631,16 @@ class Daemon:
                            cause, str(error), checked)
             return
 
+        if left or not client_alive(conn):
+            # The caller left before `accepted`, so it may already be running
+            # this command some other way. The worker must not run it too.
+            try:
+                worker.cancel(submission.run_id)
+            except (EngineError, WorkerUnreachable, OSError):
+                pass
+            run.remote = submission.run_id
+            run.finish(INFRA, state='withdrawn')
+            return
         run.remote = submission.run_id
         run.shipped = getattr(submission, 'shipped', frozenset())
         run.state = 'running'
