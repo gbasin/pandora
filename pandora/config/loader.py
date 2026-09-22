@@ -60,6 +60,7 @@ SIZES = ('small', 'medium', 'large', 'xlarge')
 # The local lane's fallback verdicts. `fail` is the v0.1 spelling of `refuse`.
 FALLBACKS = ('local', 'refuse')
 DRIFTS = ('off', 'warn', 'fail')
+GITS = ('none', 'synthetic')
 # What a cancel is allowed to send first. SIGKILL is not offered: it is what the
 # grace escalates to, and a job that asks for it directly is asking for no grace.
 SIGNALS = ('SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT')
@@ -394,7 +395,7 @@ JOB_REQUIRED = {'id', 'forms', 'run'}
 JOB_OPTIONAL = {'summary', 'tool', 'size', 'args', 'options', 'value_flags', 'reject',
                 'outputs', 'fallback', 'on_extra', 'usage', 'reject_if_set',
                 'timeout_minutes', 'validate', 'where', 'singleton', 'shards',
-                'cancel', 'drift'}
+                'cancel', 'drift', 'git'}
 
 
 def _job(value, index):
@@ -434,6 +435,11 @@ def _job(value, index):
         # twice is right for a 60-second suite and absurd for a 4-second
         # `node --test`, so the answer belongs to the job when the job has one.
         'drift': _choice(value['drift'], where + '.drift', DRIFTS) if 'drift' in value else None,
+        # A run's tree arrives without `.git`. `synthetic` has the worker build
+        # a one-commit repository over it whose index is this worktree's
+        # tracked set, for suites that ask git what is tracked or changed.
+        # `none` costs nothing and is right for anything that never runs git.
+        'git': _choice(value.get('git', 'none'), where + '.git', GITS),
         'args': args,
         'options': options,
         'value_flags': _strs(value.get('value_flags', []), where + '.value_flags', FLAG, unique=True),
@@ -462,6 +468,9 @@ def _job(value, index):
     if job['shards'] and job['shards']['plan'] and not job['outputs']:
         raise ConfigError(where + '.shards.plan writes a per-shard report, so the job must '
                                   'declare the artifacts that bring it home')
+    if job['git'] != 'none' and job['where'] == 'local':
+        raise ConfigError(where + ".git builds a repository on the worker; a local job "
+                                  "already runs in a real checkout")
     if job['singleton'] and job['where'] != 'local':
         raise ConfigError(where + ".singleton is a machine-wide rule and needs where = 'local'")
     # A local job's outputs are not brought home -- it ran in the worktree, the

@@ -109,6 +109,7 @@ def cmd_enrol(args):
     text = enrolment.render(socket_path=str(state / 'client.sock'),
                             repo=args.name or repo_config['repo']['name'],
                             claims=claims,
+                            heavy=enrolment.heavy_forms(claims),
                             policies=classifier.policy_index(repo_config),
                             strip_prefixes=repo_config['matching']['strip_prefixes'],
                             origin=str(path),

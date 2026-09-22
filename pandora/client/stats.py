@@ -234,8 +234,9 @@ def render(report):
                         pause.get('episodes', 0), pause.get('paused_seconds', 0),
                         pause.get('jobs_delayed', 0), pause.get('jobs_refused', 0)))
     lines.append('')
-    lines.append('local, not routed: %d command(s)'
-                 % sum(row['runs'] for row in report['passthrough']))
+    lines.append('local, not routed: %d command(s), %.1fs in total'
+                 % (sum(row['runs'] for row in report['passthrough']),
+                    sum(row['total_seconds'] for row in report['passthrough'])))
     if report['passthrough']:
         lines.append('%-26s %5s %9s %9s %9s  %s'
                      % ('command', 'runs', 'p50 ms', 'p95 ms', 'total s', 'why'))

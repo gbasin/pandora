@@ -61,6 +61,19 @@ def worktree_root(start):
     return None
 
 
+# Unclaimed forms that look heavy enough to be worth counting. The shim runs
+# them locally, unchanged, and logs one line each, so `pandora stats` can say
+# what routing declined. A claimed form wins: the shim checks `claim` first.
+DEFAULT_HEAVY = (('build',), ('lint',), ('typecheck',), ('install',), ('i',), ('dev',),
+                 ('test',), ('exec',))
+
+
+def heavy_forms(claims, candidates=DEFAULT_HEAVY):
+    """The heavy list less anything claimed, so a marker never says both."""
+    claimed = {tuple(claim) for claim in claims}
+    return [list(item) for item in candidates if tuple(item) not in claimed]
+
+
 def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None, home=None,
            policies=()):
     """The marker text.  One directive per line, first word is the key.

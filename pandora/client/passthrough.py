@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run an unclaimed-but-heavy command locally and write down that it happened.
 
 The owner's complaint this answers: there is currently no way to see what is
@@ -13,14 +12,12 @@ the shim were not there.
 """
 import argparse
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import fallback
+from . import fallback
 
 
 def main(argv=None):
@@ -37,7 +34,7 @@ def main(argv=None):
     try:
         child = subprocess.Popen([args.real, *command], env=environment)
     except OSError as error:
-        sys.stderr.write('[pandora] cannot run %s: %s\n' % (args.real, error))
+        sys.stderr.write('pandora: cannot run %s: %s\n' % (args.real, error))
         return 127
     forward = lambda number, _frame: child.send_signal(number)  # noqa: E731
     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
@@ -46,6 +43,7 @@ def main(argv=None):
     if state:
         try:
             fallback.record(state, {'ts': started, 'kind': 'passthrough',
+                                    'reason': 'unclaimed',
                                     'argv': command, 'cwd': os.getcwd(),
                                     'repo': args.repo,
                                     'duration_ms': int((time.time() - started) * 1000),

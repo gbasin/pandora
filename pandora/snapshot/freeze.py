@@ -98,6 +98,27 @@ def names(repo, nested_prefixes):
                              for prefix in nested_prefixes))
 
 
+def git_status(repo):
+    """{name: 'untracked' | 'ignored'} for every name git would answer about wrongly.
+
+    A run's tree arrives without `.git`, and a repository whose checks ask git
+    (`git ls-files`, `git diff HEAD`) gets a synthetic one built on the worker.
+    `git add -A` over the tree would get two sets wrong: an untracked file would
+    become tracked -- so eichler's markdown-status policy would read a scratch
+    note it never reads here -- and a tracked file matching an ignore rule would
+    become untracked. These are the exceptions that make the synthetic index say
+    what this worktree's index says. Both sets are small; everything else is
+    tracked and needs no mark.
+    """
+    marks = {}
+    for flag, args in (('untracked', ('--others', '--exclude-standard')),
+                       ('ignored', ('--cached', '--ignored', '--exclude-standard'))):
+        for item in _git(repo, 'ls-files', '-z', *args).split(b'\0'):
+            if item:
+                marks[item.decode()] = flag
+    return marks
+
+
 def excluded(name, globs=()):
     parts = Path(name).parts
     base = parts[-1]
@@ -148,23 +169,47 @@ def freeze(repo, *, exclude_globs=()):
     Nothing is copied. The manifest is read twice and the second read must agree
     with the first, so a tree that moves under us is a refusal rather than a
     snapshot nobody can reproduce.
+
+    A record carries `git: untracked|ignored` when git's answer about it differs
+    from "tracked" (see `git_status`). That is part of the identity on purpose:
+    two trees with equal bytes and a different tracked set make checks that ask
+    git answer differently, so they are different inputs.
     """
     repo = Path(repo).resolve()
-    nested = nested_worktree_prefixes(repo)
-    first = names(repo, nested)
-    selected = [name for name in first if not excluded(name, exclude_globs)]
-    manifest = [record for name in selected if (record := entry(repo, name)) is not None]
-    if (nested_worktree_prefixes(repo) != nested or names(repo, nested) != first
-            or [record for name in selected if (record := entry(repo, name)) is not None] != manifest):
+
+    def read():
+        nested = nested_worktree_prefixes(repo)
+        first = names(repo, nested)
+        marks = git_status(repo)
+        selected = [name for name in first if not excluded(name, exclude_globs)]
+        manifest = []
+        for name in selected:
+            record = entry(repo, name)
+            if record is None:
+                continue
+            if name in marks:
+                record['git'] = marks[name]
+            manifest.append(record)
+        return nested, first, manifest
+
+    nested, first, manifest = read()
+    if read() != (nested, first, manifest):
         raise SnapshotError('the worktree changed while it was being frozen; retry')
     dropped = [name for name in first if excluded(name, exclude_globs)]
     return manifest, dropped + nested, input_id(manifest)
 
 
+def git_marks(manifest):
+    """The two exception lists a synthetic index needs, from a manifest."""
+    return {flag: [record['path'] for record in manifest if record.get('git') == flag]
+            for flag in ('untracked', 'ignored')}
+
+
 def verify(root, manifest):
     """Check a materialised tree against a manifest. Used by the engine's tests."""
     for record in manifest:
-        if entry(Path(root), record['path']) != record:
+        bare = {key: value for key, value in record.items() if key != 'git'}
+        if entry(Path(root), record['path']) != bare:
             raise SnapshotError('source verification failed: ' + record['path'])
     actual = {str(path.relative_to(root)) for path in Path(root).rglob('*')
               if path.is_file() or path.is_symlink()}

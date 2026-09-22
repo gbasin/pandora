@@ -11,7 +11,7 @@
 #   3. find the repo        walk up for .git; a worktree's .git is a FILE
 #   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
 #   5. claim                read the marker with the `read` builtin, no fork
-#   6. hand off             pandora.client.shim, or exec the real pnpm
+#   6. hand off             pandora.client.shim (claimed), passthrough (heavy), or exec
 #
 # Anything that goes wrong before the daemon says `accepted` ends in a local
 # exec with one line on stderr.  After `accepted`, the client never falls back.
@@ -94,6 +94,7 @@ fi
 sock=
 home=
 claimed=0
+heavy=0
 strip_run=0
 # The two keys any claim can match: one token, or two.
 k1=$1
@@ -107,6 +108,10 @@ while IFS=' ' read -r key rest; do
             [ "$rest" = "$k1" ] && claimed=1
             [ "$rest" = "$k2" ] && claimed=1
             ;;
+        heavy)
+            [ "$rest" = "$k1" ] && heavy=1
+            [ "$rest" = "$k2" ] && heavy=1
+            ;;
     esac
 done < "$common/pandora-enrolled"
 
@@ -117,6 +122,7 @@ if [ "$claimed" = 0 ] && [ "$strip_run" = 1 ] && [ "$1" = "run" ]; then
     while IFS=' ' read -r key rest; do
         case $key in
             claim) { [ "$rest" = "$k1" ] || [ "$rest" = "$k2" ]; } && claimed=1 ;;
+            heavy) { [ "$rest" = "$k1" ] || [ "$rest" = "$k2" ]; } && heavy=1 ;;
         esac
     done < "$common/pandora-enrolled"
 fi
@@ -132,5 +138,14 @@ if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
     exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" -- "$@"
+fi
+# Unclaimed but heavy-looking: run it here, unchanged, and write down that it
+# happened, so `pandora stats` can say what routing did not take.  One Python
+# startup (~40 ms) on a command that costs minutes; light commands never pay it.
+if [ "$heavy" = 1 ] && [ -n "$sock" ]; then
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        --state "${sock%/*}" -- "$@"
 fi
 exec "$real" "$@"

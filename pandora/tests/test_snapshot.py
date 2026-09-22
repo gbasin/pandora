@@ -61,6 +61,27 @@ class FreezeTest(unittest.TestCase):
             self.assertIn('.env', dropped)
             self.assertEqual(len(input_id), 64)
 
+    def test_what_git_would_answer_differently_is_marked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', 'forced.log': 'f\n'})
+            (repo / '.gitignore').write_text('*.log\n')
+            (repo / 'scratch.md').write_text('no status\n')
+            manifest, _, _ = snapshot.freeze(repo)
+            marks = {record['path']: record.get('git') for record in manifest}
+            self.assertIsNone(marks['a.txt'])
+            self.assertEqual(marks['scratch.md'], 'untracked')
+            self.assertEqual(marks['forced.log'], 'ignored')
+            self.assertEqual(snapshot.git_marks(manifest),
+                             {'untracked': ['.gitignore', 'scratch.md'],
+                              'ignored': ['forced.log']})
+
+    def test_the_tracked_set_is_part_of_the_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            one = make_repo(Path(tmp) / 'one', {'a.txt': 'a\n', 'b.txt': 'b\n'})
+            two = make_repo(Path(tmp) / 'two', {'a.txt': 'a\n'})
+            (two / 'b.txt').write_text('b\n')
+            self.assertNotEqual(snapshot.freeze(one)[2], snapshot.freeze(two)[2])
+
     def test_equal_content_in_two_worktrees_is_one_input_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             one = make_repo(Path(tmp) / 'one', {'a.txt': 'a\n'})

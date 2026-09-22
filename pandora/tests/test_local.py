@@ -348,8 +348,10 @@ class SupervisorBehaviour(unittest.TestCase):
 
     def test_a_peak_is_observed_for_the_group(self):
         # ~120 MiB held for a second, which the one-second sampler must see.
-        script = ("python3 -c \"import time; x=bytearray(120*1024*1024); "
-                  "time.sleep(2.5); print(len(x))\"")
+        # Random and kept touched: macOS compresses or pages out idle memory
+        # within a second on a busy host, and the group's RSS then reads ~11 MiB.
+        script = ("python3 -c \"import os, time; x=bytearray(os.urandom(120*1024*1024)); "
+                  "[x[::4096] for _ in range(250) if not time.sleep(0.01)]; print(len(x))\"")
         supervisor = Supervisor(['sh', '-c', script], cwd='.', env=dict(os.environ),
                                 timeout_seconds=60, on_log=lambda *_: None)
         outcome, _code = supervisor.run(lambda: False)

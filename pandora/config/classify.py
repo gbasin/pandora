@@ -195,6 +195,7 @@ def build_plan(config, job, forwarded, chosen):
         'fallback': job['fallback'],
         'cancel': job['cancel'],
         'drift': job['drift'],
+        'git': job['git'],
         'where': job['where'],
         'writeback': any(output['kind'] == 'writeback' for output in outputs),
         'worker': config['worker'],
