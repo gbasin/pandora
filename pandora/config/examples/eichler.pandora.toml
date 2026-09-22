@@ -31,10 +31,11 @@ subdirectory = "local"
 reject_suffix = "No validation started."
 extra_message = "{job} runs as one complete suite and takes no selectors."
 
-[fallback]
-action = "local"
-on = ["worker-unreachable", "queue-timeout"]
-notice = "Remote worker unavailable; running this command locally instead."
+# There is no repository-wide `[fallback]` table on purpose. One here answers
+# for every job at once, and on 2026-09-22 that answer ran a 302-test browser
+# suite on this Mac because a submission was refused. A job that says nothing is
+# decided by its size class -- `small` and `medium` go to the local lane,
+# `large` does not -- and a job that wants a different answer says so below.
 
 [env]
 set = { CI = "true", WRANGLER_SEND_METRICS = "false" }
@@ -65,6 +66,13 @@ id = "journey"
 summary = "One service-backed journey"
 size = "large"
 args = "required"
+# A journey boots a compose stack. It is not run on this Mac when the worker
+# will not take it, whatever the reason; the size class would say so anyway and
+# this says it where a reader is looking.
+fallback = "refuse"
+# The stack needs time to come down. 240 s is what eichler's own planner asked
+# Pueue for, expressed here once for both lanes.
+cancel = { signal = "SIGTERM", grace_ms = 240000 }
 usage = "Use pnpm journey <id> [--fault dropped]; other journey options are not routed."
 timeout_minutes = 30
 forms = [{ prefix = ["journey"] }]
@@ -106,6 +114,10 @@ args = "none"
 timeout_minutes = 45
 forms = [{ prefix = ["check"] }]
 run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
+# Turbo writes into its own cache while it runs, which is a tree change this
+# machine's `drift = "fail"` would refuse. `warn` is the honest setting for a
+# job that edits nothing a verdict depends on.
+drift = "warn"
 
 [[jobs]]
 id = "check-docs"
@@ -126,6 +138,10 @@ args = "required"
 timeout_minutes = 20
 usage = "Use pnpm validate node <test-file.mjs> [...files]."
 forms = [{ prefix = ["node"] }]
+# Freezing 4,900 files twice costs more than this job does. The recommendation
+# for every `small` job: turn the drift check off and let the receipt say so.
+drift = "off"
+cancel = { signal = "SIGINT", grace_ms = 5000 }
 # eichler's planner is the only thing that knows a node test file from a flag,
 # and it answers in milliseconds without an install.
 validate = { argv = ["node", "tools/validate.mjs", "plan", "node", "{args}"], timeout_ms = 5000 }
@@ -141,6 +157,13 @@ timeout_minutes = 30
 forms = [{ prefix = ["test:unit"] }, { prefix = ["unit"] }]
 validate = { argv = ["node", "tools/validate.mjs", "plan", "unit", "{args}"], timeout_ms = 5000 }
 run = { argv = ["pnpm", "validate", "unit", "{args}"], env = { EICHLER_QUEUE = "direct" } }
+# The cleanup markers, declared rather than discovered. This is the answer to
+# "should the local lane set EICHLER_VALIDATION_DIRECTORY": no. A job that
+# writes a marker says where it writes it, and the receipt records whether it
+# was there -- so an unclean run is a line in `pandora result`, not a directory
+# somebody has to know to look in.
+outputs = [{ kind = "evidence", paths = ["tmp/validation/*/cleanup-required",
+                                         "tmp/validation/*/result.json"] }]
 
 # The development stack is a *long-lived* local job: one per machine, alive
 # until someone cancels it. That is the whole of what `eichler-stacks` was,
@@ -154,5 +177,9 @@ size = "large"
 args = "optional"
 timeout_minutes = 1440
 forms = [{ prefix = ["dev:stack"] }]
+# Ports, containers and a database to release. It gets a minute, and SIGINT
+# because that is what its own teardown listens for.
+cancel = { signal = "SIGINT", grace_ms = 60000 }
+drift = "off"
 reject = [{ args = ["status", "logs", "stop", "prune"], message = "The stack is a pandora run now: `pandora ps` lists it, `pandora logs <id>` follows it, `pandora cancel <id>` stops it with its own teardown." }]
 run = { argv = ["node", "tools/stack/stack.mjs", "--foreground", "{args}"] }

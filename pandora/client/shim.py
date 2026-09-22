@@ -87,7 +87,9 @@ def run_local(real, argv, *, state=None, claimed=True, reason=''):
             slot.release()
     if state is not None:
         try:
-            fallback_module.record(state, {'ts': started, 'kind': 'fallback', 'argv': argv,
+            fallback_module.record(state, {'ts': started,
+                                       'kind': 'fallback' if claimed else 'passthrough',
+                                       'argv': argv,
                                            'cwd': os.getcwd(), 'reason': reason,
                                            'duration_ms': int((time.time() - started) * 1000),
                                            'exit': code})
@@ -301,9 +303,14 @@ def main(argv=None):
         # thing that knows this machine's queue, this job's size and this repo's
         # policy. It has already decided whether a local run is allowed; there is
         # nothing left here to decide and nothing to second-guess it with.
-        sys.stderr.write((frame.get('msg') or ('daemon refused this run (%s)' % code))
-                         .rstrip() + '\n')
-        sys.stderr.flush()
+        message = (frame.get('msg') or ('daemon refused this run (%s)' % code)).rstrip()
+        if code == 'invalid-arguments':
+            # The repository's own message, reproduced exactly. Pandora adds
+            # nothing to it, including its own name.
+            sys.stderr.write(message + '\n')
+            sys.stderr.flush()
+        else:
+            notice(message)
         return int(frame.get('exit') or 1)
 
     remote = frame.get('remote')

@@ -31,10 +31,11 @@ subdirectory = "local"
 reject_suffix = "No validation started."
 extra_message = "{job} takes an app name."
 
-[fallback]
-action = "local"
-on = ["worker-unreachable", "queue-timeout"]
-notice = "Remote worker unavailable; running this command locally instead."
+# No repository-wide `[fallback]` table. Declaring one here would answer for
+# every job at once, and the answer that matters is per job: a surface suite is
+# 302 browser tests, and the one time it fell back to this Mac it took 3.3
+# minutes of it. Undeclared jobs are decided by their size class, and each job
+# below that wants a different answer says so itself.
 
 [env]
 # The surface runner's profile is explicit environment and never a question it
@@ -70,6 +71,15 @@ id = "surface"
 summary = "One browser surface suite"
 size = "medium"
 args = "required"
+# Sharded on the worker, and a single-instance local run of the whole suite is
+# the 3.3 minutes this Mac is not spending again. `medium` would otherwise let
+# it fall back.
+fallback = "refuse"
+# Playwright writes its trace and its report on SIGINT and loses both on
+# SIGTERM. Remote cancel destroys the instance, so this applies to a local run;
+# the contract travels to the worker and its supervisor honours it before the
+# destroy.
+cancel = { signal = "SIGINT", grace_ms = 60000 }
 usage = "Use pnpm test:surface <borrower-web|desk> [Playwright selectors] [--grep <pattern>]."
 timeout_minutes = 30
 forms = [{ prefix = ["test:surface"] }, { prefix = ["surface"] }]
