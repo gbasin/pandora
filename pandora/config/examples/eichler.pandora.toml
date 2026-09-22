@@ -1,0 +1,86 @@
+# Eichler's routed boundary for the v0.2 slice.
+#
+# In v0.2 final this file lives at the eichler repository root, where the loader
+# looks first. For the slice it lives outside the repository -- copied to
+# ~/.config/pandora/repos/eichler.pandora.toml and named by the enrolment --
+# because the combined Eichler PR has not landed and the slice is not allowed to
+# open it.
+#
+# What is here and not in ci.yml: which argv forms Pandora claims, how big the
+# job is, which arguments the repository itself gets to veto before anything
+# queues, and which paths come home. What is deliberately absent: service
+# containers and the network pod. A run is a machine with its own dockerd, so
+# `journey-runner.mjs` boots eichler's own compose stack unmodified and there is
+# nothing for Pandora to wire.
+
+version = 1
+
+[repo]
+name = "eichler"
+entrypoints = ["pnpm"]
+root_markers = ["pnpm-workspace.yaml", "turbo.json"]
+
+[matching]
+strip_prefixes = [["run"], ["validate"]]
+# A subdirectory invocation runs locally with a notice rather than being
+# re-rooted: re-rooting silently changes which files a selector names, and the
+# direction note chose the honest option.
+subdirectory = "local"
+
+[feedback]
+reject_suffix = "No validation started."
+extra_message = "{job} runs as one complete suite and takes no selectors."
+
+[fallback]
+action = "local"
+on = ["worker-unreachable", "queue-timeout"]
+notice = "Remote worker unavailable; running this command locally instead."
+
+[env]
+set = { CI = "true", WRANGLER_SEND_METRICS = "false" }
+passthrough = ["TZ"]
+unset = []
+reject_if_set = []
+
+[secrets]
+exclude_globs = [".dev.vars", ".dev.vars.*", "**/.env", "**/.env.*", "**/*.pem", "**/.npmrc"]
+
+# What a golden instance for this repository contains. The fingerprint of this
+# table is the golden's name, so changing any line here mints a new golden
+# rather than silently reusing a stale one.
+[worker]
+base_image = "images:ubuntu/26.04"
+packages = ["docker.io", "docker-compose-v2", "docker-buildx", "ca-certificates",
+            "curl", "xz-utils", "git", "python3", "jq", "rsync"]
+node_version = "24.9.0"
+pnpm_version = "12.3.4"
+service_images = ["postgres:16", "edoburu/pgbouncer:latest",
+                  "ghcr.io/neondatabase/wsproxy:latest"]
+install_command = "pnpm install --frozen-lockfile 2>&1 | tail -2"
+source_id = "eichler-journey-runner-proxy"
+workdir = "/work"
+
+[[jobs]]
+id = "journey"
+summary = "One service-backed journey"
+size = "large"
+args = "required"
+usage = "Use pnpm journey <id> [--fault dropped]; other journey options are not routed."
+timeout_minutes = 30
+forms = [{ prefix = ["journey"] }]
+value_flags = ["--fault"]
+reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY",
+                 "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
+# Asked in the worktree, in milliseconds, before anything is frozen or queued.
+# Exit 0 means "I would run this"; anything else is the repository's own refusal
+# and its stderr is the message the agent sees.
+validate = { argv = ["node", "tools/validation/journey-runner.mjs", "validate", "{args}"], timeout_ms = 4000 }
+run = { argv = ["node", "tools/validation/journey-runner.mjs", "run", "{args}"], unset = ["CI"], env = { JOURNEY_REPLAY = "cover" } }
+outputs = [
+  { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
+  { kind = "writeback", requires_option = "update", paths = [
+    "packages/scenarios/fixtures/*.ledger.jsonl",
+    "packages/scenarios/fixtures/write-routes.json",
+  ] },
+]

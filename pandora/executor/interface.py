@@ -36,14 +36,6 @@ class ExecutionFailed(ExecutorError):
     """
 
 
-class MemoryExceeded(ExecutorError):
-    """The run was killed for exceeding its memory ceiling; outcome is `oom`."""
-
-    def __init__(self, message, evidence=None):
-        self.evidence = evidence or {}
-        super().__init__(message)
-
-
 class DestroyIncomplete(ExecutorError):
     """Destroy ran but the receipt did not come back clean."""
 
@@ -126,9 +118,14 @@ class Usage:
 
 @dataclass(frozen=True)
 class Result:
-    """What one `execute` produced."""
+    """What one `execute` produced.
+
+    An over-ceiling run is `outcome='oom'` with `evidence`, never an exception:
+    the POC declared a `MemoryExceeded` it never raised, and leaving both shapes
+    in place was an ambiguity that would eventually get a caller wrong.
+    """
     exit_code: int
-    outcome: str          # ok | failed | oom | timeout | lost
+    outcome: str          # ok | failed | oom | timeout | cancelled | lost
     seconds: float
     usage: Usage
     log_bytes: int = 0

@@ -1,8 +1,8 @@
 """Policy tests. No Incus, no worker, no clock."""
 import unittest
 
-from admission import (CLASSES, Admission, AdmissionError, Store, ceiling_for,
-                       classify, percentile, reserve)
+from pandora.engine.admission import (CLASSES, Admission, AdmissionError, Store,
+                                      ceiling_for, classify, percentile, reserve)
 
 
 class Percentile(unittest.TestCase):

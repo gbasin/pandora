@@ -1,0 +1,637 @@
+"""Per-user client daemon: owns the config, the enrolments, the runs and the socket.
+
+Three invariants the rest of the design leans on, unchanged from the POC:
+
+* One daemon per state directory, enforced by an exclusive lock on `daemon.lock`
+  -- not by the socket, which is a file that survives a crash.
+* Every run's output is appended to a *file* as framed NDJSON, and clients are
+  served by copying byte ranges of that file. Memory stays flat for a large run
+  and re-attach is a byte offset, not a replay buffer.
+* A client that disappears detaches; only an explicit `cancel` stops a run.
+
+One that is new, and is the whole point of the slice: `accepted` is sent only
+after the worker's engine has admitted the run and named it. Everything before
+that -- classification, the repository's own pre-flight validator, freezing the
+worktree, shipping it, submitting -- is provably non-executing, so the client
+may still go local. Everything after it may not.
+"""
+import argparse
+import errno
+import fcntl
+import json
+import os
+import signal
+import socket
+import struct
+import sys
+import threading
+import time
+import uuid
+from pathlib import Path
+
+from ..config import classify as classifier
+from ..config import loader
+from ..errors import (ConfigError, EngineError, PandoraError, Refused, SnapshotError,
+                      TransferError, ValidationRejected, WorkerUnreachable)
+from . import enrolment, settings
+from .protocol import Reader, VERSION, dump, log_frame
+from .worker import Worker
+
+
+def now():
+    return time.time()
+
+
+class Run:
+    """One routed attempt. Its log file is the single source of truth."""
+
+    def __init__(self, state, run_id, request):
+        self.id = run_id
+        self.request = request
+        self.dir = Path(state) / 'runs' / run_id
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.log = self.dir / 'log'
+        # Created empty and immediately: a client that attaches before the first
+        # frame exists must block on an empty file, not fail to open one.
+        self.log.touch()
+        self.meta = self.dir / 'meta.json'
+        self.lock = threading.Lock()
+        self.wake = threading.Condition(self.lock)
+        self.cancelled = threading.Event()
+        self.done = threading.Event()
+        self.exit_code = None
+        self.state = 'queued'
+        self.remote = None
+        self.result = None
+        self.started = now()
+
+    def save(self):
+        payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
+                   'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
+                   'remote': self.remote, 'repo': self.request.get('repo'),
+                   'job': self.request.get('job'), 'started': self.started, 'updated': now()}
+        temp = self.meta.with_suffix('.tmp')
+        temp.write_text(json.dumps(payload) + '\n')
+        temp.replace(self.meta)
+
+    def append(self, frame):
+        with self.lock:
+            with self.log.open('ab') as handle:
+                handle.write(frame)
+            self.wake.notify_all()
+
+    def note(self, text):
+        self.append(log_frame('err', ('pandora: ' + text + '\n').encode()))
+
+    def finish(self, code, *, state='done', result=None):
+        self.exit_code = code
+        self.state = state
+        self.result = result
+        if result is not None:
+            (self.dir / 'result.json').write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
+        self.save()
+        self.append(dump({'t': 'exit', 'code': code, 'run': self.id}))
+        self.done.set()
+        with self.lock:
+            self.wake.notify_all()
+
+    def size(self):
+        try:
+            return self.log.stat().st_size
+        except OSError:
+            return 0
+
+
+def peer_uid(sock):
+    """The connecting process's uid, or None when the platform will not say.
+
+    macOS has no SO_PEERCRED; it has LOCAL_PEERCRED at SOL_LOCAL returning a
+    `struct xucred`. Linux has SO_PEERCRED returning a `struct ucred`.
+    """
+    try:
+        if sys.platform == 'darwin':
+            raw = sock.getsockopt(0, 0x001, 76)           # SOL_LOCAL, LOCAL_PEERCRED
+            version, uid = struct.unpack('=II', raw[:8])
+            return uid if version == 0 else None
+        raw = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+        _pid, uid, _gid = struct.unpack('=III', raw)
+        return uid
+    except (OSError, struct.error, AttributeError):
+        return None
+
+
+class Daemon:
+    def __init__(self, state=None, config_path=None):
+        self.config_path = config_path
+        self.config = settings.load(config_path)
+        self.state = Path(state or self.config['client']['state']).expanduser()
+        self.state.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.state, 0o700)
+        self.socket_path = self.state / 'client.sock'
+        self.runs = {}
+        self.runs_lock = threading.Lock()
+        self.stopping = threading.Event()
+        self.server = None
+        self.lock_handle = None
+        self.repo_configs = {}
+        self.repo_stamps = {}
+        self.workers = {}
+        self.worker_factory = Worker
+
+    # -- configuration -----------------------------------------------------
+
+    def refresh(self):
+        try:
+            self.config = settings.load(self.config_path)
+        except ConfigError:
+            pass                                   # keep the last good configuration
+
+    def repo_config(self, repo):
+        """The repository's own pandora.toml, cached on its mtime.
+
+        Repo root first, because that is where v0.2 expects it and where the
+        combined Eichler PR will put it; the enrolment's path second, so a
+        repository can be routed before its own PR lands.
+        """
+        path, origin = loader.resolve(repo['root'], repo.get('config') or None)
+        stamp = (str(path), path.stat().st_mtime_ns)
+        if self.repo_stamps.get(repo['name']) != stamp:
+            config = loader.load(path)
+            config['origin'] = origin
+            self.repo_configs[repo['name']] = config
+            self.repo_stamps[repo['name']] = stamp
+        return self.repo_configs[repo['name']]
+
+    def worker_for(self, repo):
+        host = self.config['worker']['host']
+        key = (host, self.config['worker']['engine_root'])
+        if key not in self.workers:
+            self.workers[key] = self.worker_factory(
+                host, state=self.state, engine_root=self.config['worker']['engine_root'],
+                persist=self.config['worker']['ssh_persist'])
+        return self.workers[key]
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def acquire_lock(self):
+        handle = (self.state / 'daemon.lock').open('a+')
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            raise SystemExit('pandora daemon already running for ' + str(self.state))
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()) + '\n')
+        handle.flush()
+        self.lock_handle = handle
+
+    def clear_stale_socket(self):
+        """Remove a socket file no one is listening on. Safe: we hold the lock."""
+        if not self.socket_path.exists():
+            return 'absent'
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        probe.settimeout(0.2)
+        try:
+            probe.connect(str(self.socket_path))
+        except OSError:
+            self.socket_path.unlink()
+            return 'stale-removed'
+        finally:
+            probe.close()
+        raise SystemExit('a listener already owns ' + str(self.socket_path))
+
+    def resume_interrupted(self):
+        """After a restart, re-attach to runs that were live when we died.
+
+        The real backend makes this honest in a way the fake one could not: the
+        run is on the worker, the engine's supervisor never stopped, and
+        re-attaching is asking the engine for the log from an offset. A run the
+        engine no longer knows is closed as an infrastructure failure -- never as
+        a pass, because this process has observed no test evidence at all.
+        """
+        resumed = []
+        for meta in sorted((self.state / 'runs').glob('*/meta.json')):
+            try:
+                payload = json.loads(meta.read_text())
+            except (OSError, ValueError):
+                continue
+            if payload.get('state') not in ('queued', 'running') or not payload.get('remote'):
+                continue
+            run = Run(self.state, payload['id'], payload)
+            run.state = 'running'
+            run.remote = payload['remote']
+            with self.runs_lock:
+                self.runs[run.id] = run
+            threading.Thread(target=self.reattach, args=(run,), daemon=True).start()
+            resumed.append(run.id)
+        return resumed
+
+    def start(self):
+        self.acquire_lock()
+        (self.state / 'runs').mkdir(exist_ok=True)
+        self.clear_stale_socket()
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(str(self.socket_path))
+        os.chmod(self.socket_path, 0o600)
+        self.server.listen(64)
+        self.resume_interrupted()
+        (self.state / 'daemon.json').write_text(json.dumps(
+            {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
+             'worker': self.config['worker']['host'], 'started': now()}) + '\n')
+        return self
+
+    def serve(self):
+        self.server.settimeout(0.25)
+        while not self.stopping.is_set():
+            try:
+                conn, _ = self.server.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
+
+    def stop(self):
+        self.stopping.set()
+        for worker in self.workers.values():
+            try:
+                worker.close()
+            except OSError:
+                pass
+        for closer in (lambda: self.server.close(), lambda: self.socket_path.unlink()):
+            try:
+                closer()
+            except OSError:
+                pass
+        if self.lock_handle:
+            self.lock_handle.close()
+
+    # -- connections -------------------------------------------------------
+
+    def handle(self, conn):
+        try:
+            self.dispatch(conn)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    def deny(self, conn, code, message):
+        conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code, 'msg': message}))
+
+    def dispatch(self, conn):
+        self.refresh()
+        uid = peer_uid(conn)
+        if uid is not None and uid != os.getuid():
+            self.deny(conn, 'unauthorized', 'socket serves uid %d only' % os.getuid())
+            return
+        reader = Reader(conn)
+        first = reader.line()
+        if first is None:
+            return
+        if first.get('v') != VERSION:
+            self.deny(conn, 'version', 'daemon speaks protocol v%d, client sent v%r'
+                      % (VERSION, first.get('v')))
+            return
+        op = first.get('op')
+        if op == 'ping':
+            conn.sendall(dump({'v': VERSION, 't': 'pong', 'pid': os.getpid(),
+                               'worker': self.config['worker']['host'],
+                               'runs': len(self.runs)}))
+        elif op == 'stats':
+            conn.sendall(dump({'v': VERSION, 't': 'stats', 'data': self.stats()}))
+        elif op == 'ps':
+            conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps()}))
+        elif op == 'run':
+            self.serve_run(conn, reader, first)
+        elif op == 'attach':
+            self.serve_attach(conn, reader, first)
+        elif op == 'cancel':
+            run = self.runs.get(first.get('run'))
+            if run:
+                run.cancelled.set()
+            conn.sendall(dump({'t': 'ok', 'run': first.get('run')}))
+        else:
+            self.deny(conn, 'rejected', 'unknown op %r' % op)
+
+    # -- the routed path ---------------------------------------------------
+
+    def plan_for(self, request):
+        """Classify one request. Raises the pre-accept refusals; returns a plan."""
+        cwd = request.get('cwd') or ''
+        repo = settings.enrolment_for(self.config, cwd)
+        if repo is None:
+            repo = self.enrolment_by_git(cwd)
+        if repo is None:
+            raise Refused('cwd is not inside an enrolled repository')
+        config = self.repo_config(repo)
+        root = Path(repo['root'])
+        try:
+            relative = Path(cwd).resolve().relative_to(Path(cwd).resolve())
+        except ValueError:                        # pragma: no cover - resolve of itself
+            relative = Path('.')
+        verdict = classifier.classify(config, request.get('argv') or [],
+                                      cwd='.', env=request.get('env') or {})
+        if verdict['decision'] == 'local':
+            raise Refused(verdict['reason'])
+        if verdict['decision'] == 'reject':
+            raise Refused(verdict['message'])
+        return repo, config, verdict
+
+    def enrolment_by_git(self, cwd):
+        """A worktree of an enrolled repository is enrolled.
+
+        Matching on path prefix misses the common case on this machine, where
+        every worktree lives beside the repository rather than inside it, so fall
+        back to the git common directory -- the same identity the shim's marker
+        uses.
+        """
+        common = enrolment.common_dir(cwd) if cwd else None
+        if common is None:
+            return None
+        for repo in self.config['repos']:
+            try:
+                if enrolment.common_dir(repo['root']) == common:
+                    return repo
+            except OSError:
+                continue
+        return None
+
+    def serve_run(self, conn, reader, request):
+        try:
+            repo, config, verdict = self.plan_for(request)
+        except Refused as error:
+            self.deny(conn, 'rejected', str(error))
+            return
+        except ConfigError as error:
+            self.deny(conn, 'rejected', str(error))
+            return
+        plan = verdict['plan']
+        job = config['jobs'][verdict['job']]
+        worktree = request['cwd']
+
+        if plan['options'].get('update'):
+            self.deny(conn, 'rejected',
+                      '--update write-back is not in this build; run it locally with '
+                      'PANDORA_OFF=1 until write-back lands.')
+            return
+
+        # The repository's own opinion of the arguments, before anything queues.
+        try:
+            checked = classifier.preflight(job, verdict['forwarded'], root=worktree,
+                                           extra_env=self.validator_env(request, plan))
+        except ValidationRejected as error:
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'invalid-arguments',
+                               'msg': error.stderr or str(error), 'exit': error.code}))
+            return
+
+        run = Run(self.state, uuid.uuid4().hex[:12],
+                  dict(request, repo=repo['name'], job=job['id']))
+        run.state = 'queued'
+        run.save()
+        try:
+            worker = self.worker_for(repo)
+            submission = worker.submit(plan=plan, worktree=worktree,
+                                       request_id=run.id + ':' + plan['job'])
+        except WorkerUnreachable as error:
+            self.deny(conn, 'worker-unreachable', str(error))
+            return
+        except (SnapshotError,) as error:
+            self.deny(conn, 'snapshot-failed', str(error))
+            return
+        except (TransferError,) as error:
+            self.deny(conn, 'transfer-failed', str(error))
+            return
+        except EngineError as error:
+            code = 'rejected'
+            try:
+                code = json.loads(str(error)).get('code', 'rejected')
+            except ValueError:
+                pass
+            self.deny(conn, code, str(error))
+            return
+
+        run.remote = submission.run_id
+        run.state = 'running'
+        run.save()
+        with self.runs_lock:
+            self.runs[run.id] = run
+        # Only now has the worker acknowledged anything. Past this frame the
+        # client will never run the command locally.
+        conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id,
+                           'remote': submission.run_id, 'input_id': submission.input_id,
+                           'same_input_as': submission.same_input_as,
+                           'reservation_mib': (submission.admission or {}).get('reservation_mib'),
+                           'cpus_hint': (submission.admission or {}).get('cpus_hint'),
+                           'source_reused': submission.source.get('reused'),
+                           'durations': submission.durations}))
+        if checked.get('ran') is False and checked.get('reason') != 'no validator declared':
+            run.note(checked['reason'] + '; the arguments were not pre-checked')
+        threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
+        self.stream(conn, reader, run, 0)
+
+    def validator_env(self, request, plan):
+        base = {'PATH': os.environ.get('PATH', ''), 'HOME': os.environ.get('HOME', ''),
+                'PANDORA_ROUTE_DEPTH': '1'}
+        for name in plan['env_passthrough']:
+            if name in (request.get('env') or {}):
+                base[name] = request['env'][name]
+        return base
+
+    def execute(self, run, repo, plan):
+        """Follow the remote run, stream it, bring its outputs home."""
+        worker = self.worker_for(repo)
+        offset = 0
+        try:
+            result, offset = worker.follow(
+                run.remote, offset=offset,
+                on_log=lambda chunk: run.append(log_frame('out', chunk)),
+                should_cancel=run.cancelled.is_set)
+            self.deliver(run, repo, plan, result)
+        except (WorkerUnreachable, EngineError) as error:
+            run.note('lost the worker while run %s was executing: %s' % (run.remote, error))
+            run.finish(70, state='infra_failed')
+        except Exception as error:                 # noqa: BLE001 - never a silent pass
+            run.note('%s: %s' % (type(error).__name__, error))
+            run.finish(70, state='infra_failed')
+
+    def reattach(self, run):
+        """Same as `execute`, for a run this daemon adopted rather than started."""
+        repo = next((item for item in self.config['repos']
+                     if item['name'] == (run.request.get('repo') or '')), None)
+        if repo is None:
+            run.note('this daemon no longer has an enrolment for run %s' % run.id)
+            run.finish(70, state='infra_failed')
+            return
+        offset = run.size() and 0 or 0
+        try:
+            worker = self.worker_for(repo)
+            result, _ = worker.follow(run.remote, offset=0,
+                                      on_log=lambda chunk: run.append(log_frame('out', chunk)),
+                                      should_cancel=run.cancelled.is_set)
+            config = self.repo_config(repo)
+            plan = {'outputs': (result.get('evidence', {}).get('collected') and
+                                [{'kind': 'artifacts',
+                                  'paths': list(result['evidence']['collected'])}] or [])}
+            self.deliver(run, repo, plan, result)
+        except (WorkerUnreachable, EngineError) as error:
+            run.note('could not re-attach to run %s: %s' % (run.remote, error))
+            run.finish(70, state='infra_failed')
+
+    def deliver(self, run, repo, plan, result):
+        """Bring outputs back, report what is missing, then exit as the run did."""
+        worker = self.worker_for(repo)
+        try:
+            collected = worker.collect(run.remote, plan, worktree=run.request['cwd'])
+        except (TransferError, WorkerUnreachable) as error:
+            run.note('could not bring outputs back: %s' % error)
+            collected = {'fetched': False, 'missing': []}
+        for path in collected.get('missing', []):
+            # `missing` is a verdict of its own. It is not zero failures.
+            run.note('declared output %s is missing from the run' % path)
+        result['outputs'] = collected
+        code = result.get('cli_exit', 70)
+        if result['outcome'] != 'passed' and code == 0:
+            # Belt and braces: a zero from a non-passing run would be a
+            # fabricated pass, which is the one thing that must never happen.
+            code = 70
+        run.note('%s in %.1fs (%s, peak %s MiB, %s)' % (
+            result['outcome'], result.get('wall_seconds', 0), result.get('layer'),
+            result.get('peak_mib'), result.get('run_id')))
+        run.finish(code, state=result['outcome'], result=result)
+
+    # -- streaming ---------------------------------------------------------
+
+    def serve_attach(self, conn, reader, request):
+        run = self.runs.get(request.get('run'))
+        if run is None:
+            run = self.adopt(request.get('run'))
+        if run is None:
+            self.deny(conn, 'rejected', 'no such run ' + str(request.get('run')))
+            return
+        conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'reattached': True,
+                           'remote': run.remote}))
+        self.stream(conn, reader, run, int(request.get('from', 0)))
+
+    def adopt(self, run_id):
+        """A finished run this daemon did not start is still answerable from disk."""
+        if not run_id:
+            return None
+        meta = self.state / 'runs' / run_id / 'meta.json'
+        if not meta.is_file():
+            return None
+        try:
+            payload = json.loads(meta.read_text())
+        except (OSError, ValueError):
+            return None
+        run = Run(self.state, run_id, payload)
+        run.state = payload.get('state', 'done')
+        run.exit_code = payload.get('exit_code')
+        run.remote = payload.get('remote')
+        if run.state not in ('queued', 'running'):
+            run.done.set()
+        with self.runs_lock:
+            self.runs[run_id] = run
+        return run
+
+    def stream(self, conn, reader, run, offset):
+        """Copy the run log from `offset` to the client until the exit frame.
+
+        The control channel is read on a second thread so a `cancel` arriving
+        mid-run is acted on immediately, and so a client disconnect is observed
+        as a detach rather than blocking.
+        """
+        threading.Thread(target=self.control, args=(reader, run), daemon=True).start()
+        try:
+            handle = run.log.open('rb')
+        except OSError:
+            return
+        handle.seek(offset)
+        try:
+            while True:
+                chunk = handle.read(1 << 20)
+                if chunk:
+                    conn.sendall(chunk)
+                    continue
+                if run.done.is_set() and handle.tell() >= run.size():
+                    return
+                with run.lock:
+                    run.wake.wait(0.2)
+        except OSError:
+            return                       # client vanished: detach, keep running
+        finally:
+            handle.close()
+
+    def control(self, reader, run):
+        while True:
+            try:
+                frame = reader.line()
+            except (OSError, ValueError):
+                return
+            if frame is None:
+                return                   # disconnect == detach, never cancel
+            if frame.get('t') == 'cancel':
+                run.cancelled.set()
+            elif frame.get('t') == 'detach':
+                return
+
+    # -- reporting ---------------------------------------------------------
+
+    def ps(self):
+        rows = []
+        for meta in sorted((self.state / 'runs').glob('*/meta.json')):
+            try:
+                rows.append(json.loads(meta.read_text()))
+            except (OSError, ValueError):
+                continue
+        rows.sort(key=lambda row: row.get('started', 0), reverse=True)
+        return rows
+
+    def stats(self):
+        passthrough = []
+        path = self.state / 'passthrough.jsonl'
+        if path.is_file():
+            for line in path.read_text().splitlines():
+                try:
+                    passthrough.append(json.loads(line))
+                except ValueError:
+                    continue
+        worker = {}
+        if self.config['worker']['host'] and self.config['repos']:
+            try:
+                worker = self.worker_for(self.config['repos'][0]).stats()
+            except PandoraError as error:
+                worker = {'ok': False, 'error': str(error)}
+        return {'runs': self.ps(), 'passthrough': passthrough, 'worker': worker,
+                'config': self.config.get('source')}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--state', default=None)
+    parser.add_argument('--config', default=None)
+    parser.add_argument('--ready-fd', type=int, default=None,
+                        help='write one byte here once the socket is listening')
+    args = parser.parse_args(argv)
+    daemon = Daemon(args.state, config_path=args.config).start()
+    signal.signal(signal.SIGTERM, lambda *_: daemon.stopping.set())
+    if args.ready_fd is not None:
+        os.write(args.ready_fd, b'1')
+    sys.stderr.write('pandora: daemon on %s, worker %s\n'
+                     % (daemon.socket_path, daemon.config['worker']['host'] or '(none)'))
+    sys.stderr.flush()
+    try:
+        daemon.serve()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        daemon.stop()
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

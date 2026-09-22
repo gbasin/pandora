@@ -21,9 +21,9 @@ import shlex
 import subprocess
 import time
 
-from interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usage,
-                       BackendUnavailable, CloneFailed, DestroyIncomplete,
-                       ExecutionFailed, InstanceLost, MemoryExceeded, PrepareFailed)
+from .interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usage,
+                        CloneFailed, DestroyIncomplete, ExecutionFailed,
+                        InstanceLost, PrepareFailed)
 
 NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
@@ -301,7 +301,7 @@ class IncusDriver(Executor):
     # --- execute -----------------------------------------------------------
 
     def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
-                reattach=False):
+                reattach=False, on_tick=None):
         """Start argv detached inside the instance and supervise it.
 
         Detached on purpose: the command's parent is the instance's own init,
@@ -316,7 +316,7 @@ class IncusDriver(Executor):
         env.setdefault('PANDORA_RUN_ID', instance.run_id)
         if not reattach:
             self.start(name, argv, env, cwd)
-        return self.supervise(instance, limits, on_log)
+        return self.supervise(instance, limits, on_log, on_tick=on_tick)
 
     def start(self, name, argv, env=None, cwd='/work', docker=True):
         """Write the run script and launch it detached under its own pgid.
@@ -362,7 +362,15 @@ class IncusDriver(Executor):
         chunk, _, tail = out.rpartition('--RC--')
         return chunk, int(tail.strip()) if tail.strip().isdigit() else None
 
-    def supervise(self, instance, limits, on_log=None, poll_timeout=20):
+    def supervise(self, instance, limits, on_log=None, poll_timeout=20, on_tick=None):
+        """Watch one running command until it has a verdict.
+
+        `on_tick` is called once per host-side sample and may return `'cancel'`,
+        which is how an outside decision (the ledger's `cancel_requested`) reaches
+        a loop that is otherwise deliberately independent of everything but the
+        cgroup. It is checked on the same schedule as the watchdog and for the
+        same reason: nothing inside the run can delay it.
+        """
         name, t0, offset = instance.name, time.monotonic(), 0
         samples, peak, evidence = [], 0, {}
         stall_since, outcome, code = None, None, None
@@ -403,6 +411,10 @@ class IncusDriver(Executor):
                             'cpu_usec': use.cpu_usec})
             if code is not None:
                 outcome = 'ok' if code == 0 else 'failed'
+                break
+
+            if on_tick is not None and on_tick() == 'cancel':
+                outcome, evidence = 'cancelled', {'reason': 'cancel requested'}
                 break
 
             # Kernel did the killing: believe it.
@@ -449,7 +461,7 @@ class IncusDriver(Executor):
                 break
             time.sleep(self.sample_interval)
 
-        if outcome in ('oom', 'timeout'):
+        if outcome in ('oom', 'timeout', 'cancelled'):
             self.kill(instance)
             code = -9
         seconds = time.monotonic() - t0

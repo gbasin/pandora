@@ -4,10 +4,10 @@ The parts that are subprocesses are tested on the worker by `canary.py`.
 """
 import unittest
 
-import incus_driver
-from incus_driver import IncusDriver, parse_cgroup
-from interface import (Golden, Instance, Limits, Receipt, Toolchain,
-                       CloneFailed, InstanceLost, PrepareFailed)
+from pandora.executor import incus as incus_driver
+from pandora.executor.incus import IncusDriver, parse_cgroup
+from pandora.executor.interface import (Golden, Instance, Limits, Receipt, Toolchain,
+                                        CloneFailed, InstanceLost, PrepareFailed)
 
 SAMPLE = '''==memory.current
 312356864
