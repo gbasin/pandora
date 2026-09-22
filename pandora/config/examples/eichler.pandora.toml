@@ -107,10 +107,12 @@ outputs = [
 [[jobs]]
 id = "check"
 summary = "The static checks CI runs"
-# Measured 2026-09-22: on a four-core worker with a warm turbo cache a remote
-# `check` is faster in wall clock than the same check on a loaded Mac, and not
-# much slower on an idle one. `remote` is the default because the Mac's load is
-# the common case, not the exception.
+# Measured 2026-09-22 (notes/v0.2-check-profile-2026-09-22.md), caller wall:
+# remote 80 s cold, 20-24 s warm, 85 s after one edit in packages/domain; the
+# same on this Mac under its usual agent load: 317 s, 57 s, 251 s. Remote wins
+# every variant, and at load ~6 warm is a tie (21-22 s), so there is no load
+# at which `auto` would pick better -- and the pressure gate `auto` would ask
+# opens only at thrashing, not at "busy". `remote`.
 where = "remote"
 # `large` would keep it out of the local lane on fallback, and that is the wrong
 # answer for a suite whose whole job is to be run constantly: when the worker
@@ -150,9 +152,9 @@ drift = "warn"
 [[jobs]]
 id = "native-unit"
 summary = "The Expo app's Jest units"
-# Measured 2026-09-22. Unlike `check`, this suite has no turbo cache to warm:
-# it is one `jest` process, so every run pays the same price and the comparison
-# is a straight CPU one.
+# Measured 2026-09-22. No turbo cache to warm: one `jest --maxWorkers=2`, so
+# every remote run pays the same 54-56 s (45 s of it jest). This Mac under load:
+# 194 s with a cold jest cache, 109 s warm. `remote`.
 where = "remote"
 size = "medium"
 # The unfiltered form only. `pnpm test:native-unit <selectors>` is what AGENTS.md
