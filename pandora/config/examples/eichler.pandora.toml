@@ -130,24 +130,16 @@ forms = [{ prefix = ["check"] }, { prefix = ["check:docs"] }, { prefix = ["check
 # 1 with the repository's own message on an unknown suite. It reads no lockfile
 # and installs nothing, which is what makes it safe on the submission path.
 validate = { argv = ["node", "tools/validate.mjs", "plan", "check"], timeout_ms = 3000 }
-# The run needs *a* git repository, not eichler's. `tools/validate.mjs` calls
-# `fingerprint(root)` unconditionally -- `git rev-parse HEAD`, `git diff HEAD`,
-# `git ls-files --others` -- and a run's source tree arrives without `.git`,
-# because shipping eichler's history costs more than every suite it would
-# validate. So the run makes one: `git init && git add -A && git commit`, after
-# which rev-parse answers and both `git diff HEAD` and `git ls-files --others`
-# are empty, so the fingerprint itself costs milliseconds. The bootstrap costs
-# what one `git add -A` over the worktree costs, measured and reported in the
-# note as a fixed per-run tax. Excluding everything instead (`info/exclude` =
-# `*`) is cheaper and wrong: oxfmt and oxlint read the same ignore rules and
-# would then format-check nothing while exiting 0.
-#
-# It is *load-bearing that this is a stub*. eichler's fingerprint exists to
-# notice a tree edited while its own validation ran, and on the worker Pandora
-# already answers that question with `drift`. The one-line eichler change that
-# would delete these seventeen words of shell: let `fingerprint` return a
-# constant when `git rev-parse HEAD` fails, instead of throwing.
-run = { argv = ["bash", "-lc", "git config --global --add safe.directory \"$PWD\" >/dev/null 2>&1; if ! git rev-parse HEAD >/dev/null 2>&1; then git init -q . && git add -A && git -c user.email=pandora@localhost -c user.name=pandora commit -qm pandora-run; fi; exec pnpm validate check"], env = { EICHLER_QUEUE = "direct" } }
+# `tools/validate.mjs` calls eichler's `fingerprint(root)` -- `git rev-parse
+# HEAD`, `git diff HEAD`, `git ls-files --others` -- and the docs checks read
+# `git ls-files`. A run's tree arrives without `.git` (eichler's history is
+# 1.8 GiB), so the worker builds a one-commit repository over it whose index is
+# this worktree's tracked set: untracked files stay untracked, so a scratch note
+# is not held to the markdown-status policy here when it is not held to it on
+# the Mac. ~3 s per run. `journey` needs none of this: it runs its runner
+# directly and never reaches `fingerprint`. notes/v0.2-check-profile-2026-09-22.md.
+git = "synthetic"
+run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
 # Turbo writes into its own cache while it runs, which is a tree change a
 # `drift = "fail"` machine would refuse. `warn` is the honest setting for a job
 # that edits nothing a verdict depends on.
@@ -170,8 +162,9 @@ on_extra = { action = "local" }
 timeout_minutes = 30
 forms = [{ prefix = ["test:native-unit"] }, { prefix = ["native-unit"] }]
 validate = { argv = ["node", "tools/validate.mjs", "plan", "native-unit"], timeout_ms = 3000 }
-# The same stub repository as `check` above, and for the same reason.
-run = { argv = ["bash", "-lc", "git config --global --add safe.directory \"$PWD\" >/dev/null 2>&1; if ! git rev-parse HEAD >/dev/null 2>&1; then git init -q . && git add -A && git -c user.email=pandora@localhost -c user.name=pandora commit -qm pandora-run; fi; exec pnpm validate native-unit"], env = { EICHLER_QUEUE = "direct" } }
+# `pnpm validate` fingerprints the tree through git, as for `check` above.
+git = "synthetic"
+run = { argv = ["pnpm", "validate", "native-unit"], env = { EICHLER_QUEUE = "direct" } }
 drift = "warn"
 
 # --- the local lane ---------------------------------------------------------
