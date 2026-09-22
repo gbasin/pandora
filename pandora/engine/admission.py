@@ -103,6 +103,9 @@ class Store:
             'ORDER BY id DESC LIMIT ?', (repo, job, HISTORY)).fetchall()
         return [row['peak_mib'] for row in rows]
 
+    def close(self):
+        self.db.close()
+
     def record(self, repo, job, peak_mib, outcome, at=None):
         """A run's observed peak.
 

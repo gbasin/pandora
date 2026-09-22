@@ -202,10 +202,14 @@ def supervise(root, run_id, *, driver=None):
                                durations=durations, evidence=evidence, receipt=receipt_dict)
     with gate(paths.root):
         store = admission.Store(str(paths.peaks))
-        scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
-        if peak_mib > 0:
-            result_json['learned'] = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
-            paths.result(run_id).write_text(json.dumps(result_json, indent=1, sort_keys=True) + '\n')
+        try:
+            scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
+            if peak_mib > 0:
+                result_json['learned'] = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
+                paths.result(run_id).write_text(
+                    json.dumps(result_json, indent=1, sort_keys=True) + '\n')
+        finally:
+            store.close()
     ledger.close()
     return result_json
 
@@ -268,6 +272,7 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         'finished': item['finished'],
         'wall_seconds': round((item['finished'] or 0) - item['created'], 2),
     }
+    paths.attempt(run_id).mkdir(parents=True, exist_ok=True)
     paths.result(run_id).write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
     return result
 

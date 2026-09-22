@@ -82,6 +82,7 @@ def cmd_submit(args):
         store = admission.Store(str(paths.peaks))
         scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
         verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])
+        store.close()
         if not verdict['admitted']:
             # Refused before anything ran: the row is closed so it cannot be
             # mistaken for work in progress, and the client may go local.
@@ -165,8 +166,11 @@ def cmd_stats(args):
         reservations.append({'repo': key[0], 'job': key[1], 'reservation_mib': reserve,
                              'ceiling_mib': ceiling, 'size_class': size_class,
                              'samples': samples})
-    return emit({'ok': True, 'scheduler': scheduler.snapshot(), 'outcomes': ledger.counts(),
-                 'reservations': reservations, 'engine': ENGINE_VERSION})
+    answer = {'ok': True, 'scheduler': scheduler.snapshot(), 'outcomes': ledger.counts(),
+              'reservations': reservations, 'engine': ENGINE_VERSION}
+    store.close()
+    ledger.close()
+    return emit(answer)
 
 
 def cmd_reconcile(args):
