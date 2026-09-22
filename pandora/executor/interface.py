@@ -195,6 +195,13 @@ class Executor:
         """
         raise NotImplementedError
 
+    def synthetic_git(self, instance, dest, marks, message):
+        """Make `dest` a one-commit repository whose index is the caller's
+        tracked set: `marks` names the untracked and the tracked-but-ignored
+        paths. Returns seconds; raises ExecutionFailed.
+        """
+        raise NotImplementedError
+
     def execute(self, instance, argv, env, cwd, limits, on_log=None):
         """Run argv, stream log lines to `on_log`, return a Result.
 

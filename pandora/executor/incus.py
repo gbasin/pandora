@@ -356,6 +356,57 @@ class IncusDriver(Executor):
             raise ValueError('unknown injection method ' + method)
         return time.monotonic() - t0
 
+    # --- a repository for suites that ask git ---------------------------------
+
+    GIT_SCRIPT = r"""set -e
+cd "$1"
+git config --system --add safe.directory '*'
+rm -rf .git
+export GIT_AUTHOR_NAME=pandora GIT_AUTHOR_EMAIL=pandora@localhost
+export GIT_COMMITTER_NAME=pandora GIT_COMMITTER_EMAIL=pandora@localhost
+export GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z
+git init -q -b main
+git config core.looseCompression 0
+git config gc.auto 0
+git add -A
+if [ -s "$2/untracked" ]; then
+  git --literal-pathspecs rm -q --cached --ignore-unmatch --pathspec-from-file="$2/untracked" --pathspec-file-nul
+fi
+if [ -s "$2/ignored" ]; then
+  git --literal-pathspecs add -f --pathspec-from-file="$2/ignored" --pathspec-file-nul
+fi
+git commit -q --no-verify --allow-empty -m "$3"
+rm -rf "$2"
+"""
+
+    def synthetic_git(self, name, dest, marks, message):
+        """Make `dest` a one-commit repository whose index is the caller's tracked set.
+
+        `git add -A` over the injected tree, then the two exception lists the
+        client froze (`snapshot.git_status`): untracked files leave the index,
+        tracked-but-ignored ones join it. The commit is deterministic -- fixed
+        author, date and message -- so equal inputs have an equal HEAD.
+
+        Measured on the worker over eichler (4,961 files, 375 MiB): `git add -A`
+        is 9.1 s with git's default loose-object compression and 2.9-3.0 s with
+        it off; the commit is 0.1 s and eichler's whole fingerprint afterwards is
+        25 ms. The objects are uncompressed on purpose: they live exactly as long
+        as the instance. Returns seconds.
+        """
+        t0 = time.monotonic()
+        lists = GUEST + '/git-marks'
+        for flag in ('untracked', 'ignored'):
+            data = b''.join(path.encode() + b'\0' for path in marks.get(flag) or ())
+            run(self.base + ['exec', name, '--', 'sh', '-c',
+                             'mkdir -p %s && cat > %s/%s' % (lists, lists, flag)],
+                stdin=data, timeout=120)
+        rc, _, err = run(self.base + ['exec', name, '--', 'sh', '-c', self.GIT_SCRIPT,
+                                      'git', dest, lists, message],
+                         check=False, timeout=900)
+        if rc != 0:
+            raise ExecutionFailed('synthetic git in %s failed: %s' % (name, err.strip()[:400]))
+        return time.monotonic() - t0
+
     # --- persistent caches --------------------------------------------------
 
     def attach_cache(self, name, source, dest):

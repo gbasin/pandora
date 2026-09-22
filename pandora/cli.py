@@ -375,10 +375,15 @@ def cmd_stats(args):
         notice(str(error))
         return 1
     try:
-        data = ask(state / 'client.sock', {'op': 'stats', 'since': args.since},
-                   timeout=90.0)['data']
+        answer = ask(state / 'client.sock', {'op': 'stats', 'since': args.since},
+                     timeout=90.0)
+        data = (answer or {}).get('data')
+        if not isinstance(data, dict) or 'by_job' not in data:
+            # An older daemon: no answer, or the pre-v0.2 shape.
+            raise OSError('the daemon gave no v0.2 report; restart it to pick one up')
     except OSError as error:
-        notice('daemon unreachable (%s); reporting from %s without the worker' % (error, state))
+        notice('no report from the daemon (%s); reporting from %s without the worker'
+               % (error, state))
         data = statistics.build(state, since=since, window=args.since or 'all')
     if args.json:
         print(json.dumps(data, indent=1, sort_keys=True))

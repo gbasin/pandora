@@ -199,11 +199,19 @@ class FakeDriver:
         self.cache = (name, str(source), dest)
         return (True, '')
 
+    def synthetic_git(self, name, dest, marks, message):
+        if self.explode == 'git':
+            from pandora.executor.interface import ExecutionFailed
+            raise ExecutionFailed('git add failed')
+        self.git = (name, dest, marks, message)
+        return 2.9
+
     def harden(self, instance, limits):
         return {'memory.high': '1'}
 
     def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
                 on_tick=None, reattach=False):
+        self.executed = True
         if on_log:
             on_log(self.log)
         if on_tick and on_tick() == 'cancel':
@@ -252,6 +260,37 @@ class SuperviseTest(unittest.TestCase):
         self.assertEqual(result['cli_exit'], 0)
         self.assertEqual(result['layer'], 'command')
         self.assertEqual(result['peak_mib'], 1000)
+
+    def request(self, **plan):
+        (self.paths.attempt('r1') / 'request.json').write_text(json.dumps(
+            {'plan': dict(PLAN, **plan),
+             'git_marks': {'untracked': ['scratch.md'], 'ignored': []}}))
+
+    def test_a_job_that_declares_git_gets_a_repository_before_its_command(self):
+        self.request(git='synthetic')
+        driver = FakeDriver()
+        result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'passed')
+        name, dest, marks, message = driver.git
+        self.assertEqual((name, dest), ('run-r1', '/work'))
+        self.assertEqual(marks['untracked'], ['scratch.md'])
+        self.assertIn(self.ledger.get('r1')['input_id'], message)
+        self.assertEqual(result['durations']['git'], 2.9)
+
+    def test_a_job_that_does_not_declare_git_pays_nothing(self):
+        self.request(git='none')
+        driver = FakeDriver()
+        result = self.run_with(driver)
+        self.assertFalse(hasattr(driver, 'git'))
+        self.assertNotIn('git', result['durations'])
+
+    def test_a_repository_that_cannot_be_built_stops_the_run_before_it_starts(self):
+        self.request(git='synthetic')
+        driver = FakeDriver(explode='git')
+        result = self.run_with(driver)
+        self.assertEqual((result['outcome'], result['layer']), ('infra_failed', 'executor'))
+        self.assertFalse(hasattr(driver, 'executed'))
+        self.assertEqual(driver.destroyed, ['run-r1'])
 
     def test_a_non_zero_exit_is_the_commands_failure_and_keeps_its_code(self):
         result = self.run_with(FakeDriver(outcome='failed', exit_code=7))

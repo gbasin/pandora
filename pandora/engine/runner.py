@@ -68,12 +68,17 @@ def cache_dir(paths, repo):
     return path
 
 
+def submitted_request(paths, run_id):
+    """The request as the client sent it, from the attempt's own `request.json`."""
+    try:
+        return json.loads((paths.attempt(run_id) / 'request.json').read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def submitted_plan(paths, run_id):
     """The plan as the client sent it, from the attempt's own `request.json`."""
-    try:
-        return json.loads((paths.attempt(run_id) / 'request.json').read_text())['plan']
-    except (OSError, ValueError, KeyError):
-        return None
+    return (submitted_request(paths, run_id) or {}).get('plan')
 
 
 def toolchain_of(spec):
@@ -197,6 +202,15 @@ def supervise(root, run_id, *, driver=None):
             durations['graft'] = round(
                 driver.inject(instance.name, graft, '/work', method='device-rsync-over'), 2)
             marks = time.monotonic()
+        # Before the cache and before the command: the repository is part of
+        # the source, and a job that declared it must never start without it.
+        submitted = submitted_request(paths, run_id) or {}
+        if (submitted.get('plan') or {}).get('git') == 'synthetic':
+            durations['git'] = round(driver.synthetic_git(
+                instance.name, '/work', submitted.get('git_marks') or {},
+                'pandora %s' % row['input_id']), 2)
+            marks = time.monotonic()
+            note('synthetic git repository in %.1fs' % durations['git'])
         # Attached after the source is in place and before the command starts,
         # which is the only window where the instance exists and nothing is
         # running in it yet.

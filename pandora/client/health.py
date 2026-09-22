@@ -35,8 +35,8 @@ from pathlib import Path
 from ..errors import PandoraError
 
 DEFAULT_INTERVAL = 60.0
-# How long a reading stands for. Twice the interval, so one missed poll is not a
-# forgotten worker but three are.
+# How long a reading stands for, in intervals: one or two missed polls are not a
+# forgotten worker, three are.
 STALE_FACTOR = 3.0
 STATES = ('unknown', 'reachable', 'degraded', 'down')
 
@@ -126,6 +126,7 @@ class Monitor:
                 else ('%.1f GiB free' % capacity['free_gib'] if 'free_gib' in capacity
                       else 'unmeasured'))
         return self.record('reachable' if answer.get('ok') else 'degraded',
+                           host=getattr(worker, 'host', None),
                            reason=answer.get('reason'),
                            canary=answer.get('canary'), disk=disk,
                            goldens=len(answer.get('goldens') or []),

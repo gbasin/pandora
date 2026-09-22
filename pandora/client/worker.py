@@ -114,6 +114,10 @@ class Worker:
         request = {'request_id': request_id, 'input_id': input_id,
                    'source_path': source['path'], 'plan': plan,
                    'manifest_files': len(manifest), 'dropped': len(dropped)}
+        if plan.get('git') == 'synthetic':
+            # The engine builds the run's repository from the tree plus these
+            # two lists, so its index is this worktree's tracked set.
+            request['git_marks'] = snapshot.git_marks(manifest)
         # How many shards the caller asked for and whether a failing shard stops
         # the rest. Decisions about *this invocation*, not about the repository,
         # so they travel beside the plan rather than inside it.
