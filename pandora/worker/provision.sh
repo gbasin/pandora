@@ -107,6 +107,18 @@ if [ -n "$DEVICE" ]; then
   step skipped pool-device "real device $DEVICE, no loop file"
 else
   BACKING=''
+  # Adopt before creating. A worker whose pool already exists is backed by some
+  # file somewhere, and minting a second one beside it would leave the unit
+  # attaching an empty image at boot while the real pool stayed unattached --
+  # which is the failure this whole step exists to prevent.
+  # findmnt names the filesystem by UUID symlink, which `losetup` will not take.
+  mounted=$(findmnt -n -o SOURCE "/var/lib/incus/storage-pools/$POOL" 2>/dev/null | head -1 || true)
+  mounted=$(readlink -f "$mounted" 2>/dev/null || true)
+  adopted=$(losetup -n -O BACK-FILE "$mounted" 2>/dev/null | head -1 || true)
+  if [ -n "$adopted" ] && [ -f "$adopted" ] && [ "$adopted" != "$POOL_FILE" ]; then
+    step present pool-file-adopted "$adopted (the pool's existing backing file)"
+    POOL_FILE=$adopted
+  fi
   if [ ! -f "$POOL_FILE" ]; then
     truncate -s "${LOOP_GIB}G" "$POOL_FILE"
     step created pool-file "$POOL_FILE ${LOOP_GIB}G"
@@ -306,7 +318,9 @@ fi
 systemctl --user start pandora-engine.service >/dev/null 2>&1 || true
 
 # --- 9. the manifest -------------------------------------------------------
-if [ "$(cat "$ROOT/worker/versions.toml" 2>/dev/null || true)" = "$MANIFEST" ]; then
+# Both sides through a command substitution: it strips trailing newlines, and
+# comparing a stripped file against an unstripped variable never matches.
+if [ "$(cat "$ROOT/worker/versions.toml" 2>/dev/null || true)" = "$(printf '%s' "$MANIFEST")" ]; then
   step present manifest "$MANIFEST_DIGEST"
 else
   printf '%s' "$MANIFEST" > "$ROOT/worker/versions.toml"

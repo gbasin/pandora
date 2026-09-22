@@ -57,8 +57,10 @@ class Remote:
             raise WorkerUnreachable('ssh %s: %s' % (self.host, err.strip()[:400] or 'no route'))
         out = (proc.stdout or b'').decode('utf-8', 'replace').strip()
         if check and proc.returncode != 0 and not out:
+            # The *tail* of a traceback, not its head: the head is runpy and the
+            # last line is the only one that says what went wrong.
             raise EngineError('%s %s failed (%d): %s'
-                              % (module, argv[0], proc.returncode, err.strip()[:600]))
+                              % (module, argv[0], proc.returncode, err.strip()[-600:]))
         if not out:
             raise EngineError('%s %s said nothing; stderr: %s' % (module, argv[0], err.strip()[:400]))
         try:

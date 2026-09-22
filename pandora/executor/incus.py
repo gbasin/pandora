@@ -413,11 +413,24 @@ class IncusDriver(Executor):
 
         The root disk comes from the profile, so it has to be *overridden* onto
         the instance before a size can be set on it; `config device set` alone
-        answers "The profile device doesn't exist". On btrfs this becomes a
-        qgroup limit on the instance's own subvolume, so the run sees ENOSPC
-        from the kernel at the moment of the write rather than after it has
-        taken the pool down with it.
+        answers "The profile device doesn't exist".
+
+        **The number is total `referenced` bytes, not the run's own writes.**
+        Incus's btrfs driver writes `btrfs qgroup limit <size>`, which limits
+        *referenced*, and a clone references every extent it shares with its
+        golden from the moment it exists. A 4.3 GiB golden under a 6 GiB quota
+        therefore gives the run about 1.7 GiB of its own, and a quota below the
+        golden's own size gives it a machine that cannot start -- btrfs refuses
+        every later qgroup operation on an over-quota group, so Incus fails
+        mid-way and leaves the instance unconfigurable. That is worth a legible
+        refusal here rather than an unexplained one three commands later.
         """
+        referenced = self.qgroup(name)[0]
+        if referenced and gib * (1 << 30) <= referenced:
+            raise CloneFailed(
+                'disk quota %d GiB on %s is at or below the %.2f GiB it already '
+                'references from its golden; the quota limits referenced bytes, '
+                'so it must leave room above that' % (gib, name, referenced / (1 << 30)))
         rc, _, err = self.incus('config', 'device', 'override', name, 'root',
                                 'size=%dGiB' % gib, check=False, timeout=300)
         if rc != 0:

@@ -248,8 +248,22 @@ def cmd_engine(args):
 
 
 def cmd_pins(args):
-    answer = remote_call(args, ['pins', '--toolchain', args.toolchain]
-                         + (['--source', args.source] if args.source else []), timeout=300)
+    host, engine_root, control = target(args)
+    remote = Remote(host, control_dir=control, engine_root=engine_root)
+    try:
+        root = remote.expand(args.root or versions.WORKER['root'])
+        # Resolution happens on the worker -- it is the machine with the image
+        # server, the registry route and the shipped source -- so a toolchain
+        # named by a local path has to travel there first.
+        local = Path(args.toolchain).expanduser()
+        path = (remote.put('%s/worker/toolchains/pins.json' % root, local.read_text())
+                if local.is_file() else args.toolchain)
+        answer = remote.worker(['--root', root, '--engine-root', remote.root(),
+                                'pins', '--toolchain', path]
+                               + (['--source', args.source] if args.source else []),
+                               timeout=300)
+    finally:
+        remote.close()
     print(json.dumps(answer, indent=1, sort_keys=True))
     return 0 if answer.get('ok') else 1
 

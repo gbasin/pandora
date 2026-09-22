@@ -81,17 +81,25 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
     # --- the journeys golden: docker, compose, a real journey ---------------
     if journey:
         toolchain = load_toolchain(journey)
+        # No explicit quota: this clone takes the worker's own per-run default,
+        # which is the number a real run gets, so the canary proves that path.
         limits = Limits(memory_mib=3800, ceiling_mib=5120, cpus_hint=2,
-                        wall_seconds=600, disk_gib=quota_gib * 8)
+                        wall_seconds=600)
         try:
             _, instance = clone(toolchain, 'canary-journey', limits, source)
-            _, docker, _ = driver.sh(
+            # `systemctl start docker` is retried rather than asserted: the
+            # instance is ready as soon as /run/systemd/system exists, which is
+            # early enough that docker.service may not be loaded yet, and a
+            # single `&&` chain then short-circuits into an empty answer.
+            _, docker, err = driver.sh(
                 instance.name,
-                'systemctl start docker && for i in $(seq 150); do '
-                'docker info >/dev/null 2>&1 && break; sleep 0.2; done; '
+                'for i in $(seq 100); do systemctl start docker >/dev/null 2>&1 && break; '
+                'sleep 0.3; done\n'
+                'for i in $(seq 150); do docker info >/dev/null 2>&1 && break; sleep 0.2; done\n'
                 'docker info --format "{{.Driver}} {{.CgroupVersion}}"',
                 check=False, timeout=300)
-            checks.add('nested dockerd up', 'overlay' in docker, docker.strip())
+            checks.add('nested dockerd up', 'overlay' in docker,
+                       docker.strip() or err.strip()[:160])
             _, stack, _ = driver.sh(
                 instance.name,
                 'cd /work && docker compose -f tools/stack/compose.yml up -d --wait 2>&1 | tail -2; '
@@ -126,10 +134,15 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
     if surfaces:
         toolchain = load_toolchain(surfaces)
         limits = Limits(memory_mib=3800, ceiling_mib=6144, cpus_hint=2,
-                        wall_seconds=300, disk_gib=quota_gib * 8)
+                        wall_seconds=300)
         try:
             _, instance = clone(toolchain, 'canary-surfaces', limits, source)
-            argv = surfaces_argv or ['node', 'tools/validation/surface-runner.mjs', '--list']
+            # A listing, not a browser: `plan` reports the test IDs each shard
+            # would select, which exercises node, the workspace and the surface
+            # runner's own selection without paying for chromium. The brief's
+            # four-minute budget does not survive a real surface run.
+            argv = surfaces_argv or ['node', 'tools/validation/surface-runner.mjs',
+                                     'plan', 'desk', '--shards', '1']
             result = driver.execute(instance, argv, env={}, cwd='/work', limits=limits)
             checks.add('surfaces golden answers', result.exit_code == 0,
                        'outcome=%s exit=%s in %.1fs'
@@ -143,20 +156,26 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
     # fills anyway and the operator believes it cannot.
     if journey or surfaces:
         toolchain = load_toolchain(journey or surfaces)
-        limits = Limits(memory_mib=512, ceiling_mib=1024, cpus_hint=1,
-                        wall_seconds=120, disk_gib=quota_gib)
         try:
+            # The quota limits *referenced* bytes, so it is sized against the
+            # golden this clone shares extents with rather than against a
+            # constant. See `IncusDriver.quota`.
+            base = driver.volume_bytes(driver.golden_name(toolchain)) / (1 << 30)
+            size = int(base) + 1 + quota_gib
+            limits = Limits(memory_mib=512, ceiling_mib=1024, cpus_hint=1,
+                            wall_seconds=180, disk_gib=size)
             _, instance = clone(toolchain, 'canary-quota', limits, None)
+            megabytes = (quota_gib + 1) * 1024
             _, out, _ = driver.sh(
                 instance.name,
                 'dd if=/dev/zero of=/work/.pandora-quota-probe bs=1M count=%d 2>&1 | tail -1; '
-                'rm -f /work/.pandora-quota-probe' % (quota_gib * 1024 + 512),
+                'rm -f /work/.pandora-quota-probe' % megabytes,
                 check=False, timeout=600)
             refused = any(word in out.lower() for word in
                           ('no space', 'quota exceeded', 'disk quota', 'error writing'))
             checks.add('disk quota refuses an over-limit write', refused,
-                       '%dGiB quota, wrote %dMiB: %s'
-                       % (quota_gib, quota_gib * 1024 + 512, out.strip()[:160]))
+                       '%d GiB quota over a %.2f GiB golden, wrote %d MiB: %s'
+                       % (size, base, megabytes, out.strip()[:140]))
             checks.add(*receipt_of(driver, instance, instances))
         except Exception as error:                                   # noqa: BLE001
             checks.add('disk quota enforced', False, '%s: %s' % (type(error).__name__, error))

@@ -40,16 +40,22 @@ class PinFailed(RuntimeError):
 
 
 def base_image_pin(alias, timeout=120):
-    """The image server's fingerprint for an alias, via the incus client."""
-    proc = subprocess.run(['incus', 'image', 'info', alias, '--format', 'json'],
+    """The image server's fingerprint for an alias, via the incus client.
+
+    Parsed from the plain listing rather than `--format json`: `image info`
+    on Incus 6.0.5 has no such flag, and a pin that only resolves on some
+    Incus versions is a pin that silently stops pinning after an upgrade.
+    """
+    proc = subprocess.run(['incus', 'image', 'info', alias],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
     if proc.returncode != 0:
         raise PinFailed('incus image info %s: %s'
                         % (alias, (proc.stderr or b'').decode()[:200].strip()))
-    try:
-        return json.loads(proc.stdout.decode())['fingerprint']
-    except (ValueError, KeyError) as error:
-        raise PinFailed('incus image info %s gave no fingerprint (%s)' % (alias, error)) from None
+    for line in (proc.stdout or b'').decode('utf-8', 'replace').splitlines():
+        key, _, value = line.partition(':')
+        if key.strip().lower() == 'fingerprint' and value.strip():
+            return value.strip()
+    raise PinFailed('incus image info %s printed no Fingerprint line' % alias)
 
 
 def lockfile_pins(source):
