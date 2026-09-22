@@ -148,6 +148,16 @@ class Worker:
     def stats(self):
         return self.engine(['stats'], timeout=60)
 
+    def health(self, *, timeout=20):
+        """The cheap poll: one engine call over the ControlMaster.
+
+        The timeout is short on purpose. The whole point of polling is that the
+        *next* command does not pay a 12-second SSH connect to discover a worker
+        that has been gone for ten minutes, so the poll that discovers it must
+        not sit for twelve seconds either.
+        """
+        return self.engine(['health'], timeout=timeout)
+
     def reconcile(self):
         return self.engine(['reconcile'], timeout=300)
 

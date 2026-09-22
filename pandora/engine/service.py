@@ -17,6 +17,7 @@ would make a 0.06 s clone unmeasurable.
     cancel    ask a running attempt to stop
     ps        live attempts
     stats     scheduler picture plus outcome counts
+    health    the cheap one the client polls: reachable, disk, canary, drift
     reconcile after a restart: adopt or fail, never fabricate
     retain    delete old attempt directories
     canary    the worker's own health gate
@@ -204,6 +205,82 @@ def cmd_stats(args):
     return emit(answer)
 
 
+def cmd_health(args):
+    """One cheap answer to "is this worker fit to take work right now".
+
+    Deliberately not `pandora worker status`, which surveys dpkg, systemd,
+    iptables and the whole manifest: that is the answer to "is this machine what
+    it was made to be", it costs dozens of shell calls, and the client polls
+    this every minute over one ControlMaster connection. What is here is the
+    subset a client acts on -- can the pool take another run, did the last
+    canary pass, is the kernel the one it passed on, and how loaded is the
+    scheduler -- plus the ledger's outcome counts, so `pandora stats` needs no
+    second call.
+
+    `ok: false` means the worker answered and the answer is bad. A worker that
+    cannot answer at all raises `WorkerUnreachable` on the client side, which is
+    a different fact and gets a different state.
+    """
+    paths, ledger = open_ledger(args.root)
+    from pandora.executor.incus import IncusDriver
+    driver = IncusDriver(root=paths.root)
+    capacity, goldens, reason = {}, [], []
+    try:
+        capacity = runner.disk_headroom(paths, driver=driver)
+    except Exception as error:                        # noqa: BLE001 - a probe, never a crash
+        capacity = {'ok': True, 'measured': False, 'error': str(error)[:200]}
+    if not capacity.get('ok'):
+        reason.append(capacity.get('reason') or 'the pool is below its floor')
+    try:
+        goldens = sorted(item['name'] for item in driver.instances()
+                         if item['name'].startswith('golden-'))
+    except Exception as error:                        # noqa: BLE001
+        reason.append('goldens unreadable: %s' % str(error)[:120])
+    state = worker_state(args.worker_root)
+    canary = state.get('canary') or {}
+    if state.get('state') and state['state'] != 'ready':
+        reason.append('worker state is %s' % state['state'])
+    if canary and not canary.get('ok'):
+        reason.append('the last canary failed')
+    kernel = read_line('/proc/sys/kernel/osrelease')
+    kernel_drift = bool(state.get('kernel') and kernel and state['kernel'] != kernel)
+    if kernel_drift:
+        reason.append('kernel is %s; the canary passed on %s' % (kernel, state['kernel']))
+    store = admission.Store(str(paths.peaks))
+    scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
+    answer = {'ok': not reason, 'engine': ENGINE_VERSION, 'at': time.time(),
+              'reason': '; '.join(reason) or None,
+              'scheduler': scheduler.snapshot(), 'live': len(ledger.live()),
+              'outcomes': ledger.counts(), 'capacity': capacity, 'goldens': goldens,
+              'state': state.get('state'), 'ready_since': state.get('at_iso'),
+              'canary': {'ok': canary.get('ok'), 'failures': canary.get('failures'),
+                         'seconds': canary.get('seconds')} if canary else None,
+              'kernel': kernel, 'canary_kernel': state.get('kernel'),
+              'kernel_drift': kernel_drift}
+    store.close()
+    ledger.close()
+    return emit(answer)
+
+
+def worker_state(root):
+    """The worker's ready state, read as a file rather than by asking the worker.
+
+    One `read_text`: the state file is what `pandora worker canary --mark`
+    wrote, and re-deriving it here would be a second, slower canary.
+    """
+    try:
+        return json.loads((Path(root).expanduser() / 'worker' / 'state.json').read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def read_line(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return ''
+
+
 def cmd_reconcile(args):
     return emit({'ok': True, **runner.reconcile(args.root)})
 
@@ -293,6 +370,10 @@ def main(argv=None):
     ps.add_argument('--limit', type=int, default=25)
     ps.set_defaults(func=cmd_ps)
     sub.add_parser('stats').set_defaults(func=cmd_stats)
+    health = sub.add_parser('health')
+    health.add_argument('--worker-root', default=str(Path.home() / 'pandora'),
+                        help="where the worker's own state.json lives")
+    health.set_defaults(func=cmd_health)
     sub.add_parser('reconcile').set_defaults(func=cmd_reconcile)
     retain = sub.add_parser('retain')
     retain.add_argument('--keep', type=int, default=86400)

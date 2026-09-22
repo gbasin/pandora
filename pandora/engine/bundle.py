@@ -30,6 +30,7 @@ MEMBERS = (
     'engine/admission.py',
     'engine/ledger.py',
     'engine/scheduler.py',
+    'engine/result.py',
     'engine/runner.py',
     'engine/fanout.py',
     'engine/shards.py',

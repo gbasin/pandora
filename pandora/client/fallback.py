@@ -34,6 +34,12 @@ import time
 # provably non-executing; that is what makes falling back *permissible*, and it
 # is the last question this module treats as interesting.
 CAUSES = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
+          # `worker-down` is `worker-unreachable` known in advance, from the
+          # health poll, rather than discovered by paying an SSH timeout. Same
+          # verdict, same reasons; a separate name so the receipts and
+          # `pandora stats` can tell "we waited 12 s to find out" apart from "we
+          # already knew", which is the whole point of polling.
+          'worker-down',
           'worker-unreachable', 'snapshot-failed', 'transfer-failed',
           'queue-timeout', 'admission-refused', 'engine-error')
 # Sizes small enough that one more of them on this Mac is a slowdown rather than

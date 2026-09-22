@@ -48,6 +48,9 @@ VARIABLE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*\Z')
 # closed because it is also the fallback policy's vocabulary: a cause nobody can
 # spell is a cause nobody can decide about.
 FAULTS = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
+          # `worker-down` is `worker-unreachable` already known, from the health
+          # poll, rather than discovered by paying an SSH timeout.
+          'worker-down',
           'worker-unreachable', 'snapshot-failed', 'transfer-failed',
           'queue-timeout', 'admission-refused', 'engine-error')
 OUTPUTS = ('artifacts', 'writeback', 'evidence')

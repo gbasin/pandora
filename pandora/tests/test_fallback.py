@@ -102,8 +102,21 @@ class FakeWorker:
     def stats(self):
         return {'ok': False}
 
+    def health(self, **kwargs):
+        """Answers by default. A worker that fails `submit` may still be up, and
+        the tests below are about `submit`; the one that is about a worker being
+        gone sets `health_raises` so both calls agree."""
+        if FakeWorker.health_raises is not None:
+            raise FakeWorker.health_raises
+        return {'ok': True, 'capacity': {'ok': True, 'free_gib': 40.0, 'floor_gib': 4},
+                'goldens': ['golden-abc'], 'state': 'ready', 'canary': {'ok': True},
+                'kernel_drift': False, 'scheduler': {}, 'outcomes': []}
+
     def close(self):
         pass
+
+
+FakeWorker.health_raises = None
 
 
 class Answer:
@@ -122,6 +135,7 @@ class DaemonCase(unittest.TestCase):
     def setUp(self):
         FakeWorker.raises = None
         FakeWorker.follow_raises = None
+        FakeWorker.health_raises = None
         self.home = tempfile.TemporaryDirectory()
         self.addCleanup(self.home.cleanup)
         self.root = Path(self.home.name)
@@ -133,6 +147,8 @@ class DaemonCase(unittest.TestCase):
         config = self.root / 'config.toml'
         config.write_text(
             '[client]\nstate = "%s"\n[worker]\nhost = "fake@nowhere"\n'
+            # No notification centre pop-ups from a test suite.
+            '[notify]\nenabled = false\n'
             '[local]\nbudget_mib = 16384\nqueue_timeout_seconds = 20\ndrift = "off"\n'
             '[local.pause]\nenabled = false\n'
             '[[repos]]\nname = "demo"\nroot = "%s"\n' % (self.state, self.repo))

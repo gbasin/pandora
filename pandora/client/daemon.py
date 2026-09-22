@@ -34,7 +34,8 @@ from ..config import loader
 from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refused,
                       SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
 from ..exits import INFRA, STALE
-from . import enrolment, fallback as policy, settings
+from . import enrolment, fallback as policy, hints, settings, stats as statistics
+from .health import Monitor
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
 from .protocol import Reader, VERSION, dump, log_frame
@@ -73,13 +74,22 @@ class Run:
         self.reason = request.get('reason') or ''
         self.result = None
         self.started = now()
+        # When the client was told `accepted`. The gap between this and
+        # `started` is the queue wait -- everything the caller spent not knowing
+        # whether its command would run anywhere -- and it is the one number
+        # `pandora stats` cannot derive from anything else afterwards.
+        self.accepted = None
+        self.hint = None
 
     def save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
                    'remote': self.remote, 'repo': self.request.get('repo'),
                    'lane': self.lane, 'reason': self.reason, 'job': self.request.get('job'),
-                   'started': self.started, 'updated': now()}
+                   'started': self.started, 'accepted': self.accepted,
+                   'queue_ms': (None if self.accepted is None
+                                else int((self.accepted - self.started) * 1000)),
+                   'hint': self.hint, 'updated': now()}
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -120,10 +130,24 @@ class Run:
     def note(self, text):
         self.append(log_frame('err', ('pandora: ' + text + '\n').encode()))
 
+    def suggest(self, text):
+        """The last line the caller sees, when there is one worth saying.
+
+        Said as a note rather than as a frame of its own so that it lands in the
+        run log in order, which means `pandora logs` and a re-attach both show
+        it exactly where a live caller saw it.
+        """
+        if not text or text == self.hint:
+            return
+        self.hint = text
+        self.note('hint: ' + text)
+
     def finish(self, code, *, state='done', result=None):
         self.exit_code = code
         self.state = state
         self.result = result
+        if isinstance(result, dict) and result.get('hint') is None and self.hint:
+            result['hint'] = self.hint
         if result is not None:
             (self.dir / 'result.json').write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
         self.save()
@@ -187,6 +211,14 @@ class Daemon:
                                    drift=self.config['local'].get('drift', 'warn'),
                                    queue_timeout=float(
                                        self.config['local'].get('queue_timeout_seconds') or 0))
+        # The worker, watched rather than discovered. A command that arrives
+        # while the worker is known down must not pay the SSH connect timeout
+        # again to learn what the last poll already established.
+        self.health = Monitor(self.any_worker,
+                              interval=self.config['worker'].get('health_interval_s') or 60,
+                              notify_enabled=bool(self.config['notify']['enabled']),
+                              store=self.state / 'worker-health.json',
+                              log=lambda text: sys.stderr.write(text + '\n'))
 
     # -- configuration -----------------------------------------------------
 
@@ -211,6 +243,12 @@ class Daemon:
             self.repo_configs[repo['name']] = config
             self.repo_stamps[repo['name']] = stamp
         return self.repo_configs[repo['name']]
+
+    def any_worker(self):
+        """A worker to ask about the worker. There is one host in this build."""
+        if not self.config['worker']['host']:
+            raise WorkerUnreachable('no worker host is configured')
+        return self.worker_for(self.config['repos'][0] if self.config['repos'] else {})
 
     def worker_for(self, repo):
         host = self.config['worker']['host']
@@ -289,6 +327,8 @@ class Daemon:
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
              'worker': self.config['worker']['host'], 'started': now()}) + '\n')
+        if self.config['worker']['host']:
+            self.health.start()
         return self
 
     def serve(self):
@@ -304,6 +344,7 @@ class Daemon:
 
     def stop(self):
         self.stopping.set()
+        self.health.stop()
         for worker in self.workers.values():
             try:
                 worker.close()
@@ -359,11 +400,13 @@ class Daemon:
                                'worker': self.config['worker']['host'],
                                'runs': len(self.runs)}))
         elif op == 'stats':
-            conn.sendall(dump({'v': VERSION, 't': 'stats', 'data': self.stats()}))
+            conn.sendall(dump({'v': VERSION, 't': 'stats',
+                               'data': self.stats(since=first.get('since'))}))
         elif op == 'ps':
             self.gate.sample()          # a person asked; answer about now, not about then
             conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
-                               'pause': self.gate.state()}))
+                               'pause': self.gate.state(),
+                               'worker': self.health.state()}))
         elif op == 'run':
             self.serve_run(conn, reader, first)
         elif op == 'attach':
@@ -486,6 +529,16 @@ class Daemon:
                   dict(request, repo=repo['name'], job=job['id']))
         run.state = 'queued'
         run.save()
+        # The health poll's one job. Without it every command typed against a
+        # worker that died at lunchtime pays the SSH connect timeout again --
+        # 10 s of the 12.2 s the slice measured -- to rediscover the same fact.
+        # The decision is identical to `worker-unreachable`; only the price of
+        # reaching it differs, and the cause name records which one this was.
+        if self.health.known_down():
+            self.fall_back(conn, reader, request, repo, job, plan, worktree, 'worker-down',
+                           self.health.state().get('reason') or 'the last health poll failed',
+                           checked)
+            return
         # Every way a submission can fail to proceed, through one door. Each of
         # them is provably non-executing -- that is what earns the fallback --
         # and each of them is decided by the same policy rather than by whatever
@@ -496,6 +549,11 @@ class Daemon:
                                        request_id=run.id + ':' + plan['job'],
                                        control=request)
         except WorkerUnreachable as error:
+            # Paid the timeout once; the next command should not. This asks the
+            # question immediately rather than answering it: a worker that
+            # refuses a submission may still be up, and only the health call is
+            # entitled to say otherwise.
+            self.health.recheck()
             self.fall_back(conn, reader, request, repo, job, plan, worktree,
                            'worker-unreachable', str(error), checked)
             return
@@ -521,6 +579,7 @@ class Daemon:
 
         run.remote = submission.run_id
         run.state = 'running'
+        run.accepted = now()
         run.save()
         with self.runs_lock:
             self.runs[run.id] = run
@@ -634,6 +693,7 @@ class Daemon:
                       'the local queue did not admit this job within its wait')
             return
         run.state = 'running'
+        run.accepted = now()
         run.save()
         with self.runs_lock:
             self.runs[run.id] = run
@@ -665,6 +725,7 @@ class Daemon:
         run.note('%s in %.1fs (local, peak %s MiB of %s reserved)'
                  % (result['outcome'], result['wall_seconds'], result['peak_mib'],
                     result['reservation_mib']))
+        run.suggest(self.hint_for(run, result, worktree or request['cwd']))
         run.finish(result['cli_exit'], state=result['outcome'], result=result)
 
     def validator_env(self, request, plan):
@@ -765,7 +826,28 @@ class Daemon:
         run.note('%s in %.1fs (%s, peak %s MiB, %s)' % (
             result['outcome'], result.get('wall_seconds', 0), result.get('layer'),
             result.get('peak_mib'), result.get('run_id')))
+        run.suggest(self.hint_for(run, result, run.request.get('cwd')))
         run.finish(code, state=result['outcome'], result=result)
+
+    def hint_for(self, run, result, worktree):
+        """One sentence naming the next action, or nothing. Never fatal.
+
+        Computed after the verdict and before the exit frame, so it is the last
+        line the caller sees. A failure to produce it is swallowed: a hint is a
+        courtesy and must never be the reason a run reports differently.
+        """
+        if not isinstance(result, dict):
+            return None
+        if result.get('hint'):
+            return result['hint']       # the engine already had the evidence
+        if result.get('outcome') == 'passed' and not result.get('drifted'):
+            # Nothing to advise, and reading the log's tail to prove it would be
+            # a cost paid on every green run.
+            return None
+        try:
+            return hints.for_run(result, worktree=worktree, log_path=run.log)
+        except Exception:                        # noqa: BLE001 - a courtesy, never a verdict
+            return None
 
     # -- streaming ---------------------------------------------------------
 
@@ -854,23 +936,22 @@ class Daemon:
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
         return rows
 
-    def stats(self):
-        passthrough = []
-        path = self.state / 'passthrough.jsonl'
-        if path.is_file():
-            for line in path.read_text().splitlines():
-                try:
-                    passthrough.append(json.loads(line))
-                except ValueError:
-                    continue
-        worker = {}
-        if self.config['worker']['host'] and self.config['repos']:
-            try:
-                worker = self.worker_for(self.config['repos'][0]).stats()
-            except PandoraError as error:
-                worker = {'ok': False, 'error': str(error)}
-        return {'runs': self.ps(), 'passthrough': passthrough, 'worker': worker,
-                'local': self.budget.snapshot(sample=True), 'config': self.config.get('source')}
+    def stats(self, window=None):
+        """The report, from disk plus at most one engine call.
+
+        The worker's half comes from the health monitor's cache when it is
+        fresh, and from one poll when it is not, so typing `pandora stats`
+        twice in a minute costs one SSH call rather than two. A worker that is
+        known down is not polled at all: the whole point of knowing is not
+        paying to rediscover.
+        """
+        worker = self.health.state()
+        if self.config['worker']['host'] and worker.get('worker') == 'unknown':
+            worker = self.health.poll()
+        return statistics.build(self.state, since=statistics.parse_since(window),
+                                worker=worker, pause=self.gate.state(),
+                                local=self.budget.snapshot(sample=True),
+                                window=window or 'all')
 
 
 def main(argv=None):

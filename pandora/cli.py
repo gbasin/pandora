@@ -1,24 +1,42 @@
-"""`pandora`: the one command a person types.
+"""`pandora`: run this repository's heavy commands on a Linux worker.
 
-    pandora daemon                      run the client daemon in the foreground
+Written for an agent. Type the command you would have typed; Pandora routes it
+if the repository claims that form, and otherwise gets out of the way.
+
+    pandora ps [--json]                 what is running, and what just ran
+    pandora wait <id> [--max-wait S]    re-attach to a detached run; exits as it exits
+    pandora logs <id>                   that run's output, replayed from disk
+    pandora result <id>                 that run's result JSON, including its hint
+    pandora cancel <id>                 stop it; the instance is destroyed
+    pandora stats [--since 24h] [--json]  what routed, what waited, what did not route
+
+    pandora daemon                      the client daemon, in the foreground
     pandora enrol <repo> [--config F]   mark a repository routable, all worktrees
     pandora unenrol <repo>
     pandora run -- <argv>               what the shim calls
-    pandora wait <id> [--max-wait S]    re-attach to a run
-    pandora ps                          what has run, and what is running
-    pandora logs <id>                   one run's output
-    pandora result <id>                 one run's result JSON
-    pandora cancel <id>
-    pandora stats                       routed and, just as importantly, not routed
-    pandora worker provision            make a host into a worker, idempotently
-    pandora worker status               versions, drift, pool, goldens, ready state
-    pandora worker canary               the worker's own health gate
-    pandora worker gc [--dry-run]       leaked instances, volumes, old goldens
-    pandora worker goldens              what is baked in, and what it cost
-    pandora worker reconcile            after an engine restart
+    pandora worker status|canary|gc|goldens|reconcile|provision    the machine
 
-Everything Pandora says about itself goes to stderr, prefixed `pandora:`, so a
-caller piping stdout gets the command's output and nothing else.
+THE INVARIANTS. These hold, or Pandora reports an infrastructure failure; it
+never reports a pass it did not observe.
+
+  * Same cwd, same environment, same exit code as running it locally. Your
+    `$?` and your traps behave as if the shim were not installed.
+  * Declared results are in your worktree before the command exits. A declared
+    output that was not produced is reported as missing, which is not the same
+    fact as zero failures.
+  * Run it from the repository root. A command typed in a subdirectory with a
+    path in its arguments passes through locally and says so.
+  * Exit codes: the command's own when it reached a verdict. Otherwise
+    70 infrastructure (Pandora could not finish or find the run),
+    75 stale or busy (a duplicate, an exclusivity rule, a full fallback budget),
+    124 still running (`--max-wait` elapsed; the run was NOT stopped),
+    130 cancelled (SIGINT, and the worker confirmed the instance is gone).
+  * `PANDORA_OFF=1 <command>` runs it here, silently, with no Pandora in the
+    path at all. That is the escape hatch for debugging a routed failure.
+  * Everything Pandora says about itself goes to stderr, prefixed `pandora:`,
+    so a caller piping stdout gets the command's output and nothing else. The
+    last such line, when there is one, is `pandora: hint: ...` -- one sentence
+    naming the next action, derived from evidence, never guessed.
 """
 import argparse
 import json
@@ -164,10 +182,11 @@ def cmd_wait(args):
 
 def cmd_ps(args):
     state, _ = state_of(args)
-    pause = {}
+    pause, worker = {}, {}
     try:
         answer = ask(state / 'client.sock', {'op': 'ps'})
-        rows, pause = answer['data'], answer.get('pause') or {}
+        rows = answer['data']
+        pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
     except OSError:
         rows = []
         for meta in sorted((state / 'runs').glob('*/meta.json')):
@@ -176,10 +195,12 @@ def cmd_ps(args):
             except (OSError, ValueError):
                 continue
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
+        worker = {'worker': 'unknown', 'reason': 'the daemon is not running'}
     if args.json:
-        print(json.dumps({'runs': rows, 'pause': pause} if pause else rows,
-                         indent=1, sort_keys=True))
+        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker}
+                         if pause or worker else rows, indent=1, sort_keys=True))
         return 0
+    print(worker_line(worker))
     if pause.get('paused'):
         # First line, not a footnote: a queue that is not admitting is the most
         # important fact on the screen.
@@ -194,6 +215,30 @@ def cmd_ps(args):
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
+
+
+def worker_line(worker):
+    """The header. `down` is what a reader most needs and it is said first.
+
+    A stale reading reads as `unknown`, not as its last value, because a daemon
+    that has not polled since yesterday knows nothing about now -- and a header
+    that claims otherwise is worse than one that admits it.
+    """
+    state = (worker or {}).get('worker') or 'unknown'
+    extra = []
+    if worker.get('disk'):
+        extra.append('disk ' + str(worker['disk']))
+    if (worker.get('canary') or {}).get('ok') is False:
+        extra.append('CANARY FAILING')
+    if worker.get('kernel_drift'):
+        extra.append('kernel drift')
+    if state in ('down', 'degraded', 'unknown') and worker.get('reason'):
+        extra.append(str(worker['reason'])[:80])
+    age = worker.get('age_seconds')
+    if age is not None and state != 'unknown':
+        extra.append('polled %ds ago' % age)
+    return 'worker: %s%s' % (state.upper() if state == 'down' else state,
+                             ' (' + '; '.join(extra) + ')' if extra else '')
 
 
 def cmd_logs(args):
@@ -236,74 +281,31 @@ def cmd_cancel(args):
     return 0
 
 
-def percentile(values, fraction):
-    if not values:
-        return 0
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1))))]
-
-
 def cmd_stats(args):
+    """One report, whether or not the daemon is up.
+
+    The daemon is asked first, because it is the only process holding the
+    worker link and the live queue. When it is not there the report is built
+    from the same files it would have read, minus the worker's half -- which is
+    exactly when a person most wants to see what has been happening here.
+    """
     state, _ = state_of(args)
+    from .client import stats as statistics
     try:
-        data = ask(state / 'client.sock', {'op': 'stats'}, timeout=60.0)['data']
+        since = statistics.parse_since(args.since)
+    except ValueError as error:
+        notice(str(error))
+        return 1
+    try:
+        data = ask(state / 'client.sock', {'op': 'stats', 'since': args.since},
+                   timeout=90.0)['data']
     except OSError as error:
-        notice('daemon unreachable: %s' % error)
-        return INFRA
+        notice('daemon unreachable (%s); reporting from %s without the worker' % (error, state))
+        data = statistics.build(state, since=since, window=args.since or 'all')
     if args.json:
         print(json.dumps(data, indent=1, sort_keys=True))
         return 0
-    routed = data['runs']
-    print('routed runs: %d' % len(routed))
-    by_state = {}
-    for row in routed:
-        by_state[row.get('state') or '?'] = by_state.get(row.get('state') or '?', 0) + 1
-    for name, count in sorted(by_state.items()):
-        print('  %-18s %d' % (name, count))
-    rows = data['passthrough']
-    print('local, not routed: %d' % len(rows))
-    groups = {}
-    for row in rows:
-        key = ' '.join(row.get('argv', [])[:2]) or '(unknown)'
-        groups.setdefault(key, []).append(row)
-    if groups:
-        print('  %-28s %5s %9s %9s %9s  %s'
-              % ('command', 'runs', 'p50 ms', 'p95 ms', 'total s', 'why'))
-        for key, group in sorted(groups.items(),
-                                 key=lambda item: -sum(row.get('duration_ms', 0)
-                                                       for row in item[1])):
-            durations = [row.get('duration_ms', 0) for row in group]
-            why = ', '.join(sorted({row.get('reason') or row.get('kind', '') for row in group}))
-            print('  %-28s %5d %9d %9d %9.1f  %s'
-                  % (key, len(group), percentile(durations, 0.5), percentile(durations, 0.95),
-                     sum(durations) / 1000.0, why))
-    local = data.get('local') or {}
-    if local:
-        print('local lane: %d MiB held of %d, %d running%s'
-              % (local.get('held_mib', 0), local.get('budget_mib', 0),
-                 len(local.get('running') or []),
-                 ', singleton %s' % ', '.join(sorted(local['singletons']))
-                 if local.get('singletons') else ''))
-    pause = local.get('pause') or {}
-    if pause:
-        print('  pause gate: %s, %d episode(s), %gs paused, %d job(s) delayed, %d refused%s'
-              % ('PAUSED (%s)' % pause.get('evidence') if pause.get('paused')
-                 else ('open' if pause.get('enabled') else 'disabled'),
-                 pause.get('episodes', 0), pause.get('paused_seconds', 0),
-                 pause.get('jobs_delayed', 0), pause.get('jobs_refused', 0),
-                 '; last %s' % pause['last_evidence'] if pause.get('last_evidence') else ''))
-    worker = data.get('worker') or {}
-    if worker.get('ok'):
-        scheduler = worker['scheduler']
-        print('worker: %d MiB held of %d, %d lane(s), PANDORA_CPUS now %d'
-              % (scheduler['held_mib'], scheduler['budget_mib'], scheduler['lanes'],
-                 scheduler['cpus_hint_now']))
-        for item in worker.get('reservations', []):
-            print('  %-10s %-20s reserve %5d MiB  ceiling %5d  class %-6s  %d sample(s)'
-                  % (item['repo'], item['job'], item['reservation_mib'], item['ceiling_mib'],
-                     item['size_class'], item['samples']))
-    elif worker:
-        print('worker: unreachable (%s)' % worker.get('error'))
+    print(statistics.render(data))
     return 0
 
 
@@ -348,7 +350,9 @@ def main(argv=None):
         node.add_argument('run')
         node.set_defaults(func=function)
 
-    stats = sub.add_parser('stats')
+    stats = sub.add_parser('stats', help='what routed, what waited, what did not route')
+    stats.add_argument('--since', default=None,
+                       help='a window: 24h, 7d, 90m, or a number of seconds. Default: all')
     stats.add_argument('--json', action='store_true')
     stats.set_defaults(func=cmd_stats)
 

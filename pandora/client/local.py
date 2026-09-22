@@ -372,6 +372,19 @@ class Supervisor:
         return ('passed' if code == 0 else 'command_failed'), code
 
 
+def changed_paths(before, after, cap=50):
+    """Which files differ between two manifests, added, removed or edited.
+
+    Capped, because the interesting drift is a person saving a file and the
+    uninteresting drift is a build writing ten thousand of them; a list that
+    long is not read by anyone and the count is what matters.
+    """
+    if not before or not after:
+        return []
+    names = sorted(set(before) | set(after))
+    return [name for name in names if before.get(name) != after.get(name)][:cap]
+
+
 def cli_exit(outcome, exit_code):
     """The caller's exit. Never a passing code for a run without a verdict."""
     if outcome in ('passed', 'command_failed'):
@@ -426,14 +439,21 @@ class LocalExecutor:
         return found
 
     def fingerprint(self, worktree, plan, drift):
+        """(input_id, {path: record}) for the tree, or (None, None) when off.
+
+        The per-path records are kept, not just the digest, because "the tree
+        changed" is a fact an agent cannot act on and "`src/x.ts` changed" is.
+        It is the same manifest the digest is computed from, so it costs memory
+        and no extra walk.
+        """
         if drift == 'off':
-            return None
+            return None, None
         try:
-            _manifest, _dropped, input_id = freeze(
+            manifest, _dropped, input_id = freeze(
                 worktree, exclude_globs=plan.get('secrets_exclude_globs') or ())
-            return input_id
+            return input_id, {record['path']: record for record in manifest}
         except (SnapshotError, OSError):
-            return None
+            return None, None
 
     def execute(self, run, plan, *, repo, job, worktree, request_env, admission,
                 note=None, started=None, reason=None):
@@ -448,7 +468,7 @@ class LocalExecutor:
         note = note or (lambda text: None)
         started = started if started is not None else time.time()
         drift = self.drift_for(plan)
-        before = self.fingerprint(worktree, plan, drift)
+        before, before_files = self.fingerprint(worktree, plan, drift)
         env = child_environment(plan, request_env, cpus_hint=admission.get('cpus_hint', 1),
                                 run_id=run.id, directory=run.dir)
         supervisor = Supervisor(
@@ -457,8 +477,9 @@ class LocalExecutor:
             cancel=plan.get('cancel'),
             on_log=lambda which, chunk: run.stream_local(which, chunk))
         outcome, code = supervisor.run(run.cancelled.is_set)
-        after = self.fingerprint(worktree, plan, drift)
+        after, after_files = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after
+        changed = changed_paths(before_files, after_files) if drifted else []
         if drifted:
             if drift == 'fail':
                 note('the worktree changed while this job ran, so its verdict describes a '
@@ -493,6 +514,7 @@ class LocalExecutor:
             'source_after': after,
             'drift': drift,
             'drifted': drifted,
+            'drift_paths': changed,
             'cancel': dict(plan.get('cancel') or DEFAULT_CANCEL),
             'outputs': {'evidence': self.evidence(worktree, plan)},
             'learned': learned,

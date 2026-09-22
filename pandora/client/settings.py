@@ -10,6 +10,12 @@ too high a price for changing a hostname.
     host = "ubuntu@10.0.0.1"
     engine_root = "pandora-engine"      # relative to the worker's home
     budget_mib = 14000                  # optional; the engine measures its own
+    health_interval_s = 60              # how often the daemon asks the engine how it is
+
+    # Transitions only: down/up, a failed canary, the disk floor, kernel drift.
+    # macOS only; elsewhere the transition is logged and nothing pops up.
+    [notify]
+    enabled = true
 
     [client]
     state = "~/.local/state/pandora/default"
@@ -53,7 +59,10 @@ DEFAULT_STATE = Path('~/.local/state/pandora/default')
 
 DEFAULTS = {
     'worker': {'host': '', 'engine_root': 'pandora-engine', 'budget_mib': None,
-               'ssh_persist': '10m'},
+               'ssh_persist': '10m', 'health_interval_s': 60},
+    # Transitions only, and only on darwin. `osascript` is not a portable idea,
+    # so everywhere else this is a no-op and the transition is a log line.
+    'notify': {'enabled': True},
     'client': {'state': str(DEFAULT_STATE), 'fallback_slots': 2,
                'fallback_wait_seconds': 0.0, 'max_wait_seconds': 0},
     'repos': [],
@@ -76,8 +85,8 @@ def _expand(value):
 def normalise(raw):
     config = {'worker': dict(DEFAULTS['worker']), 'client': dict(DEFAULTS['client']),
               'backend': dict(DEFAULTS['backend']), 'local': dict(DEFAULTS['local']),
-              'repos': []}
-    for section in ('worker', 'client', 'backend', 'local'):
+              'notify': dict(DEFAULTS['notify']), 'repos': []}
+    for section in ('worker', 'client', 'backend', 'local', 'notify'):
         block = raw.get(section, {})
         if not isinstance(block, dict):
             raise ConfigError('[%s] must be a table' % section)
