@@ -9,6 +9,13 @@ that already costs minutes.
 Exit fidelity matters more than the log.  A signal death is reproduced as a
 signal death, not as exit 128+n, so a caller's `$?` and any `trap` behave as if
 the shim were not there.
+
+A placement override (`PANDORA_WHERE`) on a command nobody claims is ignored --
+there is no lane to put it in -- but it is written down, because an agent that
+keeps asking for a placement Pandora cannot give is something `pandora stats`
+should show. The POSIX shim sends a light command here only when the variable
+is set, with `--reason override-ignored`, so the "local, not routed" table
+still counts heavy commands only.
 """
 import argparse
 import os
@@ -17,7 +24,8 @@ import subprocess
 import sys
 import time
 
-from . import fallback
+from ..exits import USAGE
+from . import fallback, placement
 
 
 def main(argv=None):
@@ -25,9 +33,15 @@ def main(argv=None):
     parser.add_argument('--real', required=True)
     parser.add_argument('--repo', default='')
     parser.add_argument('--state', default=None)
+    parser.add_argument('--reason', default='unclaimed')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
+    try:
+        where = placement.parse(os.environ.get(placement.ENV))
+    except ValueError as error:
+        sys.stderr.write('pandora: %s\n' % error)
+        return USAGE
     state = args.state or os.environ.get('PANDORA_STATE')
     environment = dict(os.environ, PANDORA_ROUTE_DEPTH='1')
     started = time.time()
@@ -42,12 +56,12 @@ def main(argv=None):
     status = child.wait()
     if state:
         try:
-            fallback.record(state, {'ts': started, 'kind': 'passthrough',
-                                    'reason': 'unclaimed',
-                                    'argv': command, 'cwd': os.getcwd(),
-                                    'repo': args.repo,
-                                    'duration_ms': int((time.time() - started) * 1000),
-                                    'exit': status})
+            entry = {'ts': started, 'kind': 'passthrough', 'reason': args.reason,
+                     'argv': command, 'cwd': os.getcwd(), 'repo': args.repo,
+                     'duration_ms': int((time.time() - started) * 1000), 'exit': status}
+            if where:
+                entry['override'] = where
+            fallback.record(state, entry)
         except OSError:
             pass
     if status < 0:                        # died by signal: die the same way

@@ -15,6 +15,8 @@ INVARIANTS
      124  `--max-wait` elapsed; the run was NOT stopped
      130  cancelled
   * `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
+    `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
+    the queue and the stats; 64 if the job cannot run there, never a fallback.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
     `pandora: hint: ...`: the next action, derived from evidence.
 
@@ -144,6 +146,7 @@ def cmd_run(args):
     return shim.main(['--sock', str(state / 'client.sock'),
                       '--real', args.real or os.environ.get('PANDORA_REAL_PNPM', 'pnpm'),
                       '--state', str(state)] + (['--detach'] if args.detach else [])
+                     + (['--where', args.where] if args.where else [])
                      + ['--', *command])
 
 
@@ -333,6 +336,10 @@ def render_result(run_id, result):
         run_id, result.get('outcome'), result.get('cli_exit'),
         float(result.get('wall_seconds') or 0), result.get('lane') or 'remote',
         ', peak %s MiB' % result['peak_mib'] if result.get('peak_mib') is not None else '')]
+    placed = result.get('placement') or {}
+    if placed.get('overridden'):
+        lines.append('  placed %s by override; the job says %s'
+                     % (placed.get('where'), placed.get('declared')))
     if result.get('input_id'):
         lines.append('  input %s%s' % (result['input_id'],
                                        ' (same as %s)' % result['same_input_as']
@@ -420,6 +427,11 @@ def main(argv=None):
     run.add_argument('--real', default=None)
     run.add_argument('--detach', action='store_true',
                      help='print the run id once accepted and return')
+    side = run.add_mutually_exclusive_group()
+    side.add_argument('--local', dest='where', action='store_const', const='local',
+                      help='run it in the local lane, whatever the job says')
+    side.add_argument('--remote', dest='where', action='store_const', const='remote',
+                      help='run it on the worker, whatever the job says')
     run.add_argument('argv', nargs=argparse.REMAINDER)
     run.set_defaults(func=cmd_run)
 

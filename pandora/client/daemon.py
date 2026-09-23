@@ -34,7 +34,7 @@ from ..config import loader
 from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refused,
                       SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
 from ..exits import INFRA, STALE
-from . import enrolment, fallback as policy, hints, settings, stats as statistics
+from . import enrolment, fallback as policy, hints, placement, settings, stats as statistics
 from .health import Monitor
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
@@ -137,7 +137,8 @@ class Run:
                    'started': self.started, 'accepted': self.accepted,
                    'queue_ms': (None if self.accepted is None
                                 else int((self.accepted - self.started) * 1000)),
-                   'hint': self.hint, 'updated': now()}
+                   'hint': self.hint, 'updated': now(),
+                   'placement': self.request.get('placement')}
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -196,6 +197,8 @@ class Run:
         self.result = result
         if isinstance(result, dict) and result.get('hint') is None and self.hint:
             result['hint'] = self.hint
+        if isinstance(result, dict) and self.request.get('placement'):
+            result.setdefault('placement', self.request['placement'])
         if result is not None:
             (self.dir / 'result.json').write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
         self.save()
@@ -557,8 +560,18 @@ class Daemon:
             self.tell(conn, 'running from the worktree root; you typed this in %s and no '
                             'argument names a path' % verdict['rerooted'])
 
-        if job['where'] == 'local':
-            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree)
+        # The job's `where`, or the caller's `--local`/`--remote`. A request the
+        # job cannot honour is refused here, before anything is frozen or queued.
+        try:
+            placed = placement.decide(job, plan, request.get('where'))
+        except Refused as error:
+            self.deny(conn, error.code, str(error), exit=error.exit)
+            return
+        plan = placed['plan']
+        request = dict(request, placement=placed['record'], reason=placed['reason'])
+        if placed['where'] == 'local':
+            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
+                             reason=placed['reason'])
             return
 
         if plan['options'].get('update'):
@@ -677,6 +690,14 @@ class Daemon:
         of starting twelve browser suites on one Mac -- which is the accident
         this whole path exists to make impossible.
         """
+        if (request.get('placement') or {}).get('override') == 'remote':
+            # The caller said where. Running it here instead would be the one
+            # answer they ruled out, so the fallback lane is not consulted.
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'placement-unavailable',
+                               'msg': '%s (%s): --remote was asked for, so this is not run on '
+                                      'this Mac. Retry, or drop the override.' % (cause, detail),
+                               'exit': INFRA}))
+            return
         verdict = policy.decide(cause=cause, size=plan['size'],
                                 writeback=bool(plan['options'].get('update'))
                                           or plan.get('writeback'),

@@ -11,7 +11,9 @@
 #   3. find the repo        walk up for .git; a worktree's .git is a FILE
 #   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
 #   5. claim                read the marker with the `read` builtin, no fork
-#   6. hand off             pandora.client.shim (claimed), passthrough (heavy), or exec
+#   6. hand off             pandora.client.shim (claimed), passthrough (heavy, or
+#                           unclaimed with PANDORA_WHERE set, so the ignored
+#                           override is counted), or exec
 #
 # Anything that goes wrong before the daemon says `accepted` ends in a local
 # exec with one line on stderr.  After `accepted`, the client never falls back.
@@ -132,7 +134,25 @@ PANDORA_REAL_PNPM=$real
 PANDORA_ROUTE_DEPTH=1
 export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
 python=${PANDORA_PYTHON:-python3}
-home=${PANDORA_HOME:-${home:-$selfdir/..}}
+# The package lives beside the *file* this shim is, which is not beside the
+# symlink on PATH that reached it. `pandora enrol` writes the answer into the
+# marker as `home`, so this walk -- one `readlink` fork per hop -- runs only for
+# a marker that has none, and never on the non-enrolled path above.
+if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
+    target=$self
+    case $target in */*) ;; *) target=./$target ;; esac
+    hops=0
+    while [ -L "$target" ] && [ "$hops" -lt 40 ]; do
+        link=$(readlink "$target") || break
+        case $link in
+            /*) target=$link ;;
+            *) target=${target%/*}/$link ;;
+        esac
+        hops=$((hops + 1))
+    done
+    home=${target%/*}/..
+fi
+home=${PANDORA_HOME:-$home}
 
 if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
@@ -147,5 +167,14 @@ if [ "$heavy" = 1 ] && [ -n "$sock" ]; then
     export PYTHONPATH
     exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" -- "$@"
+fi
+# A placement override on a command nobody claims has nowhere to go, so it is
+# ignored -- and written down, because an agent asking for a placement Pandora
+# cannot give is worth seeing in `pandora stats`. Only when the variable is set.
+if [ -n "$PANDORA_WHERE" ] && [ -n "$sock" ]; then
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        --state "${sock%/*}" --reason override-ignored -- "$@"
 fi
 exec "$real" "$@"
