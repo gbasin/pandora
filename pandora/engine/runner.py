@@ -31,7 +31,7 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_for
 from .scheduler import Scheduler, gate
-from . import admission, turbocache
+from . import admission, turbocache, writeback
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
@@ -137,6 +137,10 @@ def supervise(root, run_id, *, driver=None):
     instance = None
     outcome, layer, exit_code, evidence = 'infra_failed', 'engine', None, {}
     peak_mib, receipt_dict = 0, None
+    # None when the plan arms no write-back; otherwise always a record, so a
+    # client can tell "proposed nothing" from "was never asked to".
+    proposal = (writeback.incomplete('the run did not pass, so it proposes nothing', None)
+                if writeback.patterns_of(plan['outputs']) else None)
 
     def mark(name):
         nonlocal marks
@@ -240,6 +244,18 @@ def supervise(root, run_id, *, driver=None):
         ledger.update(run_id, state='collecting', peak_mib=peak_mib)
         collected = collect(driver, instance, plan['outputs'], paths.outputs(run_id))
         evidence['collected'] = collected
+        if outcome == 'passed' and exit_code == 0:
+            # Only a passing run proposes anything: a failed `--update` wrote
+            # fixtures for a run that did not reach its verdict.
+            # A proposal that cannot be made is a fact about the write-back,
+            # not about the tests, so it never turns the verdict into a failure.
+            try:
+                proposal = writeback.collect(
+                    lambda root, into: pull(driver, instance, root, into),
+                    row['source_path'], attempt, plan['outputs']) or proposal
+            except OSError as error:
+                proposal = writeback.incomplete('the proposal could not be collected: %s'
+                                                % error, writeback.INFRA_EXIT)
         mark('collect')
     except (PrepareFailed, CloneFailed, ExecutionFailed, InstanceLost) as error:
         outcome, layer = 'infra_failed', 'executor'
@@ -272,9 +288,14 @@ def supervise(root, run_id, *, driver=None):
 
     if outcome == 'passed' and exit_code != 0:
         outcome, layer = 'command_failed', 'command'
+    if proposal is not None and outcome != 'passed':
+        # A destroy that did not come back clean turned a pass into a failure
+        # after the proposal was made. The proposal goes with the pass.
+        proposal = writeback.incomplete('the run did not pass, so it proposes nothing', None)
     result_json = write_result(paths, ledger, run_id, outcome=outcome, layer=layer,
                                exit_code=exit_code, peak_mib=peak_mib,
-                               durations=durations, evidence=evidence, receipt=receipt_dict)
+                               durations=durations, evidence=evidence, receipt=receipt_dict,
+                               extra={'writeback': proposal} if proposal is not None else None)
     with gate(paths.root):
         store = admission.Store(str(paths.peaks))
         try:
@@ -334,6 +355,23 @@ def collect(driver, instance, outputs, into):
         subprocess.run(['chmod', '-R', 'u+rwX', str(into)],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     return got
+
+
+def pull(driver, instance, relative, into):
+    """`/work/<relative>` out of an instance into `into`, owned by this user.
+
+    False when the instance had nothing there. The ownership fix is the same one
+    `collect` needs, for the same reason: `incus file pull` runs under sudo.
+    """
+    guest = '/work/' + relative.lstrip('/') if relative else '/work'
+    code, _, _ = driver.incus('file', 'pull', '-r', instance.name + guest, str(into),
+                              check=False, timeout=900)
+    if code == 0:
+        subprocess.run(['sudo', 'chown', '-R', '%d:%d' % (os.getuid(), os.getgid()), str(into)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(['chmod', '-R', 'u+rwX', str(into)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    return code == 0
 
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,

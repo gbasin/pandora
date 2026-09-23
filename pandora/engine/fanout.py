@@ -40,7 +40,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import admission, runner
+from . import admission, runner, writeback
 from . import shards as sharding
 from .ledger import Ledger, row_to_dict
 from .scheduler import Scheduler, gate
@@ -75,6 +75,7 @@ def supervise_parent(root, run_id, *, driver=None):
 
     ledger.update(run_id, state='running')
     tails = {}
+    children = None
     planned, plan_result, reports = None, None, {}
     outcome, layer, exit_code = 'infra_failed', 'engine', None
     try:
@@ -131,18 +132,45 @@ def supervise_parent(root, run_id, *, driver=None):
         log.close()
 
     durations['total'] = round(time.monotonic() - started, 2)
+    extra = {'role': 'parent', 'shards': evidence.get('shards', []),
+             'verification': evidence.get('verification'),
+             'collisions': evidence.get('collisions', [])}
+    if writeback.patterns_of(plan['outputs']):
+        extra['writeback'] = propose(paths, plan, run_id, children, outcome, evidence)
+        if not extra['writeback']['complete'] and outcome == 'passed':
+            note('write-back: ' + extra['writeback']['why'])
     result = runner.write_result(
         paths, ledger, run_id, outcome=outcome, layer=layer, exit_code=exit_code,
         peak_mib=evidence.get('peak_mib', 0), durations=durations, evidence=evidence,
-        receipt={'clean': True, 'note': 'a parent owns no instance'},
-        extra={'role': 'parent', 'shards': evidence.get('shards', []),
-               'verification': evidence.get('verification'),
-               'collisions': evidence.get('collisions', [])})
+        receipt={'clean': True, 'note': 'a parent owns no instance'}, extra=extra)
     if evidence.get('collisions') and result['cli_exit'] == 0:
         result['cli_exit'] = COLLISION_EXIT
         paths.result(run_id).write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
     ledger.close()
     return result
+
+
+def propose(paths, plan, run_id, children, outcome, evidence):
+    """The fan-out's one write-back proposal, or a record of why there is none.
+
+    All or nothing. A catalog `--update` whose shard 3 failed has correct
+    fixtures for shards 1, 2 and 4, and publishing them would leave the tree
+    describing a suite that half-ran -- which is v0.1.1's "partial failed suites
+    do not update fixtures", kept.
+    """
+    if outcome != 'passed' or not children:
+        bad = [str(row['shard']) for row in evidence.get('shards') or []
+               if row['outcome'] != 'passed']
+        why = ('shard %s did not pass' % ', '.join(bad) if bad
+               else 'the fan-out did not pass')
+        if evidence.get('not_dispatched'):
+            why += '; shard %s never ran' % ', '.join(str(i) for i in evidence['not_dispatched'])
+        return writeback.incomplete(why + ', so no shard\'s files were written back', None)
+    shards = {index: ((children['results'].get(index) or {}).get('writeback'),
+                      paths.attempt(child) / writeback.PROPOSAL)
+              for index, child in children['runs'].items()}
+    return writeback.merge(plan['source_path'], shards,
+                           paths.attempt(run_id) / writeback.PROPOSAL)
 
 
 class _Stop(Exception):
