@@ -39,6 +39,10 @@ extra_message = "{job} runs as one complete suite and takes no selectors."
 # decided by its size class -- `small` and `medium` go to the local lane,
 # `large` does not -- and a job that wants a different answer says so below.
 
+# `CI = "true"` is the environment the remote jobs were measured under. Every
+# local job below unsets it: eichler reads CI as "services are external", which
+# makes `dev:stack` expect a stack it was asked to start, and `--update` refuse
+# to write.
 [env]
 set = { CI = "true", WRANGLER_SEND_METRICS = "false" }
 passthrough = ["TZ"]
@@ -199,7 +203,7 @@ cancel = { signal = "SIGINT", grace_ms = 5000 }
 # eichler's planner is the only thing that knows a node test file from a flag,
 # and it answers in milliseconds without an install.
 validate = { argv = ["node", "tools/validate.mjs", "plan", "node", "{args}"], timeout_ms = 5000 }
-run = { argv = ["pnpm", "validate", "node", "{args}"], env = { EICHLER_QUEUE = "direct" } }
+run = { argv = ["pnpm", "validate", "node", "{args}"], unset = ["CI"], env = { EICHLER_QUEUE = "direct" } }
 
 [[jobs]]
 id = "unit"
@@ -210,7 +214,7 @@ args = "optional"
 timeout_minutes = 30
 forms = [{ prefix = ["test:unit"] }, { prefix = ["unit"] }]
 validate = { argv = ["node", "tools/validate.mjs", "plan", "unit", "{args}"], timeout_ms = 5000 }
-run = { argv = ["pnpm", "validate", "unit", "{args}"], env = { EICHLER_QUEUE = "direct" } }
+run = { argv = ["pnpm", "validate", "unit", "{args}"], unset = ["CI"], env = { EICHLER_QUEUE = "direct" } }
 # The cleanup markers, declared rather than discovered. This is the answer to
 # "should the local lane set EICHLER_VALIDATION_DIRECTORY": no. A job that
 # writes a marker says where it writes it, and the receipt records whether it
@@ -236,4 +240,4 @@ forms = [{ prefix = ["dev:stack"] }]
 cancel = { signal = "SIGINT", grace_ms = 60000 }
 drift = "off"
 reject = [{ args = ["status", "logs", "stop", "prune"], message = "The stack is a pandora run now: `pandora ps` lists it, `pandora logs <id>` follows it, `pandora cancel <id>` stops it with its own teardown." }]
-run = { argv = ["node", "tools/stack/stack.mjs", "--foreground", "{args}"] }
+run = { argv = ["node", "tools/stack/stack.mjs", "--foreground", "{args}"], unset = ["CI"] }
