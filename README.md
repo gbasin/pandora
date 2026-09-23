@@ -540,7 +540,15 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 |---|---|---|---|
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `queue-timeout`, `admission-refused`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
 | `daemon-unreachable` (connection never established) | local run under the `fallback_slots` budget | refuse, 70 | refuse, 70 |
+| the `submit` call fails and the engine cannot then be asked whether it started the run | 70 | 70 | 70 |
 | any failure after `accepted` | 70 | 70 | 70 |
+
+A failed `submit` call is not a refusal: the engine may have started the run
+and lost only the reply. The daemon asks the engine once, by request id. A run
+the engine started is attached to as if `accepted` had arrived. A request the
+engine never saw is fenced, so a late copy cannot start, and falls back as
+above. A worker that cannot be asked ends the run with exit 70 and the message
+"execution is uncertain; check `pandora ps` before retrying".
 
 A job's `fallback = "local"` or `"refuse"` overrides the size column. The local
 lane is the same queue, memory admission and receipt as any local job, recorded

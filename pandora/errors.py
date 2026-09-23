@@ -42,6 +42,17 @@ class EngineError(PandoraError):
     """The worker answered, but the engine refused or failed the request."""
 
 
+class ExecutionUncertain(PandoraError):
+    """The submit call failed and the engine could not be asked what it did.
+
+    Not a `WorkerUnreachable`: that one means provably nothing ran, and earns a
+    fallback. This one means the engine may have claimed the request and started
+    the command before the reply was lost, so running it here as well could run
+    it twice. Deliberately outside both fallback classes, so no `except` written
+    for them can catch it by accident.
+    """
+
+
 class StaleRun(EngineError):
     """The named run is not in the ledger, or belongs to a different request."""
 

@@ -10,7 +10,10 @@ load-bearing:
 3. **freeze** -- the worktree becomes a manifest, and the manifest digest is the
    input id;
 4. **ship** -- one rsync into the worker's per-repo source cache;
-5. **submit** -- the engine admits it and names a run;
+5. **submit** -- the engine admits it and names a run. A reply lost on the way
+   back is not a refusal: the engine is asked by request id what it did
+   (`Worker.recover`), and a worker that cannot be asked is `ExecutionUncertain`,
+   which never falls back;
 6. only now does the daemon say `accepted` to the client, because only now has
    the worker acknowledged anything. Everything above this line is provably
    non-executing, so a failure at any of those steps may still fall back to a
@@ -25,13 +28,15 @@ them owns it: the engine's supervisor does, and the only thing that stops it is
 """
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
 from ..config import classify as classifier
 from ..engine import bundle
 from ..engine import writeback as engine_writeback
-from ..errors import (EngineError, PandoraError, TransferError, WorkerUnreachable)
+from ..errors import (EngineError, ExecutionUncertain, PandoraError, TransferError,
+                      WorkerUnreachable)
 from ..snapshot import freeze as snapshot
 from ..snapshot import transfer
 from . import writeback as writebacks
@@ -140,7 +145,16 @@ class Worker:
         # so they travel beside the plan rather than inside it.
         request.update({key: value for key, value in (control or {}).items()
                         if key in ('want_shards', 'keep_going')})
-        answer = self.engine(['submit'], stdin=json.dumps(request), timeout=120)
+        # Resolved first, so a bundle that cannot be placed fails as what it is:
+        # before the engine has seen this request, and still a fallback.
+        self.bundle_path()
+        try:
+            answer = self.engine(['submit'], stdin=json.dumps(request), timeout=120)
+        except (WorkerUnreachable, EngineError, subprocess.TimeoutExpired) as error:
+            # The call itself failed, which is not the same as the engine
+            # refusing. It may have claimed and spawned the run and lost only the
+            # reply, so the answer is asked for again rather than assumed.
+            answer = self.recover(request_id, plan, error)
         marks['submit'] = round(time.monotonic() - mark, 2)
         if not answer.get('ok'):
             raise EngineError(json.dumps({'code': answer.get('code', 'rejected'),
@@ -153,6 +167,54 @@ class Worker:
                           writeback=(writebacks.context(manifest, plan, worktree=worktree,
                                                         input_id=input_id)
                                      if plan.get('writeback') else None))
+
+    def lookup(self, request_id, *, plan=None, fence=True):
+        """The engine's record of one request id (`service.cmd_lookup`)."""
+        argv = ['lookup', '--request-id', request_id]
+        if fence:
+            argv += ['--fence', '--repo', (plan or {}).get('repo') or '',
+                     '--job', (plan or {}).get('job') or '']
+        return self.engine(argv, timeout=60)
+
+    def recover(self, request_id, plan, error):
+        """Turn a failed `submit` call into a `submit` answer, or say it cannot.
+
+        Asked once, by the request id `submit` is idempotent on:
+
+        * the run was spawned -- the answer `submit` would have given, marked
+          `duplicate`, so the caller attaches exactly as if it had arrived;
+        * it was refused before anything ran -- that refusal, with its cause, so
+          the caller's fallback policy decides as it would have;
+        * the engine has no such request -- the original error, re-raised, and a
+          fallback is permitted as before. The lookup fenced the id, so a submit
+          still in flight on the worker cannot start it afterwards;
+        * the engine cannot be asked, or answers anything else --
+          `ExecutionUncertain`. Never a fallback: the command may be running.
+        """
+        try:
+            found = self.lookup(request_id, plan=plan)
+        except (PandoraError, subprocess.TimeoutExpired, OSError) as again:
+            raise ExecutionUncertain(
+                'submit failed (%s) and the engine could not be asked whether it started '
+                'the run (%s)' % (error, again)) from error
+        if not found.get('ok'):
+            raise ExecutionUncertain('submit failed (%s); the engine answered the lookup '
+                                     'with %s' % (error, found)) from error
+        if not found.get('found'):
+            if isinstance(error, PandoraError):
+                raise error
+            raise WorkerUnreachable('submit timed out after %ss' % error.timeout) from error
+        if found.get('spawned'):
+            return {'ok': True, 'duplicate': True, 'run_id': found['run_id'],
+                    'state': found.get('state'), 'same_input_as': found.get('same_input_as'),
+                    'admission': found.get('admission') or {}, 'recovered': str(error)}
+        if found.get('state') == 'finished':
+            return {'ok': False, 'code': found.get('cause') or 'rejected',
+                    'admission': found.get('admission')}
+        # Claimed, not finished, and no supervisor recorded: `submit` died between
+        # the claim and the pid write, and whether `runner.spawn` ran is unknown.
+        raise ExecutionUncertain('submit failed (%s) with run %s claimed but not recorded '
+                                 'as started' % (error, found.get('run_id'))) from error
 
     def resubmit(self, run_id, *, request_id):
         """One more attempt at a finished `infra_failed` run, from the same input.

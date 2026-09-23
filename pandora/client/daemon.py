@@ -31,8 +31,9 @@ from pathlib import Path
 
 from ..config import classify as classifier
 from ..config import loader
-from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refused,
-                      SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
+from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, PandoraError,
+                      Refused, SnapshotError, TransferError, ValidationRejected,
+                      WorkerUnreachable)
 from ..engine import retry as retries
 from ..exits import INFRA, STALE
 from . import enrolment, fallback as policy, hints, placement, progress, settings
@@ -49,6 +50,10 @@ from .worker import Worker
 # `pong` so `pandora doctor` can tell a daemon started from one checkout from a
 # launcher that resolves to another.
 PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
+# What the caller is told when a submission may have started on the worker and
+# nobody can say. The next action, not a diagnosis: a blind retry could be the
+# second copy of a command that is already running.
+UNCERTAIN = 'execution is uncertain; check `pandora ps` before retrying'
 
 
 def now():
@@ -774,7 +779,9 @@ class Daemon:
         # Every way a submission can fail to proceed, through one door. Each of
         # them is provably non-executing -- that is what earns the fallback --
         # and each of them is decided by the same policy rather than by whatever
-        # the client happened to do with that error code.
+        # the client happened to do with that error code. The exception is
+        # `ExecutionUncertain`: the submit call failed and the engine could not
+        # be asked what it did (`Worker.recover`), so it never falls back.
         beat = Heartbeat(conn).start()
         try:
             try:
@@ -786,6 +793,17 @@ class Daemon:
                 # Stopped before any other frame is written: two threads never
                 # share the socket.
                 left = beat.stop()
+        except ExecutionUncertain as error:
+            # The one pre-accept failure that is not provably non-executing: the
+            # submit call failed and the engine could not say whether it had
+            # already started the run. A fallback here is how one command runs
+            # twice, on the worker and on this Mac, so this ends the run instead.
+            self.health.recheck()
+            run.note(str(error))
+            run.finish(INFRA, state='infra_failed')
+            self.deny(conn, 'execution-uncertain',
+                      '%s; %s' % (error, UNCERTAIN), exit=INFRA)
+            return
         except WorkerUnreachable as error:
             # Paid the timeout once; the next command should not. This asks the
             # question immediately rather than answering it: a worker that

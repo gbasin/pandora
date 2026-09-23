@@ -12,6 +12,7 @@ would make a 0.06 s clone unmeasurable.
 
     submit    admit (or refuse) a request and start its supervisor
     resubmit  one more attempt at a finished infra_failed attempt, same input
+    lookup    what became of one request id, for a client whose submit reply was lost
     status    one attempt's row
     logs      raw log bytes from an offset
     result    the finished result JSON
@@ -185,6 +186,55 @@ def resubmit(args, paths, ledger):
                      'source_path': row['source_path']})
     request = dict(request, request_id=args.request_id, retry_of=args.run)
     return submit(args, paths, ledger, request)
+
+
+def cmd_lookup(args):
+    """What became of one `request_id`, for a client that lost `submit`'s reply.
+
+    `submit` can claim the request and spawn its supervisor and then have its
+    answer lost on the way back (ssh exits 255, the reply is not JSON). The
+    client cannot tell that from a submission that never arrived, and guessing
+    "never arrived" runs the command twice: on the worker and on the Mac. So it
+    asks here, once, by the id it chose.
+
+    `spawned` is the fact the client acts on: a supervisor pid in the row means
+    the command may be running, so the client attaches. A row that finished with
+    no supervisor was refused before anything ran (`disk-floor`,
+    `admission-refused`), and its `cause` is the refusal the lost reply carried.
+
+    With `--fence`, an unknown id is claimed as a finished row before this
+    answers. A `submit` still in flight on the worker -- the ssh session gone,
+    its process not yet reaching `ledger.claim` -- then finds the id taken and
+    returns a duplicate instead of spawning, so "not found" stays true after the
+    client has acted on it. Taken under the admission gate, the same lock
+    `submit` claims under, so the two cannot interleave.
+    """
+    paths, ledger = open_ledger(args.root)
+    try:
+        with gate(paths.root):
+            row = ledger.by_request(args.request_id)
+            if row is None:
+                if args.fence:
+                    fence = 'f' + uuid.uuid4().hex[:15]
+                    ledger.claim(args.request_id, fence, repo=args.repo or '',
+                                 job=args.job or '', input_id='', source_path='', argv=[],
+                                 env={}, cwd='', outputs=[], size_class='')
+                    ledger.finish(fence, outcome='infra_failed', exit_code=None,
+                                  evidence={'cause': 'submit-lost', 'fence': True})
+                return emit({'ok': True, 'found': False, 'fenced': bool(args.fence),
+                             'request_id': args.request_id, 'engine': ENGINE_VERSION})
+        item = row_to_dict(row)
+        evidence = item.get('evidence') if isinstance(item.get('evidence'), dict) else {}
+        return emit({'ok': True, 'found': True, 'request_id': args.request_id,
+                     'run_id': item['run_id'], 'state': item['state'],
+                     'outcome': item['outcome'], 'spawned': bool(item['supervisor_pid']),
+                     'cause': evidence.get('cause'),
+                     'same_input_as': item['same_input_as'],
+                     'admission': {'reservation_mib': item['reservation_mib'],
+                                   'cpus_hint': item['cpus_hint']},
+                     'engine': ENGINE_VERSION})
+    finally:
+        ledger.close()
 
 
 def cmd_status(args):
@@ -437,6 +487,13 @@ def main(argv=None):
     resubmit.add_argument('--run', required=True)
     resubmit.add_argument('--request-id', required=True)
     resubmit.set_defaults(func=cmd_resubmit)
+    lookup = sub.add_parser('lookup')
+    lookup.add_argument('--request-id', required=True)
+    lookup.add_argument('--fence', action='store_true',
+                        help='claim an unknown id so a late submit of it cannot start')
+    lookup.add_argument('--repo', default=None)
+    lookup.add_argument('--job', default=None)
+    lookup.set_defaults(func=cmd_lookup)
     for name, function in (('status', cmd_status), ('result', cmd_result),
                            ('cancel', cmd_cancel), ('supervise', cmd_supervise)):
         node = sub.add_parser(name)
