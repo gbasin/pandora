@@ -34,6 +34,7 @@ class SubmitTest(unittest.TestCase):
             sent = {}
             backend = worker_module.Worker.__new__(worker_module.Worker)
             backend.link, backend._root = None, '/engine'
+            backend._bundle = {'path': '/engine/bundles/x'}   # submit resolves it first
 
             def engine(argv, stdin=None, timeout=None):
                 sent.update(json.loads(stdin))
