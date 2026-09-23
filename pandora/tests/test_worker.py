@@ -376,6 +376,46 @@ class PoolParsing(unittest.TestCase):
         self.assertIn('btrfs', calls[0])
 
 
+class QgroupSettling(unittest.TestCase):
+    """A quota is only as good as the accounting under it."""
+    CLEAN = '0/259  4263026688  37650432  none  none  containers/pandora_golden-a\n'
+    DIRTY = 'WARNING: qgroup data inconsistent, rescan recommended\n'
+
+    def settle(self, answers):
+        from pandora.executor import incus
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if 'rescan' in argv:
+                return 0, 'quota rescan started', ''
+            return 0, self.CLEAN, answers.pop(0) if answers else ''
+
+        original = incus.run
+        incus.run = fake_run
+        try:
+            driver = incus.IncusDriver.__new__(incus.IncusDriver)
+            driver.pool = 'pandorapool'
+            return driver.settle_qgroups(), calls
+        finally:
+            incus.run = original
+
+    def test_consistent_accounting_costs_one_read_and_no_rescan(self):
+        rescanned, calls = self.settle([''])
+        self.assertFalse(rescanned)
+        self.assertEqual(len(calls), 1)
+
+    def test_inconsistent_accounting_is_rescanned_before_a_limit_is_set(self):
+        rescanned, calls = self.settle([self.DIRTY, ''])
+        self.assertTrue(rescanned)
+        self.assertTrue(any('rescan' in argv and '-w' in argv for argv in calls))
+
+    def test_accounting_that_will_not_settle_refuses_the_quota(self):
+        from pandora.executor.interface import CloneFailed
+        with self.assertRaises(CloneFailed):
+            self.settle([self.DIRTY, self.DIRTY])
+
+
 class Naming(unittest.TestCase):
     def test_a_tagged_image_loses_only_its_tag(self):
         from pandora.executor.incus import untagged

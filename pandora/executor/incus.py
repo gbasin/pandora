@@ -485,6 +485,7 @@ rm -rf "$2"
         mid-way and leaves the instance unconfigurable. That is worth a legible
         refusal here rather than an unexplained one three commands later.
         """
+        self.settle_qgroups()
         referenced = self.qgroup(name)[0]
         if referenced and gib * (1 << 30) <= referenced:
             raise CloneFailed(
@@ -499,6 +500,34 @@ rm -rf "$2"
         if rc != 0:
             raise CloneFailed('disk quota %dGiB on %s: %s' % (gib, name, err.strip()[:200]))
         return gib
+
+    def settle_qgroups(self):
+        """Rescan the pool's qgroups when the kernel has stopped counting them.
+
+        Deleting a large subvolume (a golden) whose tree is at least
+        `qgroups/drop_subtree_threshold` levels deep (3 by default) makes the
+        kernel mark qgroups inconsistent and skip accounting until a rescan,
+        rather than trace the whole tree. Until then a clone's `referenced`
+        never grows, so its limit is set and never reached: the 2026-09-23
+        canary wrote 2 GiB into a 5 GiB quota over a 3.97 GiB golden. A limit
+        that silently does nothing is refused here instead of handed out.
+        """
+        def inconsistent():
+            rc, out, err = run(['sudo', 'btrfs', 'qgroup', 'show', '--raw', self.pool_mount()],
+                               check=False, timeout=120)
+            return 'inconsistent' in (out + err).lower()
+        if not inconsistent():
+            return False
+        rc, _, err = run(['sudo', 'btrfs', 'quota', 'rescan', '-w', self.pool_mount()],
+                         check=False, timeout=900)
+        if rc != 0:     # one already running: wait for that one instead
+            run(['sudo', 'btrfs', 'quota', 'rescan', '-W', self.pool_mount()],
+                check=False, timeout=900)
+        if inconsistent():
+            raise CloneFailed('btrfs qgroups on %s are inconsistent and a rescan did not '
+                              'settle them, so a disk quota would not be enforced: %s'
+                              % (self.pool, err.strip()[:200]))
+        return True
 
     def harden(self, instance, limits):
         """Write the cgroup arrangement the memory investigation settled on.
