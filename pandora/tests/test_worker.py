@@ -348,6 +348,21 @@ class Sweeps(unittest.TestCase):
         whys = {item['name']: item['why'] for item in receipt['kept']}
         self.assertIn('live attempt', whys[names[0]])
 
+    def test_a_queued_attempt_keeps_its_golden_too(self):
+        # Queued is live: the attempt is admitted-to-be and will clone this
+        # golden when a lane frees. Removing it then fails the run as
+        # prepare-failed, or rebuilds a golden for minutes.
+        specs = [self.rebuilt('a', version) for version in (1, 2)]
+        names = [self.name_of(spec) for spec in specs]
+        self.attempt('r0', 'eichler', 'queued', specs[0], 100.0)
+        self.attempt('r1', 'eichler', 'finished', specs[1], 200.0)
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
+                             for name in names])
+        receipt = gc.sweep(self.root, driver, keep=1)
+        self.assertEqual(driver.destroyed, [])
+        whys = {item['name']: item['why'] for item in receipt['kept']}
+        self.assertIn('live attempt', whys[names[0]])
+
     def test_dry_run_removes_nothing_and_still_says_what_it_would(self):
         specs = [self.rebuilt('a', version) for version in (1, 2, 3)]
         names = [self.name_of(spec) for spec in specs]

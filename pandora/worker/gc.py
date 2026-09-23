@@ -9,10 +9,10 @@ Three sweeps, in the order of how much they are trusted:
    destroy receipt already checks this per run; this catches the case where
    the receipt itself never ran.
 3. **old goldens** -- keep the `keep` most recently used per toolchain
-   family, plus every golden a live attempt still needs, every golden a
-   currently enrolled repository's `[worker]` table names (`protect`), and
-   every pinned golden. This is the only sweep with a policy in it, and it is
-   the only one `--dry-run` exists for.
+   family, plus every golden a live attempt still needs (queued ones too),
+   every golden a currently enrolled repository's `[worker]` table names
+   (`protect`), and every pinned golden. This is the only sweep with a policy
+   in it, and it is the only one `--dry-run` exists for.
 
 A toolchain family is `(repo, source_id)`: the `[worker]` table's own name for
 the tree it bakes in, which survives a node bump or a new package where the
@@ -168,7 +168,9 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
     if any(item['kind'] == 'golden' and item.get('removed') for item in removed):
         # Deleting a golden-sized subvolume makes the kernel mark qgroups
         # inconsistent rather than trace the tree; until a rescan, no clone's
-        # quota is enforced. Pay for the rescan here, once, not on the next run.
+        # quota is enforced. Ask for the rescan here, once, rather than leave it
+        # to the next run. Best-effort: `incus delete` returns before btrfs has
+        # freed the subvolume, so a rescan this soon can still count some of it.
         try:
             driver.settle_qgroups()
         except Exception as error:                                   # noqa: BLE001

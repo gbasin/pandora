@@ -11,6 +11,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from ..engine.ledger import LIVE
 from ..engine.runner import Paths, toolchain_of
 
 
@@ -97,10 +98,14 @@ def attempts(paths):
 
 
 def live_goldens(paths):
-    """Golden names a live attempt is still using, which GC may never remove."""
+    """Golden names a live attempt is still using, which GC may never remove.
+
+    The ledger's own `LIVE`, `queued` included: a queued attempt has not cloned
+    yet, which is exactly when removing its golden hurts.
+    """
     names = set()
     for run_id, row in attempts(paths).items():
-        if row['state'] not in ('claimed', 'admitted', 'running', 'collecting'):
+        if row['state'] not in LIVE:
             continue
         try:
             names.add('golden-' + toolchain_of(row['toolchain']).fingerprint())
