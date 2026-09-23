@@ -3,7 +3,10 @@ that is not on it fails on the worker, at first use, with an ImportError from a
 bundle directory nobody can edit. On 2026-09-22 `engine/writeback.py` was added
 to the engine and not to the list, and `pandora worker gc` was the first thing
 to notice. This test unpacks the bundle exactly as the worker's bootstrap does
-and imports the two entry points from it in a clean interpreter."""
+and imports the three entry points in `ENTRY_POINTS` from it in a clean
+interpreter. That proves their import-time closure only: a module imported
+lazily inside a function, and not by any entry point at import, is not
+checked here."""
 import base64
 import json
 import subprocess
@@ -18,7 +21,7 @@ ENTRY_POINTS = ('pandora.worker.service', 'pandora.engine.service', 'pandora.eng
 
 
 class Bundle(unittest.TestCase):
-    def test_every_module_the_engine_imports_is_shipped(self):
+    def test_every_module_the_entry_points_import_is_shipped(self):
         digest, text = bundle.payload()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

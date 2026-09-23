@@ -13,9 +13,10 @@ toolchain files it was handed, and on 2026-09-23 those were not the toolchain
 the enrolled configuration ran on. The files survive as an override for a
 worker nobody has enrolled against yet.
 
-Budget: under four minutes for the whole thing, which is why the surfaces check
-runs `--list` rather than a browser by default and why the memory hog is given a
-512 MiB ceiling it reaches in about six seconds. A gate nobody can afford to run
+Budget: under four minutes per target, and there is one target per distinct
+enrolled golden, so two toolchains cost up to eight. That is why the surfaces
+check runs `--list` rather than a browser by default and why the memory hog is
+given a 512 MiB ceiling it reaches in about six seconds. A gate nobody can afford to run
 is a gate nobody runs.
 
 Every check prints one row into the verdict: name, ok, detail, seconds. The

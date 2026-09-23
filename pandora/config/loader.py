@@ -564,7 +564,8 @@ def _canary(value, where):
     of the returned `worker` table because that table is the golden's identity:
     choosing a different journey to prove the machine with must not mint a new
     golden. Every key is optional. A missing `journey` or `surface` means that
-    check is not run, and the canary's verdict says so rather than passing it.
+    check is not run. The verdict carries a row saying so, marked ok, so the
+    omission is visible and does not fail the canary (`worker.enrolled`'s notes).
 
         journey      one journey id, spliced into the journey job's `run` argv
         surface      one surface id, given to the surface job's `validate`
