@@ -154,6 +154,9 @@ class Run:
         # `pandora stats` cannot derive from anything else afterwards.
         self.accepted = None
         self.hint = None
+        # The local run a remote row handed its request to, when a fallback
+        # admitted it. Without it a `fell_back` row is a dead end in `ps`.
+        self.fell_back_to = None
         self.shipped = frozenset()      # the snapshot's paths, for the gitignored hint
         # Every earlier attempt at this run, oldest first. Empty unless an
         # infrastructure failure was retried; the caller-visible id stays one.
@@ -181,6 +184,8 @@ class Run:
                    'hint': self.hint, 'attempts': self.attempts, 'phase': self.phase,
                    'pre_accept': self.pre_accept, 'updated': now(),
                    'placement': self.request.get('placement')}
+        if self.fell_back_to:
+            payload['fell_back_to'] = self.fell_back_to
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -774,6 +779,25 @@ class Daemon:
                   dict(request, repo=repo['name'], job=job['id'], worktree=worktree))
         run.state = 'queued'
         run.save()
+        try:
+            self.submit_remote(conn, reader, request, repo, job, plan, worktree, checked, run)
+        finally:
+            # Every way out before `accepted` must close the row it opened. A
+            # branch that forgot to -- or an exception nobody anticipated --
+            # would otherwise leave a `queued` line in `pandora ps` with no exit,
+            # forever, for a request that ended seconds ago (#86). Nothing was
+            # accepted, so this is an infrastructure failure, never a pass.
+            if run.state == 'queued':
+                run.note('the submission ended before `accepted` without a verdict')
+                run.finish(INFRA, state='infra_failed')
+
+    def submit_remote(self, conn, reader, request, repo, job, plan, worktree, checked, run):
+        """From a saved `queued` row to `accepted`, or to that row's final state.
+
+        `run` is finished on every path that returns before `accepted`: as
+        `refused`, `withdrawn`, `infra_failed`, or `fell_back` pointing at the
+        local run that took the request over.
+        """
         # The health poll's one job. Without it every command typed against a
         # worker that died at lunchtime pays the SSH connect timeout again --
         # 10 s of the 12.2 s the slice measured -- to rediscover the same fact.
@@ -782,7 +806,7 @@ class Daemon:
         if self.health.known_down():
             self.fall_back(conn, reader, request, repo, job, plan, worktree, 'worker-down',
                            self.health.state().get('reason') or 'the last health poll failed',
-                           checked)
+                           checked, origin=run)
             return
         # Every way a submission can fail to proceed, through one door. Each of
         # them is provably non-executing -- that is what earns the fallback --
@@ -819,15 +843,15 @@ class Daemon:
             # entitled to say otherwise.
             self.health.recheck()
             self.fall_back(conn, reader, request, repo, job, plan, worktree,
-                           'worker-unreachable', str(error), checked)
+                           'worker-unreachable', str(error), checked, origin=run)
             return
         except SnapshotError as error:
             self.fall_back(conn, reader, request, repo, job, plan, worktree,
-                           'snapshot-failed', str(error), checked)
+                           'snapshot-failed', str(error), checked, origin=run)
             return
         except TransferError as error:
             self.fall_back(conn, reader, request, repo, job, plan, worktree,
-                           'transfer-failed', str(error), checked)
+                           'transfer-failed', str(error), checked, origin=run)
             return
         except EngineError as error:
             cause = 'engine-error'
@@ -838,7 +862,7 @@ class Daemon:
             if named in policy.CAUSES:
                 cause = named
             self.fall_back(conn, reader, request, repo, job, plan, worktree,
-                           cause, str(error), checked)
+                           cause, str(error), checked, origin=run)
             return
 
         if left or not client_alive(conn):
@@ -880,7 +904,7 @@ class Daemon:
     # -- the one fallback path ---------------------------------------------
 
     def fall_back(self, conn, reader, request, repo, job, plan, worktree, cause, detail,
-                  checked=None):
+                  checked=None, origin=None):
         """A remote submission did not proceed. Decide once, then admit or refuse.
 
         There is no third option, and in particular there is no `exec`. A job
@@ -888,14 +912,24 @@ class Daemon:
         so twelve agents whose worker just died queue behind one budget instead
         of starting twelve browser suites on one Mac -- which is the accident
         this whole path exists to make impossible.
+
+        `origin` is the remote row this request opened. It ends here: `refused`
+        when nothing will run, or `fell_back` naming the local run once one
+        exists. The local run is the request's one counted row from then on.
         """
+        def refuse(message, code):
+            if origin is not None:
+                origin.note(message)
+                origin.finish(INFRA, state='refused')
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code,
+                               'msg': message, 'exit': INFRA}))
+
         if (request.get('placement') or {}).get('override') == 'remote':
             # The caller said where. Running it here instead would be the one
             # answer they ruled out, so the fallback lane is not consulted.
-            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'placement-unavailable',
-                               'msg': '%s (%s): --remote was asked for, so this is not run on '
-                                      'this Mac. Retry, or drop the override.' % (cause, detail),
-                               'exit': INFRA}))
+            refuse('%s (%s): --remote was asked for, so this is not run on '
+                   'this Mac. Retry, or drop the override.' % (cause, detail),
+                   'placement-unavailable')
             return
         verdict = policy.decide(cause=cause, size=plan['size'],
                                 writeback=bool(plan['options'].get('update'))
@@ -903,18 +937,23 @@ class Daemon:
                                 declared=job['fallback'],
                                 notice=(job['fallback'] or {}).get('notice'))
         if verdict['action'] == 'refuse':
-            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'fallback-refused',
-                               'msg': '%s (%s): %s' % (cause, detail, verdict['reason']),
-                               'exit': INFRA}))
+            refuse('%s (%s): %s' % (cause, detail, verdict['reason']), 'fallback-refused')
             return
-        self.tell(conn, '%s (%s); %s' % (cause, detail, verdict['reason']))
-        self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
-                         reason='fallback:' + cause, checked=checked)
+        try:
+            self.tell(conn, '%s (%s); %s' % (cause, detail, verdict['reason']))
+            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
+                             reason='fallback:' + cause, checked=checked, origin=origin)
+        finally:
+            if origin is not None and not origin.done.is_set():
+                # The local lane turned it away before opening a row of its own
+                # (busy, or the caller left): nothing runs anywhere.
+                origin.note('%s; the local lane did not take it over' % cause)
+                origin.finish(INFRA, state='refused')
 
     # -- the local path ----------------------------------------------------
 
     def serve_local(self, conn, reader, request, repo, job, plan, *, worktree=None,
-                    reason='', checked=None):
+                    reason='', checked=None, origin=None):
         """The same conversation as a routed run, with this Mac as the worker.
 
         Ordering is the whole contract. The repository's own validator, then the
@@ -950,6 +989,13 @@ class Daemon:
                   dict(request, repo=repo['name'], job=job['id'], reason=reason))
         run.lane = 'local'
         run.save()
+        if origin is not None:
+            # Closed the moment its successor exists, not when that successor
+            # ends: for the length of a local run there are otherwise two live
+            # rows for one request.
+            origin.fell_back_to = run.id
+            origin.note('fell back to local run %s (%s)' % (run.id, reason))
+            origin.finish(INFRA, state='fell_back')
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],

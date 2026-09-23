@@ -277,6 +277,77 @@ class OneFallbackPath(DaemonCase):
         self.assertFalse(self.marker.exists())
 
 
+class NoRowStaysQueued(DaemonCase):
+    """Issue #86: a submission that never reached `accepted` still ends its row.
+
+    The remote path saves a `queued` row before it submits. Every way out
+    before `accepted` must finish that row with a state that says what
+    happened, or `pandora ps` shows a queued run with no exit forever.
+    """
+
+    def metas(self):
+        return {meta['id']: meta for meta in
+                (json.loads(path.read_text())
+                 for path in (self.state / 'runs').glob('*/meta.json'))}
+
+    def test_an_admission_refusal_that_is_not_fallen_back_ends_refused(self):
+        FakeWorker.raises = EngineError(json.dumps({'code': 'admission-refused'}))
+        answer = self.call(['pnpm', 'surface'])
+        self.assertEqual(answer.error['code'], 'fallback-refused')
+        rows = list(self.metas().values())
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual((rows[0]['state'], rows[0]['exit_code']), ('refused', 70))
+
+    def test_an_admission_refusal_that_falls_back_names_the_local_run(self):
+        FakeWorker.raises = EngineError(json.dumps({'code': 'admission-refused'}))
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        local = answer.accepted['run']
+        rows = self.metas()
+        self.assertEqual(len(rows), 2, rows)
+        remote = next(row for row in rows.values() if row['id'] != local)
+        self.assertEqual(remote['state'], 'fell_back')
+        self.assertEqual(remote['fell_back_to'], local)
+        self.assertIsNotNone(remote['exit_code'])
+        self.assertEqual(rows[local]['lane'], 'local')
+        # Counted once, by the local run that carries the fallback reason.
+        from pandora.client import stats
+        report = stats.build(self.state)
+        self.assertEqual(report['runs'], 1)
+        self.assertEqual(report['fallbacks'], [{'reason': 'admission-refused', 'count': 1}])
+
+    def test_an_explicit_remote_request_ends_refused(self):
+        FakeWorker.raises = WorkerUnreachable('down')
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(30)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(self.repo),
+                           'argv': ['pnpm', 'unit'], 'env': {}, 'tty': False,
+                           'where': 'remote'}))
+        reader = Reader(sock)
+        while True:
+            frame = reader.line()
+            if frame is None or frame.get('t') == 'error':
+                break
+        sock.close()
+        self.assertEqual(frame['code'], 'placement-unavailable')
+        rows = list(self.metas().values())
+        self.assertEqual([row['state'] for row in rows], ['refused'])
+
+    def test_an_unexpected_error_before_accepted_ends_infra_failed(self):
+        FakeWorker.raises = RuntimeError('a bug nobody anticipated')
+        with mock.patch.object(daemon_module.Daemon, 'deny', lambda *a, **k: None):
+            self.call(['pnpm', 'unit'], timeout=10)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            rows = list(self.metas().values())
+            if rows and rows[0]['state'] != 'queued':
+                break
+            time.sleep(0.05)
+        self.assertEqual([(row['state'], row['exit_code']) for row in rows],
+                         [('infra_failed', 70)])
+
+
 class AfterAcceptedNeverFallsBack(DaemonCase):
     def test_a_worker_lost_after_acceptance_is_an_infrastructure_failure(self):
         # The line the whole design hangs on, pinned. Before `accepted` every

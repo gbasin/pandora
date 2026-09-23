@@ -78,6 +78,10 @@ def read_runs(state, since=None):
         meta = read_json(meta_path)
         if meta is None:
             continue
+        if meta.get('state') == 'fell_back':
+            # The remote half of a fallback. Its request is counted once, by the
+            # local run it names, which carries `reason: fallback:<cause>`.
+            continue
         if since is not None and (meta.get('started') or 0) < since:
             continue
         rows.append((meta, read_json(meta_path.parent / 'result.json') or {}))
