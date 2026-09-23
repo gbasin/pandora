@@ -1,0 +1,19 @@
+Reading additional input from stdin...
+OpenAI Codex v0.155.1
+--------
+workdir: /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a0c46d-9c21-7123-84cf-107ef3dac8a2
+--------
+user
+Reply with the single word OK. Run no commands.
+codex
+OK
+tokens used
+6,879
+OK

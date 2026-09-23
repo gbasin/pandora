@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample only.  This file is produced by the POC and is NOT loaded by it.
+  See install.md before loading it by hand.
+
+  Notes on the choices below:
+  * RunAtLoad + KeepAlive.SuccessfulExit=false restarts the daemon if it
+    crashes but not after a clean `launchctl unload`.
+  * ProcessType Background puts it in the throttled QoS tier, so it never
+    competes with a test suite for CPU.
+  * The daemon binds its own socket; no launchd Sockets key is used, because
+    socket activation would hand the shim a listener the daemon has not yet
+    finished stale-socket cleanup on.
+  * EnvironmentVariables carries only PANDORA_STATE.  PATH is deliberately not
+    set here: the daemon runs no PATH-resolved commands.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>me.pandora.clientd</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-B</string>
+    <string>/ABSOLUTE/PATH/TO/experiments/client/daemon.py</string>
+    <string>--state</string>
+    <string>/Users/REPLACE_ME/.local/state/pandora/default</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PANDORA_STATE</key>
+    <string>/Users/REPLACE_ME/.local/state/pandora/default</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE_ME/.local/state/pandora/default/daemon.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE_ME/.local/state/pandora/default/daemon.err.log</string>
+</dict>
+</plist>

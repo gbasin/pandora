@@ -1,0 +1,35 @@
+# The declaration `pandora worker provision --versions scripts/versions.toml`
+# applies. A `*` means "present, any version"; anything else is an exact dpkg
+# version and a near-miss is drift, not a match.
+#
+# Docker is deliberately absent. A run's dockerd lives inside its golden. A
+# dockerd on the host would be a second trust domain and a second image store
+# on the same disk.
+
+[packages]
+incus = "6.0.5-8"
+incus-client = "6.0.5-8"
+btrfs-progs = "*"
+git = "*"
+rsync = "*"
+python3 = "*"
+
+[worker]
+root = "~/pandora"              # worker state: manifest, ready state, receipts
+engine_root = "~/pandora-engine"
+project = "pandora"
+pool = "pandorapool"
+profile = "runner"
+bridge = "pandorabr0"
+subnet = "10.141.0.1/24"
+user = "ubuntu"
+
+# A real deploy sets `device` and none of the loop machinery runs:
+#   device = "/dev/sdb"
+device = ""
+loop_size_gib = 18
+
+disk_floor_gib = 4              # admission refuses new runs below this
+run_disk_gib = 12               # per-run root quota, enforced by the pool
+golden_keep = 2                 # goldens kept per toolchain family by `pandora worker gc`
+unattended_upgrades = false

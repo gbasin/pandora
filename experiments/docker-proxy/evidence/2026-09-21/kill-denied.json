@@ -1,0 +1,156 @@
+{
+  "at": "2026-09-21T16:23:40-0400",
+  "docker": "29.6.1 linux/arm64",
+  "load": [
+    11.76025390625,
+    6.8447265625,
+    5.5693359375
+  ],
+  "kill": {
+    "beforeKill": {
+      "containers": [
+        {
+          "name": "ike-validation-5ee67e4e-wsproxy-1",
+          "image": "ghcr.io/neondatabase/wsproxy:latest",
+          "label": "proof-k",
+          "state": "running"
+        },
+        {
+          "name": "ike-validation-5ee67e4e-pgbouncer-1",
+          "image": "edoburu/pgbouncer:latest",
+          "label": "proof-k",
+          "state": "running"
+        },
+        {
+          "name": "ike-validation-5ee67e4e-postgres-1",
+          "image": "postgres:16",
+          "label": "proof-k",
+          "state": "running"
+        }
+      ],
+      "networks": [
+        {
+          "name": "ike-validation-5ee67e4e_default",
+          "label": "proof-k"
+        }
+      ],
+      "volumes": [
+        {
+          "name": "ike-validation-5ee67e4e_postgres-data",
+          "label": "proof-k"
+        }
+      ]
+    },
+    "afterKill": {
+      "containers": [
+        {
+          "name": "ike-validation-5ee67e4e-wsproxy-1",
+          "image": "ghcr.io/neondatabase/wsproxy:latest",
+          "label": "proof-k",
+          "state": "running"
+        },
+        {
+          "name": "ike-validation-5ee67e4e-pgbouncer-1",
+          "image": "edoburu/pgbouncer:latest",
+          "label": "proof-k",
+          "state": "running"
+        },
+        {
+          "name": "ike-validation-5ee67e4e-postgres-1",
+          "image": "postgres:16",
+          "label": "proof-k",
+          "state": "running"
+        }
+      ],
+      "networks": [
+        {
+          "name": "ike-validation-5ee67e4e_default",
+          "label": "proof-k"
+        }
+      ],
+      "volumes": [
+        {
+          "name": "ike-validation-5ee67e4e_postgres-data",
+          "label": "proof-k"
+        }
+      ]
+    },
+    "receipt": {
+      "run": "proof-k",
+      "label": "pandora.run=proof-k",
+      "at": "2026-09-21T20:23:50+00:00",
+      "removed": {
+        "containers": [
+          {
+            "id": "f447bb096ee5829717f4af7343cdb983ecebed6cdc3624ddd8589b9cf3619d4f",
+            "name": "ike-validation-5ee67e4e-wsproxy-1",
+            "state": "running"
+          },
+          {
+            "id": "7b03725e443377f444c315c13a6489503a4a27d8ed135d35e45ffcfb0f1b4a2b",
+            "name": "ike-validation-5ee67e4e-pgbouncer-1",
+            "state": "running"
+          },
+          {
+            "id": "8295a26e8d3be15b5cbb08073eab9fd3c84e6892029999bfd1b882fff3d5726e",
+            "name": "ike-validation-5ee67e4e-postgres-1",
+            "state": "running"
+          }
+        ],
+        "networks": [
+          {
+            "id": "b9898323151bb98c4f86609ee81992472ab55f1210f6d625d4031c22c216a732",
+            "name": "ike-validation-5ee67e4e_default"
+          }
+        ],
+        "volumes": [
+          {
+            "id": "ike-validation-5ee67e4e_postgres-data",
+            "name": "ike-validation-5ee67e4e_postgres-data"
+          }
+        ]
+      },
+      "errors": [],
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "counts": {
+        "containers": 3,
+        "networks": 1,
+        "volumes": 1
+      },
+      "clean": true
+    },
+    "reportWritten": false
+  },
+  "denied": {
+    "command": "docker compose -f tools/stack/compose.yml -f compose.ephemeral.yml -f <host-network override> up -d",
+    "exitCode": 1,
+    "stderr": "Network proof-d-stack_default Creating \n Network proof-d-stack_default Created \n Volume proof-d-stack_postgres-data Creating \n Volume proof-d-stack_postgres-data Created \n Container proof-d-stack-postgres-1 Creating \n service:postgres:1 Error response from daemon: pandora-proxy: refused NetworkMode=host. A run shares the worker's network namespace with every other run; publish ports instead. \n Container proof-d-stack-pgbouncer-1 Creating \nError response from daemon: pandora-proxy: refused NetworkMode=host. A run shares the worker's network namespace with every other run; publish ports instead.",
+    "stdout": "",
+    "sweep": {
+      "run": "proof-d",
+      "label": "pandora.run=proof-d",
+      "at": "2026-09-21T20:23:52+00:00",
+      "removed": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "errors": [],
+      "remaining": {
+        "containers": [],
+        "networks": [],
+        "volumes": []
+      },
+      "counts": {
+        "containers": 0,
+        "networks": 0,
+        "volumes": 0
+      },
+      "clean": true
+    }
+  }
+}

@@ -1,0 +1,184 @@
+#!/bin/sh
+# Pandora pnpm shim.  POSIX sh, and the non-enrolled path forks nothing.
+#
+# Order matters.  Every check before the socket connect is a shell builtin, so
+# an invocation in a repository Pandora knows nothing about costs one `sh`
+# startup and one exec -- no git, no python, no file parsing.  Measured at
+# +4.8 ms p95 on the owner's Mac; the Python equivalent was +39 ms.
+#
+#   1. find the real pnpm   walk PATH, skip our own directory
+#   2. kill switches        PANDORA_OFF, PANDORA_ROUTE_DEPTH
+#   3. find the repo        walk up for .git; a worktree's .git is a FILE
+#   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
+#   5. claim                read the marker with the `read` builtin, no fork;
+#                           any claim length, any declared strip prefix
+#   6. hand off             pandora.client.shim (claimed), passthrough (heavy, or
+#                           unclaimed with PANDORA_WHERE set, so the ignored
+#                           override is counted), or exec
+#
+# Anything that goes wrong before the daemon says `accepted` ends in a local
+# exec with one line on stderr.  After `accepted`, the client never falls back.
+
+self=$0
+case $self in */*) selfdir=${self%/*} ;; *) selfdir=. ;; esac
+
+# --- 1. the real pnpm: next on PATH that is not this shim --------------------
+# The directory is compared as a string, which is cheap and which a symlinked
+# PATH entry can defeat.  PANDORA_SHIM_DIR lets an installer state the spelling
+# it used, and the depth counter below is the backstop if both are wrong.
+real=
+IFS=:
+for dir in $PATH; do
+    [ -n "$dir" ] || dir=.
+    [ "$dir" = "$selfdir" ] && continue
+    [ -n "$PANDORA_SHIM_DIR" ] && [ "$dir" = "$PANDORA_SHIM_DIR" ] && continue
+    if [ -x "$dir/pnpm" ] && [ ! -d "$dir/pnpm" ]; then real=$dir/pnpm; break; fi
+done
+unset IFS
+if [ -z "$real" ]; then
+    echo "pandora: no real pnpm on PATH behind the shim" >&2
+    exit 127
+fi
+
+# --- 2. kill switches --------------------------------------------------------
+# PANDORA_ROUTE_DEPTH is the recursion guard.  A repository's own scripts
+# re-enter this shim several times for one command (eichler's `pnpm check` is
+# three levels deep), so only the outermost invocation may route.  It is a
+# counter rather than a flag so that a shim that somehow finds itself is bounded
+# instead of looping.
+if [ -n "$PANDORA_OFF" ]; then
+    PANDORA_ROUTE_DEPTH=${PANDORA_ROUTE_DEPTH:-1}
+    export PANDORA_ROUTE_DEPTH
+    exec "$real" "$@"
+fi
+if [ -n "$PANDORA_ROUTE_DEPTH" ]; then
+    PANDORA_ROUTE_DEPTH=$((PANDORA_ROUTE_DEPTH + 1))
+    export PANDORA_ROUTE_DEPTH
+    if [ "$PANDORA_ROUTE_DEPTH" -gt 8 ]; then
+        echo "pandora: the shim re-entered itself 8 times; check PATH for a loop" >&2
+        exit 70
+    fi
+    exec "$real" "$@"
+fi
+
+# --- 3. repo root, without running git ---------------------------------------
+# `git rev-parse --git-common-dir` costs 16 ms p50 on this Mac, which is more
+# than the entire per-invocation budget.  This walk costs nothing measurable and
+# agreed with git on all 57 eichler worktrees.
+common=
+dir=$PWD
+while :; do
+    if [ -d "$dir/.git" ]; then common=$dir/.git; break; fi
+    if [ -f "$dir/.git" ]; then
+        # A linked worktree: ".git" holds "gitdir: <path>/.git/worktrees/<name>".
+        IFS= read -r pointer < "$dir/.git" || pointer=
+        case $pointer in
+            "gitdir: "*)
+                target=${pointer#gitdir: }
+                case $target in /*) ;; *) target=$dir/$target ;; esac
+                case $target in */worktrees/*) target=${target%/worktrees/*} ;; esac
+                common=$target
+                ;;
+        esac
+        break
+    fi
+    [ "$dir" = "/" ] && break
+    dir=${dir%/*}
+    [ -n "$dir" ] || dir=/
+done
+
+# --- 4. enrolment: one stat, and it covers every worktree of the repo --------
+if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
+    PANDORA_ROUTE_DEPTH=1; export PANDORA_ROUTE_DEPTH
+    exec "$real" "$@"
+fi
+
+# --- 5. claim, using the shell's own reader ----------------------------------
+# A claim is a token prefix of any length, and a strip line removes one declared
+# prefix of any length, at most once, in the order written -- exactly what
+# `classify.strip_prefixes` does.  Both are compared as strings: the argv joined
+# by single spaces must equal the claim or start with the claim and a space.
+# Token equality implies that, so the shim never misses a claim the daemon
+# would make; a token holding a space can make it claim one the daemon does not,
+# and the daemon then answers `passthrough`, which costs a Python start and no
+# more.  `pandora enrol` writes every strip line before any claim line, so one
+# pass strips first and matches after.  Both the argv as typed and the stripped
+# one are tried, because a claim may itself begin with a strip word.
+sock=
+home=
+claimed=0
+heavy=0
+IFS=' '
+whole="$*"
+unset IFS
+keyed=$whole
+while IFS=' ' read -r key rest; do
+    case $key in
+        sock) sock=$rest ;;
+        home) home=$rest ;;
+        strip)
+            case $keyed in
+                "$rest") keyed= ;;
+                "$rest "*) keyed=${keyed#"$rest "} ;;
+            esac
+            ;;
+        claim)
+            case $whole in "$rest"|"$rest "*) claimed=1 ;; esac
+            case $keyed in "$rest"|"$rest "*) claimed=1 ;; esac
+            ;;
+        heavy)
+            case $whole in "$rest"|"$rest "*) heavy=1 ;; esac
+            case $keyed in "$rest"|"$rest "*) heavy=1 ;; esac
+            ;;
+    esac
+done < "$common/pandora-enrolled"
+
+# --- 6. hand off -------------------------------------------------------------
+PANDORA_REAL_PNPM=$real
+PANDORA_ROUTE_DEPTH=1
+export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
+python=${PANDORA_PYTHON:-python3}
+# The package lives beside the *file* this shim is, which is not beside the
+# symlink on PATH that reached it. `pandora enrol` writes the answer into the
+# marker as `home`, so this walk -- one `readlink` fork per hop -- runs only for
+# a marker that has none, and never on the non-enrolled path above.
+if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
+    target=$self
+    case $target in */*) ;; *) target=./$target ;; esac
+    hops=0
+    while [ -L "$target" ] && [ "$hops" -lt 40 ]; do
+        link=$(readlink "$target") || break
+        case $link in
+            /*) target=$link ;;
+            *) target=${target%/*}/$link ;;
+        esac
+        hops=$((hops + 1))
+    done
+    home=${target%/*}/..
+fi
+home=${PANDORA_HOME:-$home}
+
+if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" -- "$@"
+fi
+# Unclaimed but heavy-looking: run it here, unchanged, and write down that it
+# happened, so `pandora stats` can say what routing did not take.  One Python
+# startup (~40 ms) on a command that costs minutes; light commands never pay it.
+if [ "$heavy" = 1 ] && [ -n "$sock" ]; then
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        --state "${sock%/*}" -- "$@"
+fi
+# A placement override on a command nobody claims has nowhere to go, so it is
+# ignored -- and written down, because an agent asking for a placement Pandora
+# cannot give is worth seeing in `pandora stats`. Only when the variable is set.
+if [ -n "$PANDORA_WHERE" ] && [ -n "$sock" ]; then
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        --state "${sock%/*}" --reason override-ignored -- "$@"
+fi
+exec "$real" "$@"

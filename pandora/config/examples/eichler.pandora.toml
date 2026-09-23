@@ -1,0 +1,253 @@
+# Eichler's routed boundary for the v0.2 slice.
+#
+# In v0.2 final this file lives at the eichler repository root, where the loader
+# looks first. For the slice it lives outside the repository -- copied to
+# ~/.config/pandora/repos/eichler.pandora.toml and named by the enrolment --
+# because the combined Eichler PR has not landed and the slice is not allowed to
+# open it.
+#
+# What is here and not in ci.yml: which argv forms Pandora claims, how big the
+# job is, which arguments the repository itself gets to veto before anything
+# queues, and which paths come home. What is deliberately absent: service
+# containers and the network pod. A run is a machine with its own dockerd, so
+# `journey-runner.mjs` boots eichler's own compose stack unmodified and there is
+# nothing for Pandora to wire.
+
+version = 1
+
+[repo]
+name = "eichler"
+entrypoints = ["pnpm"]
+root_markers = ["pnpm-workspace.yaml", "turbo.json"]
+
+[matching]
+strip_prefixes = [["run"], ["validate"]]
+# A claimed command typed in a subdirectory runs from the worktree root when no
+# argument names a path (`pnpm journey S0-01` means the same thing anywhere),
+# and is refused with `pandora: run from the repo root to route`, exit 64, when
+# one does -- re-rooting would change which file it names, and passing it
+# through would run a claimed command on this Mac unbounded.
+subdirectory = "reroot"
+
+[feedback]
+reject_suffix = "No validation started."
+extra_message = "{job} runs as one complete suite and takes no selectors."
+
+# There is no repository-wide `[fallback]` table on purpose. One here answers
+# for every job at once, and on 2026-09-22 that answer ran a 302-test browser
+# suite on this Mac because a submission was refused. A job that says nothing is
+# decided by its size class -- `small` and `medium` go to the local lane,
+# `large` does not -- and a job that wants a different answer says so below.
+
+# `CI = "true"` is the environment the remote jobs were measured under. Every
+# local job below unsets it: eichler reads CI as "services are external", which
+# makes `dev:stack` expect a stack it was asked to start, and `--update` refuse
+# to write.
+[env]
+set = { CI = "true", WRANGLER_SEND_METRICS = "false" }
+passthrough = ["TZ"]
+unset = []
+reject_if_set = []
+
+[secrets]
+exclude_globs = [".dev.vars", ".dev.vars.*", "**/.env", "**/.env.*", "**/*.pem", "**/.npmrc"]
+
+# What a golden instance for this repository contains. The fingerprint of this
+# table is the golden's name, so changing any line here mints a new golden
+# rather than silently reusing a stale one.
+[worker]
+base_image = "images:ubuntu/26.04"
+packages = ["docker.io", "docker-compose-v2", "docker-buildx", "ca-certificates",
+            "curl", "xz-utils", "git", "python3", "jq", "rsync"]
+node_version = "24.9.0"
+pnpm_version = "12.3.4"
+service_images = ["postgres:16", "edoburu/pgbouncer:latest",
+                  "ghcr.io/neondatabase/wsproxy:latest"]
+install_command = "pnpm install --frozen-lockfile 2>&1 | tail -2"
+source_id = "eichler-journey-runner-proxy"
+workdir = "/work"
+
+# What `pandora worker canary` proves in a clone of this golden. Not part of the
+# fingerprint: picking a different journey to prove the machine with does not
+# mint a new golden. `journey` is spliced into the `journey` job's `run` argv;
+# `compose` is brought up and down first, so a broken nested dockerd fails as
+# itself rather than as a journey. A repository with a `surface` job adds
+# `surface = "borrower-web"` (see eichler-surfaces.pandora.toml).
+[worker.canary]
+journey = "S0-01"
+compose = "tools/stack/compose.yml"
+
+[[jobs]]
+id = "journey"
+summary = "One service-backed journey"
+size = "large"
+args = "required"
+# A journey boots a compose stack. It is not run on this Mac when the worker
+# will not take it, whatever the reason; the size class would say so anyway and
+# this says it where a reader is looking.
+fallback = "refuse"
+# The stack needs time to come down. 240 s is what eichler's own planner asked
+# Pueue for, expressed here once for both lanes.
+cancel = { signal = "SIGTERM", grace_ms = 240000 }
+usage = "Use pnpm journey <id> [--fault dropped]; other journey options are not routed."
+timeout_minutes = 30
+forms = [{ prefix = ["journey"] }]
+value_flags = ["--fault"]
+reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY",
+                 "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
+# Asked in the worktree, in milliseconds, before anything is frozen or queued.
+# Exit 0 means "I would run this"; anything else is the repository's own refusal
+# and its stderr is the message the agent sees.
+validate = { argv = ["node", "tools/validation/journey-runner.mjs", "validate", "{args}"], timeout_ms = 4000 }
+run = { argv = ["node", "tools/validation/journey-runner.mjs", "run", "{args}"], unset = ["CI"], env = { JOURNEY_REPLAY = "cover" } }
+outputs = [
+  { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
+  { kind = "writeback", requires_option = "update", paths = [
+    "packages/scenarios/fixtures/*.ledger.jsonl",
+    "packages/scenarios/fixtures/write-routes.json",
+  ] },
+]
+
+# --- tier 1: the tooling suites --------------------------------------------
+#
+# Two jobs with no sharding, no plan step and no services: one instance, one
+# command, one exit code. They are here because they are what an agent actually
+# types, dozens of times a day, and because a tooling suite is the case the
+# 1-CPU quota of v0.1.1 got worst -- so they are also the measurement that says
+# whether CPU-by-weight fixed it. `notes/v0.2-check-profile-2026-09-22.md` has
+# the numbers and the reasoning behind each `where` below.
+
+[[jobs]]
+id = "check"
+summary = "The static checks CI runs"
+# Measured 2026-09-22 (notes/v0.2-check-profile-2026-09-22.md), caller wall:
+# remote 80 s cold, 20-24 s warm, 85 s after one edit in packages/domain; the
+# same on this Mac under its usual agent load: 317 s, 57 s, 251 s. Remote wins
+# every variant, and at load ~6 warm is a tie (21-22 s), so there is no load
+# at which `auto` would pick better -- and the pressure gate `auto` would ask
+# opens only at thrashing, not at "busy". `remote`.
+where = "remote"
+# `large` would keep it out of the local lane on fallback, and that is the wrong
+# answer for a suite whose whole job is to be run constantly: when the worker
+# cannot take it, running it here beats refusing it.
+size = "medium"
+args = "none"
+timeout_minutes = 45
+# `pnpm check` and `pnpm validate check` are one form: `[matching] strip_prefixes`
+# has already removed `validate` by the time a form is matched.
+#
+# KNOWN OVER-RUN, recorded rather than hidden: a job has one `run`, so all three
+# forms execute the full `check`. Asking for `check:docs` therefore also pays for
+# lint and typecheck. With a warm turbo cache that is ~10 s; cold it is the whole
+# suite. The fix is one loader change -- a per-form `run` override, or three jobs
+# sharing a validator -- and it is not in this slice.
+forms = [{ prefix = ["check"] }, { prefix = ["check:docs"] }, { prefix = ["check:code"] }]
+# The cheapest existing pre-check that rejects a bad suite name: eichler's own
+# planner, asked to plan rather than to run. Measured at 45-52 ms, and it exits
+# 1 with the repository's own message on an unknown suite. It reads no lockfile
+# and installs nothing, which is what makes it safe on the submission path.
+validate = { argv = ["node", "tools/validate.mjs", "plan", "check"], timeout_ms = 3000 }
+# `tools/validate.mjs` calls eichler's `fingerprint(root)` -- `git rev-parse
+# HEAD`, `git diff HEAD`, `git ls-files --others` -- and the docs checks read
+# `git ls-files`. A run's tree arrives without `.git` (eichler's history is
+# 1.8 GiB), so the worker builds a one-commit repository over it whose index is
+# this worktree's tracked set: untracked files stay untracked, so a scratch note
+# is not held to the markdown-status policy here when it is not held to it on
+# the Mac. ~3 s per run. `journey` needs none of this: it runs its runner
+# directly and never reaches `fingerprint`. notes/v0.2-check-profile-2026-09-22.md.
+git = "synthetic"
+run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
+# Turbo writes into its own cache while it runs, which is a tree change a
+# `drift = "fail"` machine would refuse. `warn` is the honest setting for a job
+# that edits nothing a verdict depends on.
+drift = "warn"
+
+[[jobs]]
+id = "native-unit"
+summary = "The Expo app's Jest units"
+# Measured 2026-09-22. No turbo cache to warm: one `jest --maxWorkers=2`, so
+# every remote run pays the same 54-56 s (45 s of it jest). This Mac under load:
+# 194 s with a cold jest cache, 109 s warm. `remote`.
+where = "remote"
+size = "medium"
+# The unfiltered form only. `pnpm test:native-unit <selectors>` is what AGENTS.md
+# tells an agent to use while iterating, and a focused Jest run is seconds of
+# this Mac against a whole worktree freeze and transfer -- so extra arguments
+# fall out of the claim rather than being rejected.
+args = "none"
+on_extra = { action = "local" }
+timeout_minutes = 30
+forms = [{ prefix = ["test:native-unit"] }, { prefix = ["native-unit"] }]
+validate = { argv = ["node", "tools/validate.mjs", "plan", "native-unit"], timeout_ms = 3000 }
+# `pnpm validate` fingerprints the tree through git, as for `check` above.
+git = "synthetic"
+run = { argv = ["pnpm", "validate", "native-unit"], env = { EICHLER_QUEUE = "direct" } }
+drift = "warn"
+
+# --- the local lane ---------------------------------------------------------
+#
+# Work that stays on this Mac but still has to be *scheduled*. `where = "local"`
+# hands it to the client daemon's own executor: the same queue, the same memory
+# admission, the same receipt, the same `pandora ps/wait/cancel/logs` and the
+# same exit-code contract as a routed job -- and no Pueue.
+#
+# Each of these runs eichler's existing validation planner with
+# `EICHLER_QUEUE=direct`, which is the planner's "you are already the scheduled
+# process" mode. Pandora owns the queue; eichler still owns what the suite is,
+# which selectors are legal, and its own source-fingerprint receipt.
+
+[[jobs]]
+id = "validate-node"
+summary = "Focused node --test files"
+where = "local"
+size = "small"
+args = "required"
+timeout_minutes = 20
+usage = "Use pnpm validate node <test-file.mjs> [...files]."
+forms = [{ prefix = ["node"] }]
+# Freezing 4,900 files twice costs more than this job does. The recommendation
+# for every `small` job: turn the drift check off and let the receipt say so.
+drift = "off"
+cancel = { signal = "SIGINT", grace_ms = 5000 }
+# eichler's planner is the only thing that knows a node test file from a flag,
+# and it answers in milliseconds without an install.
+validate = { argv = ["node", "tools/validate.mjs", "plan", "node", "{args}"], timeout_ms = 5000 }
+run = { argv = ["pnpm", "validate", "node", "{args}"], unset = ["CI"], env = { EICHLER_QUEUE = "direct" } }
+
+[[jobs]]
+id = "unit"
+summary = "Focused Vitest units"
+where = "local"
+size = "medium"
+args = "optional"
+timeout_minutes = 30
+forms = [{ prefix = ["test:unit"] }, { prefix = ["unit"] }]
+validate = { argv = ["node", "tools/validate.mjs", "plan", "unit", "{args}"], timeout_ms = 5000 }
+run = { argv = ["pnpm", "validate", "unit", "{args}"], unset = ["CI"], env = { EICHLER_QUEUE = "direct" } }
+# The cleanup markers, declared rather than discovered. This is the answer to
+# "should the local lane set EICHLER_VALIDATION_DIRECTORY": no. A job that
+# writes a marker says where it writes it, and the receipt records whether it
+# was there -- so an unclean run is a line in `pandora result`, not a directory
+# somebody has to know to look in.
+outputs = [{ kind = "evidence", paths = ["tmp/validation/*/cleanup-required",
+                                         "tmp/validation/*/result.json"] }]
+
+# The development stack is a *long-lived* local job: one per machine, alive
+# until someone cancels it. That is the whole of what `eichler-stacks` was,
+# expressed as `singleton` rather than as a Pueue group of one slot.
+[[jobs]]
+id = "dev-stack"
+summary = "The development stack, one per machine"
+where = "local"
+singleton = true
+size = "large"
+args = "optional"
+timeout_minutes = 1440
+forms = [{ prefix = ["dev:stack"] }]
+# Ports, containers and a database to release. It gets a minute, and SIGINT
+# because that is what its own teardown listens for.
+cancel = { signal = "SIGINT", grace_ms = 60000 }
+drift = "off"
+reject = [{ args = ["status", "logs", "stop", "prune"], message = "The stack is a pandora run now: `pandora ps` lists it, `pandora logs <id>` follows it, `pandora cancel <id>` stops it with its own teardown." }]
+run = { argv = ["node", "tools/stack/stack.mjs", "--foreground", "{args}"], unset = ["CI"] }

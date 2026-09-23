@@ -1,0 +1,263 @@
+# Eichler's routed validation boundary, expressed as repo-owned data.
+#
+# Everything the repository already states in .github/workflows/ci.yml is
+# inherited by reference (`ci_job`), not restated: service containers, job-level
+# env, the shard pattern, timeouts and artifact paths.  What remains here is the
+# part CI has no opinion about: which argv forms Pandora claims, how big the job
+# is, which floating CI tags are pinned for a reproducible worker, and which
+# files an --update run may write back.
+#
+# Lines marked SEAM depend on a small change inside eichler; each one is listed
+# in notes/repo-config-contract-draft.md with a file reference.
+
+version = 1
+
+ci_workflow = ".github/workflows/ci.yml"
+# CI names its service containers after the software; Pandora's worker sizes
+# them by role.  This is the only mapping between the two vocabularies.
+ci_service_roles = { postgres = "db", pgbouncer = "pool", wsproxy = "proxy" }
+
+# CI re-pulls a floating tag every run; a warm-image worker must not.  Pinning
+# here, rather than restating the image, keeps the argument about which digest
+# to run in the repository that owns the answer.
+[pins]
+"postgres:16" = "postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6"
+"edoburu/pgbouncer:latest" = "edoburu/pgbouncer@sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd"
+"ghcr.io/neondatabase/wsproxy:latest" = "ghcr.io/neondatabase/wsproxy@sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb"
+
+[repo]
+name = "eichler"
+entrypoints = ["pnpm"]
+root_markers = ["pnpm-workspace.yaml", "turbo.json"]
+
+[matching]
+strip_prefixes = [["run"]]
+subdirectory = "reroot"
+
+[feedback]
+reject_suffix = "No validation started."
+extra_message = "{job} currently runs as one complete suite and takes no selectors."
+
+[fallback]
+action = "local"
+on = ["worker-unreachable", "queue-timeout"]
+notice = "Remote worker unavailable; running this command locally instead. Expect it to be slower and to use this machine's CPU."
+
+[runtime]
+# node 24 matches ci.yml's setup-node pin; `lint` checks that it still does.
+base_image = "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6"
+platform = "linux/amd64"
+setup = [
+  "apt-get update && apt-get install -y --no-install-recommends git python3 && rm -rf /var/lib/apt/lists/*",
+  "npm install --global pnpm@12.3.4 @playwright/test@1.62.1",
+  "playwright install --with-deps chromium webkit",
+]
+env = { PLAYWRIGHT_BROWSERS_PATH = "/opt/playwright" }
+workdir = "/workspace"
+user = "node"
+
+[prepare]
+argv = ["pnpm", "install", "--frozen-lockfile"]
+cache_key_paths = [
+  "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json",
+  "apps/*/package.json", "packages/*/package.json", "patches/**", ".npmrc",
+]
+check_argv = ["node", "tools/check-worktree-deps.mjs"]
+
+[env]
+set = { CI = "true", WRANGLER_SEND_METRICS = "false" }
+passthrough = ["TZ"]
+unset = []
+reject_if_set = []
+
+[secrets]
+exclude_globs = [".dev.vars", ".dev.vars.*", "**/.env", "**/.env.*", "**/*.pem", "**/.npmrc"]
+
+# --------------------------------------------------------------------------
+# Whole-suite jobs.  SEAM-1: GITHUB_ACTIONS=true is today's only way to reach
+# tools/validate.mjs's direct-exec path (tools/validate.mjs:85).
+# --------------------------------------------------------------------------
+
+[[jobs]]
+id = "unit"
+summary = "Whole Vitest unit suite"
+forms = [{ prefix = ["test:unit"] }, { prefix = ["validate", "unit"] }]
+on_extra = { action = "local" }
+run = { argv = ["node", "tools/validate.mjs", "unit"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+[[jobs]]
+id = "tools"
+summary = "Broad tooling test list"
+size = "small"
+forms = [
+  { prefix = ["test:tools"], on_extra = { action = "reject", message = "pnpm test:tools runs the broad suite; use pnpm validate tools <test files> for focused local validation." } },
+  { prefix = ["validate", "tools"], on_extra = { action = "local" } },
+]
+run = { argv = ["node", "tools/validate.mjs", "tools"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+[[jobs]]
+id = "full"
+summary = "Full validation suite"
+size = "large"
+forms = [{ prefix = ["test"] }, { prefix = ["validate", "full"] }]
+run = { argv = ["node", "tools/validate.mjs", "full"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+[[jobs]]
+id = "agent-web"
+summary = "Expo web browser suite"
+forms = [{ prefix = ["validate", "agent-web"] }]
+run = { argv = ["node", "tools/validate.mjs", "agent-web"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["apps/agent/test-results", "tmp/validation"] }]
+
+[[jobs]]
+id = "employee-browser"
+summary = "Employee browser suite"
+forms = [{ prefix = ["test:employee-browser"] }, { prefix = ["validate", "employee-browser"] }]
+run = { argv = ["node", "tools/validate.mjs", "employee-browser"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["test-results/employee-browser", "apps/agent/test-results"] }]
+
+[[jobs]]
+id = "mockup-browser"
+summary = "Mockup browser suite"
+forms = [{ prefix = ["test:mockup-browser"] }, { prefix = ["validate", "mockup-browser"] }]
+run = { argv = ["node", "tools/validate.mjs", "mockup-browser"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["apps/mockup/test-results"] }]
+
+[[jobs]]
+id = "check"
+summary = "Lint, format, typecheck and docs gates"
+size = "small"
+forms = [{ prefix = ["check"] }, { prefix = ["validate", "check"] }]
+run = { argv = ["node", "tools/validate.mjs", "check"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+[[jobs]]
+id = "native-unit"
+summary = "Jest unit tests for the native apps"
+size = "small"
+forms = [{ prefix = ["test:native-unit"] }, { prefix = ["validate", "native-unit"] }]
+on_extra = { action = "local" }
+run = { argv = ["node", "tools/validate.mjs", "native-unit"], env = { GITHUB_ACTIONS = "true" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+# --------------------------------------------------------------------------
+# Jobs that inherit their world from ci.yml.
+# --------------------------------------------------------------------------
+
+[[jobs]]
+id = "browser-integration"
+summary = "Browser integration suite"
+# CI runs this job with no service containers: tools/browser-integration/run.mjs
+# boots the compose stack inside the job.  Pandora supplies them instead
+# (SEAM-2), so it borrows the catalog job's stack and overrides the two facts
+# that belong to its own CI job.
+ci_job = "journeys"
+shards = { default = 1, min = 1, max = 1 }
+timeout_minutes = 15
+forms = [{ prefix = ["test:browser-integration"] }, { prefix = ["validate", "browser-integration"] }]
+run = { argv = ["node", "tools/validate.mjs", "browser-integration"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+outputs = [{ kind = "artifacts", paths = ["test-results/browser-integration"] }]
+
+[[jobs]]
+id = "postgres"
+summary = "PostgreSQL invariants"
+# Inherits postgres + wsproxy, their env, health options and ports, the
+# DATABASE_OWNER_URL the job runs with, and timeout-minutes: 15.
+ci_job = "postgres"
+args = "required"
+usage = "Use pnpm test:postgres <api|scenarios> [--foundation-only for api]."
+forms = [{ prefix = ["test:postgres"] }, { prefix = ["validate", "postgres"] }]
+run = { argv = ["node", "tools/validate.mjs", "postgres", "{args}"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
+
+[[jobs]]
+id = "journey"
+summary = "One service-backed journey"
+# The focused journey has no CI job of its own; it borrows the catalog job's
+# world.  Pinned to one shard, so it inherits the services and env but not the
+# shard marker.
+ci_job = "journeys"
+shards = { default = 1, min = 1, max = 1 }
+args = "required"
+usage = "Use pnpm journey <id> [--fault dropped] [--update]; other journey options are not routed."
+reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+forms = [{ prefix = ["journey"] }, { prefix = ["validate", "journey"] }]
+options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
+value_flags = ["--fault"]
+# SEAM-5: a repo-owned runner both CI and Pandora call, so execution logic stops
+# living in Pandora's validation.mjs.
+run = { argv = ["node", "tools/pandora-run.mjs", "journey", "{args}"], unset = ["CI"], env = { IKE_STACK_EXTERNAL = "1" } }
+outputs = [
+  { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
+  { kind = "writeback", requires_option = "update", paths = [
+    "packages/scenarios/fixtures/*.ledger.jsonl",
+    "packages/scenarios/fixtures/write-routes.json",
+  ] },
+]
+
+[[jobs]]
+id = "journeys"
+summary = "Sharded journey catalog"
+# Inherits three services, four env vars, the matrix shard pattern
+# (JOURNEY_SHARD='${{ matrix.shard }}') and timeout-minutes: 60.  The worker
+# picks its own N with the same pattern.
+ci_job = "journeys"
+shards = { default = 4, min = 1, max = 32 }
+usage = "Use pnpm journeys [--update] [--keep-going]."
+reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+forms = [{ prefix = ["journeys"] }, { prefix = ["validate", "journeys"] }]
+options = [
+  { name = "--update", sets = "update", forward = true, writeback = true },
+  { name = "--keep-going", sets = "keep_going" },
+]
+run = { argv = ["node", "tools/pandora-run.mjs", "journeys"], unset = ["CI"], env = { IKE_STACK_EXTERNAL = "1", JOURNEY_CONCURRENCY = "1", JOURNEY_REPLAY = "cover" } }
+# Declared, not inherited: CI's upload-artifact path list starts with
+# /tmp/ike-stack.log, which is outside the snapshot the worker returns.
+outputs = [
+  { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
+  { kind = "writeback", requires_option = "update", paths = [
+    "packages/scenarios/fixtures/*.ledger.jsonl",
+    "packages/scenarios/fixtures/write-routes.json",
+  ] },
+]
+
+# --------------------------------------------------------------------------
+# Browser surfaces: build once, fan out Playwright shards over that build.
+# SEAM-3/SEAM-4 (build:e2e, plan:e2e) are unchanged from the first draft.
+# Not imported: ci.yml's surfaces matrix crosses the shard axis with an `app`
+# axis that an agent chooses, so the workflow cannot supply the shard fact on
+# its own.  `lint` keeps the rest honest.
+# --------------------------------------------------------------------------
+
+[[jobs]]
+id = "surface"
+summary = "Sharded browser surface suite"
+size = "large"
+ci_lint = { job = "surfaces", matrix_params = ["app"], except = ["shards.total"] }
+args = "required"
+usage = "Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going]."
+forms = [{ prefix = ["test:surface"] }, { prefix = ["validate", "surface"] }]
+options = [{ name = "--keep-going", sets = "keep_going" }]
+value_flags = ["--grep"]
+reject = [{ args = ["--ui", "--update-snapshots", "--debug"], message = "Playwright's interactive modes cannot run on the worker; run them locally." }]
+timeout_minutes = 30
+run = { argv = ["node", "tools/pandora-run.mjs", "surface", "{args}"] }
+outputs = [
+  { kind = "generated", paths = ["apps/*/dist", "apps/*/e2e/dist"] },
+  { kind = "artifacts", paths = ["apps/*/test-results", "apps/*/playwright-report"] },
+]
+
+[jobs.shards]
+strategy = "argv"
+default = 4
+min = 1
+max = 32
+argv_append = ["--shard={shard.index}/{shard.total}"]
+
+[jobs.shards.plan]
+run = { argv = ["node", "tools/pandora-run.mjs", "surface-plan", "{args}"] }
+emits = "apps/e2e-dist/pandora-inventory.json"
+services = []

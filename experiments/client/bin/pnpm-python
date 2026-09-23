@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""The same shim written in Python, kept only to measure what sh buys us.
+
+Identical decisions, identical outputs.  It is not the shipping shim: see
+``notes/client-daemon-poc-2026-09-21.md`` for the measured gap.
+"""
+import os
+from pathlib import Path
+import sys
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+import enrolment
+
+
+def real_pnpm(selfdir):
+    for entry in os.environ.get('PATH', '').split(os.pathsep):
+        entry = entry or '.'
+        if os.path.realpath(entry) == selfdir:
+            continue
+        candidate = os.path.join(entry, 'pnpm')
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def main():
+    argv = sys.argv[1:]
+    real = real_pnpm(str(HERE))
+    if real is None:
+        sys.stderr.write('pandora: no real pnpm on PATH behind the shim\n')
+        return 127
+    environment = dict(os.environ, PANDORA_ROUTE_DEPTH='1')
+    if os.environ.get('PANDORA_OFF') or os.environ.get('PANDORA_ROUTE_DEPTH'):
+        os.execve(real, [real, *argv], environment)
+    common, marker = enrolment.marker_for(os.getcwd())
+    if marker is None:
+        os.execve(real, [real, *argv], environment)
+    if enrolment.claimed(argv, marker):
+        os.execve(sys.executable, [sys.executable, '-B', str(HERE.parent / 'client.py'),
+                                   '--sock', marker['sock'], '--real', real, '--', *argv],
+                  environment)
+    if enrolment.heavy(argv, marker):
+        os.execve(sys.executable, [sys.executable, '-B', str(HERE.parent / 'passthrough.py'),
+                                   '--real', real, '--repo', common,
+                                   '--state', str(Path(marker['sock']).parent), '--', *argv],
+                  environment)
+    os.execve(real, [real, *argv], environment)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

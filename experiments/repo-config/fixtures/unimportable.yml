@@ -1,0 +1,91 @@
+# One job per thing the importer refuses.  Each is a shape a real CI maintainer
+# may reach for; none of them is an error in GitHub Actions.
+name: CI
+on: [push]
+
+jobs:
+  in-container:
+    runs-on: ubuntu-latest
+    container: node:24-bookworm
+    steps:
+      - run: pnpm test
+
+  reusable:
+    uses: ./.github/workflows/shared-journeys.yml
+    with:
+      shards: 4
+
+  private-registry:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: ghcr.io/ike/postgres:16
+        credentials:
+          username: ci
+          password: token
+    steps:
+      - run: pnpm test:postgres api
+
+  bind-mount:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        volumes:
+          - /var/lib/ci-postgres:/var/lib/postgresql/data
+    steps:
+      - run: pnpm test:postgres api
+
+  github-expression:
+    runs-on: ubuntu-latest
+    env:
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - run: pnpm journeys
+
+  hidden-shard:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: ['1/4', '2/4', '3/4', '4/4']
+    steps:
+      # The shard moved into a composite action, so the workflow no longer
+      # states how it reaches the command.
+      - uses: ./.github/actions/run-journeys
+        with:
+          shard: ${{ matrix.shard }}
+
+  ragged-shard:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: ['1/4', '2/4']
+    steps:
+      - run: JOURNEY_SHARD='${{ matrix.shard }}' pnpm journeys
+
+  exotic-option:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        options: >-
+          --health-cmd "pg_isready" --cpus 2 --health-interval 5s
+    steps:
+      - run: pnpm test:postgres api
+
+  odd-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact@v7
+        with:
+          name: evidence
+          path: results/
+          tags: nightly
+
+  floating-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm test

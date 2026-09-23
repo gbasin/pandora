@@ -1,0 +1,184 @@
+Reading additional input from stdin...
+OpenAI Codex v0.155.1
+--------
+workdir: /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: low
+reasoning summaries: none
+session id: 01a0c46c-270a-75b2-80a6-3830ffda0d54
+--------
+user
+Run exactly this command once, with no edits and no retries, then print its complete stdout verbatim in your final message:
+
+bash /Users/garybasin/Code/pandora-wt/codex-sandbox-probe/experiments/codex-sandbox/probe.sh
+
+Do not summarise, do not fix any failing line, do not run anything else. Failures are the expected data.
+warning: Under-development features enabled: default_mode_request_user_input. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /Users/garybasin/.codex/config.toml.
+codex
+I’ll run the command once and return its stdout verbatim.
+
+exec
+/bin/zsh -lc 'bash /Users/garybasin/Code/pandora-wt/codex-sandbox-probe/experiments/codex-sandbox/probe.sh' in /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+ succeeded in 5469ms:
+===PANDORA_PROBE_BEGIN===
+RESULT PROBE_VERSION          4
+RESULT UNAME                  Darwin 25.2.0 arm64
+RESULT WHOAMI                 garybasin
+RESULT CWD                    /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+RESULT TMPDIR_VALUE           /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T/
+RESULT NET_TCP_LOCALHOST      PASS rc=0 PANDORA_SERVER_OK|
+RESULT NET_DNS_EXAMPLE        PASS rc=0 2606:4700:10::ac42:93f3|
+RESULT NET_HTTPS_EXAMPLE      PASS rc=0 200|
+RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.|host localhost|
+RESULT SSH_LOCALHOST_EXEC     PASS rc=0 SSH_EXEC_OK|
+RESULT SSH_CM_WORKTREE        PASS rc=0 CM_OK|
+RESULT SSH_CM_ADDDIR          PASS rc=0 CM_OK|
+RESULT SSH_CM_TMPDIR          PASS rc=0 CM_OK|
+RESULT BIND_WORKTREE          PASS rc=0 bound /Users/garybasin/Code/pandora-wt/codex-sandbox-probe/experiments/codex-sandbox/run/bind-wt.sock|
+RESULT BIND_ADDDIR            PASS rc=0 bound /Users/garybasin/.local/state/pandora-probe/adddir/bind-add.sock|
+RESULT BIND_NOTADDED          PASS rc=0 bound /Users/garybasin/.local/state/pandora-probe/notadded/bind-noadd.sock|
+RESULT BIND_DOT_SSH           PASS rc=0 bound /Users/garybasin/.ssh/pandora-probe-bind.sock|
+RESULT BIND_TMPDIR            PASS rc=0 bound /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T//pandora-probe-bind.sock|
+RESULT BIND_SLASH_TMP         PASS rc=0 bound /tmp/pandora-probe-bind.sock|
+RESULT UDS_CONNECT_WORKTREE   PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_ADDDIR     PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_SLASH_TMP  PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_STATE      PASS rc=0 PANDORA_SERVER_OK|
+RESULT FS_WRITE_WORKTREE      PASS rc=0 
+RESULT FS_WRITE_ADDDIR        PASS rc=0 
+RESULT FS_WRITE_NOTADDED      PASS rc=0 
+RESULT FS_WRITE_SLASH_TMP     PASS rc=0 
+RESULT FS_WRITE_TMPDIR        PASS rc=0 
+RESULT FS_WRITE_HOME          PASS rc=0 
+RESULT FS_HARDLINK_WT_TO_ADD  PASS rc=0 
+RESULT FS_RENAME_WT_TO_ADD    PASS rc=0 
+RESULT FS_RENAME_ADD_TO_WT    PASS rc=0 
+RESULT READ_SSH_CONFIG        PASS rc=0 
+RESULT READ_SSH_KEY           PASS rc=0 
+RESULT READ_KNOWN_HOSTS       PASS rc=0 
+RESULT PATH_FIRST3            /Users/garybasin/.local/bin /Users/garybasin/.local/state/fnm_multishells/74024_1790001828675/bin /opt/homebrew/bin 
+RESULT PATH_SHIM_FIRST        PARTIAL shim present but not first
+RESULT PATH_SHIM_RESOLVES     PASS rc=0 /Users/garybasin/.local/state/pandora-probe/shimbin/pandoraprobe-marker|PANDORA_SHIM_MARKER_OK|
+RESULT ENV_PANDORA_PROBE_VAR  probe-var-ok
+RESULT ENV_PANDORA_STATE      /Users/garybasin/.local/state/pandora-probe
+RESULT ENV_PANDORA_PROBE_TOKEN <present>probe-token-value
+RESULT ENV_PANDORA_PROBE_SECRET <present>probe-secret-value
+RESULT ENV_HOME               /Users/garybasin
+RESULT ENV_USER               garybasin
+RESULT ENV_LANG               en_US.UTF-8
+RESULT ENV_COUNT              76
+RESULT ENV_NAMES              _ __CF_USER_TEXT_ENCODING AI_AGENT BASH_DEFAULT_TIMEOUT_MS BUN_INSTALL CLAUDE_CODE_BRIDGE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN CLAUDE_CODE_NO_FLICKER CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_SESSION_ID CLAUDE_EFFORT CLAUDE_PID CLAUDE_PLUGIN_DATA CLAUDECODE CODEX_BIN CODEX_CI CODEX_COMPANION_SESSION
+RESULT TOOL_GIT               PASS rc=0 experiment/codex-sandbox|
+RESULT TOOL_RSYNC             PASS rc=0 /usr/bin/rsync|
+===PANDORA_PROBE_END===
+
+codex
+===PANDORA_PROBE_BEGIN===
+RESULT PROBE_VERSION          4
+RESULT UNAME                  Darwin 25.2.0 arm64
+RESULT WHOAMI                 garybasin
+RESULT CWD                    /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+RESULT TMPDIR_VALUE           /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T/
+RESULT NET_TCP_LOCALHOST      PASS rc=0 PANDORA_SERVER_OK|
+RESULT NET_DNS_EXAMPLE        PASS rc=0 2606:4700:10::ac42:93f3|
+RESULT NET_HTTPS_EXAMPLE      PASS rc=0 200|
+RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.|host localhost|
+RESULT SSH_LOCALHOST_EXEC     PASS rc=0 SSH_EXEC_OK|
+RESULT SSH_CM_WORKTREE        PASS rc=0 CM_OK|
+RESULT SSH_CM_ADDDIR          PASS rc=0 CM_OK|
+RESULT SSH_CM_TMPDIR          PASS rc=0 CM_OK|
+RESULT BIND_WORKTREE          PASS rc=0 bound /Users/garybasin/Code/pandora-wt/codex-sandbox-probe/experiments/codex-sandbox/run/bind-wt.sock|
+RESULT BIND_ADDDIR            PASS rc=0 bound /Users/garybasin/.local/state/pandora-probe/adddir/bind-add.sock|
+RESULT BIND_NOTADDED          PASS rc=0 bound /Users/garybasin/.local/state/pandora-probe/notadded/bind-noadd.sock|
+RESULT BIND_DOT_SSH           PASS rc=0 bound /Users/garybasin/.ssh/pandora-probe-bind.sock|
+RESULT BIND_TMPDIR            PASS rc=0 bound /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T//pandora-probe-bind.sock|
+RESULT BIND_SLASH_TMP         PASS rc=0 bound /tmp/pandora-probe-bind.sock|
+RESULT UDS_CONNECT_WORKTREE   PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_ADDDIR     PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_SLASH_TMP  PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_STATE      PASS rc=0 PANDORA_SERVER_OK|
+RESULT FS_WRITE_WORKTREE      PASS rc=0 
+RESULT FS_WRITE_ADDDIR        PASS rc=0 
+RESULT FS_WRITE_NOTADDED      PASS rc=0 
+RESULT FS_WRITE_SLASH_TMP     PASS rc=0 
+RESULT FS_WRITE_TMPDIR        PASS rc=0 
+RESULT FS_WRITE_HOME          PASS rc=0 
+RESULT FS_HARDLINK_WT_TO_ADD  PASS rc=0 
+RESULT FS_RENAME_WT_TO_ADD    PASS rc=0 
+RESULT FS_RENAME_ADD_TO_WT    PASS rc=0 
+RESULT READ_SSH_CONFIG        PASS rc=0 
+RESULT READ_SSH_KEY           PASS rc=0 
+RESULT READ_KNOWN_HOSTS       PASS rc=0 
+RESULT PATH_FIRST3            /Users/garybasin/.local/bin /Users/garybasin/.local/state/fnm_multishells/74024_1790001828675/bin /opt/homebrew/bin 
+RESULT PATH_SHIM_FIRST        PARTIAL shim present but not first
+RESULT PATH_SHIM_RESOLVES     PASS rc=0 /Users/garybasin/.local/state/pandora-probe/shimbin/pandoraprobe-marker|PANDORA_SHIM_MARKER_OK|
+RESULT ENV_PANDORA_PROBE_VAR  probe-var-ok
+RESULT ENV_PANDORA_STATE      /Users/garybasin/.local/state/pandora-probe
+RESULT ENV_PANDORA_PROBE_TOKEN <present>probe-token-value
+RESULT ENV_PANDORA_PROBE_SECRET <present>probe-secret-value
+RESULT ENV_HOME               /Users/garybasin
+RESULT ENV_USER               garybasin
+RESULT ENV_LANG               en_US.UTF-8
+RESULT ENV_COUNT              76
+RESULT ENV_NAMES              _ __CF_USER_TEXT_ENCODING AI_AGENT BASH_DEFAULT_TIMEOUT_MS BUN_INSTALL CLAUDE_CODE_BRIDGE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN CLAUDE_CODE_NO_FLICKER CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_SESSION_ID CLAUDE_EFFORT CLAUDE_PID CLAUDE_PLUGIN_DATA CLAUDECODE CODEX_BIN CODEX_CI CODEX_COMPANION_SESSION
+RESULT TOOL_GIT               PASS rc=0 experiment/codex-sandbox|
+RESULT TOOL_RSYNC             PASS rc=0 /usr/bin/rsync|
+===PANDORA_PROBE_END===
+
+tokens used
+21,211
+===PANDORA_PROBE_BEGIN===
+RESULT PROBE_VERSION          4
+RESULT UNAME                  Darwin 25.2.0 arm64
+RESULT WHOAMI                 garybasin
+RESULT CWD                    /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+RESULT TMPDIR_VALUE           /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T/
+RESULT NET_TCP_LOCALHOST      PASS rc=0 PANDORA_SERVER_OK|
+RESULT NET_DNS_EXAMPLE        PASS rc=0 2606:4700:10::ac42:93f3|
+RESULT NET_HTTPS_EXAMPLE      PASS rc=0 200|
+RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.|host localhost|
+RESULT SSH_LOCALHOST_EXEC     PASS rc=0 SSH_EXEC_OK|
+RESULT SSH_CM_WORKTREE        PASS rc=0 CM_OK|
+RESULT SSH_CM_ADDDIR          PASS rc=0 CM_OK|
+RESULT SSH_CM_TMPDIR          PASS rc=0 CM_OK|
+RESULT BIND_WORKTREE          PASS rc=0 bound /Users/garybasin/Code/pandora-wt/codex-sandbox-probe/experiments/codex-sandbox/run/bind-wt.sock|
+RESULT BIND_ADDDIR            PASS rc=0 bound /Users/garybasin/.local/state/pandora-probe/adddir/bind-add.sock|
+RESULT BIND_NOTADDED          PASS rc=0 bound /Users/garybasin/.local/state/pandora-probe/notadded/bind-noadd.sock|
+RESULT BIND_DOT_SSH           PASS rc=0 bound /Users/garybasin/.ssh/pandora-probe-bind.sock|
+RESULT BIND_TMPDIR            PASS rc=0 bound /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T//pandora-probe-bind.sock|
+RESULT BIND_SLASH_TMP         PASS rc=0 bound /tmp/pandora-probe-bind.sock|
+RESULT UDS_CONNECT_WORKTREE   PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_ADDDIR     PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_SLASH_TMP  PASS rc=0 PANDORA_SERVER_OK|
+RESULT UDS_CONNECT_STATE      PASS rc=0 PANDORA_SERVER_OK|
+RESULT FS_WRITE_WORKTREE      PASS rc=0 
+RESULT FS_WRITE_ADDDIR        PASS rc=0 
+RESULT FS_WRITE_NOTADDED      PASS rc=0 
+RESULT FS_WRITE_SLASH_TMP     PASS rc=0 
+RESULT FS_WRITE_TMPDIR        PASS rc=0 
+RESULT FS_WRITE_HOME          PASS rc=0 
+RESULT FS_HARDLINK_WT_TO_ADD  PASS rc=0 
+RESULT FS_RENAME_WT_TO_ADD    PASS rc=0 
+RESULT FS_RENAME_ADD_TO_WT    PASS rc=0 
+RESULT READ_SSH_CONFIG        PASS rc=0 
+RESULT READ_SSH_KEY           PASS rc=0 
+RESULT READ_KNOWN_HOSTS       PASS rc=0 
+RESULT PATH_FIRST3            /Users/garybasin/.local/bin /Users/garybasin/.local/state/fnm_multishells/74024_1790001828675/bin /opt/homebrew/bin 
+RESULT PATH_SHIM_FIRST        PARTIAL shim present but not first
+RESULT PATH_SHIM_RESOLVES     PASS rc=0 /Users/garybasin/.local/state/pandora-probe/shimbin/pandoraprobe-marker|PANDORA_SHIM_MARKER_OK|
+RESULT ENV_PANDORA_PROBE_VAR  probe-var-ok
+RESULT ENV_PANDORA_STATE      /Users/garybasin/.local/state/pandora-probe
+RESULT ENV_PANDORA_PROBE_TOKEN <present>probe-token-value
+RESULT ENV_PANDORA_PROBE_SECRET <present>probe-secret-value
+RESULT ENV_HOME               /Users/garybasin
+RESULT ENV_USER               garybasin
+RESULT ENV_LANG               en_US.UTF-8
+RESULT ENV_COUNT              76
+RESULT ENV_NAMES              _ __CF_USER_TEXT_ENCODING AI_AGENT BASH_DEFAULT_TIMEOUT_MS BUN_INSTALL CLAUDE_CODE_BRIDGE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN CLAUDE_CODE_NO_FLICKER CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_SESSION_ID CLAUDE_EFFORT CLAUDE_PID CLAUDE_PLUGIN_DATA CLAUDECODE CODEX_BIN CODEX_CI CODEX_COMPANION_SESSION
+RESULT TOOL_GIT               PASS rc=0 experiment/codex-sandbox|
+RESULT TOOL_RSYNC             PASS rc=0 /usr/bin/rsync|
+===PANDORA_PROBE_END===
+

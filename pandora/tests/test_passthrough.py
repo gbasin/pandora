@@ -1,0 +1,136 @@
+"""Unclaimed heavy-looking commands run unchanged here and leave one log line.
+
+Through the real POSIX shim, so the `heavy` marker key, the hand-off and the
+exit code are all the shipped ones.
+"""
+import json
+import os
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from pandora.client import enrolment
+
+HERE = Path(__file__).resolve().parents[2]
+SHELLS = ['sh'] + [shell for shell in ('/bin/dash', '/usr/bin/dash') if os.path.exists(shell)][:1]
+
+
+class HeavyForms(unittest.TestCase):
+    def test_a_claimed_form_is_never_also_heavy(self):
+        forms = enrolment.heavy_forms([['build'], ['journey']])
+        self.assertNotIn(['build'], forms)
+        self.assertIn(['lint'], forms)
+
+
+class ThroughTheShim(unittest.TestCase):
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        root = Path(home.name)
+        self.repo, self.state, fake = root / 'repo', root / 'state', root / 'fake'
+        for directory in (self.repo, self.state, fake):
+            directory.mkdir()
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\nexit 3\n')
+        (fake / 'pnpm').chmod(0o755)
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+            socket_path=str(self.state / 'client.sock'), repo='demo',
+            claims=[['journey']], heavy=enrolment.heavy_forms([['journey']]),
+            home=str(HERE)))
+        self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
+        for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH'):
+            self.env.pop(name, None)
+
+    def pnpm(self, *argv):
+        return subprocess.run(['sh', str(HERE / 'bin' / 'pnpm'), *argv], cwd=self.repo,
+                              env=self.env, capture_output=True, text=True, timeout=30)
+
+    def rows(self):
+        path = self.state / 'passthrough.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines()] \
+            if path.exists() else []
+
+    def test_a_heavy_command_runs_unchanged_and_is_logged(self):
+        proc = self.pnpm('build', '--filter', 'x')
+        self.assertEqual(proc.returncode, 3)
+        self.assertEqual(proc.stdout, 'real build --filter x\n')
+        self.assertEqual(proc.stderr, '')
+        [row] = self.rows()
+        self.assertEqual((row['kind'], row['reason'], row['argv'], row['exit']),
+                         ('passthrough', 'unclaimed', ['build', '--filter', 'x'], 3))
+        self.assertIn('duration_ms', row)
+
+    def test_a_light_command_is_not_logged(self):
+        self.assertEqual(self.pnpm('why', 'react').returncode, 3)
+        self.assertEqual(self.rows(), [])
+
+
+class ClaimShapes(unittest.TestCase):
+    """Every claim `enrol` can write reaches the client through the real shim.
+
+    The shim used to match only one- and two-token claims and understood only
+    `strip run`. Eichler strips `validate` as well, so `pnpm validate check` ran
+    here, unrouted, unqueued. The package the shim hands off to is a fake that
+    prints what it was given, so this tests the shell and nothing else.
+    """
+
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        root = Path(home.name)
+        self.repo, fake, package = root / 'repo', root / 'fake', root / 'package'
+        for directory in (self.repo, fake, package / 'pandora' / 'client'):
+            directory.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\n')
+        (fake / 'pnpm').chmod(0o755)
+        for name in ('pandora/__init__.py', 'pandora/client/__init__.py'):
+            (package / name).write_text('')
+        (package / 'pandora' / 'client' / 'shim.py').write_text(
+            'import sys\nprint("routed " + " ".join(sys.argv[sys.argv.index("--") + 1:]))\n')
+        claims = [['journey'], ['test:surface', 'desk'], ['surface', 'run', 'all']]
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+            socket_path=str(root / 'client.sock'), repo='demo', claims=claims,
+            heavy=enrolment.heavy_forms(claims), home=str(package),
+            strip_prefixes=[['run'], ['validate'], ['exec', 'turbo']]))
+        self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
+        for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_HOME', 'PANDORA_WHERE'):
+            self.env.pop(name, None)
+
+    def pnpm(self, *argv):
+        outputs = set()
+        # Every POSIX shell here, since the shim may run under either: macOS's
+        # `sh` is bash in POSIX mode, and dash is stricter where it exists.
+        for shell in SHELLS:
+            proc = subprocess.run([shell, str(HERE / 'bin' / 'pnpm'), *argv], cwd=self.repo,
+                                  env=self.env, capture_output=True, text=True, timeout=30)
+            outputs.add(proc.stdout.strip())
+        self.assertEqual(len(outputs), 1, outputs)
+        return outputs.pop()
+
+    def test_every_claim_and_strip_shape_is_routed(self):
+        for argv in (['journey', 'S0-01'], ['run', 'journey'], ['validate', 'journey', 'x'],
+                     ['run', 'validate', 'journey'], ['test:surface', 'desk', '--x'],
+                     ['validate', 'test:surface', 'desk'], ['surface', 'run', 'all'],
+                     ['run', 'surface', 'run', 'all', 'y'], ['exec', 'turbo', 'journey']):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.pnpm(*argv), 'routed ' + ' '.join(argv))
+
+    def test_near_misses_run_here_unchanged(self):
+        for argv in (['journeys'], ['test:surface'], ['test:surface', 'desks'],
+                     ['surface', 'run'], ['turbo', 'journey'], ['why', 'journey']):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.pnpm(*argv), 'real ' + ' '.join(argv))
+
+    def test_the_marker_lists_every_strip_before_any_claim(self):
+        # The shim strips as it reads, in one pass: it relies on this order.
+        text = enrolment.render(socket_path='/s', repo='demo', claims=[['a']],
+                                strip_prefixes=[['run'], ['validate']])
+        keys = [line.split()[0] for line in text.splitlines() if not line.startswith('#')]
+        self.assertLess(max(i for i, key in enumerate(keys) if key == 'strip'),
+                        min(i for i, key in enumerate(keys) if key == 'claim'))
+
+
+if __name__ == '__main__':
+    unittest.main()
