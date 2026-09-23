@@ -28,6 +28,7 @@ import shlex
 import time
 from pathlib import Path
 
+from ..engine import turbocache
 from ..engine.runner import Paths, toolchain_of
 from ..executor.incus import IncusDriver
 from ..executor.interface import DestroyIncomplete, Limits
@@ -176,7 +177,10 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
             checks.add('%s: %s' % (label, note), True, 'not a failure; nothing to run')
         if target.get('journey'):
             journey_check(driver, checks, clone, instances, label, toolchain, src,
-                          target['journey'], 'canary-journey' + suffix)
+                          target['journey'], 'canary-journey' + suffix,
+                          prepare_command=(target.get('toolchain') or {}).get(
+                              'prepare_command') or '',
+                          cache_root=paths.root / 'turbo-cache')
         if target.get('surface'):
             surface_check(driver, checks, clone, instances, label, toolchain, src,
                           target['surface'], 'canary-surfaces' + suffix)
@@ -250,8 +254,15 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
                                 for row in failures) or None}
 
 
-def journey_check(driver, checks, clone, instances, label, toolchain, source, spec, tag):
-    """Docker, the compose stack if one is named, and one real journey."""
+def journey_check(driver, checks, clone, instances, label, toolchain, source, spec, tag,
+                  prepare_command='', cache_root=None):
+    """Docker, the compose stack if one is named, and one real journey.
+
+    A `[worker]` table with a `prepare_command` gets it run first, exactly as
+    the runner runs it in every routed clone: `bash -c` in /work with the job's
+    environment plus the turbo cache's. A journey that passes only because the
+    canary skipped the step every real run depends on proves nothing (#88).
+    """
     # No explicit quota: this clone takes the worker's own per-run default,
     # which is the number a real run gets, so the canary proves that path.
     limits = Limits(memory_mib=3800, ceiling_mib=5120, cpus_hint=2, wall_seconds=600)
@@ -269,6 +280,22 @@ def journey_check(driver, checks, clone, instances, label, toolchain, source, sp
             'docker info --format "{{.Driver}} {{.CgroupVersion}}"',
             check=False, timeout=300)
         checks.add('nested dockerd up', 'overlay' in docker, docker.strip() or err.strip()[:160])
+        if prepare_command:
+            env = dict(spec.get('env') or {})
+            if cache_root is not None:
+                cache_env, _ = turbocache.env_for(cache_root, label)
+                for key, value in cache_env.items():
+                    env.setdefault(key, value)
+            prep = driver.execute(instance, ['bash', '-c', prepare_command], env=env,
+                                  cwd='/work', limits=limits)
+            if not checks.add('%s prepare_command in %ds' % (label, round(prep.seconds)),
+                              prep.outcome == 'ok' and prep.exit_code == 0,
+                              'outcome=%s exit=%s in %.1fs' % (prep.outcome, prep.exit_code,
+                                                               prep.seconds)):
+                # The journey would fail for the same reason, one row later and
+                # with less to say about why.
+                checks.add(*receipt_of(driver, instance, instances))
+                return
         compose = spec.get('compose')
         if compose:
             _, stack, _ = driver.sh(

@@ -246,6 +246,52 @@ class CanaryRun(unittest.TestCase):
         self.assertTrue(verdict['ok'], verdict['reason'])
         self.assertEqual(driver.prepared[0], str(tree))
 
+    def prepared_run(self, exit_code):
+        """A `[worker]` table with a prepare_command, against a built golden."""
+        self.config = copy.deepcopy(self.config)
+        self.config['worker']['prepare_command'] = 'pnpm -r build'
+
+        class Preparing(FakeDriver):
+            def execute(self, instance, argv, env=None, cwd=None, limits=None):
+                if instance.name == 'canary-journey' and argv[:2] == ['bash', '-c']:
+                    self.executed.append((instance.name, list(argv), dict(env or {}), cwd))
+                    return Result(exit_code=exit_code, outcome='ok' if exit_code == 0
+                                  else 'failed', seconds=3.2, usage=Usage())
+                return super().execute(instance, argv, env=env, cwd=cwd, limits=limits)
+        driver = Preparing(built={'golden-' + enrolled.fingerprint_of(self.config)})
+        return driver, canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+
+    def test_the_journey_clone_runs_prepare_command_first(self):
+        """#88: the canary proved a journey in a clone no routed run ever gets."""
+        driver, verdict = self.prepared_run(0)
+        self.assertTrue(verdict['ok'], verdict['reason'])
+        names = [item[0] for item in driver.executed]
+        self.assertEqual(names[:2], ['canary-journey', 'canary-journey'])
+        prep, journey = driver.executed[0], driver.executed[1]
+        self.assertEqual(prep[1], ['bash', '-c', 'pnpm -r build'])
+        self.assertEqual(prep[3], '/work')
+        self.assertEqual(prep[2]['JOURNEY_REPLAY'], 'cover', 'the job env, as the runner')
+        self.assertEqual(journey[1][-1], 'S0-01')
+        self.assertIn('eichler prepare_command in 3s',
+                      [row['check'] for row in verdict['checks']])
+
+    def test_a_failing_prepare_command_fails_the_canary(self):
+        driver, verdict = self.prepared_run(2)
+        self.assertFalse(verdict['ok'])
+        [row] = [row for row in verdict['checks'] if not row['ok']]
+        self.assertEqual(row['check'], 'eichler prepare_command in 3s')
+        self.assertIn('exit=2', row['detail'])
+        self.assertNotIn(['node', 'tools/validation/journey-runner.mjs', 'run', 'S0-01'],
+                         [item[1] for item in driver.executed])
+
+    def test_no_prepare_command_runs_no_extra_step(self):
+        name = 'golden-' + enrolled.fingerprint_of(self.config)
+        driver = FakeDriver(built={name})
+        verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+        self.assertFalse(any(item[1][:2] == ['bash', '-c'] for item in driver.executed
+                             if item[0] == 'canary-journey'))
+        self.assertFalse(any('prepare_command' in row['check'] for row in verdict['checks']))
+
     def test_no_targets_is_a_failure_not_a_pass(self):
         verdict = canary.run(self.root, targets=[], driver=FakeDriver())
         self.assertFalse(verdict['ok'])
