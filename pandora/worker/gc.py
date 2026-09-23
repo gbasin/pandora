@@ -107,6 +107,15 @@ def sweep(root, driver, *, keep=2, dry_run=False):
                 entry.update(destroy(driver, item['name']))
             (removed if entry['removed'] or dry_run else failed).append(entry)
 
+    if any(item['kind'] == 'golden' and item.get('removed') for item in removed):
+        # Deleting a golden-sized subvolume makes the kernel mark qgroups
+        # inconsistent rather than trace the tree; until a rescan, no clone's
+        # quota is enforced. Pay for the rescan here, once, not on the next run.
+        try:
+            driver.settle_qgroups()
+        except Exception as error:                                   # noqa: BLE001
+            failed.append({'kind': 'qgroups', 'name': driver.pool, 'removed': False,
+                           'why': 'rescan after golden removal: %s' % error})
     after = driver.pool_usage()
     receipt = {'ok': not failed, 'dry_run': bool(dry_run), 'keep': keep,
                'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
