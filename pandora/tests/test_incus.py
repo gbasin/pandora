@@ -113,6 +113,24 @@ class Naming(unittest.TestCase):
             self.driver.cgroup('no-such-instance-here')
 
 
+class Listing(unittest.TestCase):
+    """A failed `incus list` is empty for a status line and an error for gc (#88)."""
+
+    def driver(self, rc):
+        driver = IncusDriver(root='/tmp')
+        driver.incus = lambda *args, **kwargs: (rc, 'run-a,RUNNING,\n' if rc == 0 else '',
+                                                'connection refused')
+        return driver
+
+    def test_a_failed_listing_is_empty_unless_checked(self):
+        self.assertEqual(self.driver(1).instances(), [])
+        from pandora.executor.interface import ExecutorError
+        with self.assertRaises(ExecutorError):
+            self.driver(1).instances(check=True)
+        self.assertEqual([row['name'] for row in self.driver(0).instances(check=True)],
+                         ['run-a'])
+
+
 class ReceiptCleanliness(unittest.TestCase):
     def receipt(self, **overrides):
         base = dict(run_id='r', instance='run-r', seconds=0.9, instance_gone=True,

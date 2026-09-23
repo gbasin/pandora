@@ -163,7 +163,13 @@ class FakeDriver:
         self._instances = list(instances)
         self.destroyed = []
 
-    def instances(self):
+    listing_fails = False
+
+    def instances(self, *, check=False):
+        if self.listing_fails:
+            if check:
+                raise RuntimeError('incus list exited 1: connection refused')
+            return []
         return [dict(item) for item in self._instances]
 
     def qgroups(self):
@@ -383,6 +389,45 @@ class Sweeps(unittest.TestCase):
         pinned = toolchain_of(self.spec('a', pins={'base_image': 'abc123'}))
         self.assertNotEqual(plain.fingerprint(), pinned.fingerprint())
         self.assertTrue(pinned.pinned)
+
+    def test_a_failed_instance_listing_aborts_the_sweep(self):
+        """#88: `incus list` failing read as an empty project, so every volume
+        looked leaked and gc deleted them all."""
+        deletes = []
+
+        class Listless(FakeDriver):
+            listing_fails = True
+
+            def incus(self, *args, **kwargs):
+                if args[:3] == ('storage', 'volume', 'list'):
+                    return 0, 'container,run-live,\ncontainer,golden-x,\n', ''
+                deletes.append(args)
+                return 0, '', ''
+        driver = Listless([{'name': 'run-leaked', 'state': 'RUNNING', 'created': ''}])
+        receipt = gc.sweep(self.root, driver, keep=0)
+        self.assertFalse(receipt['ok'])
+        self.assertIn('incus list failed', receipt['reason'])
+        self.assertEqual((driver.destroyed, deletes), ([], []))
+        self.assertEqual(receipt['removed'], [])
+
+    def test_a_golden_whose_destroy_left_objects_is_not_removed(self):
+        from pandora.executor.interface import DestroyIncomplete
+        specs = [self.rebuilt('a', version) for version in (1, 2)]
+        names = [self.name_of(spec) for spec in specs]
+        for index, (spec, at) in enumerate(zip(specs, (100.0, 200.0))):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
+
+        class Leaky(FakeDriver):
+            def destroy(self, instance):
+                raise DestroyIncomplete('destroy of %s left objects' % instance.name,
+                                        {'volume_gone': False})
+        receipt = gc.sweep(self.root, Leaky([{'name': name, 'state': 'STOPPED',
+                                              'created': ''} for name in names]), keep=1)
+        self.assertFalse(receipt['ok'])
+        self.assertEqual(receipt['removed'], [])
+        self.assertEqual([(item['name'], item['removed']) for item in receipt['failed']],
+                         [(names[0], False)])
+        self.assertEqual(receipt['freed_bytes'], 0)
 
     def test_the_receipt_is_written_where_status_can_find_it(self):
         driver = FakeDriver([])

@@ -23,7 +23,7 @@ import time
 
 from .interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usage,
                         CloneFailed, DestroyIncomplete, ExecutionFailed,
-                        InstanceLost, PrepareFailed)
+                        ExecutorError, InstanceLost, PrepareFailed)
 
 NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
@@ -297,11 +297,20 @@ class IncusDriver(Executor):
                                 % (self.pool, usage['free_gib'], floor_gib))
         return answer
 
-    def instances(self):
-        """[{name, state, created}] for every instance in the project."""
-        rc, out, _ = self.incus('list', '--format', 'csv', '-c', 'nsD', check=False, timeout=180)
+    def instances(self, *, check=False):
+        """[{name, state, created}] for every instance in the project.
+
+        By default a failed listing reads as an empty project, which is the
+        right answer for a status line and the wrong one for anything that
+        deletes what the listing does not name. `check=True` raises instead, so
+        gc can tell "no instances" from "could not look" (#88).
+        """
+        rc, out, err = self.incus('list', '--format', 'csv', '-c', 'nsD', check=False,
+                                  timeout=180)
         rows = []
         if rc != 0:
+            if check:
+                raise ExecutorError('incus list exited %d: %s' % (rc, (err or '').strip()[:200]))
             return rows
         for line in out.splitlines():
             parts = line.split(',')

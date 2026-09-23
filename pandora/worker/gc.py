@@ -94,8 +94,15 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
     started = time.monotonic()
     live = live_run_instances(paths)
     protected = golden_index.live_goldens(paths)
-    instances = driver.instances()
     removed, kept, failed = [], [], []
+    try:
+        instances = driver.instances(check=True)
+    except Exception as error:                                       # noqa: BLE001
+        # Every sweep below deletes what this listing does *not* name. A
+        # listing that failed names nothing, so without this every volume in
+        # the pool would read as leaked (#88). Abort before anything is touched.
+        return aborted(driver, started, keep, dry_run, protect,
+                       'incus list failed, so nothing was swept: %s' % error)
 
     # 1. leaked run instances
     for item in instances:
@@ -111,10 +118,16 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
         entry.update(destroy(driver, name))
         (removed if entry['removed'] else failed).append(entry)
 
-    # 2. leaked storage volumes
-    names = {item['name'] for item in driver.instances()}
-    rc, out, _ = driver.incus('storage', 'volume', 'list', driver.pool,
-                              '--format', 'csv', check=False, timeout=180)
+    # 2. leaked storage volumes. Listed again, after step 1's deletes; and
+    # checked again, for the same reason as the first listing.
+    try:
+        names = {item['name'] for item in driver.instances(check=True)}
+        rc, out, _ = driver.incus('storage', 'volume', 'list', driver.pool,
+                                  '--format', 'csv', check=False, timeout=180)
+    except Exception as error:                                       # noqa: BLE001
+        failed.append({'kind': 'listing', 'name': 'incus list', 'removed': False,
+                       'why': 'volume sweep skipped: %s' % error})
+        rc, out = 1, ''
     for line in out.splitlines() if rc == 0 else []:
         parts = line.split(',')
         if len(parts) < 2 or parts[0] != 'container' or parts[1] in names:
@@ -187,6 +200,21 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
     return receipt
 
 
+def aborted(driver, started, keep, dry_run, protect, reason):
+    """The receipt of a sweep that removed nothing because it could not look."""
+    try:
+        pool = driver.pool_usage()
+    except Exception as error:                                       # noqa: BLE001
+        pool = {'ok': False, 'error': str(error)[:200]}
+    return {'ok': False, 'reason': reason, 'dry_run': bool(dry_run), 'keep': keep,
+            'protect': {fp: repo for fp, repo in sorted(protect.items())},
+            'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
+            'removed': [], 'kept': [],
+            'failed': [{'kind': 'listing', 'name': 'incus list', 'removed': False,
+                        'why': reason}],
+            'freed_bytes': 0, 'pool': pool}
+
+
 def destroy(driver, name):
     """Delete one instance and check it left nothing, reusing the run receipt."""
     try:
@@ -194,7 +222,11 @@ def destroy(driver, name):
         return {'removed': True, 'receipt_clean': got.clean,
                 'seconds': round(got.seconds, 2)}
     except DestroyIncomplete as error:
-        return {'removed': True, 'receipt_clean': False, 'leftovers': error.receipt}
+        # Not removed: the receipt says something is still there, and counting
+        # it as freed bytes would make the receipt claim space the pool never
+        # got back. It lands in `failed`, where a person looks.
+        return {'removed': False, 'receipt_clean': False, 'leftovers': error.receipt,
+                'error': str(error)[:200]}
     except Exception as error:                                       # noqa: BLE001
         return {'removed': False, 'error': str(error)[:200]}
 
