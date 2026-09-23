@@ -242,6 +242,10 @@ def cmd_wait(args):
     several it would be an interleaving nobody can read, so each run gets one
     line on stdout instead -- id, outcome, exit, hint -- and the exit is the
     first non-zero one in the order given, or 124 if any is still going.
+
+    A run whose stream ended without an exit frame, before any deadline, is
+    `lost` and counts as 70: nobody saw it finish, and `--help` promises
+    non-zero unless every run passed.
     """
     state, _ = state_of(args)
     sock_path = state / 'client.sock'
@@ -261,8 +265,12 @@ def cmd_wait(args):
         code = attach(sock_path, run_id, quiet=True, deadline=deadline)
         meta = read_json(state / 'runs' / run_id / 'meta.json') or {}
         if code is None:
-            still = still or deadline is not None
-            print('%-14s %-14s %4s' % (run_id, 'still-running' if deadline else 'lost', '-'))
+            if deadline is not None and time.monotonic() >= deadline:
+                still = True
+                print('%-14s %-14s %4s' % (run_id, 'still-running', '-'))
+            else:
+                print('%-14s %-14s %4d' % (run_id, 'lost', INFRA))
+                worst = worst or INFRA
             continue
         print('%-14s %-14s %4d%s' % (run_id, meta.get('state') or '?', code,
                                      '  hint: ' + meta['hint'] if meta.get('hint') else ''))

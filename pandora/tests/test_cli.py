@@ -80,6 +80,20 @@ class Verbs(DaemonCase):
         self.assertEqual(code, 70)
         self.assertEqual(len(out.splitlines()), 2)
 
+    def test_a_run_whose_stream_was_lost_is_not_counted_as_passed(self):
+        # `wait a b` exits non-zero unless every run was seen to pass. A stream
+        # cut off before the exit frame is a run nobody saw finish: 70, not 0.
+        codes = {'good000000000': 0, 'lost000000000': None}
+        with mock.patch.object(cli, 'attach', lambda sock, run_id, **k: codes[run_id]):
+            code, out, _ = self.pandora('wait', 'good000000000', 'lost000000000')
+            self.assertEqual(code, 70)
+            self.assertEqual(out.splitlines()[1].split()[:2], ['lost000000000', 'lost'])
+            # A deadline that has not passed does not turn a lost stream into 124.
+            code, out, _ = self.pandora('wait', 'good000000000', 'lost000000000',
+                                        '--max-wait', '600')
+            self.assertEqual(code, 70)
+            self.assertIn('lost', out)
+
     def test_result_is_a_summary_and_json_is_everything(self):
         run_id = self.detach('unit')[1].strip()
         self.pandora('wait', run_id)
