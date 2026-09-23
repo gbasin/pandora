@@ -6,16 +6,27 @@ run, a failed or missing shard, a tree edited outside the declared files while
 the run was away, a declared file edited here, bytes that arrived wrong. Each
 of those leaves the worktree exactly as the agent left it.
 """
+import base64
 import json
 import os
+import shutil
+import socket
+import stat
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
+from pandora.client import daemon as daemon_module
+from pandora.client import writeback as publication
+from pandora.client.protocol import Reader, VERSION, dump
 from pandora.engine import runner
 from pandora.engine import writeback as proposals
 from pandora.engine.ledger import Ledger
+from pandora.errors import WorkerUnreachable
+from pandora.snapshot import freeze as snapshot
 from pandora.tests.test_shards import FanoutHarness, WritingDriver
+from pandora.tests.test_snapshot import make_repo
 
 LEDGER = 'fixtures/*.ledger.jsonl'
 ROUTES = 'fixtures/routes.json'
@@ -269,6 +280,366 @@ class CatalogFanout(FanoutHarness):
         self.assertNotEqual(result['outcome'], 'passed')
         self.assertFalse(result['writeback']['complete'])
         self.assertEqual(result['writeback']['changes'], {})
+
+
+# --- publication, on this Mac --------------------------------------------------
+
+class Worktree(unittest.TestCase):
+    """A real git worktree, frozen for real, and a proposal as the engine made it."""
+
+    FILES = {'fixtures/S0-01.ledger.jsonl': 'old\n', ROUTES: '{}\n', 'src/app.js': 'app\n'}
+    PLAN = {'outputs': [{'kind': 'artifacts', 'paths': ['reports']}] + WRITEBACK,
+            'secrets_exclude_globs': []}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.repo = make_repo(self.root / 'repo', self.FILES)
+        self.run_dir = self.root / 'runs' / 'run1'
+        self.run_dir.mkdir(parents=True)
+        self.worker_side = self.root / 'worker'
+        self.fetched = 0
+        self.freeze_now()
+
+    def freeze_now(self):
+        manifest, _, input_id = snapshot.freeze(self.repo)
+        publication.save(self.run_dir, publication.context(
+            manifest, self.PLAN, worktree=self.repo, input_id=input_id))
+
+    def propose(self, files):
+        tree(self.worker_side, files)
+        return {'complete': True, 'why': None, 'exit': None, 'removed': [],
+                'changes': {path: sha(text) for path, text in files.items()}}
+
+    def fetch(self, into):
+        self.fetched += 1
+        shutil.copytree(self.worker_side, into, dirs_exist_ok=True)
+
+    def settle(self, proposal, *, outcome='passed', cli_exit=0):
+        return publication.settle(
+            self.run_dir, {'outcome': outcome, 'cli_exit': cli_exit, 'writeback': proposal},
+            run_id='run1', fetch=self.fetch,
+            freeze=lambda worktree, globs: snapshot.freeze(worktree, exclude_globs=globs)[0])
+
+    def read(self, path):
+        return (self.repo / path).read_text()
+
+
+class Publication(Worktree):
+    def test_unchanged_declared_files_take_the_workers_version(self):
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n',
+                                           'fixtures/S0-02.ledger.jsonl': 'fresh\n'}))
+        self.assertEqual(record['state'], 'published')
+        self.assertIsNone(record['exit'])
+        self.assertEqual(record['written'], ['fixtures/S0-01.ledger.jsonl',
+                                             'fixtures/S0-02.ledger.jsonl'])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
+        self.assertEqual(self.read('fixtures/S0-02.ledger.jsonl'), 'fresh\n')
+        self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
+
+    def test_a_locally_edited_declared_file_is_kept_and_nothing_is_written(self):
+        (self.repo / ROUTES).write_text('{"mine": 1}\n')
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n',
+                                           ROUTES: '{"theirs": 1}\n'}))
+        self.assertEqual(record['state'], 'conflicted')
+        self.assertEqual(record['exit'], 75)
+        self.assertEqual([item['path'] for item in record['conflicts']], [ROUTES])
+        self.assertEqual(self.read(ROUTES), '{"mine": 1}\n')
+        # All or nothing: the untouched ledger is not published on its own.
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+        self.assertEqual((Path(record['proposed']) / ROUTES).read_text(), '{"theirs": 1}\n')
+        self.assertIn('pandora resolve run1 --keep-local', record['resolve'])
+
+    def test_a_file_absent_at_freeze_and_created_here_meanwhile_is_a_conflict(self):
+        (self.repo / 'fixtures/S0-02.ledger.jsonl').write_text('mine\n')
+        record = self.settle(self.propose({'fixtures/S0-02.ledger.jsonl': 'theirs\n'}))
+        self.assertEqual(record['state'], 'conflicted')
+        self.assertIsNone(record['conflicts'][0]['frozen'])
+        self.assertEqual(self.read('fixtures/S0-02.ledger.jsonl'), 'mine\n')
+
+    def test_a_local_file_already_equal_to_the_proposal_is_not_a_conflict(self):
+        (self.repo / ROUTES).write_text('{"same": 1}\n')
+        record = self.settle(self.propose({ROUTES: '{"same": 1}\n'}))
+        self.assertEqual(record['state'], 'unchanged')
+
+    def test_an_edit_outside_the_declared_files_makes_the_run_stale(self):
+        (self.repo / 'src/app.js').write_text('edited\n')
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'}))
+        self.assertEqual(record['state'], 'stale')
+        self.assertEqual(record['exit'], 75)
+        self.assertEqual(record['stale'], ['src/app.js'])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+
+    def test_artifacts_arriving_in_the_worktree_do_not_make_it_stale(self):
+        # Not gitignored, so a fresh freeze sees them: they are excluded because
+        # they are declared artifacts, which `deliver` rsyncs in before this runs.
+        (self.repo / 'reports').mkdir()
+        (self.repo / 'reports/run.json').write_text('{}')
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'}))
+        self.assertEqual(record['state'], 'published')
+
+    def test_a_failed_run_writes_nothing_and_keeps_its_own_exit(self):
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'}),
+                             outcome='command_failed', cli_exit=1)
+        self.assertEqual(record['state'], 'not-run')
+        self.assertIsNone(record['exit'])
+        self.assertEqual(self.fetched, 0)
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+
+    def test_an_incomplete_proposal_writes_nothing_and_exits_with_its_code(self):
+        record = self.settle({'complete': False, 'why': 'shard 3 did not pass', 'exit': 75,
+                              'changes': {}, 'removed': []})
+        self.assertEqual(record['state'], 'incomplete')
+        self.assertEqual(record['exit'], 75)
+        self.assertEqual(record['why'], 'shard 3 did not pass')
+
+    def test_bytes_that_arrive_wrong_are_never_written(self):
+        proposal = self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'})
+        (self.worker_side / 'fixtures/S0-01.ledger.jsonl').write_text('corrupt\n')
+        record = self.settle(proposal)
+        self.assertEqual(record['state'], 'incomplete')
+        self.assertEqual(record['exit'], 70)
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+
+    def test_a_replaced_file_keeps_its_mode(self):
+        path = self.repo / 'fixtures/S0-01.ledger.jsonl'
+        os.chmod(path, 0o755)
+        self.freeze_now()
+        self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'}))
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o755)
+
+    def test_a_symlinked_directory_is_never_written_through(self):
+        shutil.rmtree(self.repo / 'fixtures')
+        (self.root / 'elsewhere').mkdir()
+        os.symlink(self.root / 'elsewhere', self.repo / 'fixtures')
+        record = self.settle(self.propose({'fixtures/S0-09.ledger.jsonl': 'x\n'}))
+        self.assertIn(record['state'], ('conflicted', 'stale'))
+        self.assertFalse((self.root / 'elsewhere/S0-09.ledger.jsonl').exists())
+
+
+class Resolve(Worktree):
+    def conflicted(self):
+        (self.repo / ROUTES).write_text('{"mine": 1}\n')
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n',
+                                           ROUTES: '{"theirs": 1}\n'}))
+        self.assertEqual(record['state'], 'conflicted')
+        return {'outcome': 'passed', 'cli_exit': 75, 'writeback': record}
+
+    def test_keep_local_records_the_choice_and_writes_nothing(self):
+        result = self.conflicted()
+        code, lines = publication.resolve(self.run_dir, result, keep_local=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(result['writeback']['state'], 'resolved')
+        self.assertEqual(result['writeback']['resolution'], 'keep-local')
+        self.assertEqual(self.read(ROUTES), '{"mine": 1}\n')
+        self.assertIn('not validated', ' '.join(lines))
+
+    def test_take_worker_publishes_the_whole_proposal(self):
+        result = self.conflicted()
+        code, _ = publication.resolve(self.run_dir, result, keep_local=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read(ROUTES), '{"theirs": 1}\n')
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
+
+    def test_take_worker_refuses_a_file_edited_again_after_the_report(self):
+        result = self.conflicted()
+        (self.repo / ROUTES).write_text('{"mine": 2}\n')
+        code, lines = publication.resolve(self.run_dir, result, keep_local=False)
+        self.assertEqual(code, 75)
+        self.assertEqual(self.read(ROUTES), '{"mine": 2}\n')
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+
+    def test_only_a_conflicted_write_back_can_be_resolved(self):
+        code, _ = publication.resolve(self.run_dir, {'writeback': {'state': 'stale'}},
+                                      keep_local=True)
+        self.assertEqual(code, 64)
+
+
+# --- the daemon, whole --------------------------------------------------------
+
+CONFIG = '''
+version = 1
+[repo]
+name = "demo"
+entrypoints = ["pnpm"]
+[[jobs]]
+id = "journey"
+size = "small"
+args = "required"
+forms = [{ prefix = ["journey"] }]
+options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
+outputs = [
+  { kind = "writeback", requires_option = "update", paths = ["fixtures/*.ledger.jsonl", "fixtures/routes.json"] },
+]
+run = { argv = ["sh", "-c", "echo ran-here > %(marker)s", "--", "{args}"] }
+[worker]
+base_image = "images:ubuntu/26.04"
+'''
+
+
+class Submission:
+    def __init__(self, writeback):
+        self.run_id, self.input_id, self.same_input_as = 'r1', 'i1', None
+        self.admission = {'reservation_mib': 100, 'cpus_hint': 1}
+        self.source, self.durations, self.shipped = {'reused': False}, {}, frozenset()
+        self.writeback = writeback
+
+
+class RemoteWorker:
+    """Freezes the real worktree like the real one, then "runs" by proposing files."""
+
+    proposal = {}
+    follow_raises = None
+    before_result = None
+    submitted = []
+
+    def __init__(self, host, **kwargs):
+        self.host = host
+
+    def submit(self, *, plan, worktree, **kwargs):
+        RemoteWorker.submitted.append(plan)
+        manifest, _, input_id = snapshot.freeze(worktree)
+        return Submission(publication.context(manifest, plan, worktree=worktree,
+                                              input_id=input_id)
+                          if plan.get('writeback') else None)
+
+    def follow(self, run_id, **kwargs):
+        if RemoteWorker.follow_raises is not None:
+            raise RemoteWorker.follow_raises
+        if RemoteWorker.before_result is not None:
+            RemoteWorker.before_result()
+        changes = {path: sha(text) for path, text in RemoteWorker.proposal.items()}
+        return {'outcome': 'passed', 'cli_exit': 0, 'hint': None,
+                'writeback': {'complete': True, 'why': None, 'exit': None,
+                              'changes': changes, 'removed': []}}, 0
+
+    def collect(self, *a, **k):
+        return {'fetched': False, 'missing': []}
+
+    def fetch_writeback(self, run_id, into):
+        tree(into, RemoteWorker.proposal)
+
+    def health(self, **kwargs):
+        return {'ok': True, 'capacity': {'ok': True}, 'goldens': [], 'state': 'ready',
+                'canary': {'ok': True}, 'kernel_drift': False}
+
+    def close(self):
+        pass
+
+
+class DaemonWriteBack(unittest.TestCase):
+    def setUp(self):
+        RemoteWorker.proposal, RemoteWorker.follow_raises = {}, None
+        RemoteWorker.before_result, RemoteWorker.submitted = None, []
+        self.home = tempfile.TemporaryDirectory()
+        self.addCleanup(self.home.cleanup)
+        self.root = Path(self.home.name)
+        self.marker = self.root / 'marker'
+        self.repo = make_repo(self.root / 'repo', {
+            'pandora.toml': CONFIG % {'marker': self.marker},
+            'fixtures/S0-01.ledger.jsonl': 'old\n', ROUTES: '{}\n', 'src/app.js': 'app\n'})
+        self.state = self.root / 'state'
+        config = self.root / 'config.toml'
+        config.write_text(
+            '[client]\nstate = "%s"\n[worker]\nhost = "fake@nowhere"\n'
+            '[notify]\nenabled = false\n'
+            '[local]\nbudget_mib = 16384\nqueue_timeout_seconds = 20\ndrift = "off"\n'
+            '[local.pause]\nenabled = false\n'
+            '[[repos]]\nname = "demo"\nroot = "%s"\n' % (self.state, self.repo))
+        self.daemon = daemon_module.Daemon(config_path=str(config))
+        self.daemon.worker_factory = RemoteWorker
+        self.daemon.start()
+        self.addCleanup(self.daemon.stop)
+        threading.Thread(target=self.daemon.serve, daemon=True).start()
+
+    def call(self, argv):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(60)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(self.repo), 'argv': argv,
+                           'env': {}, 'tty': False}))
+        reader, err, answer = Reader(sock), b'', {}
+        try:
+            while True:
+                frame = reader.line()
+                if frame is None:
+                    return answer
+                if frame.get('t') == 'accepted':
+                    answer['run'] = frame['run']
+                elif frame.get('t') == 'log' and frame.get('s') == 'err':
+                    err += base64.b64decode(frame['b64'])
+                    answer['err'] = err.decode()
+                elif frame.get('t') in ('exit', 'error'):
+                    answer['exit'] = frame.get('code') if frame['t'] == 'exit' else frame['exit']
+                    answer['error'] = frame if frame['t'] == 'error' else None
+                    return answer
+        finally:
+            sock.close()
+
+    def read(self, path):
+        return (self.repo / path).read_text()
+
+    def test_update_runs_remotely_and_its_files_come_home_with_the_review_hint(self):
+        RemoteWorker.proposal = {'fixtures/S0-01.ledger.jsonl': 'new\n'}
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertEqual(answer['exit'], 0, answer)
+        self.assertTrue(RemoteWorker.submitted[0]['writeback'])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
+        self.assertIn('wrote back 1 file(s): fixtures/S0-01.ledger.jsonl', answer['err'])
+        self.assertIn('pandora: hint: review `git diff` of 1 updated file, then validate '
+                      'without --update', answer['err'])
+        self.assertFalse(self.marker.exists())
+
+    def test_a_fixture_edited_during_the_run_is_kept_and_the_run_exits_75(self):
+        RemoteWorker.proposal = {ROUTES: '{"theirs": 1}\n'}
+        RemoteWorker.before_result = lambda: (self.repo / ROUTES).write_text('{"mine": 1}\n')
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertEqual(answer['exit'], 75)
+        self.assertEqual(self.read(ROUTES), '{"mine": 1}\n')
+        self.assertIn('pandora resolve %s --keep-local' % answer['run'], answer['err'])
+        result = json.loads((self.state / 'runs' / answer['run'] / 'result.json').read_text())
+        self.assertEqual(result['writeback']['state'], 'conflicted')
+
+    def test_a_source_edit_during_the_run_makes_it_stale_and_writes_nothing(self):
+        RemoteWorker.proposal = {'fixtures/S0-01.ledger.jsonl': 'new\n'}
+        RemoteWorker.before_result = lambda: (self.repo / 'src/app.js').write_text('edit\n')
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertEqual(answer['exit'], 75)
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+        self.assertIn('src/app.js', answer['err'])
+
+    def test_a_worker_lost_after_acceptance_exits_70_and_never_runs_here(self):
+        # "Never falls back", after `accepted`: the command may be running on
+        # the worker, so running it here too would write the fixtures twice.
+        self.daemon.ATTEMPTS, self.daemon.BACKOFF = 2, 0.01
+        RemoteWorker.follow_raises = WorkerUnreachable('the worker went away')
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertIn('run', answer)
+        self.assertEqual(answer['exit'], 70)
+        self.assertFalse(self.marker.exists(), 'an --update ran on this Mac')
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+
+    def test_a_worker_lost_before_acceptance_exits_70_and_never_runs_here(self):
+        # The job is `small`, which would otherwise earn the local lane.
+        original = RemoteWorker.submit
+        RemoteWorker.submit = lambda self, **kwargs: (_ for _ in ()).throw(
+            WorkerUnreachable('no route'))
+        self.addCleanup(setattr, RemoteWorker, 'submit', original)
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertEqual(answer['exit'], 70)
+        self.assertEqual(answer['error']['code'], 'fallback-refused')
+        self.assertIn('write-back', answer['error']['msg'])
+        self.assertFalse(self.marker.exists(), 'an --update ran on this Mac')
+
+    def test_the_same_job_without_update_still_falls_back_by_its_size(self):
+        original = RemoteWorker.submit
+        RemoteWorker.submit = lambda self, **kwargs: (_ for _ in ()).throw(
+            WorkerUnreachable('no route'))
+        self.addCleanup(setattr, RemoteWorker, 'submit', original)
+        answer = self.call(['pnpm', 'journey', 'S0-01'])
+        self.assertEqual(answer['exit'], 0, answer)
+        self.assertEqual(self.marker.read_text().strip(), 'ran-here')
 
 
 if __name__ == '__main__':

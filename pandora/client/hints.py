@@ -1,11 +1,11 @@
-"""The client's half of the hint rules: the two that need this Mac.
+"""The client's half of the hint rules: the three that need this Mac.
 
-`pandora.engine.result` holds all five, because a rule is a pure function of
+`pandora.engine.result` holds all six, because a rule is a pure function of
 facts and it should not matter who runs it. What differs is who *has* the facts.
 The engine knows the peak, the ceiling, the wall clock and the declared outputs.
 Only the client has the worktree the command was typed in, the manifest that was
 frozen from it, and the run's own log on local disk -- so the gitignored-path
-rule and the drift rule are computed here and folded in.
+rule, the drift rule and the write-back rule are computed here and folded in.
 
 The engine's hint wins when it has one. A run that was killed for memory has
 nothing useful to say about a path in its output.

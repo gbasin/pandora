@@ -35,6 +35,7 @@ from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refuse
                       SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
 from ..exits import INFRA, STALE
 from . import enrolment, fallback as policy, hints, placement, settings, stats as statistics
+from . import writeback as writebacks
 from .health import Monitor
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
@@ -594,12 +595,6 @@ class Daemon:
                              reason=placed['reason'])
             return
 
-        if plan['options'].get('update'):
-            self.deny(conn, 'rejected',
-                      '--update write-back is not in this build; run it locally with '
-                      'PANDORA_OFF=1 until write-back lands.', exit=INFRA)
-            return
-
         # The repository's own opinion of the arguments, before anything queues.
         try:
             checked = classifier.preflight(job, verdict['forwarded'], root=worktree,
@@ -679,6 +674,10 @@ class Daemon:
             return
         run.remote = submission.run_id
         run.shipped = getattr(submission, 'shipped', frozenset())
+        if getattr(submission, 'writeback', None) is not None:
+            # On disk before `accepted`, so a daemon that adopts this run after
+            # a restart checks the proposal against the same frozen hashes.
+            writebacks.save(run.dir, submission.writeback)
         run.state = 'running'
         run.accepted = now()
         run.save()
@@ -932,11 +931,36 @@ class Daemon:
             # Belt and braces: a zero from a non-passing run would be a
             # fabricated pass, which is the one thing that must never happen.
             code = 70
+        written = self.write_back(run, worker, result)
+        if written is not None:
+            result['writeback'] = written
+            if written['exit'] is not None and code == 0:
+                code = written['exit']
         run.note('%s in %.1fs (%s, peak %s MiB, %s)' % (
             result['outcome'], result.get('wall_seconds', 0), result.get('layer'),
             result.get('peak_mib'), result.get('run_id')))
         run.suggest(self.hint_for(run, result, run.worktree()))
         run.finish(code, state=result['outcome'], result=result)
+
+    def write_back(self, run, worker, result):
+        """Publish a `--update` run's proposal, or say why not. None for other runs.
+
+        Never raises: a write-back that cannot finish is an exit code and a
+        sentence, and the proposal stays in the run directory either way.
+        """
+        try:
+            record = writebacks.settle(
+                run.dir, result, run_id=run.id,
+                fetch=lambda into: worker.fetch_writeback(run.remote, into),
+                freeze=writebacks.default_freeze(self.state / 'digests'))
+        except (TransferError, WorkerUnreachable, OSError) as error:
+            record = {'state': 'incomplete', 'exit': INFRA, 'written': [], 'conflicts': [],
+                      'why': 'the proposal could not be brought home: %s' % error}
+        if record is None:
+            return None
+        for line in writebacks.describe(record):
+            run.note(line)
+        return record
 
     def hint_for(self, run, result, worktree):
         """One sentence naming the next action, or nothing. Never fatal.
@@ -949,7 +973,8 @@ class Daemon:
             return None
         if result.get('hint'):
             return result['hint']       # the engine already had the evidence
-        if result.get('outcome') == 'passed' and not result.get('drifted'):
+        if (result.get('outcome') == 'passed' and not result.get('drifted')
+                and not result.get('writeback')):
             # Nothing to advise, and reading the log's tail to prove it would be
             # a cost paid on every green run.
             return None
