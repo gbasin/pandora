@@ -16,6 +16,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pandora.client import daemon as daemon_module
 from pandora.client import enrolment, fallback as policy, shim
@@ -289,6 +290,58 @@ class AfterAcceptedNeverFallsBack(DaemonCase):
         self.assertEqual(answer.exit, 70)
         self.assertFalse(self.marker.exists(), 'a run fell back after acceptance')
         self.assertIn(b'lost the worker', answer.err)
+
+
+class LocalCallerGoneWhileQueued(DaemonCase):
+    """A caller that leaves while its local job waits for the budget.
+
+    Nothing may start, and nothing may stay held: the reservation and the
+    one-run-per-worktree hold are released, and the row says what happened
+    rather than staying `running` until the daemon restarts.
+    """
+
+    def leave_while_queued(self):
+        admit, left = self.daemon.budget.admit, threading.Event()
+
+        def admit_after_the_caller_left(*args, **kwargs):
+            left.wait(10)
+            return admit(*args, **kwargs)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect(str(self.daemon.socket_path))
+        with mock.patch.object(self.daemon.budget, 'admit', admit_after_the_caller_left):
+            sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(self.repo),
+                               'argv': ['pnpm', 'unit'], 'env': {}, 'tty': False,
+                               'where': 'local'}))
+            reader = Reader(sock)
+            while (reader.line() or {}).get('t') != 'queued':
+                pass
+            sock.close()
+            left.set()
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                metas = [json.loads(path.read_text())
+                         for path in (self.state / 'runs').glob('*/meta.json')]
+                if metas and metas[0]['state'] not in ('queued', 'running'):
+                    return metas[0]
+                time.sleep(0.05)
+        self.fail('the run never left queued/running: %s' % metas)
+
+    def assert_released(self, meta):
+        self.assertEqual(meta['state'], 'withdrawn')
+        snapshot = self.daemon.budget.snapshot()
+        self.assertEqual((snapshot['held_mib'], snapshot['running'], snapshot['worktrees']),
+                         (0, [], {}))
+        self.assertFalse(self.marker.exists(), 'the job ran for a caller that had gone')
+
+    def test_the_accept_path_checks_the_caller_first(self):
+        self.assert_released(self.leave_while_queued())
+
+    def test_a_failed_accepted_send_releases_the_budget(self):
+        # The peek can say "alive" and the send still fail: the peer may close
+        # between the two. That path must release as well.
+        with mock.patch.object(daemon_module, 'client_alive', lambda conn: True):
+            self.assert_released(self.leave_while_queued())
 
 
 class SubdirectoryInvocations(DaemonCase):

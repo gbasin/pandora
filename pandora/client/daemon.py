@@ -972,15 +972,32 @@ class Daemon:
             self.deny(conn, 'queue-timeout',
                       'the local queue did not admit this job within its wait')
             return
+        if not client_alive(conn):
+            # The caller left while queued, so it may already be running this
+            # command some other way. Nothing has started here; release what
+            # the queue gave it, exactly as the remote path withdraws.
+            self.budget.finish(run.id, 0, 'lost')
+            run.finish(INFRA, state='withdrawn')
+            return
         run.state = 'running'
         run.accepted = now()
         run.save()
         with self.runs_lock:
             self.runs[run.id] = run
-        conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'lane': 'local',
-                           'remote': None, 'reason': run.reason,
-                           'reservation_mib': admission.get('reservation_mib'),
-                           'cpus_hint': admission.get('cpus_hint')}))
+        try:
+            conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'lane': 'local',
+                               'remote': None, 'reason': run.reason,
+                               'reservation_mib': admission.get('reservation_mib'),
+                               'cpus_hint': admission.get('cpus_hint')}))
+        except OSError:
+            # The peer closed between the peek and the send. Nobody was told
+            # `accepted`, so nothing starts, and the budget and the worktree
+            # hold go back now rather than at the next daemon restart.
+            with self.runs_lock:
+                self.runs.pop(run.id, None)
+            self.budget.finish(run.id, 0, 'lost')
+            run.finish(INFRA, state='withdrawn')
+            return
         if run.reason:
             run.note('lane: local, reason: ' + run.reason)
         if checked.get('ran') is False and checked.get('reason') != 'no validator declared':
