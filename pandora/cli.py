@@ -14,6 +14,9 @@ INVARIANTS
       75  busy or stale: a validation already active here, or the tree changed
      124  `--max-wait` elapsed; the run was NOT stopped
      130  cancelled
+  * `--update` runs on the worker, never here. Its files come back only from
+    a passing run (every shard) over a tree you did not edit meanwhile;
+    otherwise exit 75, your files untouched, and the next step printed.
   * `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
     `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
     the queue and the stats; 64 if the job cannot run there, never a fallback.
@@ -26,6 +29,7 @@ RUNS
   pandora logs <id>                replay a run's output
   pandora result <id> [--json]     outcome, exit, hint; --json for everything
   pandora cancel <id>              stop it; a remote instance is destroyed
+  pandora resolve <id> --keep-local|--take-worker   after an --update conflict
   pandora stats [--since 24h|7d] [--json]   what routed, waited, fell back
 
 FANOUT (for orchestrators; plain commands never need it)
@@ -351,9 +355,41 @@ def render_result(run_id, result):
     missing = (result.get('outputs') or {}).get('missing') or []
     if missing:
         lines.append('  missing: ' + ', '.join(missing))
+    record = result.get('writeback') or {}
+    if record.get('state'):
+        lines.append('  write-back: %s%s' % (record['state'],
+                                             ', ' + record['why'] if record.get('why') else ''))
+        for path in record.get('written') or []:
+            lines.append('    wrote %s' % path)
+        for item in record.get('conflicts') or []:
+            lines.append('    %s: yours kept; proposed %s/%s'
+                         % (item['path'], record.get('proposed'), item['path']))
     if result.get('hint'):
         lines.append('  hint: ' + result['hint'])
     return '\n'.join(lines)
+
+
+def cmd_resolve(args):
+    """Settle a `--update` run whose write-back found the declared files edited here.
+
+    No daemon and no worker: the proposal is already in the run directory, and
+    resolving is a decision about files on this Mac.
+    """
+    from .client import writeback
+    state, _ = state_of(args)
+    run_dir = state / 'runs' / args.run
+    result = read_json(run_dir / 'result.json')
+    if result is None:
+        notice('no result for run %s' % args.run)
+        return 1
+    code, lines = writeback.resolve(run_dir, result, keep_local=args.keep_local)
+    if code == 0:
+        temporary = run_dir / 'result.json.tmp'
+        temporary.write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
+        temporary.replace(run_dir / 'result.json')
+    for line in lines:
+        notice(line)
+    return code
 
 
 def cmd_cancel(args):
@@ -472,6 +508,14 @@ def main(argv=None):
     # package did you import? Not for people.
     doctor.add_argument('--package-home', action='store_true', help=argparse.SUPPRESS)
     doctor.set_defaults(func=cmd_doctor)
+    resolve = sub.add_parser('resolve', help='settle a conflicted --update write-back')
+    resolve.add_argument('run')
+    choice = resolve.add_mutually_exclusive_group(required=True)
+    choice.add_argument('--keep-local', action='store_true',
+                        help='the declared files as they are now are the answer')
+    choice.add_argument('--take-worker', action='store_true',
+                        help="replace them with the worker's proposed versions")
+    resolve.set_defaults(func=cmd_resolve)
 
     stats = sub.add_parser('stats', help='what routed, what waited, what did not route')
     stats.add_argument('--since', default=None,

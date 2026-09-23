@@ -17,6 +17,7 @@ import threading
 import unittest
 from pathlib import Path
 
+from pandora import cli
 from pandora.client import daemon as daemon_module
 from pandora.client import writeback as publication
 from pandora.client.protocol import Reader, VERSION, dump
@@ -25,6 +26,7 @@ from pandora.engine import writeback as proposals
 from pandora.engine.ledger import Ledger
 from pandora.errors import WorkerUnreachable
 from pandora.snapshot import freeze as snapshot
+from pandora.tests.test_cli import capture
 from pandora.tests.test_shards import FanoutHarness, WritingDriver
 from pandora.tests.test_snapshot import make_repo
 
@@ -454,6 +456,20 @@ class Resolve(Worktree):
         code, _ = publication.resolve(self.run_dir, {'writeback': {'state': 'stale'}},
                                       keep_local=True)
         self.assertEqual(code, 64)
+
+    def test_the_cli_verb_rewrites_the_result(self):
+        result = self.conflicted()
+        state = self.root
+        (self.run_dir / 'result.json').write_text(json.dumps(result))
+        config = self.root / 'config.toml'
+        config.write_text('[client]\nstate = "%s"\n' % state)
+        code, _, err = capture(lambda: cli.main(['--config', str(config), 'resolve', 'run1',
+                                                 '--keep-local']))
+        self.assertEqual(code, 0, err)
+        saved = json.loads((self.run_dir / 'result.json').read_text())
+        self.assertEqual(saved['writeback']['state'], 'resolved')
+        code, out, _ = capture(lambda: cli.main(['--config', str(config), 'result', 'run1']))
+        self.assertIn('write-back: resolved', out)
 
 
 # --- the daemon, whole --------------------------------------------------------
