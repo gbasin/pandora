@@ -19,9 +19,10 @@ Read [...] for setup, suite selection, cancellation, and recovery." in the
 > repository root. Results, reports and artifacts are in your worktree before
 > the command returns, and the exit code is the command's own. Exit 70 is an
 > infrastructure failure, never a test verdict: retry, or run the command here
-> with `PANDORA_OFF=1`. Exit 75 means a validation is already active in this
-> worktree or the source changed during the run. When Pandora has advice, it is
-> the last line, `pandora: hint: ...`; act on it. Read
+> with `PANDORA_WHERE=local`, which keeps it in the queue. Exit 75 means a
+> validation is already active in this worktree or the source changed during the
+> run. When Pandora has advice, it is the last line, `pandora: hint: ...`; act on
+> it. Read
 > [`tools/notes/local-validation.md`](tools/notes/local-validation.md) for
 > suite selection, cancellation, and recovery.
 
@@ -48,7 +49,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > | Exit | Meaning | Do this |
 > |---|---|---|
-> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_OFF=1 <command>`. |
+> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
 > | 75 | A validation is already active in this worktree, or the source changed during the run. | Wait for the other run. Do not edit the worktree while a validation runs. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 > | 130 | You cancelled it. | Nothing. |
@@ -59,7 +60,15 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > `pandora ps` lists runs. `pandora logs <id>` replays one. `pandora cancel <id>`
 > stops one. `pandora result <id>` shows its outcome and hint. `pandora stats`
-> shows what ran, where, and what fell back. `pandora --help` lists the rest.
+> shows what ran, where, and what fell back. `pandora doctor` checks that this
+> shell and worktree are set up to route; it changes nothing. `pandora --help`
+> lists the rest.
+>
+> To choose where one command runs, set `PANDORA_WHERE=local` or
+> `PANDORA_WHERE=remote` before it. The run keeps its queue, its receipt and its
+> exit code. Exit 64 means the job cannot run there; the message says why.
+> Nothing falls back from an explicit `remote`: if the worker cannot take it,
+> the exit is 70.
 >
 > To run a command on this machine with no Pandora at all, set `PANDORA_OFF=1`.
 > Use it to debug a routed failure, never to skip the queue.
