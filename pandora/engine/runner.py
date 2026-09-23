@@ -31,7 +31,7 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_for
 from .scheduler import Scheduler, gate
-from . import admission, turbocache
+from . import admission, history, retry, turbocache
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
@@ -190,6 +190,11 @@ def supervise(root, run_id, *, driver=None):
         note('turbo cache %s' % (cache_env['TURBO_API'] if cache_env else 'off: ' + why))
         evidence['cgroup'] = driver.harden(instance, limits)
         mark('harden')
+        # One line for everything between admission and the command, and the
+        # sum is recorded as a phase of its own so the next estimate can use it.
+        durations['boot'] = round(sum(durations.get(name, 0) for name in (
+            'prepare', 'clone', 'start', 'inject', 'graft', 'git', 'harden')), 2)
+        note('instance ready in %.1f s' % durations['boot'])
 
         cancelled = {'yes': False}
 
@@ -218,7 +223,7 @@ def supervise(root, run_id, *, driver=None):
         # one before the command starts.
         limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
         ledger.update(run_id, cpus_hint=limits.cpus_hint)
-        note('cpus hint %d' % limits.cpus_hint)
+        note(running_line(ledger, row, limits.cpus_hint))
         result = driver.execute(instance, plan['argv'], env=env, cwd='/work',
                                 limits=limits, on_log=log_handle.write, on_tick=tick)
         durations['execute'] = round(result.seconds, 2)
@@ -236,6 +241,8 @@ def supervise(root, run_id, *, driver=None):
             'cancelled': ('cancelled', 'engine'),
             'lost': ('infra_failed', 'executor'),
         }[result.outcome]
+        if result.outcome == 'lost':
+            evidence['cause'] = 'instance-lost'
 
         ledger.update(run_id, state='collecting', peak_mib=peak_mib)
         collected = collect(driver, instance, plan['outputs'], paths.outputs(run_id))
@@ -244,10 +251,12 @@ def supervise(root, run_id, *, driver=None):
     except (PrepareFailed, CloneFailed, ExecutionFailed, InstanceLost) as error:
         outcome, layer = 'infra_failed', 'executor'
         evidence['error'] = '%s: %s' % (type(error).__name__, error)
+        evidence['cause'] = retry.cause_of_exception(error)
         note(evidence['error'])
     except Exception as error:                      # noqa: BLE001 - recorded, never swallowed
         outcome, layer = 'infra_failed', 'engine'
         evidence['error'] = '%s: %s' % (type(error).__name__, error)
+        evidence['cause'] = 'engine-error'
         note(evidence['error'])
     finally:
         if instance is not None:
@@ -264,10 +273,12 @@ def supervise(root, run_id, *, driver=None):
                 if outcome == 'passed':
                     outcome, layer = 'infra_failed', 'engine'
                     evidence['destroy_error'] = str(error)
+                    evidence['cause'] = 'destroy-incomplete'
             except Exception as error:              # noqa: BLE001
                 receipt_dict = {'clean': False, 'error': str(error)}
                 if outcome == 'passed':
                     outcome, layer = 'infra_failed', 'engine'
+                    evidence['cause'] = 'destroy-incomplete'
         log_handle.close()
 
     if outcome == 'passed' and exit_code != 0:
@@ -281,12 +292,32 @@ def supervise(root, run_id, *, driver=None):
             scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
             if peak_mib > 0:
                 result_json['learned'] = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
-                paths.result(run_id).write_text(
-                    json.dumps(result_json, indent=1, sort_keys=True) + '\n')
+                write_json(paths.result(run_id), result_json)
         finally:
             store.close()
     ledger.close()
     return result_json
+
+
+def running_line(ledger, row, cpus_hint):
+    """`running (typical 4m10s for check; cpus hint 2)`, from the ledger alone.
+
+    The typical time is the median of this job's last few verdicts in the same
+    role -- a shard is compared with shards, a whole run with whole runs -- and
+    is left out entirely when there are too few of them to mean anything.
+    """
+    role = row['role'] or 'single'
+    try:
+        expected = history.typical(ledger, row['repo'], row['job'], role=role)
+    except Exception:                               # noqa: BLE001 - a courtesy, never a verdict
+        expected = None
+    parts = []
+    if expected is not None:
+        parts.append('typical %s %s %s' % (history.fmt_seconds(expected),
+                                           'per shard of' if role == 'shard' else 'for',
+                                           row['job']))
+    parts.append('cpus hint %d' % cpus_hint)
+    return 'running (%s)' % '; '.join(parts)
 
 
 def cpus_now(paths, ledger):
@@ -374,15 +405,36 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         'shard': ('%s/%s' % (item['shard_index'], item['shard_total'])
                   if item.get('shard_index') else None),
         'parent': item.get('parent'),
+        'retry_of': item.get('retry_of'),
     }
     result.update(extra or {})
+    # Evidence of non-determinism, recorded where both attempts can be seen.
+    # Never a reason to run anything again; only a reason to say so.
+    try:
+        pair = history.flaky(ledger, run_id, outcome)
+    except Exception:                               # noqa: BLE001 - a courtesy, never a verdict
+        pair = None
+    if pair is not None:
+        result['flaky'] = pair
     # Attached at collect time, from evidence already in hand. The two rules
     # that need the Mac -- a gitignored path and worktree drift -- come back as
     # None here and are filled in by the client, which has the worktree.
     result['hint'] = hint_for(facts_from_result(result))
     paths.attempt(run_id).mkdir(parents=True, exist_ok=True)
-    paths.result(run_id).write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
+    write_json(paths.result(run_id), result)
+    if pair is not None:
+        # After the file, not before: a reader that sees `finished` looks for it.
+        ledger.update(run_id, flaky_with=pair['with'])
     return result
+
+
+def write_json(path, payload):
+    """Replace a result file whole. A fan-out parent polls these while they are
+    written, and a truncated file read mid-write is a JSON error it reports as
+    an engine failure of a child that passed."""
+    temp = Path(str(path) + '.tmp')
+    temp.write_text(json.dumps(payload, indent=1, sort_keys=True) + '\n')
+    temp.replace(path)
 
 
 def cli_exit(outcome, exit_code):
@@ -470,7 +522,8 @@ def reconcile(root, *, driver=None):
         if pid and alive(pid):
             adopted.append(row['run_id'])
             continue
-        evidence = {'reason': 'supervisor %s gone at engine restart' % (pid or 'never recorded')}
+        evidence = {'reason': 'supervisor %s gone at engine restart' % (pid or 'never recorded'),
+                    'cause': 'supervisor-gone'}
         receipt = None
         if row['instance']:
             try:

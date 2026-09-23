@@ -40,7 +40,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import admission, runner
+from . import admission, history, retry, runner
 from . import shards as sharding
 from .ledger import Ledger, row_to_dict
 from .scheduler import Scheduler, gate
@@ -50,6 +50,13 @@ POLL = 1.0
 # sibling has to finish first, and a surface shard is minutes, not hours.
 ADMIT_SECONDS = 1800
 COLLISION_EXIT = 75
+# A child waiting for a lane says so once, then at most this often. The caller
+# is usually an agent reading stderr into its context, where a line a second
+# is not reassurance but cost.
+STILL_EVERY = 60.0
+# How long a finished row may go without its result file before the fan-out
+# stops waiting for it and calls the child an engine failure.
+RESULT_GRACE = 10.0
 
 
 def supervise_parent(root, run_id, *, driver=None):
@@ -104,6 +111,8 @@ def supervise_parent(root, run_id, *, driver=None):
                            else plan_result['outcome'])
                 layer = plan_result.get('layer', 'engine')
                 exit_code = plan_result.get('observed_exit')
+                if outcome == 'infra_failed':
+                    evidence['cause'] = retry.cause_of(plan_result)
                 raise _Stop()
             planned = sharding.inventory(sharding.read(plan_document(paths, plan_result)))
             # A selection Playwright puts entirely in shard 1 is a one-shard job.
@@ -125,6 +134,8 @@ def supervise_parent(root, run_id, *, driver=None):
     except Exception as error:                     # noqa: BLE001 - recorded, never swallowed
         outcome, layer = 'infra_failed', 'engine'
         evidence['error'] = '%s: %s' % (type(error).__name__, error)
+        evidence['cause'] = ('admission-timeout' if isinstance(error, AdmissionTimeout)
+                             else 'engine-error')
         note(evidence['error'])
     finally:
         drain_tails(tails, log)
@@ -140,13 +151,17 @@ def supervise_parent(root, run_id, *, driver=None):
                'collisions': evidence.get('collisions', [])})
     if evidence.get('collisions') and result['cli_exit'] == 0:
         result['cli_exit'] = COLLISION_EXIT
-        paths.result(run_id).write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
+        runner.write_json(paths.result(run_id), result)
     ledger.close()
     return result
 
 
 class _Stop(Exception):
     """A verdict was reached early. Not an error; the finally block still runs."""
+
+
+class AdmissionTimeout(RuntimeError):
+    """A child waited the whole admission window and never got a lane."""
 
 
 # --- deciding ---------------------------------------------------------------
@@ -188,14 +203,14 @@ def run_plan(paths, ledger, plan, config, parent, total, args, *, note, tails, l
                         env=dict(plan['env']), outputs=outputs, request_suffix='plan')
     note('plan %s: %s' % (child, ' '.join(argv)))
     tails[child] = {'label': 'plan', 'offset': 0, 'path': str(paths.log(child))}
-    admit_and_spawn(paths, ledger, child, plan, note=note)
+    admit_and_spawn(paths, ledger, child, plan, note=note, label='plan')
     return wait_for(paths, ledger, [child], tails=tails, log=log)[child]
 
 
 # --- dispatching ------------------------------------------------------------
 
 def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
-                request_suffix, index=None, total=None, graft=None):
+                request_suffix, index=None, total=None, graft=None, retry_of=None):
     """Create one child row and everything its supervisor reads from disk."""
     run_id = 'r' + uuid.uuid4().hex[:15]
     with gate(paths.root):
@@ -203,7 +218,8 @@ def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
                               repo=plan['repo'], job=plan['job'], input_id=plan['input_id'],
                               source_path=plan['source_path'], argv=argv, env=env,
                               cwd=plan['cwd'], outputs=outputs, size_class=plan['size_class'],
-                              role=role, parent=parent, shard_index=index, shard_total=total)
+                              role=role, parent=parent, shard_index=index, shard_total=total,
+                              retry_of=retry_of)
     run_id = row['run_id']
     attempt = paths.attempt(run_id)
     attempt.mkdir(parents=True, exist_ok=True)
@@ -218,15 +234,19 @@ def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
     return run_id
 
 
-def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None):
+def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=None):
     """Hold the row until the scheduler has room for it, then start it.
 
     Admission is per child and never per fan-out. A parent that reserved its
     whole fan-out up front would hold memory it is not yet using while a
     sibling repository waits, and would deadlock the moment the box could fit
     three of its four shards.
+
+    Waiting is said once, with an estimate when the ledger has one, and then at
+    most every `STILL_EVERY` seconds. It used to be said every two seconds.
     """
     deadline = deadline or (time.monotonic() + ADMIT_SECONDS)
+    said = None
     while True:
         with gate(paths.root):
             store = admission.Store(str(paths.peaks))
@@ -237,13 +257,32 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None):
                     pid = runner.spawn(paths.root, run_id)
                     ledger.update(run_id, supervisor_pid=pid)
                     return verdict
+                ahead = [row for row in scheduler.live_rows() if row['run_id'] != run_id
+                         and row['state'] in ('admitted', 'running', 'collecting')]
             finally:
                 store.close()
         if time.monotonic() > deadline:
-            raise RuntimeError('%s waited %ds for admission: %s'
-                               % (run_id, ADMIT_SECONDS, verdict.get('reason')))
-        note('%s waiting for a lane (%s)' % (run_id, verdict.get('reason')))
+            raise AdmissionTimeout('%s waited %ds for admission: %s'
+                                   % (run_id, ADMIT_SECONDS, verdict.get('reason')))
+        now = time.monotonic()
+        if said is None or now - said >= STILL_EVERY:
+            note(queue_line(ledger, label or run_id, ahead, first=said is None))
+            said = now
         time.sleep(POLL * 2)
+
+
+def queue_line(ledger, label, ahead, *, first):
+    """`shard 2/4 queued behind 1 run, ~40 s`, or the shorter repeat."""
+    count = '%d run%s' % (len(ahead), '' if len(ahead) == 1 else 's')
+    if not first:
+        return '%s still queued behind %s' % (label, count)
+    try:
+        eta = history.queue_eta(ledger, ahead)
+    except Exception:                               # noqa: BLE001 - a courtesy, never a verdict
+        eta = None
+    return '%s queued behind %s%s' % (label, count,
+                                      ', ~%s' % history.fmt_seconds(eta) if eta is not None
+                                      else '')
 
 
 def dispatch_shards(paths, ledger, plan, config, parent, total, indices, *,
@@ -257,32 +296,54 @@ def dispatch_shards(paths, ledger, plan, config, parent, total, indices, *,
     """
     graft = (paths.outputs(plan_result['run_id']) if plan_result else None)
     guest_plan = sharding.PLAN_PATH if plan_result else None
-    created, pending = {}, []
-    for index in indices:
+
+    def make(index, suffix, retry_of=None):
         argv = sharding.child_argv(plan['argv'], config, index=index, total=total,
                                    plan_path=guest_plan)
         env = sharding.child_env(plan['env'], config, index=index, total=total)
-        run_id = start_child(paths, ledger, plan, parent, role='shard', argv=argv, env=env,
-                             outputs=plan['outputs'], request_suffix='shard:%d' % index,
-                             index=index, total=total, graft=graft)
-        created[index] = run_id
+        return start_child(paths, ledger, plan, parent, role='shard', argv=argv, env=env,
+                           outputs=plan['outputs'], request_suffix=suffix,
+                           index=index, total=total, graft=graft, retry_of=retry_of)
+
+    def launch(index, run_id):
+        tails[run_id] = {'label': '%d/%d' % (index, total), 'offset': 0,
+                         'path': str(paths.log(run_id))}
+        admit_and_spawn(paths, ledger, run_id, plan, note=note,
+                        label='shard %d/%d' % (index, total))
+        live[index] = run_id
+
+    created, pending, retried = {}, [], {}
+    for index in indices:
+        created[index] = make(index, 'shard:%d' % index)
         pending.append(index)
 
     live, done, stopped = {}, {}, False
     while True:
         if pending and not stopped:
             index = pending.pop(0)
-            run_id = created[index]
-            tails[run_id] = {'label': '%d/%d' % (index, total), 'offset': 0,
-                             'path': str(paths.log(run_id))}
-            admit_and_spawn(paths, ledger, run_id, plan, note=note)
-            note('shard %d/%d is %s' % (index, total, run_id))
-            live[index] = run_id
+            launch(index, created[index])
+            note('shard %d/%d is %s' % (index, total, created[index]))
         if not live:
             break
         finished = poll(paths, ledger, list(live.values()), tails=tails, log=log)
         for index in [i for i, run_id in sorted(live.items()) if run_id in finished]:
-            done[index] = finished[live.pop(index)]
+            result = finished[live.pop(index)]
+            # One shard, once, and only when nothing of that shard's own output
+            # has been streamed: its siblings' verdicts stand, so repeating the
+            # one that broke is the whole retry. The whole-run rule is the
+            # daemon's and would, here, throw away every sibling that passed.
+            if index not in retried and shard_retryable(paths, ledger, parent,
+                                                        created[index], result):
+                cause = retry.cause_of(result)
+                note('shard %d/%d: infrastructure failure before output (%s); retrying once'
+                     % (index, total, cause))
+                fresh = make(index, 'shard:%d:retry' % index, retry_of=created[index])
+                retried[index] = {'shard': index, 'failed_run': created[index],
+                                  'cause': cause, 'retry_run': fresh}
+                created[index] = fresh
+                launch(index, fresh)
+                continue
+            done[index] = result
             if done[index]['outcome'] != 'passed' and not keep_going and pending and not stopped:
                 stopped = True
                 note('shard %d did not pass; the %d shard(s) not yet dispatched will not '
@@ -299,7 +360,23 @@ def dispatch_shards(paths, ledger, plan, config, parent, total, indices, *,
                             layer='engine', exit_code=None, peak_mib=0, durations={},
                             evidence={'reason': 'an earlier shard failed; never dispatched'},
                             receipt={'clean': True, 'note': 'no instance was created'})
-    return {'runs': created, 'results': done, 'not_dispatched': sorted(pending)}
+    return {'runs': created, 'results': done, 'not_dispatched': sorted(pending),
+            'retries': [retried[index] for index in sorted(retried)]}
+
+
+def shard_retryable(paths, ledger, parent, run_id, result):
+    """Whether one finished shard earns its one retry. See `retry` for the rules."""
+    if result.get('outcome') != 'infra_failed':
+        return False
+    if not retry.retryable(retry.cause_of(result))[0]:
+        return False
+    row = ledger.get(parent)
+    if row is not None and row['cancel_requested']:
+        return False
+    try:
+        return not retry.command_output(paths.log(run_id).read_bytes())
+    except OSError:
+        return False                    # no log to prove silence with is not silence
 
 
 # --- waiting and streaming --------------------------------------------------
@@ -312,10 +389,16 @@ def poll(paths, ledger, run_ids, *, tails, log):
         row = ledger.get(run_id)
         if row is not None and row['state'] == 'finished':
             path = paths.result(run_id)
+            if not path.is_file() and time.time() - (row['finished'] or 0) < RESULT_GRACE:
+                # The ledger row is finished a moment before the result file is
+                # written. Reading that moment as "no result" turned a passing
+                # shard into an infra failure, intermittently, under load.
+                continue
             finished[run_id] = (json.loads(path.read_text()) if path.is_file()
                                 else {'run_id': run_id, 'outcome': 'infra_failed',
                                       'layer': 'engine', 'observed_exit': None,
-                                      'evidence': {'error': 'no result file'}})
+                                      'evidence': {'error': 'no result file',
+                                                   'cause': 'engine-error'}})
     return finished
 
 
@@ -376,6 +459,11 @@ def finish(paths, ledger, plan, config, run_id, total, planned, children, eviden
                'seconds': result.get('wall_seconds') if result else None,
                'durations': result.get('durations') if result else None,
                'report': None, 'observed': None}
+        again = next((item for item in children.get('retries') or []
+                      if item['shard'] == index), None)
+        if again is not None:
+            row['retried_from'] = again['failed_run']
+            row['retry_cause'] = again['cause']
         if result is not None and config['report']:
             found = find_report(paths, child, config, index=index, total=total)
             if found is not None:
@@ -387,6 +475,8 @@ def finish(paths, ledger, plan, config, run_id, total, planned, children, eviden
                     note('shard %d wrote a report this engine cannot read: %s' % (index, error))
         rows.append(row)
     evidence['shards'] = rows
+    if children.get('retries'):
+        evidence['shard_retries'] = children['retries']
     evidence['peak_mib'] = max([row['peak_mib'] or 0 for row in rows] or [0])
 
     if planned is not None:
@@ -417,12 +507,16 @@ def finish(paths, ledger, plan, config, run_id, total, planned, children, eviden
             return 'command_failed', 'command', first['exit_code'] or 1, reports, evidence
         worst = next(row for row in rows if row['outcome'] not in ('passed', 'command_failed',
                                                                    'not_dispatched'))
+        if worst['outcome'] == 'infra_failed':
+            evidence['cause'] = 'shard-failed'
         return worst['outcome'], 'engine', worst['exit_code'], reports, evidence
     if planned is not None and not verification['verified']:
         # Every shard said it passed and the partition says they did not, between
         # them, run the suite. That is an engine verdict, and it is not a pass.
+        evidence['cause'] = 'partition-unverified'
         return 'infra_failed', 'engine', None, reports, evidence
     if 'passed' not in outcomes:
+        evidence['cause'] = 'engine-error'
         return 'infra_failed', 'engine', None, reports, evidence
     return 'passed', 'command', 0, reports, evidence
 

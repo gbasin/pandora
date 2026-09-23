@@ -1,14 +1,15 @@
 """Hints: the one sentence a reader of a failure would have wanted first.
 
 A result already says what happened. A hint says what to *do*, and only when the
-evidence already on hand names the action. There are five rules, they are a list
-because a sixth is expected, and every one of them is a function of facts that
-were measured -- a peak against a ceiling, a wall clock against a limit, a
-declared report that is not there, two manifests that differ, a path the command
-named that exists here and was not shipped.
+evidence already on hand names the action. There are six rules, and every one of
+them is a function of facts that were measured -- a peak against a ceiling, a
+wall clock against a limit, a declared report that is not there, two manifests
+that differ, two verdicts on one input that disagree, a path the command named
+that exists here and was not shipped.
 
 What this file deliberately is not: a guesser. No model, no pattern library, no
-"this looks like a flaky test". A rule that cannot point at the measurement it
+"this looks like a flaky test" -- the flaky rule fires only on two recorded
+attempts with the same input and command that reached opposite verdicts. A rule that cannot point at the measurement it
 used does not belong here, because a wrong hint is worse than none -- an agent
 acts on it, and then the next twenty minutes are spent on the wrong thing.
 
@@ -81,6 +82,35 @@ def timed_out(facts):
             'shards' % (seconds, facts.get('job') or 'this job'))
 
 
+def flaky(facts):
+    """The same input failed once and passed once, with nothing changed between.
+
+    The pair comes from the ledger (`history.flaky`): same input digest, same
+    argv, same environment, both attempts reached a verdict, and they disagree.
+    A remote input is a frozen snapshot, so it cannot drift; a result that says
+    it drifted is refused here anyway, because a changed tree explains a changed
+    verdict better than flakiness does. The hint names the failing attempt,
+    because that is the one with the evidence worth reading.
+    """
+    pair = facts.get('flaky')
+    if not isinstance(pair, dict) or facts.get('drifted'):
+        return None
+    words = {'failed-then-passed': 'failed then passed',
+             'passed-then-failed': 'passed then failed'}
+    shards = [item for item in pair.get('shards') or [] if item.get('order') in words]
+    if shards:
+        first = shards[0]
+        more = (' (and %d more shard%s)' % (len(shards) - 1, '' if len(shards) == 2 else 's')
+                if len(shards) > 1 else '')
+        return ('shard %s of this input %s with no change%s; treat as flaky, see '
+                'pandora result %s' % (first['shard'], words[first['order']], more,
+                                       first['failed']))
+    if pair.get('order') not in words:
+        return None
+    return ('this input %s with no change; treat as flaky, see pandora result %s'
+            % (words[pair['order']], pair['failed']))
+
+
 def missing_report(facts):
     """The runner exited and the thing a reader would read is not there.
 
@@ -139,7 +169,7 @@ def gitignored(facts):
 
 # Worst-first, and the order is the contract: a killed run says nothing about a
 # report it never got to write.
-RULES = (oom, timed_out, drifted, missing_report, gitignored)
+RULES = (oom, timed_out, drifted, flaky, missing_report, gitignored)
 
 
 def hint_for(facts):
@@ -170,6 +200,7 @@ def facts_from_result(result, **extra):
         'collected': evidence.get('collected') or {},
         'drifted': result.get('drifted'),
         'drift': result.get('drift'),
+        'flaky': result.get('flaky'),
     }
     facts.update(extra)
     return facts

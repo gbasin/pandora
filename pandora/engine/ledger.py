@@ -10,9 +10,10 @@ Two identities, deliberately distinct:
                request_id twice returns the first attempt instead of starting a
                second, which is what makes submission safe to retry over a
                connection that may have dropped after the worker read it.
-  run_id       one attempt at that request. A request has exactly one attempt in
-               the slice; the column exists so a retry policy can be added
-               without a migration.
+  run_id       one attempt at that request. A request has exactly one attempt.
+               An infrastructure retry is a second request (`...:retry`) whose
+               row names the attempt it repeats in `retry_of`, so both attempts
+               stay visible under the one caller-visible run id.
 
 States are a line, not a graph: queued -> admitted -> running -> collecting ->
 finished. Only `finished` carries an outcome, and the outcome vocabulary is
@@ -57,6 +58,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   shard_index INTEGER,
   shard_total INTEGER,
   same_input_as TEXT,
+  retry_of TEXT,
+  flaky_with TEXT,
   durations TEXT NOT NULL DEFAULT '{}',
   evidence TEXT NOT NULL DEFAULT '{}',
   receipt TEXT,
@@ -78,7 +81,11 @@ CREATE INDEX IF NOT EXISTS attempts_input ON attempts(repo, job, input_id);
 ADDED = (('role', "TEXT NOT NULL DEFAULT 'single'"),
          ('parent', 'TEXT'),
          ('shard_index', 'INTEGER'),
-         ('shard_total', 'INTEGER'))
+         ('shard_total', 'INTEGER'),
+         # An infrastructure retry names the attempt it repeats; a verdict that
+         # disagrees with an earlier one on the same input names that one.
+         ('retry_of', 'TEXT'),
+         ('flaky_with', 'TEXT'))
 
 # A parent holds the fan-out and runs nothing itself; `plan` is the build-once
 # attempt a tier-2 parent runs before there are any shards to dispatch.
@@ -113,7 +120,7 @@ class Ledger:
 
     def claim(self, request_id, run_id, *, repo, job, input_id, source_path, argv,
               env, cwd, outputs, size_class, role='single', parent=None,
-              shard_index=None, shard_total=None):
+              shard_index=None, shard_total=None, retry_of=None):
         """Insert a queued attempt, or return the existing one for this request.
 
         Returns (row, created). `created` false means the caller is a duplicate
@@ -136,12 +143,12 @@ class Ledger:
             self.db.execute(
                 'INSERT INTO attempts (run_id, request_id, repo, job, input_id, source_path,'
                 ' argv, env, cwd, outputs, size_class, state, same_input_as, created, updated,'
-                ' role, parent, shard_index, shard_total)'
-                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                ' role, parent, shard_index, shard_total, retry_of)'
+                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (run_id, request_id, repo, job, input_id, source_path,
                  json.dumps(argv), json.dumps(env), cwd, json.dumps(outputs),
                  size_class, 'queued', previous['run_id'] if previous else None, stamp, stamp,
-                 role, parent, shard_index, shard_total))
+                 role, parent, shard_index, shard_total, retry_of))
         except sqlite3.IntegrityError:
             row = self.by_request(request_id)
             if row is None:

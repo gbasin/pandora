@@ -11,6 +11,7 @@ second, so a remote driver would spend more time in transport than in work and
 would make a 0.06 s clone unmeasurable.
 
     submit    admit (or refuse) a request and start its supervisor
+    resubmit  one more attempt at a finished infra_failed attempt, same input
     status    one attempt's row
     logs      raw log bytes from an offset
     result    the finished result JSON
@@ -64,6 +65,15 @@ def cmd_submit(args):
     """
     request = json.loads(sys.stdin.read())
     paths, ledger = open_ledger(args.root)
+    try:
+        return submit(args, paths, ledger, request)
+    finally:
+        ledger.close()
+
+
+def submit(args, paths, ledger, request):
+    """The body of `submit`, shared with `resubmit` so a retry is admitted exactly
+    as a first attempt is: same disk floor, same memory admission, same refusals."""
     plan = request['plan']
     fanned = bool(plan.get('shards'))
     run_id = 'r' + uuid.uuid4().hex[:15]
@@ -73,7 +83,8 @@ def cmd_submit(args):
             repo=plan['repo'], job=plan['job'], input_id=request['input_id'],
             source_path=request['source_path'], argv=plan['argv'],
             env=plan['env'], cwd=plan['cwd'], outputs=plan['outputs'],
-            size_class=plan['size'], role='parent' if fanned else 'single')
+            size_class=plan['size'], role='parent' if fanned else 'single',
+            retry_of=request.get('retry_of'))
         if not created:
             return emit({'ok': True, 'duplicate': True, 'run_id': row['run_id'],
                          'state': row['state'], 'same_input_as': row['same_input_as'],
@@ -110,7 +121,8 @@ def cmd_submit(args):
         if not room.get('ok'):
             runner.write_result(paths, ledger, run_id, outcome='infra_failed',
                                 layer='engine', exit_code=None, peak_mib=0,
-                                durations={}, evidence={'capacity': room}, receipt=None)
+                                durations={}, evidence={'capacity': room, 'cause': 'disk-floor'},
+                                receipt=None)
             return emit({'ok': False, 'code': 'disk-floor', 'run_id': run_id,
                          'capacity': room, 'engine': ENGINE_VERSION})
         store = admission.Store(str(paths.peaks))
@@ -122,7 +134,9 @@ def cmd_submit(args):
             # mistaken for work in progress, and the client may go local.
             runner.write_result(paths, ledger, run_id, outcome='infra_failed',
                                 layer='engine', exit_code=None, peak_mib=0,
-                                durations={}, evidence={'admission': verdict}, receipt=None)
+                                durations={},
+                                evidence={'admission': verdict, 'cause': 'admission-refused'},
+                                receipt=None)
             return emit({'ok': False, 'code': 'admission-refused', 'run_id': run_id,
                          'admission': verdict, 'engine': ENGINE_VERSION})
         pid = runner.spawn(paths.root, run_id, python=args.python)
@@ -130,6 +144,47 @@ def cmd_submit(args):
     return emit({'ok': True, 'run_id': run_id, 'state': 'admitted', 'duplicate': False,
                  'same_input_as': row['same_input_as'], 'admission': verdict,
                  'supervisor_pid': pid, 'engine': ENGINE_VERSION})
+
+
+def cmd_resubmit(args):
+    """One more attempt at a finished `infra_failed` attempt, from the same input.
+
+    The same frozen source, the same plan, the same shard request -- all read
+    back from the first attempt's own `request.json`, so nothing is re-frozen
+    and nothing is re-shipped, and the retry cannot test a different tree from
+    the one the caller was told about. Only the request id is new, which keeps
+    this idempotent across a dropped connection exactly as `submit` is.
+
+    The engine checks what it can see: the attempt exists, it is a whole run
+    rather than a shard, it ended `infra_failed`, and its source is still in the
+    cache. Whether a retry is *wise* -- the cause, whether the caller has seen
+    output -- is the client's decision, made before it calls this.
+    """
+    paths, ledger = open_ledger(args.root)
+    try:
+        return resubmit(args, paths, ledger)
+    finally:
+        ledger.close()
+
+
+def resubmit(args, paths, ledger):
+    row = ledger.get(args.run)
+    if row is None:
+        return emit({'ok': False, 'code': 'stale', 'run_id': args.run})
+    if (row['role'] or 'single') not in ('single', 'parent'):
+        return emit({'ok': False, 'code': 'not-a-run', 'run_id': args.run,
+                     'role': row['role']})
+    if row['state'] != 'finished' or row['outcome'] != 'infra_failed':
+        return emit({'ok': False, 'code': 'not-retryable', 'run_id': args.run,
+                     'state': row['state'], 'outcome': row['outcome']})
+    request = runner.submitted_request(paths, args.run)
+    if request is None:
+        return emit({'ok': False, 'code': 'no-request', 'run_id': args.run})
+    if not Path(row['source_path']).is_dir():
+        return emit({'ok': False, 'code': 'source-gone', 'run_id': args.run,
+                     'source_path': row['source_path']})
+    request = dict(request, request_id=args.request_id, retry_of=args.run)
+    return submit(args, paths, ledger, request)
 
 
 def cmd_status(args):
@@ -378,6 +433,10 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
 
     sub.add_parser('submit').set_defaults(func=cmd_submit)
+    resubmit = sub.add_parser('resubmit')
+    resubmit.add_argument('--run', required=True)
+    resubmit.add_argument('--request-id', required=True)
+    resubmit.set_defaults(func=cmd_resubmit)
     for name, function in (('status', cmd_status), ('result', cmd_result),
                            ('cancel', cmd_cancel), ('supervise', cmd_supervise)):
         node = sub.add_parser(name)
