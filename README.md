@@ -549,7 +549,7 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `queue-timeout`, `admission-refused`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
-| `daemon-unreachable` (connection never established) | local run under the `fallback_slots` budget | refuse, 70 | refuse, 70 |
+| `daemon-unreachable` (no daemon answers the socket) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
 | the `submit` call fails and the engine cannot then be asked whether it started the run | 70 | 70 | 70 |
 | any failure after `accepted` | 70 | 70 | 70 |
 
