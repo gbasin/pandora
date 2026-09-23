@@ -82,10 +82,13 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     anywhere on PATH can find the client without an absolute path baked into it.
 
     `policy` lines carry each claimed form's size class and declared fallback.
-    The POSIX shim never reads them -- its `case` matches four keys and ignores
-    the rest -- but the Python client does, and it is the only thing that can
-    answer "may this run here" when the daemon that owns the configuration is
-    the thing that is gone.
+    The POSIX shim never reads them -- its `case` matches five keys (`sock`,
+    `home`, `strip`, `claim`, `heavy`) and ignores the rest -- but the Python
+    client does, and it is the only thing that can answer "may this run here"
+    when the daemon that owns the configuration is the thing that is gone.
+
+    Every `strip` line is written before any `claim` or `heavy` line. The shim
+    strips as it reads, in one pass, so this order is part of the format.
     """
     lines = ['# pandora enrolment v1 -- written by pandora enrol, safe to delete',
              'sock ' + socket_path, 'repo ' + repo]
@@ -143,7 +146,7 @@ def marker_for(cwd):
 
 
 def key_of(argv, strip_prefixes):
-    """Normalise one argv tail into the one- and two-token claim keys.
+    """Normalise one argv tail for matching against claims of any length.
 
     ``argv`` excludes the tool name.  Declared wrapper prefixes (``pnpm run
     test:unit``) are removed once each, in declaration order, exactly as the

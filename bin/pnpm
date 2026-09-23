@@ -10,7 +10,8 @@
 #   2. kill switches        PANDORA_OFF, PANDORA_ROUTE_DEPTH
 #   3. find the repo        walk up for .git; a worktree's .git is a FILE
 #   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
-#   5. claim                read the marker with the `read` builtin, no fork
+#   5. claim                read the marker with the `read` builtin, no fork;
+#                           any claim length, any declared strip prefix
 #   6. hand off             pandora.client.shim (claimed), passthrough (heavy, or
 #                           unclaimed with PANDORA_WHERE set, so the ignored
 #                           override is counted), or exec
@@ -93,41 +94,44 @@ if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
 fi
 
 # --- 5. claim, using the shell's own reader ----------------------------------
+# A claim is a token prefix of any length, and a strip line removes one declared
+# prefix of any length, at most once, in the order written -- exactly what
+# `classify.strip_prefixes` does.  Both are compared as strings: the argv joined
+# by single spaces must equal the claim or start with the claim and a space.
+# Token equality implies that, so the shim never misses a claim the daemon
+# would make; a token holding a space can make it claim one the daemon does not,
+# and the daemon then answers `passthrough`, which costs a Python start and no
+# more.  `pandora enrol` writes every strip line before any claim line, so one
+# pass strips first and matches after.  Both the argv as typed and the stripped
+# one are tried, because a claim may itself begin with a strip word.
 sock=
 home=
 claimed=0
 heavy=0
-strip_run=0
-# The two keys any claim can match: one token, or two.
-k1=$1
-k2="$1 $2"
+IFS=' '
+whole="$*"
+unset IFS
+keyed=$whole
 while IFS=' ' read -r key rest; do
     case $key in
         sock) sock=$rest ;;
         home) home=$rest ;;
-        strip) [ "$rest" = "run" ] && strip_run=1 ;;
+        strip)
+            case $keyed in
+                "$rest") keyed= ;;
+                "$rest "*) keyed=${keyed#"$rest "} ;;
+            esac
+            ;;
         claim)
-            [ "$rest" = "$k1" ] && claimed=1
-            [ "$rest" = "$k2" ] && claimed=1
+            case $whole in "$rest"|"$rest "*) claimed=1 ;; esac
+            case $keyed in "$rest"|"$rest "*) claimed=1 ;; esac
             ;;
         heavy)
-            [ "$rest" = "$k1" ] && heavy=1
-            [ "$rest" = "$k2" ] && heavy=1
+            case $whole in "$rest"|"$rest "*) heavy=1 ;; esac
+            case $keyed in "$rest"|"$rest "*) heavy=1 ;; esac
             ;;
     esac
 done < "$common/pandora-enrolled"
-
-# `pnpm run journey X` is `pnpm journey X`; re-key once if the marker says so.
-if [ "$claimed" = 0 ] && [ "$strip_run" = 1 ] && [ "$1" = "run" ]; then
-    k1=$2
-    k2="$2 $3"
-    while IFS=' ' read -r key rest; do
-        case $key in
-            claim) { [ "$rest" = "$k1" ] || [ "$rest" = "$k2" ]; } && claimed=1 ;;
-            heavy) { [ "$rest" = "$k1" ] || [ "$rest" = "$k2" ]; } && heavy=1 ;;
-        esac
-    done < "$common/pandora-enrolled"
-fi
 
 # --- 6. hand off -------------------------------------------------------------
 PANDORA_REAL_PNPM=$real
