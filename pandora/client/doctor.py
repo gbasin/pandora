@@ -357,7 +357,7 @@ def check_shim_markers(env, shim):
     return check('shim markers', OK, '%s beside the shim only' % SHIM_MARKER)
 
 
-def check_supervision(pong, state, *, platform=None, launchctl=None):
+def check_supervision(pong, state, *, platform=None, launchctl=None, home=None):
     """Whether launchd supervises the daemon that answered, or nothing does.
 
     ok: the agent is loaded and its pid is the daemon's. warn: a daemon runs and
@@ -365,7 +365,11 @@ def check_supervision(pong, state, *, platform=None, launchctl=None):
     the agent is loaded but its pid is not the daemon's -- a hand-started daemon
     holds the lock, and the agent's own daemon exits and is restarted every ten
     seconds -- or the agent is loaded and no daemon answers at all. Reads
-    `launchctl print` only.
+    `launchctl print` and the plist only.
+
+    Every line names the interpreter: the one the answering daemon runs under,
+    and the one the plist pins. An agent that restarts every ten seconds is most
+    often a daemon launchd started under a Python too old to import `tomllib`.
     """
     from . import launchd
     if (platform or sys.platform) != 'darwin':
@@ -373,27 +377,35 @@ def check_supervision(pong, state, *, platform=None, launchctl=None):
     label = launchd.label_for(state)
     agent = launchd.status(label, run=launchctl or subprocess.run)
     pid = (pong or {}).get('pid')
+    pinned = launchd.agent_python(label, home) if agent['loaded'] else None
     facts = {'label': label, 'launchd_pid': agent['pid'], 'daemon_pid': pid,
-             'launchd_state': agent['state']}
+             'launchd_state': agent['state'], 'python': (pong or {}).get('python'),
+             'python_version': (pong or {}).get('python_version'), 'plist_python': pinned}
+    starts = ('launchd starts it with %s' % pinned if pinned else
+              'launchd starts it with the first python3 on its PATH (the plist sets no '
+              'PANDORA_PYTHON; `pandora daemon --install` again pins it)')
+    runs = ('interpreter %s (%s)' % (facts['python'], facts['python_version'] or '?')
+            if facts['python'] else 'interpreter not reported by this daemon')
     if pong is None:
         if agent['loaded']:
             return check('daemon supervision', FAIL,
-                         '%s is loaded in launchd (%s) but no daemon answers; read %s'
-                         % (label, agent['line'], Path(state) / 'logs' / 'daemon.log'),
-                         **facts)
+                         '%s is loaded in launchd (%s) but no daemon answers; %s; read %s'
+                         % (label, agent['line'], starts,
+                            Path(state) / 'logs' / 'daemon.log'), **facts)
         return check('daemon supervision', INFO, 'no daemon, and no launchd agent %s' % label,
                      **facts)
     if not agent['loaded']:
         return check('daemon supervision', WARN,
                      'pid %s was started by hand; nothing restarts it after a crash or a '
-                     'reboot. `pandora daemon --install`' % pid, **facts)
+                     'reboot. `pandora daemon --install`; %s' % (pid, runs), **facts)
     if agent['pid'] != pid:
         return check('daemon supervision', FAIL,
                      'launchd has %s loaded (%s) but the daemon answering is pid %s, which '
                      'it did not start. `pandora daemon --stop`, then `pandora daemon '
-                     '--restart`' % (label, agent['line'], pid), **facts)
-    return check('daemon supervision', OK, 'launchd runs pid %s as %s; `pandora daemon '
-                 '--restart` after updating the checkout' % (pid, label), **facts)
+                     '--restart`; %s' % (label, agent['line'], pid, starts), **facts)
+    return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; `pandora '
+                 'daemon --restart` after updating the checkout' % (pid, label, runs, starts),
+                 **facts)
 
 
 # -- the whole report ------------------------------------------------------------

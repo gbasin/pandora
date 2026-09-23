@@ -186,6 +186,29 @@ class Plist(Case):
         self.assertNotIn(str(shim), path)
         self.assertEqual(path[2:], list(launchd.BASE_PATH))
 
+    def test_the_plist_pins_the_interpreter_even_in_a_shim_directory(self):
+        # uv puts `python3` in `~/.local/bin`, beside the shim. `service_path`
+        # rightly leaves that directory out, and launchd then found
+        # /usr/bin/python3 (3.9, no tomllib) and restarted the daemon every 10 s.
+        shim = self.root / 'shim'
+        shim.mkdir()
+        (shim / 'pnpm').symlink_to(Path(__file__).resolve().parents[2] / 'bin' / 'pnpm')
+        (shim / '.pandora-shim').write_text('')
+        (shim / 'python3').symlink_to(sys.executable)
+        body = launchd.install('com.pandora.daemon', config_path=self.root / 'config.toml',
+                               state=self.state, env={'PATH': '%s:/usr/bin:/bin' % shim},
+                               uid=501, home=self.home, run=FakeLaunchd(), say=self.said.append)
+        environment = body['EnvironmentVariables']
+        self.assertNotIn(str(shim), environment['PATH'].split(':'))
+        self.assertEqual(os.path.realpath(environment['PANDORA_PYTHON']),
+                         os.path.realpath(sys.executable))
+        self.assertIn('PANDORA_PYTHON', '\n'.join(self.said))
+        # And an explicit interpreter is the one written.
+        self.install(FakeLaunchd())
+        body = plistlib.loads(launchd.plist_path('com.pandora.daemon', self.home).read_bytes())
+        self.assertEqual(body['EnvironmentVariables']['PANDORA_PYTHON'],
+                         '/opt/homebrew/bin/python3')
+
     def test_a_label_and_a_bootstrap_fallback(self):
         fake = FakeLaunchd(bootstrap_fails=True)
         self.install(fake, label='me.example.pandora')
@@ -290,6 +313,22 @@ class Supervision(Case):
         item = self.supervision({'pid': 4242}, FakeLaunchd({'com.pandora.daemon': 4242}))
         self.assertEqual(item['status'], 'ok', item)
         self.assertIn('--restart', item['detail'])
+
+    def test_the_interpreter_is_reported(self):
+        self.install(FakeLaunchd())
+        item = doctor.check_supervision(
+            {'pid': 4242, 'python': '/opt/homebrew/bin/python3.13', 'python_version': '3.13.1'},
+            self.state, platform='darwin', launchctl=FakeLaunchd({'com.pandora.daemon': 4242}),
+            home=self.home)
+        self.assertEqual(item['status'], 'ok', item)
+        self.assertIn('/opt/homebrew/bin/python3.13 (3.13.1)', item['detail'])
+        self.assertEqual(item['facts']['plist_python'], '/opt/homebrew/bin/python3')
+        # A plist written before PANDORA_PYTHON existed says so.
+        launchd.plist_path('com.pandora.daemon', self.home).unlink()
+        item = doctor.check_supervision(None, self.state, platform='darwin',
+                                        launchctl=FakeLaunchd({'com.pandora.daemon': None}),
+                                        home=self.home)
+        self.assertIn('first python3 on its PATH', item['detail'])
 
     def test_warn_when_the_daemon_was_started_by_hand(self):
         item = self.supervision({'pid': 4242}, FakeLaunchd())

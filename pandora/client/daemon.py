@@ -604,6 +604,9 @@ class Daemon:
         op = first.get('op')
         if op == 'ping':
             conn.sendall(dump({'v': VERSION, 't': 'pong', 'pid': os.getpid(),
+                               # What `doctor` reports as the daemon's interpreter.
+                               'python': sys.executable,
+                               'python_version': '%d.%d.%d' % sys.version_info[:3],
                                'worker': self.config['worker']['host'],
                                'runs': len(self.runs), 'home': PACKAGE_HOME,
                                # The cached reading, never a poll: `pandora doctor`

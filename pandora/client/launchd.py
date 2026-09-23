@@ -16,7 +16,12 @@ Three things launchd does differently from a shell, each handled here:
   directories of the `python3`, the real `pnpm` and the `node` this shell finds,
   then `/opt/homebrew/bin`, `/usr/local/bin` and the system directories. A
   directory holding Pandora's own shim is left out: the local lane's `pnpm`
-  would otherwise re-enter the shim for every command.
+  would otherwise re-enter the shim for every command. That can drop the
+  interpreter's own directory -- uv installs `python3` in `~/.local/bin`, beside
+  the shim -- and the launcher then found `/usr/bin/python3`, 3.9, which cannot
+  import `tomllib`, so launchd restarted a daemon that died at import every ten
+  seconds. So the plist also sets `PANDORA_PYTHON` to the interpreter running
+  `--install`, which the launcher uses before anything on PATH.
 * **The program is the checkout, not the symlink.** `ProgramArguments` names
   `<checkout>/bin/pandora` as the running client resolved it, so the agent runs
   the package this command came from. `~/.local/bin/pandora` may be re-pointed
@@ -206,7 +211,8 @@ def service_path(env, *, python=None):
     return ':'.join(entry for entry in dict.fromkeys(entries) if not is_shim_dir(entry))
 
 
-def render(label, *, program, config_path, state, path, state_arg=False, lang=None):
+def render(label, *, program, config_path, state, path, state_arg=False, lang=None,
+           python=None):
     """The agent's plist, as a dictionary `plistlib` writes."""
     arguments = [str(program), '--config', str(config_path)]
     if state_arg:
@@ -214,6 +220,8 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
     arguments.append('daemon')
     log = str(Path(state) / 'logs' / 'daemon.log')
     environment = {'PATH': path}
+    if python:
+        environment['PANDORA_PYTHON'] = str(python)
     if lang:
         environment['LANG'] = lang
     return {
@@ -235,6 +243,19 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
     }
 
 
+def agent_python(label, home=None):
+    """The `PANDORA_PYTHON` the installed plist pins, or None. Read-only.
+
+    None for a plist written before the key existed, or no plist: launchd then
+    runs whichever `python3` is first on the agent's PATH.
+    """
+    try:
+        with open(plist_path(label, home), 'rb') as handle:
+            return (plistlib.load(handle).get('EnvironmentVariables') or {}).get('PANDORA_PYTHON')
+    except (OSError, ValueError, plistlib.InvalidFileException, AttributeError):
+        return None
+
+
 # -- acting ----------------------------------------------------------------------
 
 class Refused(Exception):
@@ -254,9 +275,12 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
             'launchd daemon re-attaches to them'
             % (holder if holder > 0 else '?', Path(state) / 'daemon.lock', STOP_SECONDS))
     target = plist_path(label, home)
+    # The interpreter running this install, by the stable name `this_python`
+    # finds for it: proven able to import Pandora, since it is doing so now.
+    interpreter = python or this_python(env)
     body = render(label, program=launcher(), config_path=config_path, state=state,
-                  path=service_path(env, python=python or this_python(env)),
-                  state_arg=state_arg, lang=env.get('LANG'))
+                  path=service_path(env, python=interpreter),
+                  state_arg=state_arg, lang=env.get('LANG'), python=interpreter)
     Path(state).mkdir(parents=True, exist_ok=True)
     (Path(state) / 'logs').mkdir(exist_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -281,6 +305,7 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     say('wrote %s' % target)
     say('  runs     %s' % ' '.join(body['ProgramArguments']))
     say('  PATH     %s' % body['EnvironmentVariables']['PATH'])
+    say('  PANDORA_PYTHON %s' % body['EnvironmentVariables']['PANDORA_PYTHON'])
     say('  log      %s' % body['StandardOutPath'])
     say('launchd  %s: %s' % (label, after['line']))
     say(RESTART_NOTE)
