@@ -1,7 +1,25 @@
 #!/bin/sh
 # `pandora`: resolve the package next to this script and hand over.
+#
+# The script is usually reached through a symlink (`~/.local/bin/pandora` ->
+# `<checkout>/bin/pandora`), so "next to this script" means next to the file the
+# chain of links ends at, not next to the link. Without this, PYTHONPATH became
+# `~/.local` and `pandora ps` worked only when the cwd happened to be a checkout,
+# because `python -m` puts the cwd on sys.path. `readlink -f` is not on every
+# macOS, so the chain is walked one `readlink` at a time, relative targets
+# resolved against the link's own directory, and bounded in case of a loop.
 self=$0
-case $self in */*) selfdir=${self%/*} ;; *) selfdir=. ;; esac
+case $self in */*) ;; *) self=./$self ;; esac
+hops=0
+while [ -L "$self" ] && [ "$hops" -lt 40 ]; do
+    link=$(readlink "$self") || break
+    case $link in
+        /*) self=$link ;;
+        *) self=${self%/*}/$link ;;
+    esac
+    hops=$((hops + 1))
+done
+selfdir=${self%/*}
 home=${PANDORA_HOME:-$selfdir/..}
 PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
 export PYTHONPATH

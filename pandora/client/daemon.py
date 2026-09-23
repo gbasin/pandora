@@ -42,6 +42,12 @@ from .protocol import Reader, VERSION, dump, log_frame
 from .worker import Worker
 
 
+# The directory this daemon imported `pandora` from, said in `daemon.json` and in
+# `pong` so `pandora doctor` can tell a daemon started from one checkout from a
+# launcher that resolves to another.
+PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
+
+
 def now():
     return time.time()
 
@@ -377,7 +383,8 @@ class Daemon:
         self.resume_interrupted()
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
-             'worker': self.config['worker']['host'], 'started': now()}) + '\n')
+             'worker': self.config['worker']['host'], 'started': now(),
+             'home': PACKAGE_HOME}) + '\n')
         if self.config['worker']['host']:
             self.health.start()
         return self
@@ -449,7 +456,10 @@ class Daemon:
         if op == 'ping':
             conn.sendall(dump({'v': VERSION, 't': 'pong', 'pid': os.getpid(),
                                'worker': self.config['worker']['host'],
-                               'runs': len(self.runs)}))
+                               'runs': len(self.runs), 'home': PACKAGE_HOME,
+                               # The cached reading, never a poll: `pandora doctor`
+                               # asks this, and a doctor must not change anything.
+                               'health': self.health.state()}))
         elif op == 'stats':
             conn.sendall(dump({'v': VERSION, 't': 'stats',
                                'data': self.stats(first.get('since'))}))

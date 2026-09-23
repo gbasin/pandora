@@ -36,6 +36,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
+  pandora doctor [--json]          is this shell wired up? read-only
   pandora daemon | enrol <repo> | unenrol <repo> | worker <verb>
 """
 import argparse
@@ -366,6 +367,19 @@ def cmd_cancel(args):
     return 0
 
 
+def cmd_doctor(args):
+    from .client import doctor
+    if args.package_home:
+        print(doctor.PACKAGE_HOME)
+        return 0
+    report = doctor.run(state=args.state, config=args.config)
+    if args.json:
+        print(json.dumps(report, indent=1, sort_keys=True))
+    else:
+        print(doctor.render(report))
+    return 0 if report['ok'] else 1
+
+
 def cmd_stats(args):
     """One report, whether or not the daemon is up.
 
@@ -451,6 +465,13 @@ def main(argv=None):
         if name == 'result':
             node.add_argument('--json', action='store_true')
         node.set_defaults(func=function)
+
+    doctor = sub.add_parser('doctor', help='check this shell and worktree; changes nothing')
+    doctor.add_argument('--json', action='store_true')
+    # What `doctor` asks of the `pandora` found on PATH, run from `/`: which
+    # package did you import? Not for people.
+    doctor.add_argument('--package-home', action='store_true', help=argparse.SUPPRESS)
+    doctor.set_defaults(func=cmd_doctor)
 
     stats = sub.add_parser('stats', help='what routed, what waited, what did not route')
     stats.add_argument('--since', default=None,
