@@ -244,13 +244,20 @@ class Stream:
 
 
 def build_request(command, *, cwd=None, where=None):
-    """The request, with the caller's environment filtered and the drops announced."""
+    """The request, with the caller's environment filtered (`envfilter`, step 1).
+
+    Values travel only for names that passed the filter. The daemon also gets
+    two lists of *names*: what was dropped, so it can say which of the
+    repository's declared passthrough names did not travel, and every name set
+    here, so `reject_if_set` can refuse on `NODE_OPTIONS` or `NPM_TOKEN` -- the
+    very names the filter removes.
+    """
     forwarded, secrets, platform = envfilter.split(os.environ)
-    for line in envfilter.notices(secrets, platform):
-        notice(line)
     request = {'v': VERSION, 'op': 'run', 'cwd': cwd or os.getcwd(),
                'argv': ['pnpm', *command], 'tty': sys.stdin.isatty(),
-               'env': forwarded}
+               'env': forwarded,
+               'env_present': sorted(name for name, value in os.environ.items() if value),
+               'env_dropped': {'secret': secrets, 'platform': platform}}
     # Pandora's own control variables never travel to the run -- `envfilter`
     # drops every PANDORA_* name -- so the two that change what Pandora does
     # are lifted out here and carried as fields of the request instead.

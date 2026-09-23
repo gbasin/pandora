@@ -36,7 +36,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
                       WorkerUnreachable)
 from ..engine import retry as retries
 from ..exits import INFRA, STALE
-from . import enrolment, fallback as policy, hints, placement, progress, settings
+from . import enrolment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
 from .health import Monitor
@@ -657,6 +657,7 @@ class Daemon:
         here = Path(cwd)
         verdict = classifier.classify(config, request.get('argv') or [],
                                       cwd=str(relative), env=request.get('env') or {},
+                                      present=request.get('env_present'),
                                       exists=lambda token: (here / token).exists())
         if verdict['decision'] == 'local':
             raise NotClaimed(verdict['reason'])
@@ -735,6 +736,10 @@ class Daemon:
         plan = verdict['plan']
         job = config['jobs'][verdict['job']]
         worktree = verdict.get('worktree') or request['cwd']
+        # Only names the repository asked for: an undeclared variable the shim
+        # filtered was never going to travel, so saying so would be noise.
+        for line in envfilter.notices(plan['env_passthrough'], request.get('env_dropped')):
+            self.tell(conn, line)
         if verdict.get('rerooted'):
             self.tell(conn, 'running from the worktree root; you typed this in %s and no '
                             'argument names a path' % verdict['rerooted'])

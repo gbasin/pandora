@@ -149,9 +149,17 @@ def preflight(job, forwarded, *, root, extra_env=None, run=subprocess.run):
     return {'ran': True, 'argv': argv, 'seconds': None}
 
 
-def environment(config, job):
-    """Resolved environment for the run, lowest precedence first."""
-    env = dict(config['env']['set'])
+def environment(config, job, caller=None):
+    """Resolved environment for the run, lowest precedence first.
+
+    The caller's values for the names `[env] passthrough` declares, then `[env]
+    set`, then the job's `run.env`; `unset` last, over all three. `caller` is the
+    already-filtered environment (`client.envfilter`), so a secret-shaped or
+    platform name never arrives here whatever `passthrough` says.
+    """
+    caller = caller or {}
+    env = {name: caller[name] for name in config['env']['passthrough'] if name in caller}
+    env.update(config['env']['set'])
     env.update(job['run']['env'])
     unset = sorted(set([*config['env']['unset'], *job['run']['unset']]))
     for name in unset:
@@ -159,7 +167,7 @@ def environment(config, job):
     return env, unset
 
 
-def build_plan(config, job, forwarded, chosen):
+def build_plan(config, job, forwarded, chosen, caller_env=None):
     options = {option['sets']: False for option in job['options']}
     for option in chosen.values():
         options[option['sets']] = True
@@ -168,7 +176,7 @@ def build_plan(config, job, forwarded, chosen):
         if option['forward'] and option['name'] in chosen:
             tail.append(option['name'])
     argv = _splice(job['run']['argv'], job['run']['args_at'], tail)
-    env, unset = environment(config, job)
+    env, unset = environment(config, job, caller_env)
     outputs = []
     for output in job['outputs']:
         if output['requires_option'] and not options.get(output['requires_option']):
@@ -233,7 +241,7 @@ def path_like(tokens, exists=None):
     return None
 
 
-def classify(config, argv, *, cwd='.', env=None, exists=None):
+def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
     """Return {'decision', 'reason'|'message', 'plan', 'job', 'forwarded'}.
 
     `remote` means Pandora will run it. `local` means no configured job claims
@@ -270,8 +278,15 @@ def classify(config, argv, *, cwd='.', env=None, exists=None):
                     'message': SUBDIRECTORY_MESSAGE,
                     'rerooted': None, 'blocked_by': offender}
         rerooted = cwd
+    # `present` is every name set in the caller's own environment. `env` has
+    # been through the secret and platform filters, which remove exactly the
+    # names worth refusing on (`NODE_OPTIONS`, `*_TOKEN`), so it answers only
+    # for a caller that did not send `present`.
+    if present is None:
+        present = [name for name, value in (env or {}).items() if value]
+    present = set(present)
     for name in [*config['env']['reject_if_set'], *job['reject_if_set']]:
-        if (env or {}).get(name):
+        if name in present:
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
                     'message': _message(config, 'Unset %s before %s; it would silently change '
                                                 'the routed job.' % (name, ' '.join(form['prefix'])))}
@@ -300,7 +315,7 @@ def classify(config, argv, *, cwd='.', env=None, exists=None):
                     'message': _message(config, '%s (%s)' % (usage_of(job), error))}
     return {'decision': 'remote', 'reason': '', 'job': job['id'], 'forwarded': forwarded,
             'chosen': chosen, 'rerooted': rerooted,
-            'plan': build_plan(config, job, forwarded, chosen)}
+            'plan': build_plan(config, job, forwarded, chosen, caller_env=env)}
 
 
 def claim_index(config):

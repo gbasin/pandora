@@ -404,7 +404,7 @@ equal the planned partition exactly.
 | `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. |
 | `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`); `subdirectory = "reroot"` or `"reject"`. |
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
-| `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. The caller's environment otherwise travels minus platform variables and secret-shaped names, and each drop is counted on stderr. |
+| `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`; `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
 | `[worker]` | Golden toolchain: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `prepare_command` is an optional per-run hook described below; it does not change the golden fingerprint. |
 | `[fallback]` | Optional repository-wide fallback. Eichler declares none on purpose. |

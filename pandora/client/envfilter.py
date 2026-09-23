@@ -1,22 +1,31 @@
-"""Which of the caller's environment reaches the worker, and what it is told.
+"""Which of the caller's environment a routed run may see, and what it is told.
 
-The POC used a closed allowlist of eleven names. That is safe and it is wrong
-for a repo-agnostic Pandora: every new repository would need Pandora edited
-before its own variables worked, which is exactly the coupling v0.2 exists to
-remove. So the rule is inverted -- forward what the caller has, minus two
-classes:
+Two steps, in this order:
 
-* **platform variables**, which describe the Mac and would be lies on the
-  worker (`PATH`, `HOME`, `TMPDIR`, `SHELL`, terminal and locale plumbing,
-  Pandora's own control variables);
-* **secret-looking names**, matched on shape rather than on a list, because the
-  list is never complete.
+1. **The filter, in the shim.** Before anything leaves the caller's process, two
+   classes of name are removed:
 
-Dropping a variable silently is the failure mode worth designing against: an
-agent whose run behaves differently on the worker must be able to see why in one
-line. So every drop is counted and named on stderr, and the secret drops are
-named separately from the platform ones -- a dropped `AWS_SECRET_ACCESS_KEY` is
-a deliberate policy and a dropped `JOURNEY_REPLAY` would be a bug.
+   * **platform variables**, which describe the Mac and would be lies on the
+     worker (`PATH`, `HOME`, `TMPDIR`, `SHELL`, terminal and locale plumbing,
+     `NODE_OPTIONS`, Pandora's own control variables);
+   * **secret-looking names**, matched on shape rather than on a list, because
+     the list is never complete.
+
+2. **The declaration, in the plan.** Of what survives the filter, only the names
+   the repository lists in `[env] passthrough` reach the run, merged *under* the
+   configuration's own `[env] set` and the job's `run.env`, then `unset` is
+   applied (`classify.environment`). Nothing else of the caller's environment
+   travels: the worker gets what the repository asked for by name.
+
+The repository cannot relax step 1. A secret-shaped or platform name in
+`passthrough` is still dropped -- the worker is a shared machine, and the
+classifier claims only commands that need no credentials -- and because that is
+a declaration not honoured, it is named on stderr (`notices`). Names nobody
+declared are not mentioned: they were never going to travel.
+
+`reject_if_set` is a different question -- "is this set where the caller typed
+it" -- and is answered from the names of the caller's *whole* environment, which
+the shim sends beside the filtered one (`env_present`, names only, never values).
 """
 import re
 
@@ -52,39 +61,44 @@ def is_secret(name):
     return bool(SECRET.search(upper)) or any(part in upper for part in SECRET_SUBSTRINGS)
 
 
-def split(environ, *, keep=()):
-    """(forwarded, dropped_secret, dropped_platform).
+def split(environ):
+    """(forwarded, dropped_secret, dropped_platform): step 1, the filter.
 
-    `keep` is the repository's declared passthrough list: a name the repository
-    asked for by name is forwarded even if it looks like platform plumbing,
-    because the repository knows its own runner. A secret-shaped name is never
-    forwarded, whatever anyone declared -- that is the one rule the repository
-    does not get to relax, since the worker is a shared machine and the
-    classifier only claims commands that need no credentials.
+    Only `forwarded` carries values. The two dropped lists are names, so the
+    daemon can say which *declared* names did not travel without ever seeing a
+    secret's value.
     """
     forwarded, secrets, platform = {}, [], []
     for name, value in sorted(environ.items()):
         if is_secret(name):
             secrets.append(name)
-            continue
-        if name in keep:
-            forwarded[name] = value
-            continue
-        if is_platform(name):
+        elif is_platform(name):
             platform.append(name)
-            continue
-        forwarded[name] = value
+        else:
+            forwarded[name] = value
     return forwarded, secrets, platform
 
 
-def notices(secrets, platform):
-    """One line each, only when there is something to say."""
+def notices(passthrough, dropped):
+    """One line per class of declared name the filter dropped, only when there is one.
+
+    `passthrough` is the repository's `[env] passthrough`; `dropped` is the
+    shim's `{'secret': [...], 'platform': [...]}`.
+    """
+    dropped = dropped or {}
+    secrets = [name for name in passthrough if name in set(dropped.get('secret') or ())]
+    platform = [name for name in passthrough if name in set(dropped.get('platform') or ())]
     lines = []
     if secrets:
-        lines.append('dropped %d secret-looking variable%s from the worker environment: %s'
+        lines.append('dropped %d secret-looking variable%s from the run environment although '
+                     '[env] passthrough names %s: %s'
                      % (len(secrets), '' if len(secrets) == 1 else 's',
+                        'it' if len(secrets) == 1 else 'them',
                         ', '.join(secrets[:6]) + (', ...' if len(secrets) > 6 else '')))
     if platform:
-        lines.append('dropped %d variable%s that describe this Mac rather than this job'
-                     % (len(platform), '' if len(platform) == 1 else 's'))
+        lines.append('dropped %d variable%s that describe this Mac rather than this job, '
+                     'although [env] passthrough names %s: %s'
+                     % (len(platform), '' if len(platform) == 1 else 's',
+                        'it' if len(platform) == 1 else 'them',
+                        ', '.join(platform[:6]) + (', ...' if len(platform) > 6 else '')))
     return lines
