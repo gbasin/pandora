@@ -31,5 +31,5 @@ loop_size_gib = 18
 
 disk_floor_gib = 4              # admission refuses new runs below this
 run_disk_gib = 12               # per-run root quota, enforced by the pool
-golden_keep = 2                 # goldens kept per repo by `pandora worker gc`
+golden_keep = 2                 # goldens kept per toolchain family by `pandora worker gc`
 unattended_upgrades = false

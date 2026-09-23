@@ -278,25 +278,34 @@ Use `--loop-file 18G` instead of `device` only when there is no spare device.
 
 ### Prove it with the canary
 
-The canary is the health gate: about 26 checks in about 100 seconds. It clones
-each golden, runs a real journey with its compose stack, checks the disk quota,
-and drives a memory hog until the watchdog kills it as `oom`.
+The canary is the health gate: about 26 checks in about 100 seconds. It reads
+every enrolled repository's `pandora.toml` through the daemon's loader and
+proves each distinct `[worker]` golden: it builds or reuses the golden, runs a
+real journey with its compose stack in one clone, runs the surface job's
+`validate` step in another, then checks the disk quota and drives a memory hog
+until the watchdog kills it as `oom`.
 
 ```sh
-pandora worker canary \
-  --journey scripts/toolchains/eichler-journeys.json \
-  --surfaces scripts/toolchains/eichler-surfaces.json \
-  --source /home/ubuntu/pandora-engine/src/eichler/latest \
-  --mark
+pandora worker canary --mark
 ```
 
-* `--journey` and `--surfaces` name toolchain JSON files. A path that exists on
-  the Mac is shipped to the worker. Any other path is read on the worker.
-* `--source` is a path on the worker. The canary builds a missing golden from
-  it. The client maintains `<engine_root>/src/<repo>/latest` after each
-  transfer, so on a fresh worker it exists only after the first routed run.
-  Run one claimed command from an enrolled worktree first, or copy a source tree
-  there yourself.
+* What runs comes from `[worker.canary]` in the repository's `pandora.toml`:
+  `journey = "S0-01"` is spliced into the `journey` job's `run` argv, with that
+  job's environment. `compose = "tools/stack/compose.yml"` is brought up and
+  down first. `surface = "borrower-web"` is given to the `surface` job's
+  `validate`, or to its shard `plan` with one shard when it has no `validate`.
+  `journey_job` and `surface_job` name different jobs. The table is not part of
+  the golden's fingerprint. A key left out is a check not run, and the verdict
+  says so.
+* The golden is built from `<engine_root>/src/<repo>/latest` on the worker. The
+  client writes that tree after each transfer, so on a fresh worker it exists
+  only after the first routed run. If it is absent and the golden is not built,
+  the canary fails with that reason. Run one claimed command from an enrolled
+  worktree first, or pass `--source <a tree on the worker>`.
+* `--journey F` and `--surfaces F` are overrides for a worker no repository is
+  enrolled against yet. Each names a toolchain JSON file with the `[worker]`
+  keys. A path that exists on the Mac is shipped; any other path is read on the
+  worker.
 * `--mark` writes the ready state from the verdict. Without it the canary only
   reports.
 
@@ -325,13 +334,25 @@ pandora worker gc --dry-run
 pandora worker gc
 ```
 
-`gc` never removes a golden a live attempt needs. It writes a receipt under
-`~/pandora/worker/receipts/` on the worker. `--keep N` keeps the N most recently
-used goldens per repository, not per toolchain
-([#81](https://github.com/gbasin/pandora/issues/81)). A repository with two
-toolchains and `--keep 1` loses one of its goldens. Keep at least as many
-goldens as the repository has toolchains. The default comes from `golden_keep`
-in the versions manifest, which is 2.
+`gc` keeps the `--keep N` most recently used goldens per toolchain family. A
+family is one repository's `[worker] source_id`, so a rebuilt toolchain pushes
+out its own older goldens and never another toolchain's
+([#81](https://github.com/gbasin/pandora/issues/81)). A toolchain with no
+`source_id` is its own family and is never pruned by `--keep`. Goldens no
+recorded attempt explains share one `(unknown)` family. The default for `N`
+comes from `golden_keep` in the versions manifest, which is 2.
+
+`gc` never removes these goldens, whatever `--keep` says:
+
+* one a live attempt needs;
+* one whose fingerprint an enrolled repository's `pandora.toml` names. The
+  client computes these from `[[repos]]` and passes each as `--protect`. The
+  receipt says `kept ... named by <repo> pandora.toml`. An enrolled
+  configuration that does not load stops `gc` before it asks the worker;
+* one named by `--protect FINGERPRINT` on the command line;
+* a pinned one. Remove a pinned golden by hand.
+
+`gc` writes a receipt under `~/pandora/worker/receipts/` on the worker.
 
 The other worker verbs:
 
@@ -610,8 +631,8 @@ Sizes that matter:
 
 Known caveats:
 
-* The canary's surface check runs the runner's `plan` step, not a browser
-  suite. A real Playwright run does not fit its budget.
+* The canary's surface check runs the surface job's `validate` (or a one-shard
+  `plan`), not a browser suite. A real Playwright run does not fit its budget.
 * The surface job declares both apps' output paths, so a one-app run reports
   the other app's paths as missing.
 * `PANDORA_CPUS` is fixed when a command starts. A run admitted alone keeps its
@@ -627,8 +648,8 @@ Known caveats:
   update.
 * Not yet run against the live worker: `pandora resolve` on a real conflict, the
   infrastructure retry on a real failure, a remote cancel with a non-default
-  signal, a tier-1 sharded job, a real `--device` pool, and golden eviction by
-  `gc` beyond the #81 case.
+  signal, a tier-1 sharded job, a real `--device` pool, `gc` with per-family
+  ranking and `--protect`, and the canary derived from `[worker.canary]`.
 
 ## Layout
 
@@ -643,7 +664,7 @@ Known caveats:
 | `pandora/executor/` | Runs on the worker: the Incus driver and its memory watchdog. |
 | `pandora/worker/` | Both halves: `provision`, `versions`, `remote` and `cli` run on the Mac; `service`, `canary`, `gc`, `goldens`, `facts` and `pins` run on the worker. |
 | `pandora/tests/` | `python3 -m unittest discover -s pandora`. |
-| `scripts/versions.toml`, `scripts/toolchains/` | The worker's package pins and the canary's toolchain descriptions. |
+| `scripts/versions.toml` | The worker's package pins. |
 | `docs/` | Final text for a repository's agent instructions, and the worker rebuild procedure. |
 | `notes/` | Dated measurement and decision logs. The `v0.2-*` notes are the evidence for this README. |
 | `experiments/` | Retained prototypes and the v0.1 runtime. Nothing in v0.2 imports from them. |

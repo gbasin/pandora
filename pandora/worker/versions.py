@@ -20,7 +20,7 @@ make two identical workers look different.
     device = ""                 # a real block device; empty means loop file
     loop_size_gib = 18
     disk_floor_gib = 4          # admission stops below this much pool free
-    golden_keep = 2             # goldens kept per repo by `worker gc`
+    golden_keep = 2             # goldens kept per toolchain family by `worker gc`
 """
 import hashlib
 import json

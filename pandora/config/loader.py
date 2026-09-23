@@ -545,7 +545,7 @@ def _worker(value, where):
     """
     _keys(value, where, {'base_image'},
           {'packages', 'node_version', 'pnpm_version', 'service_images',
-           'install_command', 'source_id', 'env', 'workdir'})
+           'install_command', 'source_id', 'env', 'workdir', 'canary'})
     return {
         'base_image': _str(value['base_image'], where + '.base_image'),
         'packages': _strs(value.get('packages', []), where + '.packages', unique=True),
@@ -558,6 +558,52 @@ def _worker(value, where):
         'env': _env(value.get('env', {}), where + '.env'),
         'workdir': _str(value.get('workdir', '/work'), where + '.workdir'),
     }
+
+
+def _canary(value, where):
+    """What `pandora worker canary` runs in a clone of this repository's golden.
+
+    It sits under `[worker]` because it is about the golden, and it is kept out
+    of the returned `worker` table because that table is the golden's identity:
+    choosing a different journey to prove the machine with must not mint a new
+    golden. Every key is optional. A missing `journey` or `surface` means that
+    check is not run, and the canary's verdict says so rather than passing it.
+
+        journey      one journey id, spliced into the journey job's `run` argv
+        surface      one surface id, given to the surface job's `validate`
+                     (or, without one, its shard `plan` with one shard)
+        compose      a compose file the journey check brings up and down first
+        journey_job  the job id to take the journey argv from (default journey)
+        surface_job  the job id to take the surface argv from (default surface)
+    """
+    _keys(value, where, (), {'journey', 'surface', 'compose', 'journey_job', 'surface_job'})
+    return {
+        'journey': _str(value['journey'], where + '.journey') if 'journey' in value else None,
+        'surface': _str(value['surface'], where + '.surface') if 'surface' in value else None,
+        'compose': (_inside(_str(value['compose'], where + '.compose'), where + '.compose')
+                    if 'compose' in value else None),
+        'journey_job': _str(value.get('journey_job', 'journey'), where + '.journey_job', NAME),
+        'surface_job': _str(value.get('surface_job', 'surface'), where + '.surface_job', NAME),
+    }
+
+
+def _canary_jobs(canary, jobs):
+    """A canary id must name a job that can take it, or the check is a lie."""
+    for kind in ('journey', 'surface'):
+        if canary[kind] is None:
+            continue
+        job_id = canary[kind + '_job']
+        where = 'worker.canary.' + kind
+        if job_id not in jobs:
+            raise ConfigError('%s needs a job with id %s; declare it or set %s_job'
+                              % (where, job_id, kind))
+        job = jobs[job_id]
+        if job['where'] != 'remote':
+            raise ConfigError("%s names job %s, which is where = 'local'; the canary runs "
+                              'on the worker' % (where, job_id))
+        if job['args'] == 'none':
+            raise ConfigError("%s names job %s, which takes no arguments, so there is "
+                              'nowhere to put %r' % (where, job_id, canary[kind]))
 
 
 # --- whole configuration ----------------------------------------------------
@@ -614,6 +660,7 @@ def validate(value):
                  'root_markers': _strs(repo.get('root_markers', []), 'repo.root_markers',
                                        unique=True)},
         'worker': _worker(value['worker'], 'worker'),
+        'canary': _canary(_table(value['worker'], 'worker').get('canary', {}), 'worker.canary'),
         'env': {'set': base_env,
                 'passthrough': _names(environment.get('passthrough', []), 'env.passthrough'),
                 'unset': unset,
@@ -644,6 +691,7 @@ def validate(value):
     for job in jobs.values():
         if job['fallback'] is None:
             job['fallback'] = config['fallback']
+    _canary_jobs(config['canary'], jobs)
     return config
 
 

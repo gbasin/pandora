@@ -139,7 +139,8 @@ def cmd_gc(args):
     engine_root = engine_root_of(manifest, args.engine_root)
     driver = driver_for(manifest, engine_root)
     keep = args.keep if args.keep is not None else manifest['worker']['golden_keep']
-    receipt = gc.sweep(engine_root, driver, keep=keep, dry_run=args.dry_run)
+    receipt = gc.sweep(engine_root, driver, keep=keep, dry_run=args.dry_run,
+                       protect=gc.parse_protect(args.protect))
     if not args.dry_run:
         gc.write_receipt(worker_dir(args.root), receipt)
     return emit(receipt)
@@ -150,7 +151,11 @@ def cmd_canary(args):
     manifest, _ = manifest_of(args.root, args.versions)
     engine_root = engine_root_of(manifest, args.engine_root)
     driver = driver_for(manifest, engine_root)
+    # `--plan` is the client's derivation from the enrolled configurations;
+    # `--journey` / `--surfaces` are the explicit toolchain files it overrides.
+    targets = json.loads(Path(args.plan).read_text())['targets'] if args.plan else None
     verdict = canary.run(engine_root, journey=args.journey, surfaces=args.surfaces,
+                         targets=targets,
                          source=args.source, hog_kind=args.hog, keep=args.keep,
                          floor_gib=manifest['worker']['disk_floor_gib'],
                          quota_gib=args.quota_gib, driver=driver,
@@ -203,10 +208,13 @@ def main(argv=None):
     sweep = sub.add_parser('gc')
     sweep.add_argument('--dry-run', action='store_true')
     sweep.add_argument('--keep', type=int, default=None)
+    sweep.add_argument('--protect', action='append', default=[],
+                       metavar='FINGERPRINT[=REPO]')
     sweep.set_defaults(func=cmd_gc)
     gate = sub.add_parser('canary')
     gate.add_argument('--journey', default=None)
     gate.add_argument('--surfaces', default=None)
+    gate.add_argument('--plan', default=None, help='targets JSON derived by the client')
     gate.add_argument('--source', default=None)
     gate.add_argument('--hog', default='file')
     gate.add_argument('--quota-gib', type=int, default=1)

@@ -66,6 +66,13 @@ install_command = "set -o pipefail\npnpm install --frozen-lockfile 2>&1 | tail -
 source_id = "eichler-surfaces"
 workdir = "/work"
 
+# The canary runs the surface job's `validate` for this app in a clone of the
+# golden: node, the installed workspace and the runner's own selector check,
+# in milliseconds, without a browser. A job with no `validate` gets its shard
+# `plan` with one shard instead.
+[worker.canary]
+surface = "borrower-web"
+
 [[jobs]]
 id = "surface"
 summary = "One browser surface suite"

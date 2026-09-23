@@ -29,7 +29,8 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
 7. Set `run_disk_gib` to the per-run root quota. This limits *referenced*
    bytes, which include the golden's. A 4 GiB golden under a 12 GiB quota
    gives the run about 8 GiB of its own writes.
-8. Set `golden_keep` to the number of goldens kept per repository.
+8. Set `golden_keep` to the number of goldens `gc` keeps per toolchain family.
+   A family is one repository's `[worker] source_id`.
 
 ### Example
 
@@ -66,23 +67,32 @@ and a near-miss is reported as drift rather than accepted as a match.
 
 ## 3. Provision
 
-Run this from the control machine.
+Run this from the control machine. `--host` belongs to `worker`, so put it
+before the verb.
 
 ```sh
-pandora worker provision \
-  --host ubuntu@<new-ip> \
+pandora worker --host ubuntu@<new-ip> provision \
   --versions ./versions.toml \
-  --journey scripts/toolchains/eichler-journeys.json \
-  --surfaces scripts/toolchains/eichler-surfaces.json \
-  --source /home/ubuntu/pandora-engine/src/eichler/latest
+  --journey ./journeys-toolchain.json \
+  --source /home/ubuntu/some-tree
 ```
+
+The canary proves the goldens that the enrolled repositories' `pandora.toml`
+files name. A fresh worker has no source cache yet, so there is nothing to
+build those goldens from. Choose one:
+
+* Pass `--no-canary`. Point the client at the worker, run one claimed command
+  from an enrolled worktree, then run the canary (step 4).
+* Pass `--journey` with a toolchain JSON file that holds the `[worker]` keys of
+  the repository, and `--source` with a tree on the worker. This proves that
+  toolchain before any enrolment.
 
 `provision` installs the declared packages, disables unattended upgrades,
 creates the pool on the device, creates the bridge and its forwarding rules,
 creates the `pandora` project and the `runner` profile, enables the boot units,
 writes the manifest, and then runs the canary.
 
-The first run on a fresh machine builds both goldens. Allow 20 minutes. A
+The first canary on a fresh machine builds each golden. Allow 20 minutes. A
 golden build downloads the base image, installs the toolchain, runs
 `pnpm install --frozen-lockfile` and pulls the service images.
 
@@ -103,19 +113,31 @@ real device on any worker that takes real work.
 
 ## 4. Prove the worker
 
-`provision` runs the canary and writes the ready state from its verdict. Check
-the verdict yourself.
+`provision` runs the canary and writes the ready state from its verdict. If you
+passed `--no-canary`, run the canary now, after the first routed run:
+
+```sh
+pandora worker --host ubuntu@<new-ip> canary --mark
+```
+
+With no `--journey` or `--surfaces`, the canary reads each enrolled
+repository's `pandora.toml`. It proves each distinct `[worker]` golden with the
+journey and surface named in `[worker.canary]`. It builds a missing golden from
+`<engine_root>/src/<repo>/latest`. If that tree is absent, the canary says so.
+
+Check the verdict yourself.
 
 1. Confirm the canary reports `pass` with `0 failure(s)`.
-2. Confirm `pandora worker status --host ubuntu@<new-ip>` reports `state:
+2. Confirm `pandora worker --host ubuntu@<new-ip> status` reports `state:
    ready`.
 3. Confirm `status` reports no drift lines.
-4. Confirm both goldens are listed with a size.
+4. Confirm each golden an enrolled repository names is listed with a size.
 
 A worker that fails the canary is never marked `ready`. Do not cut over to it.
 
 Reboot the new worker once before you cut over. Run
-`sudo reboot`, wait, then run `pandora worker status` again. The pool, the
+`sudo reboot`, wait, then run `pandora worker --host ubuntu@<new-ip> status`
+again. The pool, the
 goldens and the forwarding rules must all come back. This is the one failure a
 canary cannot see, because a canary runs on a machine that is already up.
 
@@ -146,8 +168,10 @@ has to be reversed is reversed by editing one line back.
 
 Run `pandora worker gc --dry-run` weekly. Read what it would remove. Run
 `pandora worker gc` when you agree with it. The sweep removes leaked run
-instances, leaked storage volumes and goldens past the keep count. It never
-removes a golden a live attempt needs, and it writes a receipt under
+instances, leaked storage volumes and goldens past the keep count. The keep
+count applies per toolchain family, not per repository. The sweep never removes
+a golden a live attempt needs, a golden an enrolled `pandora.toml` names, a
+golden named by `--protect`, or a pinned golden. It writes a receipt under
 `<root>/worker/receipts/`.
 
 Run `pandora worker status` after any manual change to the worker. Drift

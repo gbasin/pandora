@@ -221,6 +221,16 @@ class Sweeps(unittest.TestCase):
         from pandora.engine.runner import toolchain_of
         return ['golden-' + toolchain_of(self.spec(sid)).fingerprint() for sid in source_ids]
 
+    @classmethod
+    def rebuilt(cls, family, version, **extra):
+        """One toolchain family, rebuilt: same source_id, a different install."""
+        return cls.spec(family, install_command='pnpm i # v%d' % version, **extra)
+
+    @staticmethod
+    def name_of(spec):
+        from pandora.engine.runner import toolchain_of
+        return 'golden-' + toolchain_of(spec).fingerprint()
+
     def test_the_index_names_the_repo_and_the_last_use(self):
         names = self.goldens_for('a', 'b')
         self.attempt('r1', 'eichler', 'finished', self.spec('a'), 100.0)
@@ -251,21 +261,86 @@ class Sweeps(unittest.TestCase):
         self.assertTrue(receipt['ok'])
         self.assertEqual([item['name'] for item in receipt['removed']], ['run-leaked'])
 
-    def test_gc_keeps_the_newest_goldens_per_repo(self):
-        names = self.goldens_for('a', 'b', 'c')
-        for index, (source, at) in enumerate((('a', 100.0), ('b', 200.0), ('c', 300.0))):
-            self.attempt('r%d' % index, 'eichler', 'finished', self.spec(source), at)
+    def test_gc_keeps_the_newest_goldens_per_family(self):
+        specs = [self.rebuilt('a', version) for version in (1, 2, 3)]
+        names = [self.name_of(spec) for spec in specs]
+        for index, (spec, at) in enumerate(zip(specs, (100.0, 200.0, 300.0))):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
         driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
                              for name in names])
         receipt = gc.sweep(self.root, driver, keep=2)
         self.assertEqual(driver.destroyed, [names[0]], 'the least recently used goes')
         self.assertEqual({item['name'] for item in receipt['kept']}, {names[1], names[2]})
 
+    def test_keep_one_keeps_one_golden_per_toolchain_not_per_repo(self):
+        """Issue #81: two toolchains in one repository are two families."""
+        journeys = [self.rebuilt('eichler-journeys', version) for version in (1, 2)]
+        surfaces = [self.rebuilt('eichler-surfaces', version) for version in (1, 2)]
+        # The surfaces family is used rarely: both of its goldens are older
+        # than either journeys golden, which is what ranked it out on 2026-09-23.
+        for index, (spec, at) in enumerate(((surfaces[0], 10.0), (surfaces[1], 20.0),
+                                            (journeys[0], 300.0), (journeys[1], 400.0))):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
+        names = [self.name_of(spec) for spec in journeys + surfaces]
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
+                             for name in names])
+        receipt = gc.sweep(self.root, driver, keep=1)
+        self.assertEqual(sorted(driver.destroyed), sorted([names[0], names[2]]))
+        kept = {item['name']: item for item in receipt['kept']}
+        self.assertEqual(set(kept), {names[1], names[3]})
+        self.assertIn('eichler eichler-surfaces', kept[names[3]]['why'])
+
+    def test_a_toolchain_without_a_source_id_is_its_own_family(self):
+        specs = [self.rebuilt('', version) for version in (1, 2)]
+        for index, spec in enumerate(specs):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, 100.0 * (index + 1))
+        driver = FakeDriver([{'name': self.name_of(spec), 'state': 'STOPPED', 'created': ''}
+                             for spec in specs])
+        gc.sweep(self.root, driver, keep=1)
+        self.assertEqual(driver.destroyed, [])
+
+    def test_a_golden_an_enrolled_config_names_is_never_removed(self):
+        specs = [self.rebuilt('a', version) for version in (1, 2, 3)]
+        names = [self.name_of(spec) for spec in specs]
+        for index, (spec, at) in enumerate(zip(specs, (100.0, 200.0, 300.0))):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
+                             for name in names])
+        oldest = names[0][len('golden-'):]
+        receipt = gc.sweep(self.root, driver, keep=1,
+                           protect=gc.parse_protect([oldest + '=eichler']))
+        self.assertEqual(driver.destroyed, [names[1]])
+        whys = {item['name']: item['why'] for item in receipt['kept']}
+        self.assertEqual(whys[names[0]], 'named by eichler pandora.toml')
+        self.assertEqual(receipt['protect'], {oldest: 'eichler'})
+
+    def test_protect_guards_a_golden_no_attempt_explains(self):
+        driver = FakeDriver([{'name': 'golden-%016x' % n, 'state': 'STOPPED', 'created': ''}
+                             for n in (1, 2)])
+        gc.sweep(self.root, driver, keep=0, protect=gc.parse_protect(['golden-%016x' % 1]))
+        self.assertEqual(driver.destroyed, ['golden-%016x' % 2])
+
+    def test_a_pinned_golden_is_never_removed(self):
+        specs = [self.rebuilt('a', 1, pins={'base_image': 'abc'}), self.rebuilt('a', 2)]
+        for index, spec in enumerate(specs):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, 100.0 * (index + 1))
+        driver = FakeDriver([{'name': self.name_of(spec), 'state': 'STOPPED', 'created': ''}
+                             for spec in specs])
+        receipt = gc.sweep(self.root, driver, keep=1)
+        self.assertEqual(driver.destroyed, [])
+        self.assertIn('pinned', {item['name']: item['why']
+                                 for item in receipt['kept']}[self.name_of(specs[0])])
+
+    def test_parse_protect_takes_a_name_or_a_fingerprint(self):
+        self.assertEqual(gc.parse_protect(['golden-abc=eichler', 'def', '']),
+                         {'abc': 'eichler', 'def': None})
+
     def test_gc_never_removes_a_golden_a_live_attempt_needs(self):
-        names = self.goldens_for('a', 'b', 'c')
-        self.attempt('r0', 'eichler', 'running', self.spec('a'), 100.0)
-        self.attempt('r1', 'eichler', 'finished', self.spec('b'), 200.0)
-        self.attempt('r2', 'eichler', 'finished', self.spec('c'), 300.0)
+        specs = [self.rebuilt('a', version) for version in (1, 2, 3)]
+        names = [self.name_of(spec) for spec in specs]
+        self.attempt('r0', 'eichler', 'running', specs[0], 100.0)
+        self.attempt('r1', 'eichler', 'finished', specs[1], 200.0)
+        self.attempt('r2', 'eichler', 'finished', specs[2], 300.0)
         driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
                              for name in names])
         receipt = gc.sweep(self.root, driver, keep=1)
@@ -274,9 +349,10 @@ class Sweeps(unittest.TestCase):
         self.assertIn('live attempt', whys[names[0]])
 
     def test_dry_run_removes_nothing_and_still_says_what_it_would(self):
-        names = self.goldens_for('a', 'b', 'c')
-        for index, (source, at) in enumerate((('a', 100.0), ('b', 200.0), ('c', 300.0))):
-            self.attempt('r%d' % index, 'eichler', 'finished', self.spec(source), at)
+        specs = [self.rebuilt('a', version) for version in (1, 2, 3)]
+        names = [self.name_of(spec) for spec in specs]
+        for index, (spec, at) in enumerate(zip(specs, (100.0, 200.0, 300.0))):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
         driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
                              for name in names] +
                             [{'name': 'run-leaked', 'state': 'RUNNING', 'created': ''}])

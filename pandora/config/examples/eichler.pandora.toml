@@ -67,6 +67,16 @@ install_command = "pnpm install --frozen-lockfile 2>&1 | tail -2"
 source_id = "eichler-journey-runner-proxy"
 workdir = "/work"
 
+# What `pandora worker canary` proves in a clone of this golden. Not part of the
+# fingerprint: picking a different journey to prove the machine with does not
+# mint a new golden. `journey` is spliced into the `journey` job's `run` argv;
+# `compose` is brought up and down first, so a broken nested dockerd fails as
+# itself rather than as a journey. A repository with a `surface` job adds
+# `surface = "borrower-web"` (see eichler-surfaces.pandora.toml).
+[worker.canary]
+journey = "S0-01"
+compose = "tools/stack/compose.yml"
+
 [[jobs]]
 id = "journey"
 summary = "One service-backed journey"

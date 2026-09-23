@@ -1,9 +1,0 @@
-{"base_image": "images:ubuntu/26.04",
- "packages": ["docker.io", "docker-compose-v2", "docker-buildx", "ca-certificates", "curl", "xz-utils", "git", "python3", "jq", "rsync"],
- "node_version": "24.9.0",
- "pnpm_version": "12.3.4",
- "service_images": ["postgres:16", "edoburu/pgbouncer:latest", "ghcr.io/neondatabase/wsproxy:latest"],
- "install_command": "pnpm install --frozen-lockfile 2>&1 | tail -2",
- "source_id": "eichler-journey-runner-proxy",
- "env": {},
- "workdir": "/work"}

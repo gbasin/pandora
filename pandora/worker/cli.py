@@ -12,6 +12,8 @@ from pathlib import Path
 from ..client import settings
 from ..errors import PandoraError
 from ..exits import INFRA
+from . import enrolled
+from . import gc as gc_protect
 from . import provision as provisioner
 from . import versions
 from .remote import Remote
@@ -62,6 +64,30 @@ def ship_toolchains(remote, root, args):
     return out
 
 
+def ship_plan(remote, root, args):
+    """Derive the canary's targets from the enrolled configs and ship them.
+
+    Only when no explicit toolchain file was named: `--journey` / `--surfaces`
+    are the override for a worker no repository is enrolled against yet, and
+    mixing the two would prove a toolchain nobody runs beside one somebody
+    does. Returns the plan's path on the worker, or None.
+    """
+    if getattr(args, 'journey', None) or getattr(args, 'surfaces', None):
+        return None
+    entries = enrolled.configs(settings.load(args.config))
+    targets = enrolled.canary_targets(entries, engine_root=remote.root(),
+                                      source=getattr(args, 'source', None))
+    for item in targets:
+        notice('canary target %s: golden-%s from %s; journey %s, surface %s'
+               % ('+'.join(item['repos']), item['fingerprint'], item['source'],
+                  (item['journey'] or {}).get('id', '-'), (item['surface'] or {}).get('id', '-')))
+    if not targets:
+        notice('no enrolled repository names a [worker] table; pass --journey or --surfaces '
+               'to prove a toolchain before the first enrolment')
+    return remote.put('%s/worker/toolchains/canary-plan.json' % root,
+                      json.dumps({'targets': targets}, indent=1, sort_keys=True) + '\n')
+
+
 def cmd_provision(args):
     host, engine_root, control = target(args)
     manifest = manifest_of(args)
@@ -69,10 +95,13 @@ def cmd_provision(args):
     try:
         root = remote.expand(manifest['worker']['root'])
         shipped = ship_toolchains(remote, root, args)
+        plan = None if args.no_canary else ship_plan(remote, root, args)
     finally:
         remote.close()
+    # A derived plan carries its own sources; `--source` was folded into it.
     canary = {'journey': shipped.get('journey'), 'surfaces': shipped.get('surfaces'),
-              'source': args.source, 'quota_gib': args.quota_gib}
+              'plan': plan, 'source': None if plan else args.source,
+              'quota_gib': args.quota_gib}
     report = provisioner.run(host, manifest=manifest, control_dir=control,
                              root=manifest['worker']['root'], engine_root=engine_root,
                              canary=canary, skip_canary=args.no_canary,
@@ -163,10 +192,12 @@ def cmd_canary(args):
     try:
         root = remote.expand(args.root or versions.WORKER['root'])
         shipped = ship_toolchains(remote, root, args)
+        plan = ship_plan(remote, root, args)
         argv = ['--root', root, '--engine-root', remote.root(), 'canary']
         for flag, value in (('journey', shipped.get('journey')),
                             ('surfaces', shipped.get('surfaces')),
-                            ('source', args.source), ('hog', args.hog),
+                            ('plan', plan), ('source', None if plan else args.source),
+                            ('hog', args.hog),
                             ('quota-gib', args.quota_gib)):
             if value is not None:
                 argv += ['--' + flag, str(value)]
@@ -189,10 +220,21 @@ def cmd_canary(args):
     return 0 if answer.get('ok') else 1
 
 
+def protected(args):
+    """{fingerprint: repos} the sweep may never remove: every golden an enrolled
+    repository's `[worker]` table names, plus any `--protect` given by hand."""
+    named = enrolled.named_fingerprints(enrolled.configs(settings.load(args.config)))
+    for fingerprint, repo in gc_protect.parse_protect(args.protect).items():
+        named.setdefault(fingerprint, repo or 'the command line')
+    return named
+
+
 def cmd_gc(args):
     argv = ['gc'] + (['--dry-run'] if args.dry_run else [])
     if args.keep is not None:
         argv += ['--keep', str(args.keep)]
+    for fingerprint, repo in sorted(protected(args).items()):
+        argv += ['--protect', '%s=%s' % (fingerprint, repo)]
     answer = remote_call(args, argv, timeout=900)
     if args.json:
         print(json.dumps(answer, indent=1, sort_keys=True))
@@ -281,9 +323,14 @@ def add_parser(sub):
     node.add_argument('--versions', default=None, help='a versions.toml')
     node.add_argument('--device', default=None, help='/dev/sdb: a real block device for the pool')
     node.add_argument('--loop-file', default=None, help='18G: size of the loop-file pool instead')
-    node.add_argument('--journey', default=None, help='toolchain JSON for the journeys golden')
-    node.add_argument('--surfaces', default=None, help='toolchain JSON for the surfaces golden')
-    node.add_argument('--source', default=None, help='source tree on the worker for a cold build')
+    node.add_argument('--journey', default=None,
+                      help='override: toolchain JSON to prove with a journey, for a worker '
+                           'no repository is enrolled against yet')
+    node.add_argument('--surfaces', default=None,
+                      help='override: toolchain JSON to prove with a surface listing')
+    node.add_argument('--source', default=None,
+                      help='source tree on the worker for a cold golden build '
+                           '(default: <engine_root>/src/<repo>/latest)')
     node.add_argument('--quota-gib', type=int, default=1)
     node.add_argument('--no-canary', action='store_true')
     node.add_argument('--timeout', type=int, default=1800)
@@ -293,10 +340,22 @@ def add_parser(sub):
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_status)
 
-    node = actions.add_parser('canary', help='the health gate')
-    node.add_argument('--journey', default=None)
-    node.add_argument('--surfaces', default=None)
-    node.add_argument('--source', default=None)
+    node = actions.add_parser(
+        'canary', help='the health gate',
+        description='Prove the worker. With no --journey/--surfaces, read every enrolled '
+                    "repository's pandora.toml and prove each distinct [worker] golden: build "
+                    'or reuse it, run the [worker.canary] journey through the journey job, run '
+                    "the surface job's validate (or one-shard plan) for the [worker.canary] "
+                    'surface, then the quota and memory-watchdog checks.')
+    node.add_argument('--journey', default=None,
+                      help='override: a toolchain JSON (local path is shipped) proved with '
+                           'journey S0-01; for a worker before any enrolment')
+    node.add_argument('--surfaces', default=None,
+                      help='override: a toolchain JSON proved with a surface-runner plan')
+    node.add_argument('--source', default=None,
+                      help='source tree on the worker for a cold golden build '
+                           '(default: <engine_root>/src/<repo>/latest, written by the first '
+                           'routed run)')
     node.add_argument('--hog', default=None)
     node.add_argument('--quota-gib', type=int, default=None)
     node.add_argument('--mark', action='store_true', help='write the ready state from the verdict')
@@ -304,9 +363,20 @@ def add_parser(sub):
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_canary)
 
-    node = actions.add_parser('gc', help='sweep leaked instances, volumes and old goldens')
+    node = actions.add_parser(
+        'gc', help='sweep leaked instances, volumes and old goldens',
+        description='Remove leaked run instances, leaked volumes, and goldens past the keep '
+                    'count. Goldens are ranked by last use inside toolchain families -- one '
+                    "family per (repository, [worker] source_id) -- never across them. A golden "
+                    "whose fingerprint an enrolled repository's pandora.toml names, one a live "
+                    'attempt uses, and a pinned one are never removed.')
     node.add_argument('--dry-run', action='store_true')
-    node.add_argument('--keep', type=int, default=None)
+    node.add_argument('--keep', type=int, default=None, metavar='N',
+                      help='keep the N most recently used goldens per toolchain family, on top '
+                           'of every protected one (default: golden_keep in the manifest, 2)')
+    node.add_argument('--protect', action='append', default=[], metavar='FINGERPRINT',
+                      help='never remove this golden, in addition to the fingerprints the '
+                           'enrolled pandora.toml files name; repeatable')
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_gc)
 
