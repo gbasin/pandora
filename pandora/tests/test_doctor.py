@@ -19,6 +19,17 @@ from pandora.tests.test_fallback import DaemonCase
 HERE = Path(__file__).resolve().parents[2]
 
 
+def setUpModule():
+    # `doctor.run` asks launchd about supervision; no test here may reach the
+    # real `launchctl`, so it points at a path that does not exist, which reads
+    # as "not loaded". `test_launchd` covers the answers launchd can give.
+    from unittest import mock
+    from pandora.client import launchd
+    patch = mock.patch.object(launchd, 'LAUNCHCTL', '/nonexistent/launchctl')
+    patch.start()
+    unittest.addModuleCleanup(patch.stop)
+
+
 def write_exe(path, text='#!/bin/sh\nexit 0\n'):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)

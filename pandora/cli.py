@@ -34,13 +34,13 @@ RUNS
 
 FANOUT (for orchestrators; plain commands never need it)
   pandora run --detach -- <pnpm args>   submit, print the run id, return
-  pandora wait <id> <id> ...            one outcome line per id; non-zero if
-                                        any did not pass
+  pandora wait <id> <id> ...            one outcome line per id; non-zero unless all passed
   PANDORA_SHARDS=8 <command>            shard count for this one run
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
-  pandora doctor [--json] (read-only) | daemon | enrol <repo> | unenrol <repo> | worker <verb>
+  pandora doctor [--json] (read-only) | enrol <repo> | unenrol <repo> | worker <verb>
+  pandora daemon [--install | --restart (after a checkout update) | --uninstall | --stop]
 """
 import argparse
 import json
@@ -83,6 +83,18 @@ def state_of(args):
 # -- commands ---------------------------------------------------------------
 
 def cmd_daemon(args):
+    """Run the daemon in the foreground, or manage the launchd agent that runs it.
+
+    `--install` writes a user agent that keeps the daemon running from this
+    checkout; after updating the checkout, `--restart` makes it load the new
+    code. See `client/launchd.py` for what the plist carries and why.
+    """
+    verb = args.install or args.uninstall or args.restart or args.stop
+    if verb:
+        return cmd_daemon_supervision(args)
+    if args.label:
+        notice('--label goes with --install, --uninstall, --restart or --stop')
+        return 64
     from .client import daemon
     forward = []
     if args.state:
@@ -90,6 +102,31 @@ def cmd_daemon(args):
     if args.config:
         forward += ['--config', args.config]
     return daemon.main(forward)
+
+
+def cmd_daemon_supervision(args):
+    from .client import launchd
+    if sys.platform != 'darwin':
+        notice('launchd is macOS only; run `pandora daemon` under your own supervisor')
+        return 64
+    config_path = Path(args.config or os.environ.get('PANDORA_CONFIG')
+                       or settings.DEFAULT_PATH).expanduser().resolve()
+    state, _config = state_of(args)
+    label = launchd.label_for(state, args.label)
+    try:
+        if args.install:
+            launchd.install(label, config_path=config_path, state=state,
+                            state_arg=bool(args.state), say=notice)
+        elif args.uninstall:
+            launchd.uninstall(label, state=state, say=notice)
+        elif args.restart:
+            launchd.restart(label, say=notice)
+        else:
+            launchd.stop(label, state=state, say=notice)
+    except launchd.Refused as error:
+        notice(str(error))
+        return 1
+    return 0
 
 
 def cmd_enrol(args):
@@ -473,8 +510,21 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='which', required=True, metavar='<command>',
                                 help=argparse.SUPPRESS)
 
-    sub.add_parser('daemon', help='run the client daemon in the foreground'
-                   ).set_defaults(func=cmd_daemon)
+    daemon = sub.add_parser('daemon', help='run the client daemon in the foreground, or '
+                            'manage the launchd agent that runs it')
+    verbs = daemon.add_mutually_exclusive_group()
+    verbs.add_argument('--install', action='store_true',
+                       help='write a launchd user agent that keeps the daemon running from '
+                            'this checkout, and load it')
+    verbs.add_argument('--uninstall', action='store_true',
+                       help='unload the agent and delete its plist')
+    verbs.add_argument('--restart', action='store_true',
+                       help='launchctl kickstart -k: run after updating the checkout')
+    verbs.add_argument('--stop', action='store_true',
+                       help='SIGTERM a hand-started daemon and wait up to 10 s')
+    daemon.add_argument('--label', default=None,
+                        help='the launchd label (default com.pandora.daemon)')
+    daemon.set_defaults(func=cmd_daemon)
 
     enrol = sub.add_parser('enrol', help='mark a repository routable, all worktrees at once')
     enrol.add_argument('repo')
