@@ -10,12 +10,16 @@ INVARIANTS
   * Run from the repository root. In a subdirectory, a routed command whose
     arguments name a path is refused (exit 64) rather than run locally.
   * Exit codes that are not the command's own:
-      70  infrastructure failure, never a test verdict; retried once on the
-          worker first when none of the command's output had printed
+      70  infrastructure failure, never a test verdict
       75  busy or stale: a validation already active here, or the tree changed
      124  `--max-wait` elapsed; the run was NOT stopped
      130  cancelled
+  * `--update` runs on the worker, never here. Its files come back only from
+    a passing run (every shard) over a tree you did not edit meanwhile;
+    otherwise exit 75, your files untouched, and the next step printed.
   * `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
+    `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
+    the queue and the stats; 64 if the job cannot run there, never a fallback.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
     `pandora: hint: ...`: the next action, derived from evidence.
 
@@ -25,6 +29,7 @@ RUNS
   pandora logs <id>                replay a run's output
   pandora result <id> [--json]     outcome, exit, hint; --json for everything
   pandora cancel <id>              stop it; a remote instance is destroyed
+  pandora resolve <id> --keep-local|--take-worker   after an --update conflict
   pandora stats [--since 24h|7d] [--json]   what routed, waited, fell back
 
 FANOUT (for orchestrators; plain commands never need it)
@@ -35,7 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
-  pandora daemon | enrol <repo> | unenrol <repo> | worker <verb>
+  pandora doctor [--json] (read-only) | daemon | enrol <repo> | unenrol <repo> | worker <verb>
 """
 import argparse
 import json
@@ -145,6 +150,7 @@ def cmd_run(args):
     return shim.main(['--sock', str(state / 'client.sock'),
                       '--real', args.real or os.environ.get('PANDORA_REAL_PNPM', 'pnpm'),
                       '--state', str(state)] + (['--detach'] if args.detach else [])
+                     + (['--where', args.where] if args.where else [])
                      + ['--', *command])
 
 
@@ -336,6 +342,10 @@ def render_result(run_id, result):
         run_id, result.get('outcome'), result.get('cli_exit'),
         float(result.get('wall_seconds') or 0), result.get('lane') or 'remote',
         ', peak %s MiB' % result['peak_mib'] if result.get('peak_mib') is not None else '')]
+    placed = result.get('placement') or {}
+    if placed.get('overridden'):
+        lines.append('  placed %s by override; the job says %s'
+                     % (placed.get('where'), placed.get('declared')))
     if result.get('input_id'):
         lines.append('  input %s%s' % (result['input_id'],
                                        ' (same as %s)' % result['same_input_as']
@@ -359,9 +369,41 @@ def render_result(run_id, result):
     missing = (result.get('outputs') or {}).get('missing') or []
     if missing:
         lines.append('  missing: ' + ', '.join(missing))
+    record = result.get('writeback') or {}
+    if record.get('state'):
+        lines.append('  write-back: %s%s' % (record['state'],
+                                             ', ' + record['why'] if record.get('why') else ''))
+        for path in record.get('written') or []:
+            lines.append('    wrote %s' % path)
+        for item in record.get('conflicts') or []:
+            lines.append('    %s: yours kept; proposed %s/%s'
+                         % (item['path'], record.get('proposed'), item['path']))
     if result.get('hint'):
         lines.append('  hint: ' + result['hint'])
     return '\n'.join(lines)
+
+
+def cmd_resolve(args):
+    """Settle a `--update` run whose write-back found the declared files edited here.
+
+    No daemon and no worker: the proposal is already in the run directory, and
+    resolving is a decision about files on this Mac.
+    """
+    from .client import writeback
+    state, _ = state_of(args)
+    run_dir = state / 'runs' / args.run
+    result = read_json(run_dir / 'result.json')
+    if result is None:
+        notice('no result for run %s' % args.run)
+        return 1
+    code, lines = writeback.resolve(run_dir, result, keep_local=args.keep_local)
+    if code == 0:
+        temporary = run_dir / 'result.json.tmp'
+        temporary.write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
+        temporary.replace(run_dir / 'result.json')
+    for line in lines:
+        notice(line)
+    return code
 
 
 def cmd_cancel(args):
@@ -373,6 +415,19 @@ def cmd_cancel(args):
         return INFRA
     notice('cancel requested for %s: %s' % (args.run, json.dumps(answer)))
     return 0
+
+
+def cmd_doctor(args):
+    from .client import doctor
+    if args.package_home:
+        print(doctor.PACKAGE_HOME)
+        return 0
+    report = doctor.run(state=args.state, config=args.config)
+    if args.json:
+        print(json.dumps(report, indent=1, sort_keys=True))
+    else:
+        print(doctor.render(report))
+    return 0 if report['ok'] else 1
 
 
 def cmd_stats(args):
@@ -436,6 +491,11 @@ def main(argv=None):
     run.add_argument('--real', default=None)
     run.add_argument('--detach', action='store_true',
                      help='print the run id once accepted and return')
+    side = run.add_mutually_exclusive_group()
+    side.add_argument('--local', dest='where', action='store_const', const='local',
+                      help='run it in the local lane, whatever the job says')
+    side.add_argument('--remote', dest='where', action='store_const', const='remote',
+                      help='run it on the worker, whatever the job says')
     run.add_argument('argv', nargs=argparse.REMAINDER)
     run.set_defaults(func=cmd_run)
 
@@ -455,6 +515,21 @@ def main(argv=None):
         if name == 'result':
             node.add_argument('--json', action='store_true')
         node.set_defaults(func=function)
+
+    doctor = sub.add_parser('doctor', help='check this shell and worktree; changes nothing')
+    doctor.add_argument('--json', action='store_true')
+    # What `doctor` asks of the `pandora` found on PATH, run from `/`: which
+    # package did you import? Not for people.
+    doctor.add_argument('--package-home', action='store_true', help=argparse.SUPPRESS)
+    doctor.set_defaults(func=cmd_doctor)
+    resolve = sub.add_parser('resolve', help='settle a conflicted --update write-back')
+    resolve.add_argument('run')
+    choice = resolve.add_mutually_exclusive_group(required=True)
+    choice.add_argument('--keep-local', action='store_true',
+                        help='the declared files as they are now are the answer')
+    choice.add_argument('--take-worker', action='store_true',
+                        help="replace them with the worker's proposed versions")
+    resolve.set_defaults(func=cmd_resolve)
 
     stats = sub.add_parser('stats', help='what routed, what waited, what did not route')
     stats.add_argument('--since', default=None,

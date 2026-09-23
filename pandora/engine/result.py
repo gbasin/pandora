@@ -1,11 +1,11 @@
 """Hints: the one sentence a reader of a failure would have wanted first.
 
 A result already says what happened. A hint says what to *do*, and only when the
-evidence already on hand names the action. There are six rules, and every one of
-them is a function of facts that were measured -- a peak against a ceiling, a
+evidence already on hand names the action. There are seven rules, and every one
+of them is a function of facts that were measured -- a peak against a ceiling, a
 wall clock against a limit, a declared report that is not there, two manifests
 that differ, two verdicts on one input that disagree, a path the command named
-that exists here and was not shipped.
+that exists here and was not shipped, a write-back and what it found.
 
 What this file deliberately is not: a guesser. No model, no pattern library, no
 "this looks like a flaky test" -- the flaky rule fires only on two recorded
@@ -167,9 +167,39 @@ def gitignored(facts):
     return None
 
 
+def written_back(facts):
+    """A `--update` run's write-back: what to review, or why nothing landed.
+
+    The client's rule: only the Mac can compare a proposal with the worktree,
+    so the record this reads is filled in after the engine's result arrives.
+    Silent when the run did not pass -- the failure is the thing to read -- and
+    when the run changed nothing.
+    """
+    record = facts.get('writeback') or {}
+    state = record.get('state')
+    if state == 'published':
+        count = len(record.get('written') or [])
+        return ('review `git diff` of %d updated file%s, then validate without --update'
+                % (count, '' if count == 1 else 's'))
+    if state == 'conflicted':
+        count = len(record.get('conflicts') or [])
+        return ('%d declared file%s changed here during the run and kept your version; '
+                'merge the worker\'s from %s, then `%s`'
+                % (count, '' if count == 1 else 's', record.get('proposed'),
+                   record.get('resolve')))
+    if state == 'stale':
+        paths = list(record.get('stale') or [])
+        return ('the worktree changed during the run at %s%s, so nothing was written '
+                'back; re-run it with --update'
+                % (', '.join(paths[:5]), ' and more' if len(paths) > 5 else ''))
+    if state == 'incomplete':
+        return 'nothing was written back: %s' % record.get('why')
+    return None
+
+
 # Worst-first, and the order is the contract: a killed run says nothing about a
 # report it never got to write.
-RULES = (oom, timed_out, drifted, flaky, missing_report, gitignored)
+RULES = (oom, timed_out, drifted, flaky, missing_report, written_back, gitignored)
 
 
 def hint_for(facts):
@@ -201,6 +231,7 @@ def facts_from_result(result, **extra):
         'drifted': result.get('drifted'),
         'drift': result.get('drift'),
         'flaky': result.get('flaky'),
+        'writeback': result.get('writeback'),
     }
     facts.update(extra)
     return facts

@@ -70,6 +70,18 @@ class LoaderTest(unittest.TestCase):
             load_text(text)
         self.assertIn('writeback', str(caught.exception))
 
+    def test_a_writeback_glob_matches_file_names_in_one_directory_only(self):
+        armed = MINIMAL + ('\noptions = [{ name = "--update", sets = "update", writeback = true }]'
+                           '\noutputs = [{ kind = "writeback", requires_option = "update", '
+                           'paths = ["%s"] }]\n')
+        load_text(armed % 'fixtures/*.ledger.jsonl')
+        load_text(armed % 'fixtures/routes.json')
+        for path in ('fixtures/**/x.json', 'fix*/routes.json', '*.json'):
+            with self.subTest(path=path):
+                with self.assertRaises(ConfigError) as caught:
+                    load_text(armed % path)
+                self.assertIn(path, str(caught.exception))
+
     def test_two_jobs_cannot_claim_one_form(self):
         text = MINIMAL + '''
 [[jobs]]

@@ -35,12 +35,20 @@ from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refuse
                       SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
 from ..engine import retry as retries
 from ..exits import INFRA, STALE
-from . import enrolment, fallback as policy, hints, progress, settings, stats as statistics
+from . import enrolment, fallback as policy, hints, placement, progress, settings
+from . import stats as statistics
+from . import writeback as writebacks
 from .health import Monitor
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
 from .protocol import Reader, VERSION, dump, log_frame
 from .worker import Worker
+
+
+# The directory this daemon imported `pandora` from, said in `daemon.json` and in
+# `pong` so `pandora doctor` can tell a daemon started from one checkout from a
+# launcher that resolves to another.
+PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
 
 
 def now():
@@ -159,16 +167,27 @@ class Run:
     def save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
+                   'worktree': self.worktree(),
                    'remote': self.remote, 'repo': self.request.get('repo'),
                    'lane': self.lane, 'reason': self.reason, 'job': self.request.get('job'),
                    'started': self.started, 'accepted': self.accepted,
                    'queue_ms': (None if self.accepted is None
                                 else int((self.accepted - self.started) * 1000)),
                    'hint': self.hint, 'attempts': self.attempts, 'phase': self.phase,
-                   'pre_accept': self.pre_accept, 'updated': now()}
+                   'pre_accept': self.pre_accept, 'updated': now(),
+                   'placement': self.request.get('placement')}
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
+
+    def worktree(self):
+        """Where the run's paths are rooted: the worktree, not where it was typed.
+
+        A re-rooted run was typed in a subdirectory, and its declared outputs
+        are worktree-relative. Rooting them at `cwd` would put
+        `packages/x/.journeys` under `apps/agent/packages/x/.journeys`.
+        """
+        return self.request.get('worktree') or self.request.get('cwd')
 
     def consumed(self):
         """How many bytes of the *remote* log have been copied into this one.
@@ -283,6 +302,8 @@ class Run:
         self.result = result
         if isinstance(result, dict) and result.get('hint') is None and self.hint:
             result['hint'] = self.hint
+        if isinstance(result, dict) and self.request.get('placement'):
+            result.setdefault('placement', self.request['placement'])
         if result is not None:
             (self.dir / 'result.json').write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
         self.save()
@@ -466,7 +487,8 @@ class Daemon:
         self.resume_interrupted()
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
-             'worker': self.config['worker']['host'], 'started': now()}) + '\n')
+             'worker': self.config['worker']['host'], 'started': now(),
+             'home': PACKAGE_HOME}) + '\n')
         if self.config['worker']['host']:
             self.health.start()
         return self
@@ -538,7 +560,10 @@ class Daemon:
         if op == 'ping':
             conn.sendall(dump({'v': VERSION, 't': 'pong', 'pid': os.getpid(),
                                'worker': self.config['worker']['host'],
-                               'runs': len(self.runs)}))
+                               'runs': len(self.runs), 'home': PACKAGE_HOME,
+                               # The cached reading, never a poll: `pandora doctor`
+                               # asks this, and a doctor must not change anything.
+                               'health': self.health.state()}))
         elif op == 'stats':
             conn.sendall(dump({'v': VERSION, 't': 'stats',
                                'data': self.stats(first.get('since'))}))
@@ -649,14 +674,18 @@ class Daemon:
             self.tell(conn, 'running from the worktree root; you typed this in %s and no '
                             'argument names a path' % verdict['rerooted'])
 
-        if job['where'] == 'local':
-            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree)
+        # The job's `where`, or the caller's `--local`/`--remote`. A request the
+        # job cannot honour is refused here, before anything is frozen or queued.
+        try:
+            placed = placement.decide(job, plan, request.get('where'))
+        except Refused as error:
+            self.deny(conn, error.code, str(error), exit=error.exit)
             return
-
-        if plan['options'].get('update'):
-            self.deny(conn, 'rejected',
-                      '--update write-back is not in this build; run it locally with '
-                      'PANDORA_OFF=1 until write-back lands.', exit=INFRA)
+        plan = placed['plan']
+        request = dict(request, placement=placed['record'], reason=placed['reason'])
+        if placed['where'] == 'local':
+            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
+                             reason=placed['reason'])
             return
 
         # The repository's own opinion of the arguments, before anything queues.
@@ -669,7 +698,7 @@ class Daemon:
             return
 
         run = Run(self.state, uuid.uuid4().hex[:12],
-                  dict(request, repo=repo['name'], job=job['id']))
+                  dict(request, repo=repo['name'], job=job['id'], worktree=worktree))
         run.state = 'queued'
         run.save()
         # The health poll's one job. Without it every command typed against a
@@ -739,6 +768,10 @@ class Daemon:
         run.remote = submission.run_id
         run.shipped = getattr(submission, 'shipped', frozenset())
         run.pre_accept = dict(getattr(submission, 'durations', None) or {})
+        if getattr(submission, 'writeback', None) is not None:
+            # On disk before `accepted`, so a daemon that adopts this run after
+            # a restart checks the proposal against the same frozen hashes.
+            writebacks.save(run.dir, submission.writeback)
         run.state = 'running'
         run.accepted = now()
         run.save()
@@ -770,6 +803,14 @@ class Daemon:
         of starting twelve browser suites on one Mac -- which is the accident
         this whole path exists to make impossible.
         """
+        if (request.get('placement') or {}).get('override') == 'remote':
+            # The caller said where. Running it here instead would be the one
+            # answer they ruled out, so the fallback lane is not consulted.
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'placement-unavailable',
+                               'msg': '%s (%s): --remote was asked for, so this is not run on '
+                                      'this Mac. Retry, or drop the override.' % (cause, detail),
+                               'exit': INFRA}))
+            return
         verdict = policy.decide(cause=cause, size=plan['size'],
                                 writeback=bool(plan['options'].get('update'))
                                           or plan.get('writeback'),
@@ -1079,7 +1120,7 @@ class Daemon:
         """Bring outputs back, report what is missing, then exit as the run did."""
         worker = self.worker_for(repo)
         try:
-            collected = worker.collect(run.remote, plan, worktree=run.request['cwd'])
+            collected = worker.collect(run.remote, plan, worktree=run.worktree())
         except (TransferError, WorkerUnreachable) as error:
             run.note('could not bring outputs back: %s' % error)
             collected = {'fetched': False, 'missing': []}
@@ -1092,11 +1133,36 @@ class Daemon:
             # Belt and braces: a zero from a non-passing run would be a
             # fabricated pass, which is the one thing that must never happen.
             code = 70
+        written = self.write_back(run, worker, result)
+        if written is not None:
+            result['writeback'] = written
+            if written['exit'] is not None and code == 0:
+                code = written['exit']
         run.note('%s in %.1fs (%s, peak %s MiB, %s)' % (
             result['outcome'], result.get('wall_seconds', 0), result.get('layer'),
             result.get('peak_mib'), result.get('run_id')))
-        run.suggest(self.hint_for(run, result, run.request.get('cwd')))
+        run.suggest(self.hint_for(run, result, run.worktree()))
         run.finish(code, state=result['outcome'], result=result)
+
+    def write_back(self, run, worker, result):
+        """Publish a `--update` run's proposal, or say why not. None for other runs.
+
+        Never raises: a write-back that cannot finish is an exit code and a
+        sentence, and the proposal stays in the run directory either way.
+        """
+        try:
+            record = writebacks.settle(
+                run.dir, result, run_id=run.id,
+                fetch=lambda into: worker.fetch_writeback(run.remote, into),
+                freeze=writebacks.default_freeze(self.state / 'digests'))
+        except (TransferError, WorkerUnreachable, OSError) as error:
+            record = {'state': 'incomplete', 'exit': INFRA, 'written': [], 'conflicts': [],
+                      'why': 'the proposal could not be brought home: %s' % error}
+        if record is None:
+            return None
+        for line in writebacks.describe(record):
+            run.note(line)
+        return record
 
     def hint_for(self, run, result, worktree):
         """One sentence naming the next action, or nothing. Never fatal.
@@ -1109,7 +1175,8 @@ class Daemon:
             return None
         if result.get('hint'):
             return result['hint']       # the engine already had the evidence
-        if result.get('outcome') == 'passed' and not result.get('drifted'):
+        if (result.get('outcome') == 'passed' and not result.get('drifted')
+                and not result.get('writeback')):
             # Nothing to advise, and reading the log's tail to prove it would be
             # a cost paid on every green run.
             return None

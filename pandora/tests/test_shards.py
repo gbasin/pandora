@@ -304,8 +304,12 @@ PLAN_DOC = {'inventory': [{'shard': 1, 'testIds': ['t1', 't2']},
                           {'shard': 2, 'testIds': ['t3']}]}
 
 
-class FanoutTest(unittest.TestCase):
-    """One parent, one plan step, two shards, with the driver writing real files."""
+class FanoutHarness(unittest.TestCase):
+    """One parent, one plan step, two shards, with the driver writing real files.
+
+    No tests of its own, so that another module can build on it without running
+    this one's twice.
+    """
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -354,12 +358,14 @@ class FanoutTest(unittest.TestCase):
         thread.start()
         return 4242
 
-    def parent(self, *, want=None, keep_going=False, args=('desk',)):
+    OUTPUTS = [{'kind': 'artifacts', 'paths': ['apps/desk/test-results']}]
+
+    def parent(self, *, want=None, keep_going=False, args=('desk',), outputs=None,
+               source_path='/src'):
         self.ledger.claim('req', 'p1', repo='demo', job='surface', input_id='i',
-                          source_path='/src', argv=['node', 'runner.mjs', 'run', 'desk',
-                                                    '--no-build'],
-                          env={}, cwd='.',
-                          outputs=[{'kind': 'artifacts', 'paths': ['apps/desk/test-results']}],
+                          source_path=source_path, argv=['node', 'runner.mjs', 'run', 'desk',
+                                                         '--no-build'],
+                          env={}, cwd='.', outputs=outputs or self.OUTPUTS,
                           size_class='medium', role='parent')
         attempt = self.paths.attempt('p1')
         attempt.mkdir(parents=True, exist_ok=True)
@@ -395,6 +401,8 @@ class FanoutTest(unittest.TestCase):
 
         self.driver.clone = clone
 
+
+class FanoutTest(FanoutHarness):
     def test_a_clean_fan_out_passes_and_says_it_is_verified(self):
         self.arrange()
         result = self.parent(want=2)

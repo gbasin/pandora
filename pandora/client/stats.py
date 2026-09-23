@@ -124,6 +124,7 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     oom = 0
     retried = {'runs': 0, 'recovered': 0, 'causes': {}}
     flaky = {'pairs': 0, 'shard_pairs': 0}
+    overrides = overrides_from(runs, passthrough)
     for meta, result in runs:
         lane = meta.get('lane') or 'remote'
         job = meta.get('job') or '(unclassified)'
@@ -177,9 +178,34 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         'flaky': flaky,
         'pause': pause or {},
         'local': local or {},
-        'passthrough': passthrough_summary(passthrough),
+        'overrides': overrides,
+        'passthrough': passthrough_summary(
+            [row for row in passthrough if row.get('reason') != 'override-ignored']),
         'worker': worker or {},
     }
+
+
+def overrides_from(runs, passthrough):
+    """`--local`/`--remote` by direction: asked, how many moved a run, how many hit nothing.
+
+    `asked` counts every routed run that carried an override, `moved` the ones
+    where it changed the lane -- `PANDORA_WHERE=remote pnpm check` on a remote job
+    asks and moves nothing. `unclaimed` is an override on a command no job claims,
+    which runs as if the shim were absent; a steady count there is an agent
+    that believes Pandora owns a command it does not. A refused override (exit
+    64) never becomes a run and is not counted here.
+    """
+    out = {where: {'asked': 0, 'moved': 0, 'unclaimed': 0} for where in ('local', 'remote')}
+    for meta, _result in runs:
+        record = meta.get('placement') or {}
+        if record.get('override') in out:
+            out[record['override']]['asked'] += 1
+            if record.get('overridden'):
+                out[record['override']]['moved'] += 1
+    for row in passthrough:
+        if row.get('override') in out:
+            out[row['override']]['unclaimed'] += 1
+    return out
 
 
 def passthrough_summary(rows):
@@ -252,6 +278,12 @@ def render(report):
     if report['drift']['warned'] or report['drift']['failed']:
         flags.append('drift: %d warning(s), %d failure(s)'
                      % (report['drift']['warned'], report['drift']['failed']))
+    overrides = report.get('overrides') or {}
+    said = ['%s x%d (%d moved, %d on unclaimed)'
+            % (where, row['asked'] + row['unclaimed'], row['moved'], row['unclaimed'])
+            for where, row in sorted(overrides.items()) if row['asked'] or row['unclaimed']]
+    if said:
+        flags.append('overrides: ' + ', '.join(said))
     if flags:
         lines.append('')
         lines.extend(flags)

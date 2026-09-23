@@ -30,9 +30,11 @@ from pathlib import Path
 
 from ..config import classify as classifier
 from ..engine import bundle
+from ..engine import writeback as engine_writeback
 from ..errors import (EngineError, PandoraError, TransferError, WorkerUnreachable)
 from ..snapshot import freeze as snapshot
 from ..snapshot import transfer
+from . import writeback as writebacks
 
 POLL_IDLE = 0.4
 POLL_BUSY = 0.15
@@ -42,7 +44,7 @@ class Submission:
     """What the worker acknowledged, and what it took to get there."""
 
     def __init__(self, run_id, *, admission=None, duplicate=False, same_input_as=None,
-                 input_id='', durations=None, source=None, shipped=()):
+                 input_id='', durations=None, source=None, shipped=(), writeback=None):
         self.run_id = run_id
         self.admission = admission or {}
         self.duplicate = duplicate
@@ -53,6 +55,9 @@ class Submission:
         # The frozen manifest's paths. Kept for the gitignored-path hint, which
         # needs to know what was *not* shipped; ~5,000 strings, held per run.
         self.shipped = frozenset(shipped)
+        # For a write-back run, what the declared files and the rest of the tree
+        # were at freeze time (`client.writeback.context`). None otherwise.
+        self.writeback = writeback
 
 
 class Worker:
@@ -141,7 +146,10 @@ class Worker:
                           duplicate=answer.get('duplicate', False),
                           same_input_as=answer.get('same_input_as'),
                           input_id=input_id, durations=marks, source=source,
-                          shipped=(record['path'] for record in manifest))
+                          shipped=(record['path'] for record in manifest),
+                          writeback=(writebacks.context(manifest, plan, worktree=worktree,
+                                                        input_id=input_id)
+                                     if plan.get('writeback') else None))
 
     def resubmit(self, run_id, *, request_id):
         """One more attempt at a finished `infra_failed` run, from the same input.
@@ -242,6 +250,16 @@ class Worker:
         present = [path for path in paths if (Path(worktree) / path).exists()]
         return {'paths': paths, 'present': present,
                 'missing': [path for path in paths if path not in present], 'fetched': True}
+
+    def fetch_writeback(self, run_id, into):
+        """Bring a run's write-back proposal into `into`, never into the worktree.
+
+        A separate directory from the artifacts on both ends: artifacts are
+        rsynced straight into the worktree, and a proposal must not reach it
+        before `client.writeback.settle` has said it may.
+        """
+        remote = '%s/runs/%s/%s' % (self.root(), run_id, engine_writeback.PROPOSAL)
+        transfer.fetch(self.link, remote, into, timeout=900)
 
     def close(self):
         self.link.close()

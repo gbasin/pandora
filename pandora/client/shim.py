@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from ..exits import CANCELLED, INFRA, STALE, USAGE
-from . import enrolment, envfilter, fallback as fallback_module
+from . import enrolment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
 HANDSHAKE_SECONDS = 20.0     # freeze + ship + submit happen before `accepted`
@@ -59,7 +59,7 @@ def die_by(number):
     os.kill(os.getpid(), number)
 
 
-def run_local(real, argv, *, state=None, claimed=True, reason=''):
+def run_local(real, argv, *, state=None, claimed=True, reason='', where=None):
     """Run the command here, under the fallback budget when it was claimed."""
     environment = dict(os.environ, PANDORA_ROUTE_DEPTH='1', PANDORA_REAL_PNPM=real)
     slot = None
@@ -86,13 +86,13 @@ def run_local(real, argv, *, state=None, claimed=True, reason=''):
         if slot is not None:
             slot.release()
     if state is not None:
+        entry = {'ts': started, 'kind': 'fallback' if claimed else 'passthrough',
+                 'argv': argv, 'cwd': os.getcwd(), 'reason': reason,
+                 'duration_ms': int((time.time() - started) * 1000), 'exit': code}
+        if where:
+            entry['override'] = where   # asked for, and ignored: see `pandora stats`
         try:
-            fallback_module.record(state, {'ts': started,
-                                       'kind': 'fallback' if claimed else 'passthrough',
-                                       'argv': argv,
-                                           'cwd': os.getcwd(), 'reason': reason,
-                                           'duration_ms': int((time.time() - started) * 1000),
-                                           'exit': code})
+            fallback_module.record(state, entry)
         except OSError:
             pass                        # the log is diagnostics; never fail a run for it
     return code
@@ -243,7 +243,7 @@ class Stream:
         return False
 
 
-def build_request(command, *, cwd=None):
+def build_request(command, *, cwd=None, where=None):
     """The request, with the caller's environment filtered and the drops announced."""
     forwarded, secrets, platform = envfilter.split(os.environ)
     for line in envfilter.notices(secrets, platform):
@@ -261,6 +261,8 @@ def build_request(command, *, cwd=None):
         request['want_shards'] = int(raw)
     if os.environ.get('PANDORA_KEEP_GOING', '') not in ('', '0'):
         request['keep_going'] = True
+    if where:
+        request['where'] = where
     return request
 
 
@@ -271,11 +273,22 @@ def main(argv=None):
     parser.add_argument('--state', default=None)
     parser.add_argument('--detach', action='store_true',
                         help='print the run id once accepted and return; the run keeps going')
+    parser.add_argument('--where', default=None,
+                        help='`pandora run --local/--remote`; outranks PANDORA_WHERE')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     state = args.state or str(Path(args.sock).parent)
     updating = '--update' in command
+    # The flag wins over the variable, and a variable that names neither side is
+    # refused before anything is asked of anyone: a typo in a placement is not a
+    # request to be read generously.
+    try:
+        where = (placement.parse(args.where, source='--where') if args.where
+                 else placement.parse(os.environ.get(placement.ENV)))
+    except ValueError as error:
+        notice(str(error))
+        return USAGE
 
     def no_daemon(cause, message):
         """The daemon is not there to decide, so decide the same way it would.
@@ -294,6 +307,13 @@ def main(argv=None):
         if subdirectory_offender(command) is not None:
             notice('run from the repo root to route')
             return USAGE
+        if where == 'remote':
+            # Only the daemon can reach the worker, and an explicit `--remote`
+            # is never answered with a local run.
+            notice('%s; --remote was asked for and only the daemon can send it to the '
+                   'worker, so nothing was run. Start the daemon, or drop the override.'
+                   % message)
+            return INFRA
         declared = marker_policy(command)
         verdict = fallback_module.decide(
             cause=cause,
@@ -308,7 +328,7 @@ def main(argv=None):
                'queue needs the daemon that is missing.' % message)
         return run_local(args.real, command, state=state, reason=cause)
 
-    request = build_request(command)
+    request = build_request(command, where=where)
     try:
         sock = connect(args.sock, timeout=2.0)
     except (OSError, socket.timeout) as error:
@@ -337,7 +357,7 @@ def main(argv=None):
             # if the shim were not installed.
             notice(frame.get('msg') or 'not routed')
             return run_local(args.real, command, state=state, claimed=False,
-                             reason='passthrough')
+                             reason='passthrough', where=where)
         # Everything else is the daemon's own verdict, and the daemon is the one
         # thing that knows this machine's queue, this job's size and this repo's
         # policy. It has already decided whether a local run is allowed; there is

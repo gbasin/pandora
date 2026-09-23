@@ -29,7 +29,7 @@ class Help(unittest.TestCase):
                        'pandora ps', 'pandora wait', 'pandora logs', 'pandora cancel',
                        'pandora result', 'pandora stats', 'run --detach',
                        'wait <id> <id>', 'PANDORA_SHARDS', 'result <id> --json',
-                       'pandora: hint:'):
+                       'pandora: hint:', '--update', 'pandora resolve'):
             self.assertIn(needle, out)
 
 
