@@ -155,23 +155,33 @@ budget_mib` and `[client] max_wait_seconds`; nothing in v0.2 reads them.
 
 ### 4. Start the daemon
 
-No launchd unit ships with v0.2. The plist in `experiments/client/launchd/`
-starts the retired POC daemon and does not apply. Start the daemon by hand.
+Install the launchd user agent. It runs the daemon from this checkout, restarts
+it after a crash or a reboot, and logs to `<state>/logs/daemon.log`.
 
 ```sh
-mkdir -p ~/.local/state/pandora/default
-nohup pandora --config ~/.config/pandora/config.toml daemon \
-  >> ~/.local/state/pandora/default/daemon.log 2>&1 &
+pandora daemon --install
 ```
 
-The first line in the log is `pandora: daemon on <state>/client.sock, worker
-<host>`. A second daemon on the same state directory exits with `pandora daemon
-already running`.
+The command writes `~/Library/LaunchAgents/com.pandora.daemon.plist`, loads it,
+and prints the launchd state line. The plist pins `PANDORA_PYTHON` to the
+interpreter that ran the install. If a hand-started daemon already holds the
+lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 
-To restart the daemon, for example after you update the checkout, send SIGTERM
-to it and start it again. `pandora doctor` prints its pid. A remote run
-continues on the worker while no daemon runs. The next daemon adopts it from
+After you update the checkout, restart the daemon. It runs the code it started
+with.
+
+```sh
+pandora daemon --restart
+```
+
+`pandora daemon --uninstall` unloads the agent and deletes the plist. A remote
+run continues on the worker while no daemon runs. The next daemon adopts it from
 its recorded log offset, and `pandora wait <id>` re-attaches.
+
+To run the daemon by hand instead, for example on a machine where launchd is not
+wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
+foreground or under `nohup`. `pandora doctor` then warns that nothing restarts
+it.
 
 ### 5. Enrol each repository
 
