@@ -10,7 +10,8 @@ INVARIANTS
   * Run from the repository root. In a subdirectory, a routed command whose
     arguments name a path is refused (exit 64) rather than run locally.
   * Exit codes that are not the command's own:
-      70  infrastructure failure, never a test verdict
+      70  infrastructure failure, never a test verdict; retried once on the
+          worker first when none of the command's output had printed
       75  busy or stale: a validation already active here, or the tree changed
      124  `--max-wait` elapsed; the run was NOT stopped
      130  cancelled
@@ -162,6 +163,8 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
         notice('cannot attach to %s: %s' % (run_id, (frame or {}).get('msg') or frame))
         sock.close()
         return INFRA
+    if not quiet and frame.get('phase'):
+        notice(frame['phase'])
     timer = None
     if deadline is not None:
         # A deadline changes what the caller learns, not what the run does: the
@@ -337,9 +340,22 @@ def render_result(run_id, result):
         lines.append('  input %s%s' % (result['input_id'],
                                        ' (same as %s)' % result['same_input_as']
                                        if result.get('same_input_as') else ''))
+    for number, attempt in enumerate(result.get('attempts') or [], 1):
+        lines.append('  attempt %d %s: %s%s' % (
+            number, attempt.get('remote'), attempt.get('outcome'),
+            ' (%s)' % attempt['cause'] if attempt.get('cause') else ''))
     for row in (result.get('evidence') or {}).get('shards') or []:
-        lines.append('  shard %s: %s, exit %s' % (row.get('shard'), row.get('outcome'),
-                                                  row.get('exit_code')))
+        lines.append('  shard %s: %s, exit %s%s' % (
+            row.get('shard'), row.get('outcome'), row.get('exit_code'),
+            ', retried after %s' % row['retry_cause'] if row.get('retry_cause') else ''))
+    flaky = result.get('flaky') or {}
+    if flaky.get('order') or flaky.get('shards'):
+        lines.append('  flaky: %s' % ', '.join(
+            (['whole run %s (failed %s, passed %s)' % (flaky['order'], flaky['failed'],
+                                                       flaky['passed'])]
+             if flaky.get('order') else [])
+            + ['shard %s %s' % (item['shard'], item['order'])
+               for item in flaky.get('shards') or []]))
     missing = (result.get('outputs') or {}).get('missing') or []
     if missing:
         lines.append('  missing: ' + ', '.join(missing))

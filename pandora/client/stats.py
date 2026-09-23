@@ -122,6 +122,8 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     by_job, waits, executes = {}, {'local': [], 'remote': []}, {}
     fallbacks, drift = {}, {'warned': 0, 'failed': 0}
     oom = 0
+    retried = {'runs': 0, 'recovered': 0, 'causes': {}}
+    flaky = {'pairs': 0, 'shard_pairs': 0}
     for meta, result in runs:
         lane = meta.get('lane') or 'remote'
         job = meta.get('job') or '(unclassified)'
@@ -140,6 +142,22 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
             oom += 1
         if result.get('drifted'):
             drift['failed' if result.get('drift') == 'fail' else 'warned'] += 1
+        attempts = result.get('attempts') or meta.get('attempts') or []
+        if attempts:
+            # One caller-visible run, several attempts; counted once, as a run
+            # that was retried, and as recovered if its last attempt reached a
+            # verdict. The cause is the first attempt's.
+            retried['runs'] += 1
+            if outcome in ('passed', 'command_failed'):
+                retried['recovered'] += 1
+            cause = attempts[0].get('cause') or 'unknown'
+            retried['causes'][cause] = retried['causes'].get(cause, 0) + 1
+        pair = result.get('flaky') or {}
+        # A pair is recorded on its later attempt only, so counting results
+        # counts pairs.
+        if pair.get('order'):
+            flaky['pairs'] += 1
+        flaky['shard_pairs'] += len(pair.get('shards') or [])
     return {
         'window': window or ('all' if since is None else None),
         'since': since,
@@ -155,6 +173,8 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
                       for reason, count in sorted(fallbacks.items(), key=lambda i: -i[1])],
         'oom': oom,
         'drift': drift,
+        'retries': retried,
+        'flaky': flaky,
         'pause': pause or {},
         'local': local or {},
         'passthrough': passthrough_summary(passthrough),
@@ -220,6 +240,15 @@ def render(report):
                                                for row in report['fallbacks']))
     if report['oom']:
         flags.append('oom kills: %d' % report['oom'])
+    retried = report.get('retries') or {}
+    if retried.get('runs'):
+        flags.append('infra retries: %d run(s), %d recovered (%s)' % (
+            retried['runs'], retried['recovered'],
+            ', '.join('%s x%d' % item for item in sorted(retried['causes'].items()))))
+    flaky = report.get('flaky') or {}
+    if flaky.get('pairs') or flaky.get('shard_pairs'):
+        flags.append('flaky: %d run pair(s), %d shard pair(s) failed and passed on one input'
+                     % (flaky.get('pairs', 0), flaky.get('shard_pairs', 0)))
     if report['drift']['warned'] or report['drift']['failed']:
         flags.append('drift: %d warning(s), %d failure(s)'
                      % (report['drift']['warned'], report['drift']['failed']))

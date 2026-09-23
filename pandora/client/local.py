@@ -40,6 +40,7 @@ from ..engine.admission import Admission, Store
 from ..errors import PandoraError, SnapshotError
 from ..exits import CANCELLED, INFRA, STALE
 from ..snapshot.freeze import freeze
+from . import progress
 from .pressure import Gate, Paused
 
 RESULT_VERSION = 1
@@ -126,6 +127,9 @@ class Budget:
         self.worktrees = {}                 # resolved worktree -> run id
         self.singletons = {}                # job id -> run id
         self.held = {}                      # run id -> {'worktree','job','admitted'}
+        # Seconds until the queue is likely to move, or None. Set by the daemon,
+        # which has the run history; the budget only knows who holds what.
+        self.estimate = None
 
     # -- the rules that refuse rather than queue ---------------------------
 
@@ -197,6 +201,7 @@ class Budget:
         """
         self.wait_for_the_machine(cancelled=cancelled, note=note)
         deadline = (time.monotonic() + timeout) if timeout else None
+        said = None
         with self.lock:
             reservation = self.admission.reservation(repo, job)[0]
             if reservation > self.admission.budget_mib:
@@ -216,7 +221,24 @@ class Budget:
                     return verdict
                 if deadline is not None and time.monotonic() >= deadline:
                     return None
+                said = self.say_queued(note, said)
                 self.wake.wait(poll)
+
+    def say_queued(self, note, said):
+        """Once on the first wait, then at most once a minute. Returns when it last spoke."""
+        if note is None:
+            return said
+        now = time.monotonic()
+        if said is not None and now - said < progress.STILL_EVERY:
+            return said
+        eta = None
+        if said is None and self.estimate is not None:
+            try:
+                eta = self.estimate()
+            except Exception:                      # noqa: BLE001 - a courtesy, never a verdict
+                eta = None
+        note(progress.queue_line(len(self.admission.running), eta, first=said is None))
+        return now
 
     def finish(self, run_id, peak_mib, outcome):
         """Release everything this run held and teach the next one."""

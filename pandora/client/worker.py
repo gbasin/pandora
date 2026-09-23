@@ -96,8 +96,15 @@ class Worker:
 
     # -- submission --------------------------------------------------------
 
-    def submit(self, *, plan, worktree, request_id, cache_root=None, control=None):
-        """Freeze, ship and submit. Raises before the worker acknowledges anything."""
+    def submit(self, *, plan, worktree, request_id, cache_root=None, control=None,
+               progress=None):
+        """Freeze, ship and submit. Raises before the worker acknowledges anything.
+
+        `progress` receives one line when a transfer actually starts, naming the
+        size of the tree being synced. It is the tree's size, not the bytes on
+        the wire: rsync with `--link-dest` sends only what the cache lacks, and
+        which that is is not known until it has finished.
+        """
         marks = {}
         started = time.monotonic()
         manifest, dropped, input_id = snapshot.freeze(
@@ -106,9 +113,10 @@ class Worker:
         marks['freeze'] = round(time.monotonic() - started, 2)
 
         mark = time.monotonic()
-        source = transfer.send(self.link, manifest, worktree=worktree,
-                               root=cache_root or self.root(),
-                               repo=plan['repo'], input_id=input_id)
+        source = transfer.send(
+            self.link, manifest, worktree=worktree, root=cache_root or self.root(),
+            repo=plan['repo'], input_id=input_id,
+            on_send=(lambda: progress(sync_line(worktree, manifest))) if progress else None)
         marks['ship'] = round(time.monotonic() - mark, 2)
 
         mark = time.monotonic()
@@ -134,6 +142,22 @@ class Worker:
                           same_input_as=answer.get('same_input_as'),
                           input_id=input_id, durations=marks, source=source,
                           shipped=(record['path'] for record in manifest))
+
+    def resubmit(self, run_id, *, request_id):
+        """One more attempt at a finished `infra_failed` run, from the same input.
+
+        Nothing is frozen or shipped: the engine reads the first attempt's own
+        request back, so the retry tests the tree the caller was told about.
+        Raises `EngineError` when the engine refuses, exactly as `submit` does.
+        """
+        answer = self.engine(['resubmit', '--run', run_id, '--request-id', request_id],
+                             timeout=120)
+        if not answer.get('ok'):
+            raise EngineError(json.dumps({'code': answer.get('code', 'rejected'),
+                                          'detail': answer.get('admission')}))
+        return Submission(answer['run_id'], admission=answer.get('admission'),
+                          duplicate=answer.get('duplicate', False),
+                          same_input_as=answer.get('same_input_as'))
 
     # -- following a run ---------------------------------------------------
 
@@ -170,13 +194,15 @@ class Worker:
     def reconcile(self):
         return self.engine(['reconcile'], timeout=300)
 
-    def follow(self, run_id, *, on_log, offset=0, should_cancel=None, deadline=None):
+    def follow(self, run_id, *, on_log, offset=0, should_cancel=None, deadline=None,
+               on_status=None):
         """Tail one run to its verdict. Returns (result, offset).
 
         Slow-polled on purpose: the engine writes the log to a file and this
         copies byte ranges of it, so a dropped connection costs an offset and
         nothing else. `should_cancel` is checked on the same beat, so a Ctrl-C
-        reaches the worker within one poll.
+        reaches the worker within one poll. `on_status` sees every status row,
+        which is how the daemon knows a run's phase without asking again.
         """
         cancelled = False
         while True:
@@ -190,6 +216,8 @@ class Worker:
             row = self.status(run_id)
             if not row.get('ok'):
                 raise EngineError('the engine no longer knows run %s' % run_id)
+            if on_status is not None:
+                on_status(row)
             if row['state'] == 'finished':
                 tail = self.logs(run_id, offset)
                 if tail:
@@ -217,6 +245,28 @@ class Worker:
 
     def close(self):
         self.link.close()
+
+
+def sync_line(worktree, manifest):
+    """`syncing 4,912 files, 375 MiB`: one stat per file, only on a cache miss."""
+    total = 0
+    root = Path(worktree)
+    for record in manifest:
+        if 'link' in record:
+            continue
+        try:
+            total += (root / record['path']).stat().st_size
+        except OSError:
+            continue
+    return 'syncing {:,} files, {}'.format(len(manifest), size_text(total))
+
+
+def size_text(count):
+    if count >= 1 << 30:
+        return '%.1f GiB' % (count / float(1 << 30))
+    if count >= 1 << 20:
+        return '%d MiB' % round(count / float(1 << 20))
+    return '%d KiB' % max(1, round(count / 1024.0))
 
 
 def preflight(config, plan, job, *, worktree, forwarded, env):

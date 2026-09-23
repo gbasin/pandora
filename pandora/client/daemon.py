@@ -33,8 +33,9 @@ from ..config import classify as classifier
 from ..config import loader
 from ..errors import (ConfigError, EngineError, NotClaimed, PandoraError, Refused,
                       SnapshotError, TransferError, ValidationRejected, WorkerUnreachable)
+from ..engine import retry as retries
 from ..exits import INFRA, STALE
-from . import enrolment, fallback as policy, hints, settings, stats as statistics
+from . import enrolment, fallback as policy, hints, progress, settings, stats as statistics
 from .health import Monitor
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
@@ -73,14 +74,27 @@ class Heartbeat:
         self.conn, self.every = conn, self.EVERY
         self.stopped, self.gone = threading.Event(), threading.Event()
         self.thread = threading.Thread(target=self.beat, daemon=True)
+        # The beat and `say` share the socket; one frame at a time.
+        self.sending = threading.Lock()
 
     def beat(self):
         while not self.stopped.wait(self.every):
             try:
-                self.conn.sendall(dump({'v': VERSION, 't': 'working'}))
+                with self.sending:
+                    self.conn.sendall(dump({'v': VERSION, 't': 'working'}))
             except OSError:
                 self.gone.set()
                 return
+
+    def say(self, text):
+        """One pre-accept progress line, sent between beats rather than across one."""
+        if self.stopped.is_set():
+            return
+        try:
+            with self.sending:
+                self.conn.sendall(dump({'v': VERSION, 't': 'notice', 'msg': text}))
+        except OSError:
+            self.gone.set()
 
     def start(self):
         self.thread.start()
@@ -128,6 +142,19 @@ class Run:
         self.accepted = None
         self.hint = None
         self.shipped = frozenset()      # the snapshot's paths, for the gitignored hint
+        # Every earlier attempt at this run, oldest first. Empty unless an
+        # infrastructure failure was retried; the caller-visible id stays one.
+        self.attempts = list(request.get('attempts') or [])
+        # The engine's row state as last seen by `follow`, for `pandora wait`.
+        self.phase = None
+        # freeze / ship / submit, measured before `accepted`.
+        self.pre_accept = request.get('pre_accept') or {}
+        # Whether any of the command's own output has been streamed. Kept in a
+        # file, because a daemon that restarts mid-run must not forget that the
+        # caller has already seen half an answer.
+        self.output_mark = self.dir / 'command-output'
+        self.seen = self.output_mark.exists()
+        self.carry = b''
 
     def save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
@@ -137,7 +164,8 @@ class Run:
                    'started': self.started, 'accepted': self.accepted,
                    'queue_ms': (None if self.accepted is None
                                 else int((self.accepted - self.started) * 1000)),
-                   'hint': self.hint, 'updated': now()}
+                   'hint': self.hint, 'attempts': self.attempts, 'phase': self.phase,
+                   'pre_accept': self.pre_accept, 'updated': now()}
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -160,12 +188,71 @@ class Run:
     def stream_in(self, chunk):
         """One chunk of the remote log: framed for clients, then acknowledged.
 
-        The offset is written after the bytes are on disk, so a crash between
-        the two replays a chunk rather than losing one.
+        The remote log is one byte stream holding both the command's output and
+        the engine's own `pandora:` lines. They are split here, a whole line at
+        a time, so Pandora's lines reach the caller's stderr and the command's
+        reach stdout -- the contract `--help` states, which the remote lane did
+        not keep before. A trailing fragment that might still become a
+        `pandora:` line is held until its newline; anything else is sent at once.
+
+        The offset file counts bytes *framed*, so a held fragment is not
+        acknowledged: a crash replays it rather than losing it.
         """
-        self.append(log_frame('out', chunk))
+        data = self.carry + chunk
+        cut = data.rfind(b'\n') + 1
+        whole, tail = data[:cut], data[cut:]
+        if tail and not retries.could_be_pandora(tail):
+            whole, tail = data, b''
+        self.carry = tail
+        self.frame_remote(whole)
+
+    def flush_remote(self):
+        """The run has ended: whatever fragment was held is a line of its own."""
+        tail, self.carry = self.carry, b''
+        self.frame_remote(tail)
+
+    def forget_held(self):
+        """A reconnect resumes from the acknowledged offset, which re-sends it."""
+        self.carry = b''
+
+    def frame_remote(self, data):
+        if not data:
+            return
+        pieces = []
+        for line in data.splitlines(keepends=True):
+            stream = 'err' if retries.PANDORA_LINE.match(line.decode('utf-8', 'replace')) \
+                else 'out'
+            if stream == 'out' and line.strip():
+                self.saw_output()
+            if pieces and pieces[-1][0] == stream:
+                pieces[-1][1].append(line)
+            else:
+                pieces.append((stream, [line]))
+        for stream, lines in pieces:
+            self.append(log_frame(stream, b''.join(lines)))
         try:
-            (self.dir / 'remote-offset').write_text(str(self.consumed() + len(chunk)))
+            (self.dir / 'remote-offset').write_text(str(self.consumed() + len(data)))
+        except OSError:
+            pass
+
+    def saw_output(self):
+        if self.seen:
+            return
+        self.seen = True
+        try:
+            self.output_mark.touch()
+        except OSError:
+            pass
+
+    def output_seen(self):
+        return self.seen
+
+    def restart_remote(self, remote):
+        """Follow a new attempt from its first byte, keeping this run's log."""
+        self.remote = remote
+        self.carry = b''
+        try:
+            (self.dir / 'remote-offset').write_text('0')
         except OSError:
             pass
 
@@ -259,6 +346,9 @@ class Daemon:
                                    drift=self.config['local'].get('drift', 'warn'),
                                    queue_timeout=float(
                                        self.config['local'].get('queue_timeout_seconds') or 0))
+        self.budget.estimate = lambda: progress.queue_eta(
+            self.state, [run for run in list(self.runs.values())
+                         if run.lane == 'local' and run.state == 'running'])
         # The worker, watched rather than discovered. A command that arrives
         # while the worker is known down must not pay the SSH connect timeout
         # again to learn what the last poll already established.
@@ -357,6 +447,8 @@ class Daemon:
             run = Run(self.state, payload['id'], payload)
             run.state = 'running'
             run.remote = payload['remote']
+            run.accepted = payload.get('accepted')
+            run.started = payload.get('started') or run.started
             with self.runs_lock:
                 self.runs[run.id] = run
             threading.Thread(target=self.reattach, args=(run,), daemon=True).start()
@@ -600,7 +692,7 @@ class Daemon:
                 worker = self.worker_for(repo)
                 submission = worker.submit(plan=plan, worktree=worktree,
                                            request_id=run.id + ':' + plan['job'],
-                                           control=request)
+                                           control=request, progress=beat.say)
             finally:
                 # Stopped before any other frame is written: two threads never
                 # share the socket.
@@ -646,6 +738,7 @@ class Daemon:
             return
         run.remote = submission.run_id
         run.shipped = getattr(submission, 'shipped', frozenset())
+        run.pre_accept = dict(getattr(submission, 'durations', None) or {})
         run.state = 'running'
         run.accepted = now()
         run.save()
@@ -817,22 +910,35 @@ class Daemon:
         infrastructure failure. And when *this daemon* is the thing going away,
         the run is left alone entirely: its row stays `running` so the next
         daemon resumes it, because a shutdown here is not a fact about the run.
+
+        An `infra_failed` verdict is the other kind of failure, and it may earn
+        one resubmission of the same input -- see `retry`. A lost connection
+        never does: the run may still be executing, and a second submission
+        would run it twice.
         """
         offset = run.consumed()
-        for attempt in range(self.ATTEMPTS):
+        failures = 0
+        while True:
             try:
                 worker = self.worker_for(repo)
                 result, offset = worker.follow(
                     run.remote, offset=offset,
                     on_log=lambda chunk: run.stream_in(chunk),
-                    should_cancel=run.cancelled.is_set)
+                    should_cancel=run.cancelled.is_set,
+                    on_status=lambda row: self.observe(run, row))
+                run.flush_remote()
+                if self.retry(run, repo, plan, result):
+                    offset, failures = 0, 0
+                    continue
                 self.deliver(run, repo, plan, result)
                 return
             except (WorkerUnreachable, EngineError) as error:
                 if self.stopping.is_set():
                     return
+                run.forget_held()
                 offset = run.consumed()
-                if attempt + 1 < self.ATTEMPTS:
+                failures += 1
+                if failures < self.ATTEMPTS:
                     time.sleep(self.BACKOFF)
                     continue
                 run.note('lost the worker while run %s was executing, after %d attempts: %s'
@@ -862,9 +968,15 @@ class Daemon:
         collected = None
         try:
             worker = self.worker_for(repo)
-            result, _ = worker.follow(run.remote, offset=run.consumed(),
-                                      on_log=lambda chunk: run.stream_in(chunk),
-                                      should_cancel=run.cancelled.is_set)
+            while True:
+                result, _ = worker.follow(run.remote, offset=run.consumed(),
+                                          on_log=lambda chunk: run.stream_in(chunk),
+                                          should_cancel=run.cancelled.is_set,
+                                          on_status=lambda row: self.observe(run, row))
+                run.flush_remote()
+                # The plan is gone, so write-back is judged from the argv.
+                if not self.retry(run, repo, None, result):
+                    break
             collected = list((result.get('evidence') or {}).get('collected') or [])
             plan = {'outputs': [{'kind': 'artifacts', 'paths': collected}] if collected else []}
             self.deliver(run, repo, plan, result)
@@ -873,6 +985,95 @@ class Daemon:
                 return
             run.note('could not re-attach to run %s: %s' % (run.remote, error))
             run.finish(70, state='infra_failed')
+
+    def observe(self, run, row):
+        """Remember the engine's phase for this run; `pandora wait` reports it."""
+        phase = row.get('state')
+        if phase and phase != run.phase:
+            run.phase = phase
+
+    # -- one retry, remote to remote ---------------------------------------
+
+    def retry_verdict(self, run, plan, result):
+        """(retry?, cause, why-not) for one finished attempt.
+
+        The order is the order of the rules in `engine.retry`: only an infra
+        failure, only once, never a cancelled or stale run, never once the
+        caller has seen the command's own output, and then only a cause the
+        table names as retryable. Write-back is allowed only because the first
+        attempt is never delivered: its outputs are not collected, so nothing
+        it wrote can reach the worktree. When this daemon cannot see whether
+        write-back was armed, it does not retry.
+        """
+        if not isinstance(result, dict) or result.get('outcome') != 'infra_failed':
+            return False, None, None
+        cause = retries.cause_of(result)
+        if run.attempts:
+            return False, cause, 'this was already the retry'
+        if run.cancelled.is_set():
+            return False, cause, 'the run was cancelled'
+        if result.get('cli_exit') == STALE:
+            return False, cause, 'the run is stale'
+        if run.output_seen():
+            return False, cause, ("the command's own output had already reached you, and a "
+                                  'partly observed run is not repeatable')
+        ok, why = retries.retryable(cause)
+        if not ok:
+            return False, cause, why
+        armed = '--update' in (run.request.get('argv') or [])
+        if plan is not None:
+            options = plan.get('options')
+            armed = armed or bool(plan.get('writeback')) or bool(
+                isinstance(options, dict) and options.get('update'))
+            if armed and not isinstance(options, dict):
+                return False, cause, ('write-back is armed and this daemon cannot read how, so '
+                                      'it does not repeat it')
+        elif armed:
+            return False, cause, ('write-back is armed and this daemon no longer holds the '
+                                  'plan that armed it')
+        return True, cause, None
+
+    def retry(self, run, repo, plan, result):
+        """Resubmit the same input once, or annotate why not. True if resubmitted.
+
+        Recorded in three places so no reader has to infer it: a `pandora:`
+        line in the run's log when it happens, `attempts` in `meta.json`, and
+        `attempts` plus `retry` in the final `result.json`.
+        """
+        go, cause, why = self.retry_verdict(run, plan, result)
+        attempt = {'remote': run.remote, 'outcome': result.get('outcome') if isinstance(
+            result, dict) else None, 'cause': cause,
+            'cli_exit': result.get('cli_exit') if isinstance(result, dict) else None,
+            'wall_seconds': result.get('wall_seconds') if isinstance(result, dict) else None}
+        if go:
+            run.note('infrastructure failure before output (%s); retrying once' % cause)
+            try:
+                submission = self.worker_for(repo).resubmit(
+                    run.remote, request_id='%s:%s:retry' % (run.id, run.request.get('job')))
+            except (WorkerUnreachable, EngineError) as error:
+                go, why = False, 'the retry could not be submitted (%s)' % error
+                run.note(why)
+            else:
+                run.attempts.append(attempt)
+                run.restart_remote(submission.run_id)
+                run.phase = None
+                run.save()
+                return True
+        if run.attempts:
+            first = run.attempts[0]
+            result['attempts'] = run.attempts + [attempt]
+            result['retry'] = {'retried': True, 'of': first['remote'], 'cause': first['cause']}
+            if cause is not None:
+                result['hint'] = (
+                    'infrastructure failed on both attempts: %s (%s), then %s (%s); neither '
+                    'reached a verdict, so this is not a test result -- check the worker '
+                    'with pandora stats' % (first['remote'], first['cause'],
+                                            run.remote, cause))
+        elif cause is not None:
+            result['retry'] = {'retried': False, 'cause': cause, 'why': why}
+            result['hint'] = ('infrastructure failure (%s) was not retried: %s; nothing '
+                              'reached a verdict' % (cause, why))
+        return False
 
     def deliver(self, run, repo, plan, result):
         """Bring outputs back, report what is missing, then exit as the run did."""
@@ -927,8 +1128,15 @@ class Daemon:
         if run is None:
             self.deny(conn, 'rejected', 'no such run ' + str(request.get('run')))
             return
+        # Where the run is right now, said once. It rides on the frame rather
+        # than in the stream, because the stream is the run's log byte for byte
+        # and a client resumes by offset into it.
+        try:
+            phase = progress.attach_line(self.state, run)
+        except Exception:                        # noqa: BLE001 - a courtesy, never a verdict
+            phase = None
         conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'reattached': True,
-                           'remote': run.remote}))
+                           'remote': run.remote, 'phase': phase}))
         self.stream(conn, reader, run, int(request.get('from', 0)))
 
     def adopt(self, run_id):
@@ -946,6 +1154,9 @@ class Daemon:
         run.state = payload.get('state', 'done')
         run.exit_code = payload.get('exit_code')
         run.remote = payload.get('remote')
+        run.lane = payload.get('lane') or 'remote'
+        run.accepted = payload.get('accepted')
+        run.phase = payload.get('phase')
         if run.state not in ('queued', 'running'):
             run.done.set()
         with self.runs_lock:

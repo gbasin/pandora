@@ -125,8 +125,12 @@ def cache_paths(root, repo, input_id):
             'latest': '%s/latest' % base}
 
 
-def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800):
+def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_send=None):
     """Place this input in the worker's source cache. Idempotent.
+
+    `on_send` is called once, just before rsync starts, and only when there is
+    something to send: a cache hit is silent here because the accepted line
+    already says so.
 
     Returns {'path', 'reused', 'link_dest', 'seconds', 'files'}.
     """
@@ -148,6 +152,8 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800):
         argv += ['--link-dest=' + link_dest]
     argv += [str(worktree) + '/', '%s:%s/' % (link.host, paths['partial'])]
     names = b'\0'.join(record['path'].encode() for record in manifest) + b'\0'
+    if on_send is not None:
+        on_send()
     import time
     started = time.monotonic()
     proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
