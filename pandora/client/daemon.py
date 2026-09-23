@@ -138,6 +138,7 @@ class Run:
     def save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
+                   'worktree': self.worktree(),
                    'remote': self.remote, 'repo': self.request.get('repo'),
                    'lane': self.lane, 'reason': self.reason, 'job': self.request.get('job'),
                    'started': self.started, 'accepted': self.accepted,
@@ -148,6 +149,15 @@ class Run:
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
+
+    def worktree(self):
+        """Where the run's paths are rooted: the worktree, not where it was typed.
+
+        A re-rooted run was typed in a subdirectory, and its declared outputs
+        are worktree-relative. Rooting them at `cwd` would put
+        `packages/x/.journeys` under `apps/agent/packages/x/.journeys`.
+        """
+        return self.request.get('worktree') or self.request.get('cwd')
 
     def consumed(self):
         """How many bytes of the *remote* log have been copied into this one.
@@ -600,7 +610,7 @@ class Daemon:
             return
 
         run = Run(self.state, uuid.uuid4().hex[:12],
-                  dict(request, repo=repo['name'], job=job['id']))
+                  dict(request, repo=repo['name'], job=job['id'], worktree=worktree))
         run.state = 'queued'
         run.save()
         # The health poll's one job. Without it every command typed against a
@@ -909,7 +919,7 @@ class Daemon:
         """Bring outputs back, report what is missing, then exit as the run did."""
         worker = self.worker_for(repo)
         try:
-            collected = worker.collect(run.remote, plan, worktree=run.request['cwd'])
+            collected = worker.collect(run.remote, plan, worktree=run.worktree())
         except (TransferError, WorkerUnreachable) as error:
             run.note('could not bring outputs back: %s' % error)
             collected = {'fetched': False, 'missing': []}
@@ -925,7 +935,7 @@ class Daemon:
         run.note('%s in %.1fs (%s, peak %s MiB, %s)' % (
             result['outcome'], result.get('wall_seconds', 0), result.get('layer'),
             result.get('peak_mib'), result.get('run_id')))
-        run.suggest(self.hint_for(run, result, run.request.get('cwd')))
+        run.suggest(self.hint_for(run, result, run.worktree()))
         run.finish(code, state=result['outcome'], result=result)
 
     def hint_for(self, run, result, worktree):

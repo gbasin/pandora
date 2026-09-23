@@ -97,7 +97,10 @@ class FakeWorker:
             raise FakeWorker.follow_raises
         return {'outcome': 'passed', 'cli_exit': 0}, 0
 
+    collected_into = []
+
     def collect(self, *a, **k):
+        FakeWorker.collected_into.append(k.get('worktree'))
         return {'fetched': True, 'missing': []}
 
     def stats(self):
@@ -295,6 +298,12 @@ class SubdirectoryInvocations(DaemonCase):
         self.assertEqual(answer.exit, 0, answer.error)
         self.assertTrue(any('worktree root' in line for line in answer.notices),
                         answer.notices)
+
+    def test_a_re_rooted_remote_run_brings_its_outputs_home_to_the_worktree_root(self):
+        FakeWorker.collected_into = []
+        answer = self.call(['pnpm', 'unit', 'fast'], cwd=self.repo / 'sub' / 'deep')
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertEqual(FakeWorker.collected_into, [str(self.repo)])
 
     def test_an_argument_that_names_a_path_here_is_refused_and_nothing_runs(self):
         (self.repo / 'sub' / 'x.test.ts').write_text('')
