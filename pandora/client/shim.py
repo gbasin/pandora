@@ -298,12 +298,12 @@ def main(argv=None):
         return USAGE
 
     def no_daemon(cause, message):
-        """The daemon is not there to decide, so decide the same way it would.
+        """The daemon is not there: run the command as if Pandora were absent.
 
-        The size class and the declared policy come from the enrolment marker,
-        which `pandora enrol` writes from the very configuration the daemon
-        would have loaded. What cannot be reproduced is the local *queue*: this
-        runs under the slot budget instead, and says so.
+        Only two requests cannot be honoured without a daemon and are refused:
+        `--detach` (there is no run id to print) and an explicit remote
+        placement (only the daemon reaches the worker). Everything else is a
+        passthrough with one line on stderr.
         """
         if args.detach:
             # Detaching needs a run id, and only the daemon issues them. A
@@ -321,19 +321,18 @@ def main(argv=None):
                    'worker, so nothing was run. Start the daemon, or drop the override.'
                    % message)
             return INFRA
-        declared = marker_policy(command)
-        verdict = fallback_module.decide(
-            cause=cause,
-            size=(declared or {}).get('size', 'large'),
-            writeback=updating or bool((declared or {}).get('writeback')),
-            declared=None if not declared or declared['fallback'] == 'auto'
-                     else {'action': declared['fallback'], 'on': list(fallback_module.CAUSES)})
-        if verdict['action'] == 'refuse':
-            notice('%s; %s' % (message, verdict['reason']))
-            return INFRA
-        notice('%s; running it here under the fallback slot budget, because the local '
-               'queue needs the daemon that is missing.' % message)
-        return run_local(args.real, command, state=state, reason=cause)
+        # No daemon is the same situation as no Pandora: the command runs here
+        # as it would on a machine that never installed the shim. It is a
+        # passthrough, not a fallback: no slot, no size class, no policy. The
+        # marker's policy lines exist for the daemon's own verdicts; with the
+        # daemon gone there is no queue to protect and nothing to decide with,
+        # and an engineer whose daemon died must not lose `pnpm journey` (the
+        # owner's rule for machines without Pandora: always run directly).
+        notice('%s; running it here as if Pandora were not installed (exit codes '
+               'are the command\'s own; start the daemon with `pandora daemon '
+               '--install` to route again)' % message)
+        return run_local(args.real, command, state=state, claimed=False,
+                         reason=cause, where=where)
 
     request = build_request(command, where=where)
     try:
