@@ -2,10 +2,10 @@
 
 Two rules, and the second one is new.
 
-**Before `accepted`** the command provably has not run, so falling back is
-*permitted*. **After `accepted`** the command is on a worker, so falling back
-could run it twice; from that point a failure is an infrastructure failure
-(exit 70) and never a local run.
+**Before connecting** no request has been sent, so policy may permit local
+execution. Once submission starts, a lost reply leaves execution uncertain.
+Only an explicit daemon passthrough permits local execution; connection loss
+returns an infrastructure failure (exit 70) without replaying the command.
 
 Permitted is not the same as wise, and this file used to treat them as the same
 thing: every pre-accept error code became `exec pnpm`, which is how a refused
@@ -338,11 +338,15 @@ def main(argv=None):
         reader, frame = handshake(sock, request)
     except (OSError, socket.timeout, ValueError) as error:
         sock.close()
-        return no_daemon('handshake-timeout', 'daemon did not answer within %ds (%s)'
-                         % (HANDSHAKE_SECONDS, type(error).__name__))
+        notice('connection failed after submission (%s); execution is uncertain. '
+               'Check pandora ps before retrying. Nothing was replayed locally.'
+               % type(error).__name__)
+        return INFRA
     if frame is None:
         sock.close()
-        return no_daemon('daemon-closed', 'daemon closed the connection before accepting')
+        notice('daemon closed the connection after submission; execution is uncertain. '
+               'Check pandora ps before retrying. Nothing was replayed locally.')
+        return INFRA
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')
@@ -351,6 +355,10 @@ def main(argv=None):
                    'Only a routed command can be detached; run it directly.')
             return INFRA
         if code == 'passthrough':
+            if where == 'remote' or updating or frame.get('writeback'):
+                notice((frame.get('msg') or 'not routed') + '; the requested remote or '
+                       'write-back run cannot pass through to local execution.')
+                return INFRA
             # Pandora has no opinion about this invocation -- not enrolled, not
             # claimed, or typed in a subdirectory with a path in the argv. It is
             # not a fallback, so it takes no slot; it is what would have happened

@@ -38,6 +38,10 @@ CAUSES = {
                               'about the input'),
     'prepare-failed': (False, 'a golden that failed to build fails the same way again, '
                               'and a second build costs minutes'),
+    'prepare-command-failed': (False, 'the transferred source preparation failed; '
+                                      'the job did not start'),
+    'prepare-command-execution-failed': (False, 'the worker could not supervise '
+                                                'transferred source preparation'),
     'disk-quota': (False, "the run's disk quota refused the clone and would refuse it "
                           'again'),
     'destroy-incomplete': (False, 'the command reached a verdict and a machine is still '

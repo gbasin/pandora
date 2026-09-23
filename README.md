@@ -406,9 +406,34 @@ equal the planned partition exactly.
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
 | `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. The caller's environment otherwise travels minus platform variables and secret-shaped names, and each drop is counted on stderr. |
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
-| `[worker]` | The golden: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. The fingerprint of this table names the golden, so any change builds a new one. |
+| `[worker]` | Golden toolchain: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `prepare_command` is an optional per-run hook described below; it does not change the golden fingerprint. |
 | `[fallback]` | Optional repository-wide fallback. Eichler declares none on purpose. |
 | `[[jobs]]` | One entry per routed job. |
+
+The invoking worktree's `pandora.toml` owns its routing. An enrollment config
+remains valid for the enrolled checkout. Sibling worktrees using that fallback
+must contain the declared root markers and directly named runner scripts.
+Otherwise ordinary commands pass through locally before submission. Explicit
+remote and armed writeback requests are refused instead.
+
+A connection lost after sending a submission has an uncertain outcome. The
+client exits 70 without replaying locally. Check `pandora ps` before retrying.
+
+### Preparing transferred source
+
+Set `prepare_command` under `[worker]` when a repository needs to refresh
+dependencies after each source transfer. It is a shell command string, for
+example `prepare_command = "my-package-manager install"`. Pandora runs it once
+inside each remote run's private clone, from `/work`, after injecting the frozen
+source and before starting the job. It runs even when the golden is warm. The
+local lane does not run it.
+
+The hook receives the run's environment and uses the same memory ceiling,
+wall-time limit and cancellation supervision as a remote command. Its output
+appears in the run log. A failed hook stops the job; the result records the
+preparation outcome and exit in `evidence.preparation`. A nonzero exit gives
+an infrastructure result with CLI exit 70, not the job command's exit. A
+cancel gives CLI exit 130. The clone is destroyed after either result.
 
 ### What a job declares
 
@@ -514,7 +539,7 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `queue-timeout`, `admission-refused`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
-| `daemon-unreachable`, `daemon-closed`, `handshake-timeout` (no daemon) | local run under the `fallback_slots` budget | refuse, 70 | refuse, 70 |
+| `daemon-unreachable` (connection never established) | local run under the `fallback_slots` budget | refuse, 70 | refuse, 70 |
 | any failure after `accepted` | 70 | 70 | 70 |
 
 A job's `fallback = "local"` or `"refuse"` overrides the size column. The local
@@ -564,6 +589,8 @@ runs locally.
 | `execution-failed` | yes | The host could not start or feed the command. |
 | `supervisor-gone` | yes | Says nothing about the input. |
 | `prepare-failed` | no | A golden that failed to build fails again, at minutes a try. |
+| `prepare-command-failed` | no | The transferred source preparation exited nonzero; the job did not start. |
+| `prepare-command-execution-failed` | no | The worker could not supervise the source preparation. |
 | `disk-quota` | no | The same quota refuses again. |
 | `destroy-incomplete` | no | The command reached a verdict. |
 | `partition-unverified` | no | The shards ran; their reports will not change. |

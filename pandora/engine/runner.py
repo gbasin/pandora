@@ -4,7 +4,8 @@ The sequence is the executor interface's, in order, with the ledger written
 between every pair of steps so that a supervisor killed anywhere leaves a row
 that says what had already happened:
 
-    prepare -> clone -> inject -> harden -> execute -> collect -> destroy
+    prepare -> clone -> inject -> harden -> optional clone preparation -> execute
+    -> collect -> destroy
 
 Two properties this file exists to hold:
 
@@ -27,7 +28,7 @@ from pathlib import Path
 
 from ..executor.incus import IncusDriver
 from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFailed,
-                                  InstanceLost, Limits, PrepareFailed, Toolchain)
+                                  InstanceLost, Limits, PrepareFailed, Result, Toolchain, Usage)
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_for
 from .scheduler import Scheduler, gate
@@ -37,6 +38,14 @@ RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
 # to know whether a failure came from the code under test or from us.
 LAYERS = ('command', 'watchdog', 'executor', 'engine', 'client')
+
+
+class PreparationEnded(Exception):
+    """The clone's preparation reached a verdict; the job must not start."""
+
+    def __init__(self, result):
+        self.result = result
+
 
 def submitted_request(paths, run_id):
     """The request as the client sent it, from the attempt's own `request.json`."""
@@ -137,6 +146,7 @@ def supervise(root, run_id, *, driver=None):
     instance = None
     outcome, layer, exit_code, evidence = 'infra_failed', 'engine', None, {}
     peak_mib, receipt_dict = 0, None
+    preparing_clone = False
     # None when the plan arms no write-back; otherwise always a record, so a
     # client can tell "proposed nothing" from "was never asked to".
     proposal = (writeback.incomplete('the run did not pass, so it proposes nothing', None)
@@ -154,9 +164,10 @@ def supervise(root, run_id, *, driver=None):
         # The toolchain was written beside the attempt at submission time, so the
         # golden's identity is fixed by the request rather than by whatever the
         # engine happens to be configured with when the supervisor starts.
-        toolchain = toolchain_of(json.loads((attempt / 'toolchain.json').read_text()))
-        # `source` is used only on a cold build, to bake `pnpm install` and the
-        # service images into the golden. A warm golden ignores it.
+        worker = json.loads((attempt / 'toolchain.json').read_text())
+        toolchain = toolchain_of(worker)
+        # `source` is used only on a cold build, to bake the toolchain's install
+        # command and service images into the golden. A warm golden ignores it.
         golden = driver.prepare(toolchain, source=row['source_path'], log=note)
         mark('prepare')
         ledger.update(run_id, state='running')
@@ -194,12 +205,6 @@ def supervise(root, run_id, *, driver=None):
         note('turbo cache %s' % (cache_env['TURBO_API'] if cache_env else 'off: ' + why))
         evidence['cgroup'] = driver.harden(instance, limits)
         mark('harden')
-        # One line for everything between admission and the command, and the
-        # sum is recorded as a phase of its own so the next estimate can use it.
-        durations['boot'] = round(sum(durations.get(name, 0) for name in (
-            'prepare', 'clone', 'start', 'inject', 'graft', 'git', 'harden')), 2)
-        note('instance ready in %.1f s' % durations['boot'])
-
         cancelled = {'yes': False}
 
         def tick():
@@ -214,10 +219,37 @@ def supervise(root, run_id, *, driver=None):
 
         env = dict(plan['env'])
         env.pop('__toolchain__', None)
-        # The repository's own `[env] set` wins: a job that states its cache
-        # meant it, and the engine's default is only a default.
+        # The repository's own environment wins over the optional cache.
         for key, value in cache_env.items():
             env.setdefault(key, value)
+        prepare_command = worker.get('prepare_command') or ''
+        if prepare_command:
+            # This runs in the private clone, against the transferred source.
+            # It does not change the golden's fingerprint or the local lane.
+            note('preparing transferred source')
+            prep_limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
+            if tick() == 'cancel':
+                prep = Result(exit_code=-9, outcome='cancelled', seconds=0, usage=Usage())
+            else:
+                preparing_clone = True
+                prep = driver.execute(instance, ['bash', '-c', prepare_command], env=env,
+                                      cwd='/work', limits=prep_limits,
+                                      on_log=log_handle.write, on_tick=tick)
+                preparing_clone = False
+                if prep.outcome == 'ok' and tick() == 'cancel':
+                    prep = dataclasses.replace(prep, outcome='cancelled', exit_code=-9)
+            durations['prepare_command'] = round(prep.seconds, 2)
+            marks = time.monotonic()
+            peak_mib = (prep.usage.memory_peak or 0) // 1048576
+            if prep.outcome != 'ok':
+                raise PreparationEnded(prep)
+            note('transferred source prepared in %.1f s' % prep.seconds)
+        # One line for everything between admission and the command, and the
+        # sum is recorded as a phase of its own so the next estimate can use it.
+        durations['boot'] = round(sum(durations.get(name, 0) for name in (
+            'prepare', 'clone', 'start', 'inject', 'graft', 'git', 'harden',
+            'prepare_command')), 2)
+        note('instance ready in %.1f s' % durations['boot'])
         # PANDORA_CPUS is decided here, not at admission. The hint is a *share*
         # -- host cores divided by the runs actually admitted -- and admission
         # happens before the instance exists, so a run admitted while it was
@@ -232,7 +264,7 @@ def supervise(root, run_id, *, driver=None):
                                 limits=limits, on_log=log_handle.write, on_tick=tick)
         durations['execute'] = round(result.seconds, 2)
         marks = time.monotonic()
-        peak_mib = (result.usage.memory_peak or 0) // 1048576
+        peak_mib = max(peak_mib, (result.usage.memory_peak or 0) // 1048576)
         evidence.update({key: value for key, value in result.evidence.items()
                          if key != 'samples'})
         evidence['samples'] = result.evidence.get('samples', [])[-8:]
@@ -264,10 +296,30 @@ def supervise(root, run_id, *, driver=None):
                 proposal = writeback.incomplete('the proposal could not be collected: %s'
                                                 % error, writeback.INFRA_EXIT)
         mark('collect')
+    except PreparationEnded as stopped:
+        prep = stopped.result
+        evidence['preparation'] = {'outcome': prep.outcome, 'exit_code': prep.exit_code,
+                                   **{key: value for key, value in prep.evidence.items()
+                                      if key != 'samples'}}
+        evidence['samples'] = prep.evidence.get('samples', [])[-8:]
+        outcome, layer, cause = {
+            'failed': ('infra_failed', 'engine', 'prepare-command-failed'),
+            'oom': ('oom', 'watchdog', 'prepare-command-oom'),
+            'timeout': ('timed_out', 'watchdog', 'prepare-command-timeout'),
+            'cancelled': ('cancelled', 'engine', 'prepare-command-cancelled'),
+            'lost': ('infra_failed', 'executor', 'instance-lost'),
+        }[prep.outcome]
+        evidence['cause'] = cause
+        evidence['error'] = 'transferred source preparation %s' % prep.outcome
+        note(evidence['error'] + (' (exit %s)' % prep.exit_code
+                                  if prep.exit_code is not None else ''))
     except (PrepareFailed, CloneFailed, ExecutionFailed, InstanceLost) as error:
         outcome, layer = 'infra_failed', 'executor'
         evidence['error'] = '%s: %s' % (type(error).__name__, error)
-        evidence['cause'] = retry.cause_of_exception(error)
+        evidence['cause'] = ('prepare-command-execution-failed' if preparing_clone
+                             else retry.cause_of_exception(error))
+        if preparing_clone:
+            evidence['preparation'] = {'outcome': 'executor-error'}
         note(evidence['error'])
     except Exception as error:                      # noqa: BLE001 - recorded, never swallowed
         outcome, layer = 'infra_failed', 'engine'

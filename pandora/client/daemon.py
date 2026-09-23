@@ -387,21 +387,61 @@ class Daemon:
         except ConfigError:
             pass                                   # keep the last good configuration
 
-    def repo_config(self, repo):
-        """The repository's own pandora.toml, cached on its mtime.
+    def repo_config(self, repo, root):
+        """Load the invoking worktree's config, with an explicit external fallback.
 
-        Repo root first, because that is where v0.2 expects it and where the
-        combined Eichler PR will put it; the enrolment's path second, so a
-        repository can be routed before its own PR lands.
+        The enrolled root identifies a repository, not the checkout that will
+        execute this command. Cache by path so sibling worktrees cannot share a
+        config merely because their enrolment name is the same.
         """
-        path, origin = loader.resolve(repo['root'], repo.get('config') or None)
+        path, origin = loader.resolve(root, repo.get('config') or None)
         stamp = (str(path), path.stat().st_mtime_ns)
-        if self.repo_stamps.get(repo['name']) != stamp:
+        key = str(path.resolve())
+        if self.repo_stamps.get(key) != stamp:
             config = loader.load(path)
             config['origin'] = origin
-            self.repo_configs[repo['name']] = config
-            self.repo_stamps[repo['name']] = stamp
-        return self.repo_configs[repo['name']]
+            self.repo_configs[key] = config
+            self.repo_stamps[key] = stamp
+        return self.repo_configs[key]
+
+    @staticmethod
+    def direct_script(spec, root):
+        """Check a directly named script; never interpret shell or package commands.
+
+        Return None when the argv does not have the simple interpreter/script
+        shape. Such an argv gives no evidence that an external config fits a
+        different worktree.
+        """
+        argv = spec['argv']
+        if (len(argv) < 2 or argv[0] not in ('node', 'bun', 'python', 'python3')
+                or argv[1].startswith('-') or '{' in argv[1]):
+            return None
+        script = Path(argv[1])
+        if script.is_absolute() or '..' in script.parts:
+            return None
+        return (Path(root) / spec['cwd'] / script).is_file()
+
+    def compatible_job(self, config, job, root):
+        """Decide whether this checkout supports the selected declared runner.
+
+        A repo-owned config is authoritative except for a directly named
+        missing script. An external config used by a sibling worktree needs
+        positive evidence: declared root markers and directly named scripts
+        for both execution and preflight. The enrolled root remains compatible
+        with its explicit external config for existing installations.
+        """
+        for spec in (job['run'], job['validate']):
+            if spec is not None and self.direct_script(spec, root) is False:
+                return False
+        if config['origin'] == 'repo-root':
+            return True
+        markers = config['repo']['root_markers']
+        return (bool(markers) and all(not Path(marker).is_absolute()
+                                      and '..' not in Path(marker).parts
+                                      and (Path(root) / marker).exists() for marker in markers)
+                and self.direct_script(job['run'], root) is True
+                and (job['validate'] is None
+                     or self.direct_script(job['validate'], root) is True))
 
     def any_worker(self):
         """A worker to ask about the worker. There is one host in this build."""
@@ -600,8 +640,11 @@ class Daemon:
             repo = self.enrolment_by_git(cwd)
         if repo is None:
             raise NotClaimed('cwd is not inside an enrolled repository')
-        config = self.repo_config(repo)
         root = Path(enrolment.worktree_root(cwd) or repo['root'])
+        try:
+            config = self.repo_config(repo, root)
+        except ConfigError as error:
+            raise NotClaimed('no usable config in this worktree: %s' % error) from None
         try:
             relative = Path(cwd).resolve().relative_to(root.resolve())
         except ValueError:
@@ -612,6 +655,20 @@ class Daemon:
                                       exists=lambda token: (here / token).exists())
         if verdict['decision'] == 'local':
             raise NotClaimed(verdict['reason'])
+        job = config['jobs'][verdict['job']]
+        if (config['origin'] == 'enrolment'
+                and root.resolve() == Path(repo['root']).resolve()):
+            # The explicit external config was enrolled for this checkout.
+            # Still avoid a known missing direct script before preflight.
+            compatible = all(self.direct_script(spec, root) is not False
+                             for spec in (job['run'], job['validate']) if spec is not None)
+        else:
+            compatible = self.compatible_job(config, job, root)
+        if not compatible:
+            error = NotClaimed('configured runner is unavailable in this worktree')
+            error.writeback = any(output['kind'] == 'writeback'
+                                  for output in (verdict.get('plan') or {}).get('outputs', []))
+            raise error
         if verdict['decision'] == 'reject':
             error = Refused(verdict['message'])
             error.code, error.exit = verdict.get('code') or 'rejected', verdict.get('exit')
@@ -634,7 +691,8 @@ class Daemon:
             return None
         for repo in self.config['repos']:
             try:
-                if enrolment.common_dir(repo['root']) == common:
+                enrolled_common = enrolment.common_dir(repo['root'])
+                if enrolled_common and Path(enrolled_common).resolve() == Path(common).resolve():
                     return repo
             except OSError:
                 continue
@@ -658,7 +716,9 @@ class Daemon:
         except NotClaimed as error:
             # Not a fallback and not a refusal: Pandora has no opinion about
             # this invocation, so the client runs it as if the shim were absent.
-            self.deny(conn, 'passthrough', str(error))
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'passthrough',
+                               'msg': str(error), 'writeback': bool(
+                                   getattr(error, 'writeback', False)), 'exit': 1}))
             return
         except Refused as error:
             self.deny(conn, getattr(error, 'code', 'rejected'), str(error),

@@ -20,6 +20,7 @@ from pandora import cli
 from pandora.client import enrolment, placement, shim, stats as statistics
 from pandora.client.protocol import Reader, VERSION, dump
 from pandora.errors import Refused, WorkerUnreachable
+from pandora.exits import INFRA
 from pandora.tests.test_fallback import Answer, DaemonCase, FakeWorker, Submission
 
 HERE = Path(__file__).resolve().parents[2]
@@ -314,15 +315,13 @@ class TheClient(PlacementCase):
         with self.assertRaises(SystemExit):
             self.pandora('run', '--local', '--remote', '--', 'unit')
 
-    def test_an_override_on_an_unclaimed_command_is_ignored_and_counted(self):
+    def test_a_remote_override_on_an_unclaimed_command_never_runs_locally(self):
         code, _, err = self.pandora('run', '--remote', '--real', str(self.real), '--',
                                     'why', 'react')
-        self.assertEqual(code, 0, err)
-        self.assertEqual(self.marker.read_text().strip(), 'real why react')
-        [row] = statistics.read_passthrough(self.state)
-        self.assertEqual((row['reason'], row['override']), ('passthrough', 'remote'))
-        report = statistics.build(self.state)
-        self.assertEqual(report['overrides']['remote']['unclaimed'], 1)
+        self.assertEqual(code, INFRA, err)
+        self.assertIn('cannot pass through to local execution', err)
+        self.assertFalse(self.marker.exists())
+        self.assertEqual(statistics.read_passthrough(self.state), [])
 
     def test_stats_counts_overrides_by_direction(self):
         self.pandora('run', '--local', '--real', str(self.real), '--', 'unit')

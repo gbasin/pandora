@@ -537,15 +537,10 @@ def _job(value, index):
 # --- worker toolchain -------------------------------------------------------
 
 def _worker(value, where):
-    """What a golden instance for this repository contains.
-
-    Its fingerprint is the golden's identity, so every field here is part of a
-    cache key: change one and the next `prepare` builds a new golden rather than
-    reusing a stale one.
-    """
+    """Golden inputs and an optional per-clone command after source injection."""
     _keys(value, where, {'base_image'},
           {'packages', 'node_version', 'pnpm_version', 'service_images',
-           'install_command', 'source_id', 'env', 'workdir', 'canary'})
+           'install_command', 'prepare_command', 'source_id', 'env', 'workdir', 'canary'})
     return {
         'base_image': _str(value['base_image'], where + '.base_image'),
         'packages': _strs(value.get('packages', []), where + '.packages', unique=True),
@@ -553,6 +548,8 @@ def _worker(value, where):
         'pnpm_version': _str(value.get('pnpm_version', ''), where + '.pnpm_version', allow_empty=True),
         'service_images': _strs(value.get('service_images', []), where + '.service_images', unique=True),
         'install_command': _str(value.get('install_command', ''), where + '.install_command',
+                                allow_empty=True),
+        'prepare_command': _str(value.get('prepare_command', ''), where + '.prepare_command',
                                 allow_empty=True),
         'source_id': _str(value.get('source_id', ''), where + '.source_id', allow_empty=True),
         'env': _env(value.get('env', {}), where + '.env'),
