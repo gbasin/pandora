@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   parent TEXT,
   shard_index INTEGER,
   shard_total INTEGER,
-  same_input_as TEXT,
+  same_input_as TEXT,          -- reported as `same_tree_as`: a tree digest, not argv
   retry_of TEXT,
   flaky_with TEXT,
   durations TEXT NOT NULL DEFAULT '{}',
@@ -131,9 +131,12 @@ class Ledger:
         existing = self.by_request(request_id)
         if existing is not None:
             return existing, False
-        # A shard is not "the same input as" its siblings: they share a source
-        # tree and run different thirds of it, so linking them would make a
-        # cache-hit claim Pandora has not earned. Only whole attempts compare.
+        # A shard is not "the same tree as" its siblings in any useful sense:
+        # they share a source tree and run different thirds of it, so linking
+        # them would make a cache-hit claim Pandora has not earned. Only whole
+        # attempts compare. The column keeps its old name, `same_input_as`,
+        # because renaming it is a migration on every worker's ledger for a
+        # word; everything a person reads calls it `same_tree_as`.
         previous = None if role == 'shard' else self.db.execute(
             "SELECT run_id FROM attempts WHERE repo=? AND job=? AND input_id=? "
             "AND run_id<>? AND role IN ('single','parent') ORDER BY created DESC LIMIT 1",

@@ -9,7 +9,7 @@ of a repository ships only its diff and the cache costs one tree plus deltas.
 The cache is content-addressed by `input_id`, which is the manifest digest, so:
 
 * two worktrees with identical tracked content share one cache entry and the
-  engine can say `same_input_as`;
+  engine can say `same_tree_as`;
 * a run's source is immutable for the life of the run, which is what lets a
   second run start while the first is still reading;
 * publishing is a rename, so a transfer interrupted halfway leaves a `.partial`

@@ -115,8 +115,8 @@ def _same_command(a, b):
 def previous_verdict(ledger, row):
     """The most recent earlier attempt of the same input that reached a verdict.
 
-    Same repository, job and input digest -- the `same_input_as` key -- and
-    additionally the same argv, environment and cwd, because `same_input_as`
+    Same repository, job and tree digest -- the `same_tree_as` key -- and
+    additionally the same argv, environment and cwd, because `same_tree_as`
     does not compare them and `journey S0-01` and `journey S0-02` share every
     byte of their input while testing different things.
     """

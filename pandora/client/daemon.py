@@ -781,7 +781,7 @@ class Daemon:
         # client will never run the command locally.
         conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id,
                            'remote': submission.run_id, 'input_id': submission.input_id,
-                           'same_input_as': submission.same_input_as,
+                           'same_tree_as': submission.same_tree_as,
                            'reservation_mib': (submission.admission or {}).get('reservation_mib'),
                            'cpus_hint': (submission.admission or {}).get('cpus_hint'),
                            'source_reused': submission.source.get('reused'),

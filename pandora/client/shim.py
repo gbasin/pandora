@@ -374,8 +374,12 @@ def main(argv=None):
 
     remote = frame.get('remote')
     extra = []
-    if frame.get('same_input_as'):
-        extra.append('same input as ' + frame['same_input_as'])
+    # A tree digest, not the command: `journey S0-01 --update` is "the same
+    # tree as" a plain `journey S0-01` from the same worktree. A daemon from
+    # before the rename says `same_input_as`.
+    same = frame.get('same_tree_as') or frame.get('same_input_as')
+    if same:
+        extra.append('same tree as ' + same)
     if frame.get('source_reused'):
         extra.append('source cache hit')
     if frame.get('lane') == 'local':

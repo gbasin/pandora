@@ -367,6 +367,10 @@ def cmd_result(args):
         notice('no result for run %s (still running, or it never reached the worker)' % args.run)
         return 1
     if args.json:
+        # A result from an engine before the rename has only the old key; both
+        # are printed for one release, `same_input_as` as the alias.
+        if 'same_input_as' in result and 'same_tree_as' not in result:
+            result['same_tree_as'] = result['same_input_as']
         print(json.dumps(result, indent=1, sort_keys=True))
         return 0
     print(render_result(args.run, result))
@@ -384,9 +388,9 @@ def render_result(run_id, result):
         lines.append('  placed %s by override; the job says %s'
                      % (placed.get('where'), placed.get('declared')))
     if result.get('input_id'):
+        same = result.get('same_tree_as') or result.get('same_input_as')
         lines.append('  input %s%s' % (result['input_id'],
-                                       ' (same as %s)' % result['same_input_as']
-                                       if result.get('same_input_as') else ''))
+                                       ' (same tree as %s)' % same if same else ''))
     for number, attempt in enumerate(result.get('attempts') or [], 1):
         lines.append('  attempt %d %s: %s%s' % (
             number, attempt.get('remote'), attempt.get('outcome'),

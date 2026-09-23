@@ -72,7 +72,7 @@ class Submission:
     def __init__(self, run_id='r1'):
         self.run_id = run_id
         self.input_id = 'i1'
-        self.same_input_as = None
+        self.same_tree_as = None
         self.admission = {'reservation_mib': 100, 'cpus_hint': 1}
         self.source = {'reused': False}
         self.durations = {}
