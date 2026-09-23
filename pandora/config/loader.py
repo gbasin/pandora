@@ -243,6 +243,28 @@ def _output(value, where):
     return output
 
 
+def _writeback_path(path, where):
+    """A write-back path names a file, a directory, or files in one directory.
+
+    The engine has to pull these out of an instance, and it can pull a path,
+    not a search. So a glob may appear only in the last component, and that
+    component must have a directory above it: `fixtures/*.ledger.jsonl` is one
+    pull of `fixtures`, while `*.json` or `**/x.json` would be a pull of the
+    whole tree to find out what matched.
+    """
+    parts = path.rstrip('/').split('/')
+    if '**' in path:
+        raise ConfigError('%s: write-back path %s uses **; a glob may match file names in '
+                          'one directory only' % (where, path))
+    if any(char in part for part in parts[:-1] for char in '*?['):
+        raise ConfigError('%s: write-back path %s has a glob in a directory component; a '
+                          'glob may match file names in one directory only' % (where, path))
+    if len(parts) == 1 and any(char in parts[0] for char in '*?['):
+        raise ConfigError('%s: write-back path %s globs the worktree root; name the '
+                          'directory it lives in' % (where, path))
+    return path
+
+
 def _argv_with_args(value, where, *, allow_args=True, tokens=True):
     """An argv list that may splice the forwarded arguments once, at `{args}`.
 
@@ -499,6 +521,8 @@ def _job(value, index):
     every = {option['sets'] for option in options}
     for output in job['outputs']:
         if output['kind'] == 'writeback':
+            for path in output['paths']:
+                _writeback_path(path, where + '.outputs')
             if not output['requires_option']:
                 raise ConfigError(where + '.outputs of kind writeback must name a requires_option')
             if output['requires_option'] not in armed:
