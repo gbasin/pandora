@@ -43,12 +43,15 @@ POLL_BUSY = 0.15
 class Submission:
     """What the worker acknowledged, and what it took to get there."""
 
-    def __init__(self, run_id, *, admission=None, duplicate=False, same_input_as=None,
+    def __init__(self, run_id, *, admission=None, duplicate=False, same_tree_as=None,
                  input_id='', durations=None, source=None, shipped=(), writeback=None):
         self.run_id = run_id
         self.admission = admission or {}
         self.duplicate = duplicate
-        self.same_input_as = same_input_as
+        # The engine's `same_input_as`: the previous attempt over the same tree
+        # digest, whatever its argv. Renamed on this side only; the engine's
+        # wire key and ledger column keep the old name.
+        self.same_tree_as = same_tree_as
         self.input_id = input_id
         self.durations = durations or {}
         self.source = source or {}
@@ -144,7 +147,7 @@ class Worker:
                                           'detail': answer.get('admission')}))
         return Submission(answer['run_id'], admission=answer.get('admission'),
                           duplicate=answer.get('duplicate', False),
-                          same_input_as=answer.get('same_input_as'),
+                          same_tree_as=answer.get('same_input_as'),
                           input_id=input_id, durations=marks, source=source,
                           shipped=(record['path'] for record in manifest),
                           writeback=(writebacks.context(manifest, plan, worktree=worktree,
@@ -165,7 +168,7 @@ class Worker:
                                           'detail': answer.get('admission')}))
         return Submission(answer['run_id'], admission=answer.get('admission'),
                           duplicate=answer.get('duplicate', False),
-                          same_input_as=answer.get('same_input_as'))
+                          same_tree_as=answer.get('same_input_as'))
 
     # -- following a run ---------------------------------------------------
 

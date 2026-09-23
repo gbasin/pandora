@@ -417,6 +417,12 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         'repo': item['repo'],
         'job': item['job'],
         'input_id': item['input_id'],
+        # The earlier whole attempt of this job over the same source tree. The
+        # tree digest only: argv, environment and cwd are not compared, so
+        # `journey S0-01` and `journey S0-01 --update` share it. Named for that.
+        'same_tree_as': item['same_input_as'],
+        # The pre-rename key, kept for one release so a script reading
+        # `pandora result --json` does not break. Remove after v0.2.
         'same_input_as': item['same_input_as'],
         'argv': item['argv'],
         # The command's own exit, exactly as the instance reported it. -9 means
@@ -593,7 +599,7 @@ def retain(root, *, keep_seconds=86400, keep_failed_seconds=86400):
     """Delete attempt directories older than the retention window.
 
     A stub on purpose, and named as one: it deletes directories and leaves the
-    ledger rows, because the rows are what `same_input_as` and the learned
+    ledger rows, because the rows are what `same_tree_as` and the learned
     reservations are built on and they cost bytes rather than gigabytes.
     """
     import shutil

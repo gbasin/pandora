@@ -9,7 +9,7 @@ that exists here and was not shipped, a write-back and what it found.
 
 What this file deliberately is not: a guesser. No model, no pattern library, no
 "this looks like a flaky test" -- the flaky rule fires only on two recorded
-attempts with the same input and command that reached opposite verdicts. A rule that cannot point at the measurement it
+attempts with the same tree and command that reached opposite verdicts. A rule that cannot point at the measurement it
 used does not belong here, because a wrong hint is worse than none -- an agent
 acts on it, and then the next twenty minutes are spent on the wrong thing.
 
@@ -83,10 +83,12 @@ def timed_out(facts):
 
 
 def flaky(facts):
-    """The same input failed once and passed once, with nothing changed between.
+    """The same command on the same tree failed once and passed once.
 
-    The pair comes from the ledger (`history.flaky`): same input digest, same
+    The pair comes from the ledger (`history.flaky`): same tree digest, same
     argv, same environment, both attempts reached a verdict, and they disagree.
+    The hint says "this command on this tree", not "this input", because the
+    rule compares the command too and `same tree as` does not.
     A remote input is a frozen snapshot, so it cannot drift; a result that says
     it drifted is refused here anyway, because a changed tree explains a changed
     verdict better than flakiness does. The hint names the failing attempt,
@@ -102,12 +104,13 @@ def flaky(facts):
         first = shards[0]
         more = (' (and %d more shard%s)' % (len(shards) - 1, '' if len(shards) == 2 else 's')
                 if len(shards) > 1 else '')
-        return ('shard %s of this input %s with no change%s; treat as flaky, see '
-                'pandora result %s' % (first['shard'], words[first['order']], more,
-                                       first['failed']))
+        return ('shard %s of this command on this tree %s with no change%s; treat as '
+                'flaky, see pandora result %s'
+                % (first['shard'], words[first['order']], more, first['failed']))
     if pair.get('order') not in words:
         return None
-    return ('this input %s with no change; treat as flaky, see pandora result %s'
+    return ('this command on this tree %s with no change; treat as flaky, see '
+            'pandora result %s'
             % (words[pair['order']], pair['failed']))
 
 

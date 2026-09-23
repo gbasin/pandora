@@ -13,7 +13,7 @@ what the slice needs. Three changes, each deliberate:
   it.
 * `input_id` is the manifest digest, which is the identity the engine
   deduplicates on. Two worktrees with byte-identical tracked content produce one
-  input_id, which is what makes `same_input_as` meaningful.
+  input_id, which is what makes `same_tree_as` meaningful.
 
 What is kept verbatim because it was hard-won: the nested-worktree exclusion
 (eichler has ~90 registered worktrees, several inside the repository), the

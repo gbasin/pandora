@@ -496,7 +496,7 @@ base_image = "images:ubuntu/26.04"
 
 class Submission:
     def __init__(self, writeback):
-        self.run_id, self.input_id, self.same_input_as = 'r1', 'i1', None
+        self.run_id, self.input_id, self.same_tree_as = 'r1', 'i1', None
         self.admission = {'reservation_mib': 100, 'cpus_hint': 1}
         self.source, self.durations, self.shipped = {'reused': False}, {}, frozenset()
         self.writeback = writeback

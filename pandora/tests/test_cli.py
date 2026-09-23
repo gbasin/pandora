@@ -4,10 +4,11 @@ import io
 import json
 import os
 import unittest
+from unittest import mock
 
 from pandora import cli
 from pandora.client import shim
-from pandora.tests.test_fallback import DaemonCase
+from pandora.tests.test_fallback import DaemonCase, FakeWorker
 
 
 def capture(function, *args):
@@ -87,6 +88,32 @@ class Verbs(DaemonCase):
         self.assertTrue(out.startswith(run_id + ': passed, exit 0'), out)
         code, out, _ = self.pandora('result', run_id, '--json')
         self.assertEqual(json.loads(out)['outcome'], 'passed')
+
+    def test_an_earlier_run_over_the_same_tree_is_named_as_such(self):
+        # A tree digest, not the command: the word must not claim more.
+        submit = FakeWorker.submit
+
+        def same_tree(worker, **kwargs):
+            submission = submit(worker, **kwargs)
+            submission.same_tree_as = 'r0'
+            return submission
+        with mock.patch.object(FakeWorker, 'submit', same_tree):
+            _code, _out, err = self.detach('unit')
+        self.assertIn('same tree as r0', err)
+        self.assertNotIn('same input', err)
+
+    def test_result_json_carries_same_tree_as_and_the_old_key(self):
+        directory = self.state / 'runs' / 'old1'
+        directory.mkdir(parents=True)
+        # Written by an engine from before the rename: the old key only.
+        (directory / 'result.json').write_text(json.dumps(
+            {'outcome': 'passed', 'cli_exit': 0, 'input_id': 'abc', 'same_input_as': 'r0'}))
+        code, out, _ = self.pandora('result', 'old1', '--json')
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)['same_tree_as'], 'r0')
+        self.assertEqual(json.loads(out)['same_input_as'], 'r0')
+        _code, out, _ = self.pandora('result', 'old1')
+        self.assertIn('input abc (same tree as r0)', out)
 
 
 if __name__ == '__main__':

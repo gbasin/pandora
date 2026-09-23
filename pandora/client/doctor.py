@@ -18,12 +18,14 @@ Read-only, all the way down: nothing here writes a file, starts a process that
 writes one, or asks the daemon anything but `ping` -- whose answer carries the
 worker-health reading the daemon already has cached, so not even a health poll
 is triggered. `ps` is deliberately not used: it samples the pause gate, which
-can move its counters.
+can move its counters. The one other process asked anything is `launchctl
+print`, for whether launchd supervises the daemon that answered.
 """
 import json
 import os
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -355,9 +357,49 @@ def check_shim_markers(env, shim):
     return check('shim markers', OK, '%s beside the shim only' % SHIM_MARKER)
 
 
+def check_supervision(pong, state, *, platform=None, launchctl=None):
+    """Whether launchd supervises the daemon that answered, or nothing does.
+
+    ok: the agent is loaded and its pid is the daemon's. warn: a daemon runs and
+    launchd has no agent for it, so a crash or a reboot leaves no daemon. fail:
+    the agent is loaded but its pid is not the daemon's -- a hand-started daemon
+    holds the lock, and the agent's own daemon exits and is restarted every ten
+    seconds -- or the agent is loaded and no daemon answers at all. Reads
+    `launchctl print` only.
+    """
+    from . import launchd
+    if (platform or sys.platform) != 'darwin':
+        return check('daemon supervision', INFO, 'launchd is macOS only; not checked')
+    label = launchd.label_for(state)
+    agent = launchd.status(label, run=launchctl or subprocess.run)
+    pid = (pong or {}).get('pid')
+    facts = {'label': label, 'launchd_pid': agent['pid'], 'daemon_pid': pid,
+             'launchd_state': agent['state']}
+    if pong is None:
+        if agent['loaded']:
+            return check('daemon supervision', FAIL,
+                         '%s is loaded in launchd (%s) but no daemon answers; read %s'
+                         % (label, agent['line'], Path(state) / 'logs' / 'daemon.log'),
+                         **facts)
+        return check('daemon supervision', INFO, 'no daemon, and no launchd agent %s' % label,
+                     **facts)
+    if not agent['loaded']:
+        return check('daemon supervision', WARN,
+                     'pid %s was started by hand; nothing restarts it after a crash or a '
+                     'reboot. `pandora daemon --install`' % pid, **facts)
+    if agent['pid'] != pid:
+        return check('daemon supervision', FAIL,
+                     'launchd has %s loaded (%s) but the daemon answering is pid %s, which '
+                     'it did not start. `pandora daemon --stop`, then `pandora daemon '
+                     '--restart`' % (label, agent['line'], pid), **facts)
+    return check('daemon supervision', OK, 'launchd runs pid %s as %s; `pandora daemon '
+                 '--restart` after updating the checkout' % (pid, label), **facts)
+
+
 # -- the whole report ------------------------------------------------------------
 
-def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run):
+def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
+        launchctl=subprocess.run):
     env = dict(os.environ if env is None else env)
     cwd = cwd or os.getcwd()
     checks = []
@@ -383,6 +425,7 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run):
     daemon, pong = check_daemon(sock_path, launcher_home)
     checks.append(daemon)
     checks.append(check_worker(pong, sock_path.parent))
+    checks.append(check_supervision(pong, sock_path.parent, launchctl=launchctl))
     checks.extend(check_repository(cwd, loaded, state_path / 'client.sock'))
     checks.append(check_cwd(cwd))
     checks.append(check_variables(env))

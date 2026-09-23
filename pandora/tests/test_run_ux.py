@@ -239,8 +239,8 @@ class FlakyPairs(unittest.TestCase):
         result = self.finished('passed')
         self.assertEqual(result['flaky']['order'], 'failed-then-passed')
         self.assertEqual(result['flaky']['failed'], 'caller1')
-        self.assertEqual(result['hint'], 'this input failed then passed with no change; treat '
-                                         'as flaky, see pandora result caller1')
+        self.assertEqual(result['hint'], 'this command on this tree failed then passed with no '
+                                         'change; treat as flaky, see pandora result caller1')
         self.assertEqual(self.ledger.get('r2')['flaky_with'], 'r1')
 
     def test_pass_then_fail_names_the_failure(self):
@@ -249,11 +249,13 @@ class FlakyPairs(unittest.TestCase):
         self.assertIn('passed then failed', result['hint'])
         self.assertTrue(result['hint'].endswith('pandora result caller2'))
 
-    def test_a_different_selector_is_not_the_same_input(self):
-        # `same_input_as` would link these: same repository, job and digest.
+    def test_a_different_selector_is_the_same_tree_but_not_a_pair(self):
+        # `same_tree_as` links these: same repository, job and tree digest.
         self.finished('command_failed', argv=['node', 'run.mjs', 'S0-01'])
         result = self.finished('passed', argv=['node', 'run.mjs', 'S0-02'])
         self.assertIsNone(result.get('flaky'))
+        self.assertEqual(result['same_tree_as'], 'r1')
+        # The pre-rename key, for one release.
         self.assertEqual(result['same_input_as'], 'r1')
 
     def test_a_different_input_is_never_a_pair(self):
@@ -293,8 +295,9 @@ class FlakyPairs(unittest.TestCase):
         result = parent(['passed', 'passed', 'command_failed'], 'command_failed')
         self.assertIsNone(result['flaky'].get('order'), 'both parents failed')
         self.assertEqual([item['shard'] for item in result['flaky']['shards']], ['2/3'])
-        self.assertEqual(result['hint'], 'shard 2/3 of this input failed then passed with no '
-                                         'change; treat as flaky, see pandora result caller1')
+        self.assertEqual(result['hint'], 'shard 2/3 of this command on this tree failed then '
+                                         'passed with no change; treat as flaky, see pandora '
+                                         'result caller1')
 
 
 class History(unittest.TestCase):
