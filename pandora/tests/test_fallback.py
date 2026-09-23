@@ -424,24 +424,36 @@ class WithoutADaemon(unittest.TestCase):
         self.assertEqual(self.run_shim(['unit', 'fast']), 0)
         self.assertTrue(self.ran.exists())
 
-    def test_a_large_job_is_refused_rather_than_run_here(self):
+    def test_a_large_job_runs_here_too_because_no_daemon_means_no_pandora(self):
+        # The owner's rule for a machine without Pandora is "run directly", and
+        # a dead daemon is that machine. Refusing here cost an engineer their
+        # `pnpm journey` on 2026-09-23 (eichler #1536).
         self.enrol([{'prefix': ['surface'], 'size': 'large', 'fallback': 'auto',
                      'writeback': False}])
-        self.assertEqual(self.run_shim(['surface']), 70)
-        self.assertFalse(self.ran.exists())
+        self.assertEqual(self.run_shim(['surface']), 0)
+        self.assertTrue(self.ran.exists())
+        log = (self.state / 'passthrough.jsonl').read_text()
+        self.assertIn('daemon-unreachable', log)
 
-    def test_a_marker_without_policies_is_unknown_and_therefore_refused(self):
-        # An enrolment written before this rule existed. Unknown size is decided
-        # as `large`: a client that cannot say how big a job is has not earned
-        # the right to start it on this Mac.
+    def test_a_marker_without_policies_passes_through_as_well(self):
         self.enrol([])
-        self.assertEqual(self.run_shim(['surface']), 70)
-        self.assertFalse(self.ran.exists())
+        self.assertEqual(self.run_shim(['surface']), 0)
+        self.assertTrue(self.ran.exists())
 
-    def test_update_is_never_run_here_whatever_the_marker_says(self):
+    def test_update_runs_here_and_writes_in_place_without_a_daemon(self):
         self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'local',
+                     'writeback': True}])
+        self.assertEqual(self.run_shim(['unit', '--update']), 0)
+        self.assertTrue(self.ran.exists())
+
+    def test_an_explicit_remote_request_is_still_refused_without_a_daemon(self):
+        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}])
-        self.assertEqual(self.run_shim(['unit', '--update']), 70)
+        os.environ['PANDORA_WHERE'] = 'remote'
+        try:
+            self.assertEqual(self.run_shim(['unit']), 70)
+        finally:
+            os.environ.pop('PANDORA_WHERE', None)
         self.assertFalse(self.ran.exists())
 
     def test_the_marker_round_trips_through_the_shell_readable_format(self):
