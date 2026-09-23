@@ -21,8 +21,9 @@ Read [...] for setup, suite selection, cancellation, and recovery." in the
 > infrastructure failure, never a test verdict: retry, or run the command here
 > with `PANDORA_WHERE=local`, which keeps it in the queue. Exit 75 means a
 > validation is already active in this worktree or the source changed during the
-> run. When Pandora has advice, it is the last line, `pandora: hint: ...`; act on
-> it. Read
+> run. `--update` runs on the worker too: do not edit the worktree while it runs,
+> then review `git diff` of the files it wrote back. When Pandora has advice, it
+> is the last line, `pandora: hint: ...`; act on it. Read
 > [`tools/notes/local-validation.md`](tools/notes/local-validation.md) for
 > suite selection, cancellation, and recovery.
 
@@ -50,7 +51,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > | Exit | Meaning | Do this |
 > |---|---|---|
 > | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
-> | 75 | A validation is already active in this worktree, or the source changed during the run. | Wait for the other run. Do not edit the worktree while a validation runs. |
+> | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. | Wait for the other run. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 > | 130 | You cancelled it. | Nothing. |
 >
@@ -69,6 +70,13 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > exit code. Exit 64 means the job cannot run there; the message says why.
 > Nothing falls back from an explicit `remote`: if the worker cannot take it,
 > the exit is 70.
+>
+> `--update` runs on the worker. It writes its declared files back only after
+> a passing run, and only when you did not edit the worktree during the run. If
+> you edited a declared file, Pandora keeps your version, prints the path of the
+> worker's version, and exits 75. Merge the two by hand. Then run
+> `pandora resolve <id> --keep-local`. Validate without `--update` after every
+> update.
 >
 > To run a command on this machine with no Pandora at all, set `PANDORA_OFF=1`.
 > Use it to debug a routed failure, never to skip the queue.
