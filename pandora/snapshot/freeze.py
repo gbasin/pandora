@@ -34,8 +34,12 @@ from ..errors import SnapshotError
 # Names that are a secret by their shape, not by configuration. A repository may
 # add to this through `[secrets] exclude_globs`; nothing can remove from it.
 SECRET_DIRS = {'.git', 'node_modules', '.pnpm-store', '.ssh'}
-SECRET_NAMES = {'.env', '.dev.vars', 'id_rsa', 'id_ed25519'}
+# Credential files a repository may well track or forget to ignore: direnv's
+# `.envrc`, netrc, git's credential store, PyPI's upload config, SSH keys.
+SECRET_NAMES = {'.env', '.dev.vars', '.envrc', '.netrc', '.git-credentials', '.pypirc',
+                'id_rsa', 'id_ecdsa', 'id_ed25519', 'id_dsa'}
 SECRET_PREFIXES = ('.env.', '.dev.vars.')
+# Compared against the lower-cased name: `SERVER.PEM` is the same key file.
 SECRET_SUFFIXES = ('.pem', '.key', '.p12', '.pfx')
 NOT_SECRET_SUFFIXES = ('.example', '.sample', '.template')
 NPMRC_MARKERS = ('_authToken', '_password', '_auth=')
@@ -125,7 +129,7 @@ def excluded(name, globs=()):
     base = parts[-1]
     if any(part in SECRET_DIRS for part in parts):
         return True
-    if base in SECRET_NAMES or base.endswith(SECRET_SUFFIXES):
+    if base in SECRET_NAMES or base.lower().endswith(SECRET_SUFFIXES):
         return True
     if base.startswith(SECRET_PREFIXES) and not base.endswith(NOT_SECRET_SUFFIXES):
         return True

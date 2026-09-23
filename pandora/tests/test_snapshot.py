@@ -36,6 +36,16 @@ class ExcludeTest(unittest.TestCase):
                      'keys/id_ed25519', 'a/.ssh/config', 'node_modules/x/index.js'):
             self.assertTrue(snapshot.excluded(name), name)
 
+    def test_credential_files_a_repository_may_track_are_excluded(self):
+        # Each of these was shipped when tracked or not gitignored. Suffixes
+        # match in any case: a `.PEM` is the same key as a `.pem`.
+        for name in ('.envrc', 'tools/.envrc', '.netrc', '.git-credentials', '.pypirc',
+                     'keys/id_ecdsa', 'keys/id_ed25519', 'keys/id_rsa', 'certs/SERVER.PEM',
+                     'certs/tls.Key', 'dist/Signing.P12'):
+            self.assertTrue(snapshot.excluded(name), name)
+        for name in ('src/keyboard.ts', 'docs/pem-format.md', 'id_rsa.pub', '.envrc.example'):
+            self.assertFalse(snapshot.excluded(name), name)
+
     def test_an_example_env_file_is_not_a_secret(self):
         for name in ('.env.example', '.env.sample', 'config/.dev.vars.template'):
             self.assertFalse(snapshot.excluded(name), name)
@@ -62,6 +72,15 @@ class FreezeTest(unittest.TestCase):
             self.assertNotIn('ignored.log', names)
             self.assertIn('.env', dropped)
             self.assertEqual(len(input_id), 64)
+
+    def test_a_tracked_credential_file_does_not_travel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', '.envrc': 'export X=1\n',
+                                                  'deploy/KEY.PEM': 'k\n', '.netrc': 'm\n'})
+            manifest, dropped, _ = snapshot.freeze(repo, exclude_globs=['extra/*'])
+            names = {record['path'] for record in manifest}
+            self.assertEqual(names, {'a.txt'})
+            self.assertTrue({'.envrc', 'deploy/KEY.PEM', '.netrc'} <= set(dropped))
 
     def test_what_git_would_answer_differently_is_marked(self):
         with tempfile.TemporaryDirectory() as tmp:
