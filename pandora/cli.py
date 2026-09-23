@@ -40,8 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
-  pandora doctor [--json]          is this shell wired up? read-only
-  pandora daemon | enrol <repo> | unenrol <repo> | worker <verb>
+  pandora doctor [--json] (read-only) | daemon | enrol <repo> | unenrol <repo> | worker <verb>
 """
 import argparse
 import json
