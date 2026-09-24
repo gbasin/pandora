@@ -640,7 +640,8 @@ class RestartHygiene(DaemonCase):
                 time.sleep(0.1)
                 built.append(self)
         self.daemon.worker_factory = Slow
-        self.daemon.workers.clear()
+        with self.daemon.workers_lock:   # the health thread may be building one
+            self.daemon.workers.clear()
         threads = [threading.Thread(target=self.daemon.worker_for, args=({},))
                    for _ in range(4)]
         for thread in threads:

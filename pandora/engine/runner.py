@@ -502,6 +502,9 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
                   if item.get('shard_index') else None),
         'parent': item.get('parent'),
         'retry_of': item.get('retry_of'),
+        # Which client daemon submitted it (`user@host` or `[client] name`);
+        # None from a client that predates attribution.
+        'client': item.get('client'),
     }
     result.update(extra or {})
     # Evidence of non-determinism, recorded where both attempts can be seen.

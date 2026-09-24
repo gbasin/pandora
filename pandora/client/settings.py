@@ -19,6 +19,7 @@ too high a price for changing a hostname.
 
     [client]
     state = "~/.local/state/pandora/default"
+    name = "gary@studio"                # who this Mac is to a shared worker; default user@host
     fallback_slots = 2
     fallback_wait_seconds = 0
 
@@ -47,8 +48,11 @@ too high a price for changing a hostname.
     root = "/Users/me/Code/eichler"     # the git common dir's worktree, or any worktree
     config = "~/.config/pandora/repos/eichler.pandora.toml"   # used only if the repo has none
 """
+import getpass
 import json
 import os
+import re
+import socket
 import tomllib
 from pathlib import Path
 
@@ -56,6 +60,9 @@ from ..errors import ConfigError
 from . import pressure
 
 DEFAULT_PATH = Path('~/.config/pandora/config.toml')
+# What a shared worker records as the submitting client. The engine accepts the
+# same shape (`service.CLIENT_PATTERN`) and drops anything else.
+CLIENT_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 DEFAULT_STATE = Path('~/.local/state/pandora/default')
 
 DEFAULTS = {
@@ -65,7 +72,7 @@ DEFAULTS = {
     # so everywhere else this is a no-op and the transition is a log line.
     'notify': {'enabled': True},
     'client': {'state': str(DEFAULT_STATE), 'fallback_slots': 2,
-               'fallback_wait_seconds': 0.0, 'max_wait_seconds': 0},
+               'fallback_wait_seconds': 0.0, 'max_wait_seconds': 0, 'name': ''},
     'repos': [],
     # The fake backend stays available, because a test that needs a worker is a
     # test that does not run. `mode` is only consulted when it is not "worker".
@@ -112,6 +119,10 @@ def normalize(raw):
     pause.update(given)
     config['local']['pause'] = pause
     config['client']['state'] = _expand(config['client']['state'])
+    name = config['client']['name']
+    if name and (not isinstance(name, str) or not CLIENT_NAME.fullmatch(name)):
+        raise ConfigError('[client] name must be 1 to 64 letters, digits and . _ @ + -, '
+                          'starting with a letter or digit, not %r' % (name,))
     for index, item in enumerate(raw.get('repos', [])):
         if not isinstance(item, dict):
             raise ConfigError('repos[%d] must be a table' % index)
@@ -128,6 +139,24 @@ def normalize(raw):
     if len(set(names)) != len(names):
         raise ConfigError('two enrollments share a name: ' + ', '.join(sorted(names)))
     return config
+
+
+def client_name(config=None):
+    """Who this client daemon is to the worker: `[client] name`, else `user@host`.
+
+    The short host name, so `gary@studio.local` and `gary@studio` are one
+    client. Anything the engine would not accept is replaced, never sent.
+    """
+    given = ((config or {}).get('client') or {}).get('name') or ''
+    if given:
+        return given
+    try:
+        user = getpass.getuser()
+    except (KeyError, OSError):
+        user = 'uid%d' % os.getuid()
+    host = socket.gethostname().split('.')[0] or 'host'
+    guess = re.sub(r'[^A-Za-z0-9._@+-]', '-', '%s@%s' % (user, host)).lstrip('._@+-')
+    return guess[:64] or 'client'
 
 
 def path_of(path=None):

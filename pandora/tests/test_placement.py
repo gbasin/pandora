@@ -102,7 +102,8 @@ class PlacementCase(DaemonCase):
         RecordingWorker.plans = []
         (self.repo / 'pandora.toml').write_text(CONFIG % {'marker': self.marker})
         self.daemon.worker_factory = RecordingWorker
-        self.daemon.workers.clear()
+        with self.daemon.workers_lock:   # the health thread may be building one
+            self.daemon.workers.clear()
 
     def place(self, argv, where):
         """`call`, with the placement field the shim lifts out of PANDORA_WHERE."""

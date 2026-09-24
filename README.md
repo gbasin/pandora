@@ -167,7 +167,8 @@ The optional keys and their defaults:
 | `[worker]` | `ssh_persist` | `10m` | SSH control-master lifetime. |
 | | `health_interval_s` | `60` | How often the daemon polls the worker's health. |
 | `[notify]` | `enabled` | `true` | macOS notification on a health transition (worker down or back, canary failed, disk floor, kernel drift). |
-| `[client]` | `fallback_slots` | `2` | Local runs allowed at once when the daemon itself is gone. |
+| `[client]` | `name` | `user@host` | Who this Mac is to a shared worker: your login name and the short host name. 1 to 64 letters, digits and `. _ @ + -`. See [Sharing a worker](#sharing-a-worker). |
+| | `fallback_slots` | `2` | Local runs allowed at once when the daemon itself is gone. |
 | | `fallback_wait_seconds` | `0` | How long such a run waits for a slot. 0 refuses at once. |
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |
@@ -606,6 +607,45 @@ the manifest, pool use, the admission gate, the goldens and the last canary. A
 package or kernel that differs from what the canary ran on reads `drifted`, not
 `ready`. Re-run the canary with `--mark` after any change to the machine.
 
+### Sharing a worker
+
+Several Macs, each with its own client daemon and its own user, can share one
+worker and one `engine_root`. Each daemon names itself to the engine with every
+submission: `[client] name`, or `user@host` by default (`gary@studio`). The
+engine records the name on the run's ledger row and in its result, and a
+shard's row carries its parent's name.
+
+What holds between clients:
+
+* Runs never collide. Every attempt has its own row, directory, log, result and
+  instance, even when two Macs submit the same tree at the same moment. The
+  source cache and the turbo cache are content-addressed and written by
+  temporary file and rename, so two writers of one entry leave one whole entry.
+* A request id held by one client is never attached to by another. The engine
+  refuses the second submission as `request-collision`; nothing starts.
+* One memory budget covers every client's runs. Admission counts them all.
+* `cancel`, `lookup` and the automatic retry act only on the calling client's
+  runs. Another client's run is refused as `not-yours`. A run submitted before
+  attribution existed has no client, and any client may cancel it.
+* Reconcile and retention act on what a row records (live, finished,
+  orphaned), never on who submitted it.
+
+What does not hold yet ([#73](https://github.com/gbasin/pandora/issues/73)):
+there is no fair share between clients, so one Mac can fill the budget. Every
+client logs in as the same worker user, with that user's SSH key. And a Mac
+still running older Pandora code sends no name: its runs record no client, and
+it can cancel anyone's run. The guarantees above hold once every Mac runs this
+code. Change `[client] name` only while `pandora ps` shows nothing live: runs
+submitted under the old name answer cancel and lookup only to that name.
+
+Where the name shows:
+
+* `pandora ps` ends its first line with `as <name>`, and says how many runs each
+  other client has live on the worker. `--json` has `client` on each row.
+* `pandora result <id>` prints `client <name>`. `--json` has `client`.
+* `pandora stats` names this client on its first line and lists every client the
+  worker has seen, with runs and live runs.
+
 ### Keep it
 
 Sweep leaked instances, leaked volumes and old goldens once a week. Read the
@@ -787,13 +827,13 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter`; the table has no room for it. |
+| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line, which ends `as <client name>` and counts other clients' live runs on a shared worker. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter` and `client`; the table has no room for them. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
-| `pandora result <id> [--json]` | Outcome, exit, submitter, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
+| `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
 | `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
-| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens and ready state. |
+| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return. For orchestrators. `--local` and `--remote` place the run. |
 
