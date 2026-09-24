@@ -34,6 +34,9 @@ The invariants, as `pandora --help` states them:
   never a way around the queue or a memory-pressure refusal.
 * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
   `pandora: hint: ...`: the next action, derived from evidence.
+* Each worktree routes by its own `pandora.toml`. An edit takes effect on the
+  next command in that worktree, at the cost of one Python start. Enroll a
+  repository once; never again after a change.
 
 v0.2 is proved against one repository (eichler), one worker (4 vCPU, 15.6 GiB,
 x86_64 Ubuntu 26.04) and one Mac. Read [Operating limits](#operating-limits)
@@ -43,7 +46,8 @@ before you rely on it.
 
 The install is machine-wide and changes nothing in the target repository. It
 has five parts: the two launchers on PATH, one configuration file, the daemon,
-one enrollment per repository, and `pandora doctor` to prove the result.
+one enrollment per repository, done once, and `pandora doctor` to prove the
+result.
 
 ### Prerequisites
 
@@ -137,7 +141,8 @@ root = "/Users/YOU/Code/eichler"   # the main checkout or any worktree of it
 ```
 
 Unknown keys are refused, with the allowed keys printed. The daemon reads this
-file on every connection, so a new `[[repos]]` entry needs no restart.
+file on every connection, so a new `[[repos]]` entry needs no restart. You can
+leave `[[repos]]` out: `pandora enroll` (step 5) appends the entry it needs.
 
 The optional keys and their defaults:
 
@@ -214,8 +219,9 @@ it.
 
 ### 5. Enroll each repository
 
-Write the configuration first, so the marker points at the right socket. Then
-enroll the repository from any of its worktrees.
+Write the configuration first, so the files enrollment writes point at the
+right socket. Then enroll the repository from any of its worktrees. Do this
+once per repository.
 
 ```sh
 pandora enroll ~/Code/eichler
@@ -227,42 +233,57 @@ If the repository has no `pandora.toml` at its root yet, name one.
 pandora enroll ~/Code/eichler --config ~/.config/pandora/repos/eichler.pandora.toml
 ```
 
-`enroll` loads and validates the repository's configuration, then writes one
-marker file, `pandora-enrolled`, into the Git common directory. One marker
-covers every worktree of the repository, including worktrees created later. It
-prints the `[[repos]]` block the client configuration needs. Add that block if
-it is not there.
+`enroll` loads and validates the repository's configuration. Then it does
+three things:
 
-Enrollment is manual. Run it once per repository, not once per worktree: the
-marker is in the Git common directory, so every worktree shares it. It holds
-the claim list of the `pandora.toml` in the worktree you enroll from. Enroll
-from a worktree whose `pandora.toml` is the one you want every worktree to
-route by.
+1. It appends a `[[repos]]` table to `~/.config/pandora/config.toml` if the
+   repository has none. It only appends, and it puts the file back if the
+   result does not load. It leaves an existing entry as it is and prints the
+   block it would have written, if that differs.
+2. It writes `pandora-repo` into the Git common directory. This registration
+   covers every worktree of the repository, including worktrees created later.
+3. It writes the claim cache of the worktree you enrolled from.
 
-The marker also records `home`, the checkout whose client code the shim runs
-for a claimed command. Enroll with the `pandora` of the checkout the daemon
-runs from. Otherwise the shim and the daemon run different code. After you
-update that checkout, restart the daemon. The shim starts the new client code
-at once; the daemon does not.
+It also removes the v0.2 marker, `<common>/pandora-enrolled`, if there is one.
 
-Enroll again after any change to the claimed forms or to `[matching]
-subdirectory` in `pandora.toml`. The shim reads the claim list and the
-subdirectory mode from the marker, not from `pandora.toml`, so until you enroll
-again the shim acts on the old values. `pandora doctor` reports a marker whose
-claim list, strip prefixes or subdirectory mode differ from the enrolled
-checkout's `pandora.toml`, a marker whose `home` names a removed checkout or a checkout
-other than the one the doctor runs from, and a marker whose socket is not the
-one the doctor checked. A claimed command routed through a stale marker prints
-one line: `pandora: enrollment marker is stale (N forms differ); run pandora
-enroll <root>`. A branch worktree whose own `pandora.toml` differs is not stale:
-its commands route by the enrolled one, and the doctor only warns. Do not
-enroll from it.
+Each worktree has its own claim cache, `pandora-claims`, in the worktree's own
+Git directory (`git rev-parse --git-dir`): `<common>/worktrees/<name>/` for a
+linked worktree, `<common>/` for the main one. The daemon writes it from that
+worktree's `pandora.toml`, whenever it classifies a command from that worktree.
+The shim reads it with shell builtins and forks nothing. A worktree on a branch
+with a different `pandora.toml` routes by its own file.
 
-To stop routing a repository, remove the marker.
+You do not enroll again after a change to `pandora.toml`. The shim compares
+dates: a cache older than the worktree's `pandora.toml`, the `--config` file it
+came from, or the client configuration is stale. On a stale or missing cache
+the shim starts Python once. The daemon rewrites the cache and says whether
+the command is claimed. The command then routes, or runs as if Pandora were not
+installed. The next command reads the new cache. A file replaced by one with an
+older date is not seen by the shim. The next claimed command rewrites the cache,
+and `pandora doctor` reports it until then. Without a daemon, the shim decides
+by the stale cache and a claimed command runs here, as with no daemon at all.
+
+A cache records `home`, the checkout whose client code the shim runs for a
+claimed command. The daemon writes its own checkout there. After you update
+that checkout, restart the daemon. The shim starts the new client code at once;
+the daemon does not.
+
+To move from v0.2, run `pandora enroll <root>` once per repository. Until then
+the shim reads the v0.2 marker in each worktree that has no cache, and the
+marker can be stale. The daemon writes a worktree's cache on its first claimed
+command; from then on that worktree routes by its own `pandora.toml`. The v0.2
+marker is read for one more release.
+
+To stop routing a repository, unenroll it.
 
 ```sh
 pandora unenroll ~/Code/eichler
 ```
+
+`unenroll` removes the registration, the v0.2 marker and every worktree's claim
+cache it finds under the Git common directory. It leaves the `[[repos]]` entry
+in the client configuration and says so. Remove that entry too: `pandora run`
+still routes while it is there.
 
 `pandora enrol` and `pandora unenrol`, the old spellings, still work for one
 release. Each prints a one-line deprecation notice on stderr and then runs
@@ -286,8 +307,9 @@ ok    recursion guard    PANDORA_ROUTE_DEPTH is not set
 ok    pandora on PATH    ~/.local/bin/pandora imports ~/Code/pandora from any directory
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, same package as the client
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
-ok    repository         enrolled as eichler: 20 claimed form(s), marker ~/Code/eichler/.git/pandora-enrolled
-ok    marker forms       the marker matches the enrolled pandora.toml
+ok    repository         enrolled as eichler, registration ~/Code/eichler/.git/pandora-repo
+ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/eichler/pandora.toml; cache ~/Code/eichler/.git/pandora-claims
+info  claim caches       57 worktree(s): 41 fresh, 2 stale, 14 without a cache; each refreshes on its next claimed command
 ok    daemon enrollment  [[repos]] eichler at ~/Code/eichler
 ok    working directory  the worktree root, ~/Code/eichler
 ok    variables          none of PANDORA_OFF, PANDORA_WHERE, PANDORA_SHARDS set
@@ -297,8 +319,19 @@ all checks passed
 ```
 
 The first line is `ok` when the real pnpm is not a version manager's shim. A
-`warn` there is acceptable. Every other line must be `ok`. `pandora doctor
---json` prints the same checks with their facts.
+`warn` there is acceptable. `claim caches` is information. Every other line must
+be `ok`. `pandora doctor --json` prints the same checks with their facts.
+
+The repository rows:
+
+| Row | `ok` | Otherwise |
+|---|---|---|
+| `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the v0.2 marker enrolls it; run `pandora enroll <root>` once. |
+| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next claimed command refreshes it; or there is no cache yet, and the next command writes it. `info`: no cache yet, and the v0.2 marker routes this worktree until then. Never `fail`. |
+| `claim caches` | Always `info`: every worktree of the repository, counted as fresh, stale or without a cache. | |
+| `client home` | Not shown. | `fail`: the cache names a checkout with no `pandora` package. `warn`: it names a checkout other than the doctor's. |
+| `client socket` | Not shown. | `warn`: the cache routes to another socket than the one the doctor checked. |
+| `daemon enrollment` | The client configuration has a `[[repos]]` entry for the repository. | `fail`: it has none, so the daemon passes every command through. |
 
 ## The worker
 
@@ -760,7 +793,7 @@ Known caveats:
 
 | Path | What it is |
 |---|---|
-| `bin/pandora`, `bin/pnpm` | The two POSIX launchers. `pnpm` is the shim; its non-enrolled path forks nothing. |
+| `bin/pandora`, `bin/pnpm` | The two POSIX launchers. `pnpm` is the shim; its non-enrolled and fresh-cache paths fork nothing. |
 | `pandora/cli.py`, `errors.py`, `exits.py` | The one `pandora` command, the typed exceptions and the exit table. |
 | `pandora/client/` | Runs on the Mac: the daemon, the shim client, enrollment, the local lane, fallback, placement, write-back settlement, health, stats, hints, `doctor`. |
 | `pandora/config/` | Runs on the Mac: the `pandora.toml` loader and the argv classifier. |

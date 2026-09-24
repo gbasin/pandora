@@ -21,6 +21,7 @@ INVARIANTS
     queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
     `pandora: hint: ...`: the next action, derived from evidence.
+  * Each worktree routes by its own pandora.toml; an edit applies on the next command.
 
 RUNS
   pandora ps [--json]              what is running and what just ran

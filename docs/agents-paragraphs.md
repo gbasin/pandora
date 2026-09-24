@@ -71,6 +71,11 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > be `pandora: hint: ...`. A hint comes from measured evidence, such as a memory
 > peak or a report that is absent. Act on it.
 >
+> Each worktree routes by its own `pandora.toml`. If you change it, the change
+> applies from the next command in that worktree. That one command starts a
+> little slower while Pandora reads the new file. There is nothing to enroll
+> again.
+>
 > `pandora ps` lists runs. `pandora logs <id>` replays one. `pandora cancel <id>`
 > stops one. `pandora result <id>` shows its outcome and hint. `pandora stats`
 > shows what ran, where, and what fell back. `pandora doctor` checks that this
