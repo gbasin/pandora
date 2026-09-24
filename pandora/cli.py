@@ -118,7 +118,15 @@ def restart_drained(args, launchd, label, state):
                                                      agent['pid']))
     return drain.drain_and_restart(
         state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
-        now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice))
+        now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice),
+        idle_cancel=idle_cancel_of(args))
+
+
+def idle_cancel_of(args):
+    """`--idle-cancel` in seconds, or the default; 0 never cancels."""
+    from .client import drain
+    given = getattr(args, 'idle_cancel', None)
+    return drain.DEFAULT_IDLE_CANCEL if given is None else max(0.0, given)
 
 
 def install_drained(args, launchd, label, state, config_path):
@@ -148,7 +156,8 @@ def install_drained(args, launchd, label, state, config_path):
         return 0
     return drain.drain_and_restart(
         state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
-        now=args.now, say=notice, restart=load, again='`pandora daemon --install --now`')
+        now=args.now, say=notice, restart=load, again='`pandora daemon --install --now`',
+        idle_cancel=idle_cancel_of(args))
 
 
 def cmd_daemon(args):
@@ -161,8 +170,9 @@ def cmd_daemon(args):
     for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
-    if (args.wait is not None or args.now) and not (args.restart or args.install):
-        notice('--wait and --now go with --restart or --install')
+    if ((args.wait is not None or args.now or args.idle_cancel is not None)
+            and not (args.restart or args.install)):
+        notice('--wait, --now and --idle-cancel go with --restart or --install')
         return 64
     if verb:
         return cmd_daemon_supervision(args)
@@ -219,7 +229,7 @@ def cmd_upgrade(args):
         return install.upgrade(state=state, source=args.source, version=args.version,
                                dirty_ok=args.dirty, now=args.now, no_restart=args.no_restart,
                                relink=True if args.relink else None, wait=args.wait,
-                               keep=args.keep, say=notice)
+                               keep=args.keep, idle_cancel=idle_cancel_of(args), say=notice)
     except (install.Refused, OSError) as error:
         notice(str(error))
         return 1
@@ -866,6 +876,10 @@ def main(argv=None):
     daemon.add_argument('--now', action='store_true',
                         help='--restart, --install: restart when the wait runs out, ending '
                              'those runs')
+    daemon.add_argument('--idle-cancel', type=float, default=None, metavar='SECONDS',
+                        help='--restart, --install: cancel a local run the drain waits for '
+                             'once it has used no CPU and written nothing for this long '
+                             '(default 600; 0 never)')
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
@@ -891,6 +905,9 @@ def main(argv=None):
     upgrade.add_argument('--wait', type=float, default=600, metavar='SECONDS',
                          help='how long the drain waits for the runs a restart would end '
                               '(default 600)')
+    upgrade.add_argument('--idle-cancel', type=float, default=None, metavar='SECONDS',
+                         help='cancel a local run the drain waits for once it has used no CPU '
+                              'and written nothing for this long (default 600; 0 never)')
     upgrade.add_argument('--keep', type=int, default=3,
                          help='versions to keep, current included (default 3, at least 2)')
     upgrade.set_defaults(func=cmd_upgrade)

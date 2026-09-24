@@ -253,6 +253,22 @@ daemon from before the drain is waited on through `pandora ps`, without
 holding new commands; if a run starts as the restart is prepared, it waits
 again.
 
+A local run that does nothing does not hold the drain. The daemon samples
+each local run's process tree every second. A run whose processes together
+use less than 1 s of CPU, start or end no process, and write no output for
+`--idle-cancel` seconds (600 by default; 0 turns it off) is canceled. The
+restart prints `canceling <id>: no CPU progress and no output for <time>`,
+the run's log and its caller get the same reason, and the run ends with exit
+130. The daemon checks the run again before it cancels it, so a run that
+started to progress since the last poll keeps running. A run that `ps` cannot
+measure is never idle. While the restart waits, each blocker line shows
+`idle <time>` once a run has not progressed for a minute, and `pandora ps
+--json` shows `cpu_seconds`, `last_active` and `idle_seconds` for each local
+run that is executing. A run whose work is done by processes outside its
+tree, for example in a Docker container, with no output, looks idle. Use
+`--idle-cancel 0` when such a run must not be canceled. `pandora upgrade` and
+`pandora daemon --install` apply the same rule and take the same option.
+
 The drain is a lease. `--restart` renews it every second. A daemon that hears
 nothing for 30 s ends the drain itself and admits runs again, so a restart
 killed with SIGKILL, or by a tool timeout, holds commands for at most 30 s. If

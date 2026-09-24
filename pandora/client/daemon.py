@@ -209,6 +209,12 @@ class Run:
         # A local run still queued when a drain began: it never starts here,
         # and its caller is told to submit it again to the next daemon.
         self.drained = False
+        # A local run's CPU time so far, summed over its process tree, and
+        # when (wall clock) it last progressed, from the supervisor's
+        # once-a-second sample. None until measured, and None when `ps`
+        # cannot measure it: such a run is never called idle.
+        self.cpu_seconds = None
+        self.active_at = None
 
     def save(self):
         with self.close_lock:
@@ -350,6 +356,24 @@ class Run:
             with self.log.open('ab') as handle:
                 handle.write(frame)
             self.wake.notify_all()
+
+    def activity(self, cpu_seconds, active_at):
+        """The supervisor's latest reading. Memory only: `ps` asks the Run, not the file."""
+        self.cpu_seconds, self.active_at = cpu_seconds, active_at
+
+    def idle_seconds(self, at=None):
+        """Seconds since the run last progressed, or None when nobody measured it."""
+        if self.active_at is None:
+            return None
+        return max(0.0, (now() if at is None else at) - self.active_at)
+
+    def activity_fields(self):
+        """What `ps --json` and a drain's blockers say about a local run's progress."""
+        if self.lane != 'local' or self.state != 'running':
+            return {}
+        idle = self.idle_seconds()
+        return {'cpu_seconds': self.cpu_seconds, 'last_active': self.active_at,
+                'idle_seconds': None if idle is None else round(idle, 1)}
 
     def spawned(self, pid):
         """The local supervisor started the child, as the leader of its own group."""
@@ -1062,6 +1086,8 @@ class Daemon:
             self.serve_run(conn, reader, first)
         elif op == 'attach':
             self.serve_attach(conn, reader, first)
+        elif op == 'cancel' and first.get('if_idle') is not None:
+            self.cancel_idle(conn, first)
         elif op == 'cancel':
             # A row no thread here drives is taken over with its cancel asked
             # for; answering `ok` and changing nothing left clients hung.
@@ -1268,12 +1294,44 @@ class Daemon:
                 seen.add(run.id)
                 if ((run.lane == 'local' and run.state == 'running')
                         or (run.lane != 'local' and run.state == 'queued')):
-                    blocking.append({'id': run.id, 'lane': run.lane, 'state': run.state,
-                                     'phase': run.phase, 'argv': run.request.get('argv')})
+                    blocking.append(dict({'id': run.id, 'lane': run.lane, 'state': run.state,
+                                          'phase': run.phase, 'argv': run.request.get('argv')},
+                                         **run.activity_fields()))
             since = self.draining['since']
         return {'since': since, 'blockers': blocking,
                 'local': sum(row['lane'] == 'local' for row in blocking),
                 'pre_accept': sum(row['lane'] != 'local' for row in blocking)}
+
+    def cancel_idle(self, conn, request):
+        """A drain's cancel of a local run with no CPU progress: only if it is still idle.
+
+        The restarter saw the run idle one poll ago; this daemon's own reading
+        decides, so a run that woke up in between is never cancelled. The
+        reason goes into the run's log, where its caller and `pandora logs`
+        see it.
+        """
+        run = self.live(request.get('run'))
+        try:
+            limit = float(request['if_idle'])
+        except (TypeError, ValueError):
+            limit = None
+        idle = run.idle_seconds() if run is not None else None
+        if (run is None or limit is None or limit <= 0 or run.lane != 'local'
+                or run.state != 'running' or idle is None or idle < limit):
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'not-idle', 'exit': 1,
+                               'run': request.get('run'),
+                               'msg': 'run %s is not an idle local run here (idle %s)'
+                                      % (request.get('run'), 'unmeasured' if idle is None
+                                         else '%ds' % idle)}))
+            return
+        why = ('canceled by a restart drain (%s): no CPU progress in its process tree, and '
+               'no output, for %s. Rerun it'
+               % (request.get('by') or 'pid %s' % (request.get('pid') or '?'),
+                  draining.fmt_idle(idle)))
+        run.note(why)
+        log('drain: cancel run %s: idle for %ds (limit %ds)' % (run.id, idle, limit))
+        run.canceled.set()
+        conn.sendall(dump({'v': VERSION, 't': 'ok', 'run': run.id, 'idle_seconds': idle}))
 
     def undrain(self, why='cancelled'):
         with self.admitting:
@@ -2205,7 +2263,23 @@ class Daemon:
         self.index.learn(payload)
 
     def ps(self, limit=20):
-        return self.status.rows(limit)
+        """The published status (#110), with each executing local run's CPU progress.
+
+        The progress is the supervisor's in-memory reading, the same one the
+        drain's blockers carry (`Run.activity_fields`); it changes every second
+        and is never saved, so it is added here, to a copy, rather than
+        published.
+        """
+        rows = self.status.rows(limit)
+        with self.runs_lock:
+            driven = {run.id: run for run in list(self.runs.values())
+                      + list(self.pending.values()) if not run.done.is_set()}
+        out = []
+        for row in rows:
+            run = driven.get(row.get('id'))
+            fields = run.activity_fields() if run is not None else {}
+            out.append(dict(row, **fields) if fields else row)
+        return out
 
     def stats(self, window=None):
         """The report, from disk plus at most one engine call.

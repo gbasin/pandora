@@ -601,7 +601,7 @@ def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
             dirty_ok=False, now=False, no_restart=False, relink=None, wait=WAIT_SECONDS,
             keep=KEEP, platform=None, git_run=subprocess.run, check_run=subprocess.run,
             launchctl=subprocess.run, ping=None, ask=None, clock=time.monotonic,
-            sleep=time.sleep, say=print):
+            sleep=time.sleep, say=print, idle_cancel=None):
     """Build or pick a version, drain the daemon, flip `current`, restart, prune.
 
     `current` moves only when the daemon can move with it (or `--no-restart`
@@ -624,6 +624,7 @@ def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
         # scratch XDG_DATA_HOME must never re-point them (it did, once).
         relink = os.path.realpath(data) == os.path.realpath(default_data(home))
     job = Job(state=Path(state), data=data, env=env, home=home, now=now, wait=wait,
+              idle_cancel=drain.DEFAULT_IDLE_CANCEL if idle_cancel is None else idle_cancel,
               platform=platform or sys.platform, launchctl=launchctl, relink=relink,
               ping=ping or (lambda: doctor_ping(sock)), ask=ask or drain.ask,
               # After the restart, one ask per half second against a 10 s
@@ -800,7 +801,8 @@ class Job:
                 self.state, restart=kickstart, wait=0 if self.now else self.wait,
                 now=self.now, say=self.say, before_restart=self.install,
                 undo_before_restart=undo, ask=self.ask, clock=self.clock, sleep=self.sleep,
-                again='`pandora upgrade --now`', report=report)
+                again='`pandora upgrade --now`', report=report,
+                idle_cancel=self.idle_cancel)
         except launchd.Refused as error:
             if self.flipped:
                 self.undo()

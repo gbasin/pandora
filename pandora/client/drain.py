@@ -27,6 +27,16 @@ comes back costs each command that wait and no more. One older than
 A client told `draining` by a live daemon never runs the command unmanaged:
 when its wait runs out it exits 75, retry. Only a daemon that is gone -- no
 socket once the marker is no longer fresh -- gets the no-daemon path.
+
+A blocker that is doing nothing is canceled. On 2026-09-24 a local run sat
+at 0% CPU for 20 minutes, its pnpm processes idle, and held a 25-minute
+drain while every new command waited and then exited 75. The supervisor
+samples each local run's process tree every second (`local.Supervisor`), and
+a blocker with no CPU progress and no output for `--idle-cancel` seconds
+(default 600; 0 never cancels) is canceled by the restarter, with the
+reason in its run log. The daemon checks its own reading before it cancels,
+so a run that progressed since the last poll is left alone, and a run it
+cannot measure is never called idle.
 """
 import json
 import os
@@ -47,6 +57,10 @@ RETRY_AFTER = 2.0
 # `pandora upgrade` waits up to 600 s (`install.WAIT_SECONDS`).
 DEFAULT_RESTART_WAIT = 300.0
 LONGEST_RESTART_WAIT = 600.0
+# How long a blocker may go without CPU progress before a drain cancels it.
+DEFAULT_IDLE_CANCEL = 600.0
+# A blocker idle for less than this is not called idle in the blocker lines.
+IDLE_SHOWN = 60.0
 # How long a daemon keeps draining with no `drain` request renewing it.
 LEASE_SECONDS = 30
 # How long a restart waits for the successor to clear the marker.
@@ -251,12 +265,60 @@ def blockers(rows):
 PRE_ACCEPT = {'freeze': 'freezing', 'ship': 'shipping', 'submit': 'submitting'}
 
 
+def fmt_idle(seconds):
+    """`45s`, `20m`, `2h05m`."""
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return '%ds' % seconds
+    if seconds < 3600:
+        return '%dm' % (seconds // 60)
+    return '%dh%02dm' % (seconds // 3600, seconds % 3600 // 60)
+
+
+def idle_of(row):
+    """The blocker's seconds without progress, or None when unmeasured."""
+    value = row.get('idle_seconds')
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) \
+        else None
+
+
 def blocker_line(row):
     state = row.get('state') or '?'
     if state == 'queued' and row.get('phase') in PRE_ACCEPT:
         state = PRE_ACCEPT[row['phase']]
+    idle = idle_of(row)
+    if idle is not None and idle >= IDLE_SHOWN:
+        state += ', idle %s' % fmt_idle(idle)
     return '%s %s %s: %s' % (row.get('id', '?'), row.get('lane') or 'remote', state,
                              ' '.join(row.get('argv') or [])[:60])
+
+
+def shape(rows):
+    """What a blocker list must change in before it is printed again: who, and how idle.
+
+    Idle time in five-minute steps, so an idle run is said again every five
+    minutes rather than every second.
+    """
+    return [(row.get('id'), None if (idle_of(row) or 0) < IDLE_SHOWN
+             else int(idle_of(row) // 300)) for row in rows]
+
+
+def cancel_idle(sock_path, row, limit, *, ask=ask, say=notice):
+    """Ask the daemon to cancel one blocker idle for `limit` seconds. True when it did."""
+    say('canceling %s: no CPU progress and no output for %s (--idle-cancel %gs): %s'
+        % (row.get('id'), fmt_idle(idle_of(row) or 0), limit,
+           ' '.join(row.get('argv') or [])[:60]))
+    try:
+        answer = ask(sock_path, {'op': 'cancel', 'run': row.get('id'), 'if_idle': limit,
+                                 'pid': os.getpid(), 'by': 'pid %d' % os.getpid()})
+    except (OSError, ValueError) as error:
+        say('  the daemon did not answer the cancel (%s); still waiting for it' % error)
+        return False
+    if isinstance(answer, dict) and answer.get('t') == 'ok':
+        return True
+    say('  not canceled: %s' % ((answer or {}).get('msg') if isinstance(answer, dict)
+                                 else answer))
+    return False
 
 
 class Unanswered(Exception):
@@ -364,7 +426,8 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                       before_restart=None, undo_before_restart=None, ask=ask,
                       clock=time.monotonic, sleep=time.sleep, interval=1.0,
                       successor_seconds=SUCCESSOR_SECONDS,
-                      again='`pandora daemon --restart --now`', report=None, held_lock=None):
+                      again='`pandora daemon --restart --now`', report=None, held_lock=None,
+                      idle_cancel=DEFAULT_IDLE_CANCEL):
     """Drain the daemon, wait for what a restart would end, restart it. Returns an exit code.
 
     `restart()` restarts the daemon (launchd's kickstart for `pandora daemon
@@ -375,7 +438,8 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
     the error propagates. So do SIGHUP and SIGTERM, as `Interrupted`. `again`
     is the command the timeout and silence messages name for going ahead
     anyway. `report`, a dict, gets `undrained`: False when the drain could not
-    be ended and lingers until its lease runs out.
+    be ended and lingers until its lease runs out. A local blocker with no CPU
+    progress for `idle_cancel` seconds is canceled (0 or None: never).
 
     0 when the successor cleared the marker; 75 (`STALE`) when the wait ran out
     without `now`, after the daemon left draining; 1 when the successor did not
@@ -447,17 +511,25 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                 return []
 
         try:
+            canceled = set()
             while True:
                 said = None
                 while blocking:
+                    if held and idle_cancel and idle_cancel > 0:
+                        for row in blocking:
+                            idle = idle_of(row)
+                            if (row.get('id') not in canceled and row.get('lane') == 'local'
+                                    and idle is not None and idle >= idle_cancel
+                                    and cancel_idle(sock, row, idle_cancel, ask=ask, say=say)):
+                                canceled.add(row.get('id'))
                     lines = [blocker_line(row) for row in blocking]
-                    if lines != said:
+                    if shape(blocking) != said:
                         say('draining: waiting up to %ds for %d run%s a restart would end:'
                             % (max(0, round(deadline - clock())), len(lines),
                                '' if len(lines) == 1 else 's'))
                         for line in lines:
                             say('  ' + line)
-                        said = lines
+                        said = shape(blocking)
                     remaining = deadline - clock()
                     if remaining <= 0:
                         break
