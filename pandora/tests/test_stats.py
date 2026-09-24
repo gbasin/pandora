@@ -122,6 +122,24 @@ class Build(unittest.TestCase):
         self.assertEqual(report['runs'], 0)
         self.assertEqual(report['passthrough'], [])
 
+    def test_pandora_off_bypasses_are_counted_apart_and_windowed(self):
+        with (self.state.root / 'passthrough.jsonl').open('a') as handle:
+            for argv, ts in ((['check'], 200), (['check', '--x'], 300), (['journey'], 300),
+                             (['journey'], 10)):
+                handle.write(json.dumps({'ts': ts, 'kind': 'passthrough', 'reason': 'off',
+                                         'argv': argv, 'cwd': '/w', 'repo': '/r',
+                                         'duration_ms': 1000, 'exit': 0}) + '\n')
+        everything = stats.build(self.state.root)
+        self.assertEqual(everything['bypassed']['runs'], 4)
+        # Not in the "local, not routed" table: these commands are claimed.
+        self.assertEqual(sum(r['runs'] for r in everything['passthrough']), 3)
+        windowed = stats.build(self.state.root, since=150, window='test')
+        self.assertEqual(windowed['bypassed']['runs'], 3)
+        self.assertEqual(windowed['bypassed']['commands'][0], {'command': 'check', 'runs': 2})
+        text = stats.render(windowed)
+        self.assertIn('bypassed with PANDORA_OFF: 3 claimed command(s) (check x2, journey x1)',
+                      text)
+
     def test_a_corrupt_meta_is_skipped(self):
         (self.state.root / 'runs' / 'bad').mkdir()
         (self.state.root / 'runs' / 'bad' / 'meta.json').write_text('{not json')
@@ -150,6 +168,7 @@ class Render(unittest.TestCase):
     def test_flags_appear_only_when_nonzero(self):
         quiet = stats.render(self.report())
         self.assertNotIn('oom kills', quiet)
+        self.assertNotIn('PANDORA_OFF', quiet)
         loud = stats.render(self.report(oom=2, fallbacks=[{'reason': 'worker-down', 'count': 3}],
                                         drift={'warned': 1, 'failed': 0}))
         self.assertIn('fallbacks: worker-down x3', loud)

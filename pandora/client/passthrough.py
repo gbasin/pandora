@@ -16,6 +16,9 @@ keeps asking for a placement Pandora cannot give is something `pandora stats`
 should show. The POSIX shim sends a light command here only when the variable
 is set, with `--reason override-ignored`, so the "local, not routed" table
 still counts heavy commands only.
+
+A claimed command run with `PANDORA_OFF` comes here too, with `--reason off`:
+it skipped the queue and the memory gate, and `pandora stats` counts it apart.
 """
 import argparse
 import os
@@ -40,8 +43,11 @@ def main(argv=None):
     try:
         where = placement.parse(os.environ.get(placement.ENV))
     except ValueError as error:
-        sys.stderr.write('pandora: %s\n' % error)
-        return USAGE
+        if args.reason == 'off':
+            where = None                  # PANDORA_OFF ignores every other switch
+        else:
+            sys.stderr.write('pandora: %s\n' % error)
+            return USAGE
     state = args.state or os.environ.get('PANDORA_STATE')
     environment = dict(os.environ, PANDORA_ROUTE_DEPTH='1')
     started = time.time()
