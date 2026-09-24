@@ -36,7 +36,11 @@ from ..exits import INFRA, STALE, USAGE
 from . import enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
-HANDSHAKE_SECONDS = 20.0     # freeze + ship + submit happen before `accepted`
+# Silence tolerated before `accepted`, while freeze, ship and submit run. A
+# dead daemon is EOF, not silence, so this guards only a hung one; the daemon
+# beats every 5 s, but on 2026-09-24 a Mac at load 25 with 5.6 GiB swapped
+# stalled that thread past 20 s and a live 364 MiB upload was withdrawn.
+HANDSHAKE_SECONDS = 120.0
 REATTACH_ATTEMPTS = 20
 REATTACH_PAUSE = 0.25
 
