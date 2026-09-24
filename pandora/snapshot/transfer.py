@@ -170,14 +170,34 @@ def log_stderr(text):
     sys.stderr.flush()
 
 
+def _text(data):
+    if isinstance(data, str):
+        return data
+    return (data or b'').decode('utf-8', 'replace')
+
+
+def keep_stderr(path, data):
+    """rsync's whole stderr beside the run, when there is any. Never fails a send."""
+    if path is None or not data:
+        return
+    try:
+        Path(path).write_text(_text(data))
+    except OSError:
+        pass
+
+
 def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_send=None,
-         log=None):
+         log=None, stderr_path=None):
     """Place this input in the worker's source cache. Idempotent.
 
     `on_send` is called once, just before rsync starts, and only when there is
     something to send: a cache hit is silent here because the accepted line
     already says so. `log` receives what is worth a line but not a failure: a
-    staging directory that could not be removed.
+    staging directory that could not be removed. `stderr_path`, when given,
+    receives rsync's whole stderr; the exception carries only its first 600
+    characters, and on 2026-09-24 the line that explained the failure was not
+    among them. A TransferError from rsync carries `rsync_exit` (None on a
+    timeout) and `stderr`.
 
     Returns {'path', 'reused', 'link_dest', 'seconds', 'files'}.
     """
@@ -219,15 +239,19 @@ print(stage)
         try:
             proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as expired:
             # A TransferError, so the fallback policy decides: a bare
             # TimeoutExpired escaped every handler up to the connection thread.
-            raise TransferError('rsync to %s timed out after %d s'
-                                % (link.host, timeout)) from None
+            keep_stderr(stderr_path, expired.stderr)
+            error = TransferError('rsync to %s timed out after %d s' % (link.host, timeout))
+            error.rsync_exit, error.stderr = None, _text(expired.stderr)
+            raise error from None
+        keep_stderr(stderr_path, proc.stderr)
         if proc.returncode != 0:
-            raise TransferError('rsync to %s failed (%d): %s'
-                                % (link.host, proc.returncode,
-                                   (proc.stderr or b'').decode('utf-8', 'replace').strip()[:600]))
+            error = TransferError('rsync to %s failed (%d): %s'
+                                  % (link.host, proc.returncode, _text(proc.stderr).strip()[:600]))
+            error.rsync_exit, error.stderr = proc.returncode, _text(proc.stderr)
+            raise error
         # A concurrent attempt may already have published this input. Keep that
         # completed tree, then atomically point latest at it. Each attempt uses
         # a separate temporary symlink, including across different inputs.

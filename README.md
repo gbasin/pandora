@@ -168,7 +168,12 @@ pandora daemon --install
 ```
 
 The command writes `~/Library/LaunchAgents/com.pandora.daemon.plist`, loads it,
-and prints the launchd state line. The plist pins `PANDORA_PYTHON` to the
+and prints the launchd state line. Every line in `daemon.log` starts with a UTC
+time. The log records worker health changes, each transfer's start, end or
+failure (run, worktree, input id, files, MiB, rsync exit, elapsed), each
+refusal with its cause, and what a restart decided about each live run. A
+failed transfer also leaves rsync's whole stderr in
+`<state>/runs/<id>/transfer.stderr`. The plist pins `PANDORA_PYTHON` to the
 interpreter that ran the install. If a hand-started daemon already holds the
 lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 

@@ -501,6 +501,39 @@ class RestartHygiene(DaemonCase):
         self.assertAlmostEqual(meta['pgid_started'], meta['started'], delta=30)
 
 
+class DaemonLog(DaemonCase):
+    """Every line the daemon writes to its log starts with a UTC time."""
+
+    STAMP = r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ '
+
+    def test_the_helper_stamps_each_line(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            daemon_module.log('worker down: no route')
+        self.assertRegex(err.getvalue(), self.STAMP + 'worker down: no route\n$')
+
+    def test_a_refusal_is_logged_with_its_run_and_cause(self):
+        FakeWorker.raises = TransferError('rsync to h failed (255): unexpected end of file')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            answer = self.call(['pnpm', 'surface'])
+        [line] = [line for line in err.getvalue().splitlines() if 'refused' in line]
+        self.assertRegex(line, self.STAMP + 'run [0-9a-f]{12} refused: transfer-failed: '
+                         'rsync to h failed')
+        self.assertEqual(answer.exit, 70)
+
+    def test_a_restart_logs_what_it_decided(self):
+        directory = self.state / 'runs' / 'loc9'
+        directory.mkdir(parents=True)
+        (directory / 'meta.json').write_text(json.dumps(
+            {'id': 'loc9', 'state': 'running', 'lane': 'local', 'argv': ['pnpm', 'unit']}))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.daemon.resume_interrupted()
+        self.assertRegex(err.getvalue(), self.STAMP + 'resume: local run loc9 closed as '
+                         'infra_failed')
+
+
 class NoRowStaysQueued(DaemonCase):
     """Issue #86: a submission that never reached `accepted` still ends its row.
 

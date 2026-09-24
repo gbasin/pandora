@@ -197,6 +197,25 @@ class TransferConcurrencyTest(unittest.TestCase):
         self.assertEqual(list(Path(paths['base']).glob('failed.partial*')), [])
 
 
+    def test_the_whole_rsync_stderr_is_kept_beside_the_run(self):
+        source = self.source('first', 'first')
+        noise = b'x' * 700 + b'\nrsync: connection unexpectedly closed\n'
+
+        def failed_rsync(argv, **kwargs):
+            if argv[0] == 'rsync':
+                return subprocess.CompletedProcess(argv, 255, b'', noise)
+            return self.fake_rsync(argv, **kwargs)
+
+        kept = self.root / 'transfer.stderr'
+        with mock.patch.object(transfer.subprocess, 'run', side_effect=failed_rsync):
+            with self.assertRaises(TransferError) as caught:
+                transfer.send(self.link, [{'path': 'file.txt'}], worktree=source,
+                              root=str(self.root / 'worker'), repo='repo', input_id='e',
+                              stderr_path=kept)
+        self.assertEqual(kept.read_bytes(), noise)
+        self.assertEqual(caught.exception.rsync_exit, 255)
+        self.assertNotIn('connection unexpectedly closed', str(caught.exception))
+
     def test_an_rsync_timeout_is_a_transfer_error_and_the_stage_is_cleaned(self):
         source = self.source('first', 'first')
 

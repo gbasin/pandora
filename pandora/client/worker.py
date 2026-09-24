@@ -109,7 +109,7 @@ class Worker:
     # -- submission --------------------------------------------------------
 
     def submit(self, *, plan, worktree, request_id, cache_root=None, control=None,
-               progress=None, phase=None):
+               progress=None, phase=None, log=None, transfer_stderr=None):
         """Freeze, ship and submit. Raises before the worker acknowledges anything.
 
         `progress` receives one line when a transfer actually starts, naming the
@@ -120,6 +120,9 @@ class Worker:
         `phase` is called with `freeze`, `ship` and `submit` as each begins, so
         a row can say where a slow submission is. An exception raised from here
         carries `pre_accept`: the timings so far, the failing step's included.
+
+        `log` gets the transfer's start, end or failure as one line each, for
+        the daemon's log; `transfer_stderr` is where rsync's stderr is kept.
         """
         marks = {}
         step = {'name': None, 'at': time.monotonic()}
@@ -141,10 +144,33 @@ class Worker:
             leave()
 
             enter('ship')
-            source = transfer.send(
-                self.link, manifest, worktree=worktree, root=cache_root or self.root(),
-                repo=plan['repo'], input_id=input_id,
-                on_send=(lambda: progress(sync_line(worktree, manifest))) if progress else None)
+            shipping = {}
+
+            def on_send():
+                # One stat per file, once, and only on a cache miss.
+                shipping['line'] = sync_line(worktree, manifest)
+                shipping['at'] = time.monotonic()
+                if log is not None:
+                    log('transfer start: input %s, %s, from %s'
+                        % (input_id, shipping['line'][len('syncing '):], worktree))
+                if progress is not None:
+                    progress(shipping['line'])
+            try:
+                source = transfer.send(
+                    self.link, manifest, worktree=worktree, root=cache_root or self.root(),
+                    repo=plan['repo'], input_id=input_id, on_send=on_send,
+                    log=log, stderr_path=transfer_stderr)
+            except PandoraError as error:
+                if log is not None:
+                    log('transfer failed: input %s, %s, rsync exit %s, after %.1f s: %s'
+                        % (input_id, shipping.get('line', 'before rsync started'),
+                           getattr(error, 'rsync_exit', '-'),
+                           time.monotonic() - shipping.get('at', step['at']), error))
+                raise
+            if log is not None and shipping:
+                log('transfer done: input %s, %s, rsync exit 0, %.1f s'
+                    % (input_id, shipping['line'][len('syncing '):],
+                       time.monotonic() - shipping['at']))
             leave()
 
             enter('submit')

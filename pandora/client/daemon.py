@@ -65,6 +65,17 @@ def now():
     return time.time()
 
 
+def log(text):
+    """One line of the daemon's own log, with a UTC time. Its only stderr writer.
+
+    launchd sends stderr to `<state>/logs/daemon.log`; without a time on each
+    line, the 2026-09-24 transfers could not be put in order against the
+    worker's own log.
+    """
+    sys.stderr.write('%s %s\n' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), text))
+    sys.stderr.flush()
+
+
 def client_alive(conn):
     """False when the peer has closed its end; a peek, never a read."""
     try:
@@ -418,7 +429,7 @@ class Daemon:
                               interval=self.config['worker'].get('health_interval_s') or 60,
                               notify_enabled=bool(self.config['notify']['enabled']),
                               store=self.state / 'worker-health.json',
-                              log=lambda text: sys.stderr.write(text + '\n'))
+                              log=log)
 
     # -- configuration -----------------------------------------------------
 
@@ -562,9 +573,11 @@ class Daemon:
                 self.close_local(run, payload)
                 continue
             if not run.remote:
+                log('resume: run %s was not accepted; asking the worker' % run.id)
                 threading.Thread(target=self.settle_unaccepted, args=(run, payload),
                                  daemon=True).start()
                 continue
+            log('resume: run %s re-attaching to %s' % (run.id, run.remote))
             run.state = 'running'
             with self.runs_lock:
                 self.runs[run.id] = run
@@ -575,6 +588,10 @@ class Daemon:
     def close_local(self, run, payload):
         """A local run's supervisor died with the last daemon: end the row, and the tree."""
         killed = local_module.kill_recorded(payload.get('pgid'), payload.get('pgid_started'))
+        log('resume: local run %s closed as infra_failed%s' % (
+            run.id, '; killed process group %s' % payload['pgid'] if killed else
+            ('; process group %s not ours any more, left alone' % payload['pgid']
+             if payload.get('pgid') else '')))
         run.note('daemon restarted during the run%s; rerun it'
                  % ('; stopped its process group %s' % payload['pgid'] if killed else ''))
         run.finish(INFRA, state='infra_failed')
@@ -608,6 +625,7 @@ class Daemon:
             run.phase = None
             run.note('daemon restarted before `accepted`; the worker had started it as %s, '
                      'following it' % run.remote)
+            log('resume: run %s adopted as %s' % (run.id, run.remote))
             run.save()
             with self.runs_lock:
                 self.runs[run.id] = run
@@ -617,6 +635,7 @@ class Daemon:
             why = ('the worker never started it' if not found.get('found')
                    else 'the worker has it as %s, not started' % (found.get('state') or '?'))
         run.note('daemon restarted before `accepted`; %s; rerun it' % why)
+        log('resume: run %s closed as infra_failed: %s' % (run.id, why))
         run.finish(INFRA, state='infra_failed')
 
     def start(self):
@@ -670,6 +689,10 @@ class Daemon:
             self.dispatch(conn)
         except (OSError, ValueError, json.JSONDecodeError):
             pass
+        except Exception as error:               # noqa: BLE001 - said, never silent
+            # A handler thread that dies says so; the row it opened is closed
+            # by its own `finally`.
+            log('connection handler failed: %s: %s' % (type(error).__name__, error))
         finally:
             try:
                 conn.close()
@@ -953,9 +976,11 @@ class Daemon:
         try:
             try:
                 worker = self.worker_for(repo)
-                submission = worker.submit(plan=plan, worktree=worktree,
-                                           request_id=run.id + ':' + plan['job'],
-                                           control=request, progress=said, phase=entered)
+                submission = worker.submit(
+                    plan=plan, worktree=worktree, request_id=run.id + ':' + plan['job'],
+                    control=request, progress=said, phase=entered,
+                    log=lambda text: log('run %s (%s): %s' % (run.id, worktree, text)),
+                    transfer_stderr=run.dir / 'transfer.stderr')
             except Exception as error:
                 # What each step cost up to the failure, the failing one included.
                 run.pre_accept = dict(getattr(error, 'pre_accept', None) or run.pre_accept)
@@ -1058,6 +1083,8 @@ class Daemon:
         exists. The local run is the request's one counted row from then on.
         """
         def refuse(message, code):
+            log('run %s refused: %s: %s' % (origin.id if origin is not None else '-',
+                                             cause, detail))
             if origin is not None:
                 origin.refusal = {'cause': cause, 'detail': detail}
                 origin.reason = cause
@@ -1087,6 +1114,8 @@ class Daemon:
         if verdict['action'] == 'refuse':
             refuse('%s (%s): %s' % (cause, detail, verdict['reason']), 'fallback-refused')
             return
+        log('run %s falls back to the local lane: %s: %s'
+            % (origin.id if origin is not None else '-', cause, detail))
         try:
             self.tell(conn, '%s (%s); %s' % (cause, detail, verdict['reason']))
             self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
@@ -1613,9 +1642,9 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, lambda *_: daemon.stopping.set())
     if args.ready_fd is not None:
         os.write(args.ready_fd, b'1')
-    sys.stderr.write('pandora: daemon on %s, worker %s\n'
-                     % (daemon.socket_path, daemon.config['worker']['host'] or '(none)'))
-    sys.stderr.flush()
+    log('daemon on %s, worker %s, pid %d, code %s'
+        % (daemon.socket_path, daemon.config['worker']['host'] or '(none)', os.getpid(),
+           CODE_DIGEST[:12]))
     try:
         daemon.serve()
     except KeyboardInterrupt:
