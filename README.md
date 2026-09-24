@@ -207,8 +207,16 @@ covers every worktree of the repository, including worktrees created later. It
 prints the `[[repos]]` block the client configuration needs. Add that block if
 it is not there.
 
-Enroll again after any change to the claimed forms in `pandora.toml`. The shim
-reads the claim list from the marker, not from `pandora.toml`.
+Enrollment is manual. Run it once per repository, not once per worktree: the
+marker is in the Git common directory, so every worktree shares it.
+
+Enroll again after any change to the claimed forms or to `[matching]
+subdirectory` in `pandora.toml`. The shim reads the claim list and the
+subdirectory mode from the marker, not from `pandora.toml`, so until you enroll
+again the shim acts on the old values. `pandora doctor` does not compare the
+marker with `pandora.toml` and does not report a stale claim list or mode. It
+reports only a marker whose `home` names a removed checkout, or whose socket is
+not the one the doctor checked.
 
 To stop routing a repository, remove the marker.
 
