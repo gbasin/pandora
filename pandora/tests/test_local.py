@@ -8,11 +8,13 @@ container or a repository -- the commands are `sh -c` one-liners.
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pandora.client import local, pressure
 from pandora.client.local import Budget, Busy, LocalExecutor, Supervisor, cli_exit
@@ -374,10 +376,70 @@ class SupervisorBehavior(unittest.TestCase):
         self.assertEqual(outcome, 'passed')
         self.assertGreater(supervisor.peak_mib, 80)
 
-    def test_group_rss_sums_only_the_named_group(self):
-        fake = lambda *a, **k: subprocess.CompletedProcess(
-            a, 0, stdout='100 2048\n100 1024\n200 999999\nbroken\n', stderr='')
-        self.assertEqual(local.group_rss_mib(100, run=fake), 3)
+    # pid ppid pgid rss(KiB). 100 is the child; 102 called setsid and left its
+    # group; 104 stayed in the group but lost its parent; 200 is someone else's.
+    TABLE = ('100 1 100 2048\n101 100 100 1024\n102 101 102 4096\n103 102 102 2048\n'
+             '104 1 100 1024\n200 1 200 999999\nbroken\n')
+
+    def fake_ps(self, *args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=self.TABLE, stderr='')
+
+    def test_tree_rss_follows_descendants_that_left_the_group(self):
+        self.assertEqual(local.tree_rss_mib(100, run=self.fake_ps), 10)
+
+    def test_the_tree_is_listed_deepest_first(self):
+        order = local.tree_of(local.process_table(self.fake_ps), 100, 100)
+        self.assertEqual(set(order), {100, 101, 102, 103, 104})
+        self.assertLess(order.index(103), order.index(102))
+        self.assertLess(order.index(102), order.index(101))
+        self.assertEqual(order[-1], 100)
+
+    def test_after_the_child_exits_only_old_enough_orphans_are_kept(self):
+        supervisor = Supervisor(['true'], cwd='.', env={}, timeout_seconds=1,
+                                on_log=lambda *_: None)
+        supervisor.proc = mock.Mock(pid=100, returncode=0)
+        now = time.monotonic()
+        # 102 was seen 30 s ago and is 40 s old: ours. 103 was seen 30 s ago
+        # but is 5 s old: its pid was reused, so it is left alone.
+        supervisor.seen = {102: now - 30, 103: now - 30}
+        supervisor.ps = lambda argv, **k: subprocess.CompletedProcess(
+            argv, 0, stdout='102 00:40\n103 00:05\n', stderr='')
+        members = supervisor.members(local.process_table(self.fake_ps))
+        self.assertEqual(sorted(members), [100, 101, 102, 104])
+
+    def test_a_cancel_reaches_a_descendant_that_called_setsid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = Path(tmp) / 'pid'
+            script = ('import os, time\n'
+                      'if os.fork() == 0:\n'
+                      '    os.setsid()\n'
+                      '    open(%r, "w").write(str(os.getpid()))\n'
+                      '    time.sleep(60)\n'
+                      '    os._exit(0)\n'
+                      'time.sleep(60)\n' % str(record))
+            asked = {'at': None}
+
+            def canceled():
+                if asked['at'] is None and record.exists() and record.read_text():
+                    asked['at'] = time.monotonic()
+                return asked['at'] is not None
+            supervisor = Supervisor([sys.executable, '-c', script], cwd='.',
+                                    env=dict(os.environ), timeout_seconds=30,
+                                    on_log=lambda *_: None,
+                                    cancel={'signal': 'SIGTERM', 'grace_ms': 500})
+            outcome, _code = supervisor.run(canceled)
+            self.assertEqual(outcome, 'cancelled')
+            escaped = int(record.read_text())
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(escaped, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                os.kill(escaped, 9)
+                self.fail('the setsid descendant %d survived the cancel' % escaped)
 
 
 class ChildEnvironment(unittest.TestCase):

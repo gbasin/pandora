@@ -14,9 +14,11 @@ What this module is, in one line each:
   actually used, reusing `engine.admission` unchanged -- the same policy that
   admits on the worker, pointed at this machine's RAM minus a reserve. CPU is
   soft: a hint in `PANDORA_CPUS`, never a cgroup.
-* **A process group, supervised.** The command runs with `start_new_session`,
-  so a cancel reaches the whole tree with `killpg` and a stack that spawns
-  Docker cannot survive its supervisor by being a grandchild.
+* **A process tree, supervised.** The command runs with `start_new_session`,
+  and both the memory sample and a cancel cover its group and every descendant
+  by parent pid, so a stack that spawns Docker, or a runner whose workers call
+  `setsid`, cannot survive its supervisor or hide its memory by being a
+  grandchild.
 * **Two exclusivity rules, both optional.** One active local run per worktree
   (Pueue's symlink reservation, without the symlink), and `singleton` jobs that
   own the machine -- which is what `dev:stack` is.
@@ -78,27 +80,76 @@ def budget_from(config):
     return max(1024, total_memory_mib() - int(config.get('reserve_mib') or 4096))
 
 
-def group_rss_mib(pgid, run=subprocess.run):
-    """Resident memory of a whole process group, in MiB.
+# Why a tree and not a process group: macOS has no cgroups, and a process group
+# is escaped with one `setsid`. Eichler's runner spawns its workers `detached`,
+# which is exactly that, so a group-only sample recorded 118-180 MiB peaks for
+# multi-GiB jobs, learned reservations decayed to the 512 MiB floor, and a
+# cancel's `killpg` left the heavy half running. The tree is walked by parent
+# pid from the child, plus anything still in the child's group. A descendant
+# whose parent has already exited is re-parented to launchd and is out of reach
+# of both; nothing short of an OS container sees it.
 
-    `ps` rather than anything cleverer because the thing being measured is a
-    tree of node, pnpm, vitest workers and possibly Docker clients, and the only
-    portable question with an answer is "what does the OS say this pgid holds".
-    """
+
+def process_table(run=subprocess.run):
+    """[(pid, ppid, pgid, rss_kib)] from one `ps`, or [] when it cannot be read."""
     try:
-        proc = run(['ps', '-Ao', 'pgid=,rss='], capture_output=True, text=True, timeout=10)
+        proc = run(['ps', '-Ao', 'pid=,ppid=,pgid=,rss='], capture_output=True, text=True,
+                   timeout=10)
     except (OSError, subprocess.SubprocessError):
-        return 0
-    total = 0
-    want = str(pgid)
+        return []
+    rows = []
     for line in (proc.stdout or '').splitlines():
         parts = line.split()
-        if len(parts) == 2 and parts[0] == want:
-            try:
-                total += int(parts[1])
-            except ValueError:
-                continue
-    return total // 1024                                # ps reports KiB
+        if len(parts) != 4:
+            continue
+        try:
+            rows.append(tuple(int(part) for part in parts))
+        except ValueError:
+            continue
+    return rows
+
+
+def tree_of(table, root, pgid=None):
+    """The pids descended from `root` (itself included), plus every pid in `pgid`.
+
+    Ordered deepest first, so a caller that signals in order reaches children
+    before the parents that would otherwise re-spawn or reap them.
+    """
+    children = {}
+    for pid, ppid, _group, _rss in table:
+        children.setdefault(ppid, []).append(pid)
+    order, seen, frontier = [], {root}, [root]
+    while frontier:
+        order.extend(frontier)
+        frontier = [child for parent in frontier for child in children.get(parent, ())
+                    if child not in seen and not seen.add(child)]
+    if pgid is not None:
+        order.extend(pid for pid, _ppid, group, _rss in table
+                     if group == pgid and pid not in seen and not seen.add(pid))
+    present = {pid for pid, _ppid, _group, _rss in table}
+    return [pid for pid in reversed(order) if pid in present]
+
+
+def process_ages(pids, run=subprocess.run):
+    """{pid: seconds since it started} for the pids `ps` still lists."""
+    try:
+        proc = run(['ps', '-o', 'pid=,etime=', '-p', ','.join(str(pid) for pid in pids)],
+                   capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    ages = {}
+    for line in (proc.stdout or '').splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit():
+            ages[int(parts[0])] = elapsed_seconds(parts[1])
+    return ages
+
+
+def tree_rss_mib(root, pgid=None, run=subprocess.run):
+    """Resident memory of `root`, every descendant and its group, in MiB. One `ps`."""
+    table = process_table(run)
+    members = set(tree_of(table, root, root if pgid is None else pgid))
+    return sum(rss for pid, _ppid, _group, rss in table if pid in members) // 1024
 
 
 def elapsed_seconds(text):
@@ -132,10 +183,18 @@ def kill_recorded(pgid, started, *, run=subprocess.run, clock=time.time, kill=No
     age = elapsed_seconds(proc.stdout)
     if proc.returncode != 0 or age is None or abs((clock() - age) - float(started)) > 5:
         return False
+    # The leader is ours, so its descendants are too, including any that
+    # called setsid (see `tree_of`).
+    members = tree_of(process_table(run), int(pgid), int(pgid))
     try:
         (kill or os.killpg)(int(pgid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
         return False
+    for pid in members:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
     return True
 
 
@@ -359,14 +418,45 @@ class Supervisor:
         self.peak_mib = 0
         self.proc = None
         self.killed_at = None
+        self.seen = {}                   # pid -> monotonic time a sample first saw it
+        self.ps = subprocess.run
+
+    def members(self, table):
+        """The pids to signal: the live tree, or the group once the child is reaped.
+
+        After the child exits its pid may be reused, and its orphans now hang
+        off launchd, so the walk from it stops. Pids a sample saw in the tree
+        are kept instead, each signalled only while `ps` says it is older than
+        the moment it was first seen: a reused pid is younger.
+        """
+        root = self.proc.pid
+        if self.proc.returncode is None:
+            found = tree_of(table, root, root)
+        else:
+            found = [pid for pid, _ppid, group, _rss in table if group == root]
+        present = {pid for pid, _ppid, _group, _rss in table}
+        orphans = [pid for pid in self.seen if pid in present and pid not in found]
+        if orphans:
+            ages = process_ages(orphans, run=self.ps)
+            now = time.monotonic()
+            found += [pid for pid in orphans
+                      if ages.get(pid) is not None and ages[pid] + 1 >= now - self.seen[pid]]
+        return found
 
     def signal_group(self, number):
+        """The child's group, then every descendant, including those that left it."""
         if self.proc is None or self.proc.pid is None:
             return
+        members = self.members(process_table(self.ps))
         try:
             os.killpg(self.proc.pid, number)
         except (ProcessLookupError, PermissionError, OSError):
             pass
+        for pid in members:
+            try:
+                os.kill(pid, number)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
     def _pump(self, stream, which):
         try:
@@ -385,9 +475,19 @@ class Supervisor:
 
     def _sample(self, stop):
         while not stop.wait(SAMPLE_SECONDS):
-            if self.proc is None:
+            if self.proc is None or self.proc.returncode is not None:
                 continue
-            self.peak_mib = max(self.peak_mib, group_rss_mib(self.proc.pid))
+            self.sample(process_table(self.ps))
+
+    def sample(self, table):
+        """One reading: the tree's resident memory, and who is in it now."""
+        root = self.proc.pid
+        members = set(tree_of(table, root, root))
+        now = time.monotonic()
+        for pid in members:
+            self.seen.setdefault(pid, now)
+        self.peak_mib = max(self.peak_mib, sum(rss for pid, _ppid, _group, rss in table
+                                               if pid in members) // 1024)
 
     def run(self, canceled):
         """Returns (outcome, exit_code). `outcome` is the engine's vocabulary."""
