@@ -156,7 +156,10 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
 import os, sys, tempfile
 base, input_id = sys.argv[1:]
 os.makedirs(base, exist_ok=True)
-print(tempfile.mkdtemp(prefix=input_id + '.partial.', dir=base))
+stage = tempfile.mkdtemp(prefix=input_id + '.partial.', dir=base)
+# Isolated container UIDs must be able to read the mounted source tree.
+os.chmod(stage, 0o755)
+print(stage)
 ''', (paths['base'], input_id), timeout=120)
     stage = staged.rstrip('\n')
     argv += [str(worktree) + '/', '%s:%s/' % (link.host, stage)]

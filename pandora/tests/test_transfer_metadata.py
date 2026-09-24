@@ -38,6 +38,10 @@ class WorktreeMetadata(unittest.TestCase):
                                    repo='repo', input_id=input_id)
         return Path(result['path']) / 'file.txt'
 
+    def test_published_root_is_readable_by_isolated_worker(self):
+        uploaded = self.send('first')
+        self.assertEqual(uploaded.parent.stat().st_mode & 0o777, 0o755)
+
     def test_timestamp_only_changes_reuse_the_cached_inode(self):
         first = self.send('first')
         os.utime(self.file, (1, 1))
