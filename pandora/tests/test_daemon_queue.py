@@ -27,6 +27,8 @@ class QueueWorker(FakeWorker):
     rows = []
     final = None
     calls = []
+    cancel_answer = {'ok': True, 'withdrawn': True}
+    withdraw_answer = {'ok': True, 'withdrawn': True}
 
     def submit(self, **kwargs):
         submission = Submission('rq1')
@@ -46,11 +48,15 @@ class QueueWorker(FakeWorker):
 
     def cancel(self, run_id):
         QueueWorker.calls.append('cancel')
-        return {'ok': True, 'withdrawn': True}
+        if isinstance(QueueWorker.cancel_answer, Exception):
+            raise QueueWorker.cancel_answer
+        return QueueWorker.cancel_answer
 
     def withdraw(self, run_id):
         QueueWorker.calls.append('withdraw')
-        return {'ok': True, 'withdrawn': True}
+        if isinstance(QueueWorker.withdraw_answer, Exception):
+            raise QueueWorker.withdraw_answer
+        return QueueWorker.withdraw_answer
 
 
 def queued(position=2, running=3):
@@ -65,6 +71,8 @@ class QueueCase(DaemonCase):
     def setUp(self):
         super().setUp()
         QueueWorker.rows, QueueWorker.final, QueueWorker.calls = [queued()], None, []
+        QueueWorker.cancel_answer = {'ok': True, 'withdrawn': True}
+        QueueWorker.withdraw_answer = {'ok': True, 'withdrawn': True}
         # Pinned rather than swapped through `worker_factory`: the health poll
         # may already have built and cached a plain FakeWorker by now.
         worker = QueueWorker('fake@nowhere')
@@ -216,17 +224,114 @@ class TheWaitEndsWithoutRunning(QueueCase):
                 drained.update(self.daemon.drain(pid=1))
         seen = self.frames(['pnpm', 'surface'], during=drain)
         self.assertEqual(seen[-1]['t'], 'draining')
-        self.assertEqual(drained['pre_accept'], 1)
+        # Not the blocker count: the submit thread may withdraw the row before
+        # `drain` counts, which is the point of withdrawing it.
         self.assertIn('withdraw', QueueWorker.calls)
         self.assertEqual(self.meta()[0]['state'], 'withdrawn')
         self.assertEqual(self.daemon.drain(pid=1)['blockers'], [])
         self.daemon.undrain()
 
-    def test_a_worker_that_stops_answering_about_it_is_uncertain_not_a_fallback(self):
+    def test_a_status_outage_withdraws_the_row_rather_than_orphan_it(self):
+        QueueWorker.rows = [queued(2)] + [WorkerUnreachable('ssh: connect timed out')] * 7
+        seen = self.frames(['pnpm', 'unit'])
+        self.assertEqual((seen[-1]['code'], seen[-1]['exit']), ('worker-unreachable', 70))
+        self.assertIn('withdrawn and nothing ran', seen[-1]['msg'])
+        self.assertIn('withdraw', QueueWorker.calls)
+        self.assertFalse(self.marker.exists())
+
+    def test_a_withdrawal_nobody_can_confirm_is_uncertain_not_a_fallback(self):
         QueueWorker.rows = [WorkerUnreachable('gone')]
+        QueueWorker.withdraw_answer = WorkerUnreachable('gone')
         seen = self.frames(['pnpm', 'unit'])
         self.assertEqual((seen[-1]['code'], seen[-1]['exit']), ('execution-uncertain', 70))
         self.assertFalse(self.marker.exists())
+
+    def test_admission_that_wins_the_withdrawal_race_is_followed(self):
+        QueueWorker.rows = [WorkerUnreachable('gone')] * 6 + [dict(ADMITTED)]
+        QueueWorker.withdraw_answer = {'ok': True, 'withdrawn': False, 'state': 'running'}
+        seen = self.frames(['pnpm', 'surface'])
+        self.assertIn('accepted', [frame['t'] for frame in seen])
+
+    def test_a_cancel_the_worker_does_not_confirm_is_uncertain(self):
+        QueueWorker.rows = [queued(2)]
+        QueueWorker.cancel_answer = WorkerUnreachable('gone')
+
+        def cancel(seen):
+            if seen[-1]['t'] == 'notice' and 'queued' in seen[-1]['msg']:
+                self.daemon.live(self.meta()[0]['id']).canceled.set()
+        seen = self.frames(['pnpm', 'surface'], during=cancel)
+        self.assertEqual((seen[-1]['code'], seen[-1]['exit']), ('execution-uncertain', 70))
+        self.assertEqual(self.meta()[0]['state'], 'infra_failed')
+
+
+class Detached(QueueCase):
+    """`pandora run --detach` takes the id at `queued` and leaves (owner's call)."""
+
+    def submit_detached(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(self.repo),
+                           'argv': ['pnpm', 'surface'], 'env': {}, 'tty': False,
+                           'detach': True}))
+        reader = Reader(sock)
+        while True:
+            frame = reader.line()
+            if frame.get('t') == 'notice' and frame.get('queued'):
+                sock.close()
+                return frame
+
+    def settled(self, state):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            rows = [row for row in self.meta() if row['state'] == state]
+            if rows:
+                return rows[0]
+            time.sleep(0.02)
+        self.fail('no row reached %s: %s' % (state, self.meta()))
+
+    def test_the_queued_notice_carries_the_run_id_and_leaving_does_not_withdraw(self):
+        QueueWorker.rows = [queued(2)] * 25 + [dict(ADMITTED)]
+        frame = self.submit_detached()
+        self.assertTrue(frame['run'])
+        row = self.settled('passed')
+        self.assertEqual(row['id'], frame['run'])
+        self.assertNotIn('cancel', QueueWorker.calls)
+        self.assertNotIn('withdraw', QueueWorker.calls)
+
+    def test_a_restart_hands_a_detached_queued_run_over_instead_of_withdrawing(self):
+        QueueWorker.rows = [queued(2)]
+        frame = self.submit_detached()
+        self.daemon.drain(pid=1)
+        # Followed from here (the fake worker's `follow` passes at once).
+        row = self.settled('passed')
+        self.assertEqual((row['id'], row['remote']), (frame['run'], 'rq1'))
+        self.assertNotIn('withdraw', QueueWorker.calls)
+        self.daemon.undrain()
+
+    def test_the_shim_returns_at_the_queued_notice_only_when_detached(self):
+        from pandora.client import shim
+
+        class Sock:
+            def __init__(self, frames):
+                self.data = b''.join(dump(frame) for frame in frames)
+
+            def sendall(self, data):
+                pass
+
+            def recv(self, size):
+                chunk, self.data = self.data[:size], self.data[size:]
+                return chunk
+
+            def settimeout(self, value):
+                pass
+        frames = [{'t': 'notice', 'msg': 'queued on the worker behind 1 run', 'run': 'abc',
+                   'queued': {'position': 1}},
+                  {'t': 'accepted', 'run': 'abc', 'remote': 'rq1'}]
+        _, frame = shim.handshake(Sock(frames), {'detach': True})
+        self.assertEqual((frame['t'], frame['run']), ('notice', 'abc'))
+        _, frame = shim.handshake(Sock(frames), {})
+        self.assertEqual(frame['t'], 'accepted')
 
 
 class Recovery(unittest.TestCase):

@@ -447,6 +447,16 @@ class Run:
             return 0
 
 
+def stopped(call, *args):
+    """True when an engine `cancel` confirmed the run is withdrawn, stopping or over."""
+    try:
+        answer = call(*args)
+    except (PandoraError, OSError):
+        return False
+    return bool(isinstance(answer, dict) and answer.get('ok')
+                and (answer.get('withdrawn') or answer.get('requested') or answer.get('already')))
+
+
 def shown(value):
     """A TOML value as a reader would write it, short."""
     try:
@@ -1637,10 +1647,21 @@ class Daemon:
                            cause, str(error), checked, origin=run)
             return
 
+        detached = bool(run.request.get('detach')) and waited is not None
+        if waited is not None and waited['verdict'] == 'handed-over':
+            # A detached run a restart found still queued: followed from here
+            # like an accepted one -- through the queue, then its run -- and
+            # the next daemon re-attaches to it, since the row names its remote.
+            run.remote, run.state, run.queue = submission.run_id, 'running', None
+            run.save()
+            with self.runs_lock:
+                self.runs[run.id] = run
+            threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
+            return
         if waited is not None and waited['verdict'] != 'admitted':
             self.close_queued(conn, run, submission.run_id, waited, job)
             return
-        if left or not client_alive(conn):
+        if (left or not client_alive(conn)) and not detached:
             # The caller left before `accepted`, so it may already be running
             # this command some other way. The worker must not run it too.
             try:
@@ -1665,13 +1686,19 @@ class Daemon:
             self.runs[run.id] = run
         # Only now has the worker acknowledged anything. Past this frame the
         # client will never run the command locally.
-        conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id,
-                           'remote': submission.run_id, 'input_id': submission.input_id,
-                           'same_tree_as': submission.same_tree_as,
-                           'reservation_mib': (submission.admission or {}).get('reservation_mib'),
-                           'cpus_hint': (submission.admission or {}).get('cpus_hint'),
-                           'source_reused': submission.source.get('reused'),
-                           'durations': submission.durations}))
+        try:
+            conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id,
+                               'remote': submission.run_id, 'input_id': submission.input_id,
+                               'same_tree_as': submission.same_tree_as,
+                               'reservation_mib': (submission.admission or {}).get(
+                                   'reservation_mib'),
+                               'cpus_hint': (submission.admission or {}).get('cpus_hint'),
+                               'source_reused': submission.source.get('reused'),
+                               'durations': submission.durations}))
+        except OSError:
+            if not detached:
+                raise
+            # A detached caller left at `queued`; `pandora wait` follows the run.
         if checked.get('ran') is False and checked.get('reason') != 'no validator declared':
             run.note(checked['reason'] + '; the arguments were not pre-checked')
         threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
@@ -1704,6 +1731,9 @@ class Daemon:
         """
         remote = submission.run_id
         place = dict(submission.queued or {})
+        # `pandora run --detach`: the caller takes the id at the first queue
+        # line and leaves. Its leaving is not a withdrawal (owner's call).
+        detached = bool(run.request.get('detach'))
         run.phase, run.queue = 'queued', place
         run.save()
         log('run %s queued on the worker as %s (position %s)'
@@ -1713,12 +1743,14 @@ class Daemon:
             if said_at is None or time.monotonic() - said_at >= self.QUEUE_SAY_EVERY:
                 self.say_queued(conn, run, beat, place, first=said_at is None)
                 said_at = time.monotonic()
-            if beat.gone.is_set() or not client_alive(conn):
-                self.quietly(worker.cancel, remote)
-                return {'verdict': 'left'}
+            if (beat.gone.is_set() or not client_alive(conn)) and not detached:
+                return {'verdict': 'left', 'confirmed': stopped(worker.cancel, remote)}
             if run.canceled.is_set():
-                self.quietly(worker.cancel, remote)
-                return {'verdict': 'canceled'}
+                return {'verdict': 'canceled', 'confirmed': stopped(worker.cancel, remote)}
+            if (self.draining or self.stopping.is_set()) and detached:
+                # Nobody is waiting on this socket to resubmit it: keep its
+                # place, and let this daemon or the next follow it.
+                return {'verdict': 'handed-over'}
             if self.draining or self.stopping.is_set():
                 # A restart takes the row out of the queue rather than wait up
                 # to half an hour for it: nothing ran, and the caller asks again.
@@ -1731,9 +1763,19 @@ class Daemon:
             except (WorkerUnreachable, EngineError, OSError) as error:
                 failures += 1
                 if failures >= self.QUEUE_FAILURES:
-                    raise ExecutionUncertain('run %s was queued on the worker as %s, and the '
-                                             'worker stopped answering (%s)'
-                                             % (run.id, remote, error)) from error
+                    # Giving up must not leave the row for the waiter to admit
+                    # and run with nobody following: withdraw it, and call the
+                    # answer uncertain only when the withdrawal is unconfirmed.
+                    answer = self.quietly(worker.withdraw, remote)
+                    if answer and answer.get('ok') and answer.get('withdrawn'):
+                        return {'verdict': 'lost', 'detail': str(error)}
+                    if not (answer and answer.get('ok')):
+                        raise ExecutionUncertain(
+                            'run %s was queued on the worker as %s, the worker stopped '
+                            'answering (%s), and it could not be withdrawn'
+                            % (run.id, remote, error)) from error
+                    failures = 0             # admission won the race: follow it
+                    continue
                 run.canceled.wait(self.QUEUE_POLL)
                 continue
             if not row.get('ok'):
@@ -1795,7 +1837,7 @@ class Daemon:
         run.said(text)
         if beat.stopped.is_set():
             return
-        frame = {'v': VERSION, 't': 'notice', 'msg': text,
+        frame = {'v': VERSION, 't': 'notice', 'msg': text, 'run': run.id,
                  'queued': {key: place.get(key) for key in
                             ('position', 'ahead', 'running', 'eta_seconds', 'bound_seconds')}}
         try:
@@ -1808,6 +1850,27 @@ class Daemon:
         """End a row the worker queue never admitted, in the words of why."""
         verdict = waited['verdict']
         run.remote, run.queue = remote, None
+        if verdict in ('left', 'canceled') and not waited.get('confirmed'):
+            # The engine did not confirm the withdrawal or the stop: the run
+            # may still be admitted and executed there.
+            run.note('the run was queued on the worker as %s and stopping it there was not '
+                     'confirmed; %s' % (remote, UNCERTAIN))
+            log('run %s: withdrawal of queued %s unconfirmed' % (run.id, remote))
+            run.finish(INFRA, state='infra_failed')
+            try:
+                self.deny(conn, 'execution-uncertain', 'stopping queued run %s on the worker '
+                          'was not confirmed; %s' % (remote, UNCERTAIN), exit=INFRA)
+            except OSError:
+                pass
+            return
+        if verdict == 'lost':
+            message = ('the worker stopped answering while the run was queued there (%s); it '
+                       'was withdrawn and nothing ran. Retry.' % waited.get('detail'))
+            run.refusal = {'cause': 'worker-unreachable', 'detail': waited.get('detail')}
+            run.note(message)
+            run.finish(INFRA, state='infra_failed')
+            self.deny(conn, 'worker-unreachable', message, exit=INFRA)
+            return
         if verdict == 'left':
             run.note('the caller left while the run was queued on the worker; withdrawn, '
                      'nothing ran')
