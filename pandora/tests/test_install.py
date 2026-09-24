@@ -203,6 +203,23 @@ class Flip(Case):
         install.flip(self.data, self.build(repo)['name'])
         self.assertEqual(install.package_home(env), str(self.data / 'current'))
 
+    def test_code_in_a_version_directory_names_its_own_current(self):
+        # A launchd daemon with no XDG_DATA_HOME in its plist cannot find the
+        # data root, and must still never write its version directory down.
+        running = self.data / 'versions' / 'v9'
+        (running / 'pandora').mkdir(parents=True)
+        self.assertEqual(install.package_home({'HOME': str(self.root / 'elsewhere')},
+                                              running=running),
+                         str(self.data / 'current'))
+
+    def test_the_plist_carries_xdg_data_home_when_it_is_set(self):
+        body = launchd.render('x', program='/p/bin/pandora', config_path='/c.toml',
+                              state='/s', path='/usr/bin', data_home='/d')
+        self.assertEqual(body['EnvironmentVariables']['XDG_DATA_HOME'], '/d')
+        body = launchd.render('x', program='/p/bin/pandora', config_path='/c.toml',
+                              state='/s', path='/usr/bin')
+        self.assertNotIn('XDG_DATA_HOME', body['EnvironmentVariables'])
+
     def test_data_root_follows_xdg_and_ignores_a_relative_one(self):
         self.assertEqual(install.data_root({'XDG_DATA_HOME': '/x'}), Path('/x/pandora'))
         self.assertEqual(install.data_root({'XDG_DATA_HOME': 'rel', 'HOME': '/h'}),

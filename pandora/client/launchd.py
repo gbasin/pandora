@@ -98,7 +98,9 @@ def launcher(env=None, home=None):
     from . import install
     package = install.package_home(env, home, running=PACKAGE_HOME)
     program = Path(package) / 'bin' / 'pandora'
-    return program if install.installed(install.data_root(env, home)) else program.resolve()
+    # Through `current`, as spelled, whether or not this process can see the
+    # data root: a version directory names its own `current`.
+    return program if Path(package).name == install.CURRENT else program.resolve()
 
 
 def recorded_label(state):
@@ -240,7 +242,7 @@ def service_path(env, *, python=None):
 
 
 def render(label, *, program, config_path, state, path, state_arg=False, lang=None,
-           python=None):
+           python=None, data_home=None):
     """The agent's plist, as a dictionary `plistlib` writes."""
     arguments = [str(program), '--config', str(config_path)]
     if state_arg:
@@ -252,6 +254,10 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
         environment['PANDORA_PYTHON'] = str(python)
     if lang:
         environment['LANG'] = lang
+    if data_home:
+        # Where `current` is: the daemon writes paths through it, and without
+        # this a launchd daemon looks under ~/.local/share instead.
+        environment['XDG_DATA_HOME'] = data_home
     return {
         'Label': label,
         'ProgramArguments': arguments,
@@ -318,7 +324,8 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     program = launcher(env, home)
     body = render(label, program=program, config_path=config_path, state=state,
                   path=service_path(env, python=interpreter),
-                  state_arg=state_arg, lang=env.get('LANG'), python=interpreter)
+                  state_arg=state_arg, lang=env.get('LANG'), python=interpreter,
+                  data_home=env.get('XDG_DATA_HOME'))
     Path(state).mkdir(parents=True, exist_ok=True)
     (Path(state) / 'logs').mkdir(exist_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)

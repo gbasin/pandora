@@ -100,11 +100,19 @@ def package_home(env=None, home=None, running=None):
     path through `current`, not the version it names today, so what was written
     before an upgrade names the live version after it. Without a snapshot it is
     the checkout this code runs from, as before `pandora upgrade` existed.
+
+    Code that runs from a version directory names that directory's own
+    `current` before anything else: a daemon whose environment does not say
+    where the data root is (a plist from before XDG_DATA_HOME was written into
+    it) must still never write down the version it happens to be.
     """
+    running = Path(running or RUNNING).resolve()
+    if running.parent.name == VERSIONS:
+        return str(running.parent.parent / CURRENT)
     now = installed(data_root(env, home))
     if now:
         return now['link']
-    return str(Path(running or RUNNING).resolve())
+    return str(running)
 
 
 def version_label(home, data):
