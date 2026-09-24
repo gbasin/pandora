@@ -102,7 +102,8 @@ class PlacementCase(DaemonCase):
         RecordingWorker.plans = []
         (self.repo / 'pandora.toml').write_text(CONFIG % {'marker': self.marker})
         self.daemon.worker_factory = RecordingWorker
-        self.daemon.workers.clear()
+        with self.daemon.workers_lock:   # the health thread may be building one
+            self.daemon.workers.clear()
 
     def place(self, argv, where):
         """`call`, with the placement field the shim lifts out of PANDORA_WHERE."""
@@ -398,8 +399,7 @@ class ThroughThePosixShim(unittest.TestCase):
         (fake / 'pnpm').chmod(0o755)
         (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]),
-            home=str(HERE)))
+            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']])))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_WHERE'):
             self.env.pop(name, None)

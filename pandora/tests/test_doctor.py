@@ -192,6 +192,15 @@ class Launcher(Scratch):
         self.assertTrue((state / 'passthrough.jsonl').is_file(), proc.stderr)
 
 
+def legacy(text, home):
+    """A file as written before the shim stopped reading `home`: the line after `repo`."""
+    if not home:
+        return text
+    lines = text.splitlines(keepends=True)
+    at = next(index for index, line in enumerate(lines) if line.startswith('repo ')) + 1
+    return ''.join(lines[:at] + ['home %s\n' % home] + lines[at:])
+
+
 class RepositoryAndCwd(Scratch):
     def setUp(self):
         super().setUp()
@@ -201,9 +210,9 @@ class RepositoryAndCwd(Scratch):
         self.config = {'repos': [{'name': 'demo', 'root': str(self.repo), 'config': ''}],
                        'source': '/cfg.toml'}
 
-    def enroll(self, home=str(HERE), sock='/s/client.sock', claims=(('journey',),)):
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
-            socket_path=sock, repo='demo', claims=[list(claim) for claim in claims], home=home))
+    def enroll(self, home=None, sock='/s/client.sock', claims=(('journey',),)):
+        (self.repo / '.git' / 'pandora-enrolled').write_text(legacy(enrollment.render(
+            socket_path=sock, repo='demo', claims=[list(claim) for claim in claims]), home))
 
     def statuses(self, items):
         return {item['name']: item['status'] for item in items}
@@ -222,17 +231,17 @@ class RepositoryAndCwd(Scratch):
                 'run = { argv = ["true"] }\n' % (number, form)
                 for number, form in enumerate(forms)))
 
-    def register(self, home=str(HERE), sock='/s/client.sock'):
-        (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
-            socket_path=sock, repo='demo', home=home))
+    def register(self, home=None, sock='/s/client.sock'):
+        (self.repo / '.git' / 'pandora-repo').write_text(legacy(enrollment.registration_text(
+            socket_path=sock, repo='demo'), home))
 
-    def cache(self, worktree=None, home=str(HERE), sock='/s/client.sock'):
+    def cache(self, worktree=None, home=None, sock='/s/client.sock'):
         """The cache the daemon would write for this worktree, dated as it would date it."""
         from pandora.config import loader
         worktree = worktree or self.repo
         path = worktree / 'pandora.toml'
-        text = enrollment.cache_text(loader.load(path), socket_path=sock, repo='demo',
-                                     derived='own', digest_path=path, home=home)
+        text = legacy(enrollment.cache_text(loader.load(path), socket_path=sock, repo='demo',
+                                            derived='own', digest_path=path), home)
         stamp = time.time_ns() - 60 * 10**9
         os.utime(path, ns=(stamp, stamp))
         enrollment.write_cache(enrollment.cache_path(worktree), text, [path])
@@ -329,15 +338,23 @@ class RepositoryAndCwd(Scratch):
         self.assertEqual((item['facts']['fresh'], item['facts']['stale'],
                           item['facts']['missing']), (1, 0, 1))
 
-    def test_a_cache_pinning_another_checkout_warns(self):
+    def test_a_cache_naming_a_client_home_says_it_is_ignored(self):
         other = self.root / 'other'
-        (other / 'pandora' / 'client').mkdir(parents=True)
-        (other / 'pandora' / 'client' / 'shim.py').write_text('')
         self.configure('journey')
         self.register()
         self.cache(home=str(other))
+        item = self.row('client home')
+        self.assertEqual(item['status'], 'info')
+        self.assertIn('no longer read', item['detail'])
+        self.assertIn('next claimed command', item['detail'])
+
+    def test_no_client_home_row_without_the_legacy_line(self):
+        self.configure('journey')
+        self.register()
+        self.cache()
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items)['client home'], 'warn')
+        self.assertNotIn('client home', self.statuses(items))
+        self.assertNotIn('home ', enrollment.cache_path(self.repo).read_text())
 
     def test_an_enrollment_the_daemon_does_not_know_fails(self):
         self.register()
@@ -345,27 +362,13 @@ class RepositoryAndCwd(Scratch):
                                         Path('/s/client.sock'))
         self.assertEqual(self.statuses(items)['daemon enrollment'], 'fail')
 
-    def test_a_cache_naming_a_removed_checkout_fails(self):
-        self.configure('journey')
-        self.register()
-        self.cache(home=str(self.root / 'gone'))
-        items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items)['client home'], 'fail')
-
-    def test_a_removed_checkout_in_the_registration_never_says_delete_it(self):
+    def test_a_registration_naming_a_client_home_says_enroll_rewrites_it(self):
         self.configure('journey')
         self.register(home=str(self.root / 'gone'))
         item = self.row('client home')
-        self.assertEqual(item['status'], 'fail')
+        self.assertEqual(item['status'], 'info')
         self.assertIn('pandora enroll %s' % self.repo, item['detail'])
         self.assertNotIn('delete', item['detail'])
-
-    def test_a_removed_checkout_in_a_cache_says_to_delete_the_cache(self):
-        self.configure('journey')
-        self.register()
-        cache = self.cache(home=str(self.root / 'gone'))
-        self.assertIn('; delete %s; the next command writes it again' % cache,
-                      self.row('client home')['detail'])
 
     def test_a_cache_routing_elsewhere_warns(self):
         self.configure('journey')
@@ -422,8 +425,10 @@ class NoDaemon(Scratch):
         self.assertFalse(report['ok'])
         self.assertEqual(names['daemon']['status'], 'fail')
         self.assertIn('pandora daemon', names['daemon']['detail'])
-        # Since #91 a claimed command with no daemon passes through; nothing falls back.
-        self.assertIn('run here unmanaged', names['daemon']['detail'])
+        # Since #91 a claimed command with no daemon passes through where the
+        # daemon was never installed, and exits 70 where it was; nothing falls back.
+        self.assertIn('runs here unmanaged', names['daemon']['detail'])
+        self.assertIn('exits 70', names['daemon']['detail'])
         self.assertNotIn('fall back', names['daemon']['detail'])
         self.assertEqual(names['worker']['status'], 'fail')
         self.assertIn('recursion guard', names)
@@ -436,7 +441,7 @@ class AgainstARealDaemon(DaemonCase):
         self.daemon.health.poll()
         (self.repo / '.git').mkdir()
         (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
-            socket_path=str(self.daemon.socket_path), repo='demo', home=str(HERE)))
+            socket_path=str(self.daemon.socket_path), repo='demo'))
         report = doctor.run(state=str(self.state), config=str(self.root / 'config.toml'),
                             env={'PATH': '/usr/bin:/bin'}, cwd=str(self.repo))
         names = {item['name']: item for item in report['checks']}
@@ -465,8 +470,8 @@ class AgainstARealDaemon(DaemonCase):
         with mock.patch.object(doctor.bundle, 'code_digest', return_value='0' * 64):
             item, _pong = doctor.check_daemon(self.daemon.socket_path, None)
         self.assertEqual(item['status'], 'warn')
-        self.assertIn('daemon code differs from the checkout. Restarting ends running local '
-                      'runs; check `pandora ps` first', item['detail'])
+        self.assertIn('daemon code differs from the checkout; restart it: `pandora daemon '
+                      '--restart`', item['detail'])
 
     def test_only_modules_the_daemon_loads_count(self):
         # A change to the worker half or the canary is no reason to restart the

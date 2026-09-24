@@ -4,6 +4,7 @@ import io
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -219,3 +220,48 @@ class Verbs(DaemonCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ASlowDaemon(unittest.TestCase):
+    """Operator verbs wait 30 s for a starved daemon, not 2 or 5 (2026-09-24: 66 s at load 90)."""
+
+    DELAY = 5.5
+
+    def serve(self, frames):
+        import socket
+        import threading
+        from pandora.client.protocol import Reader, dump
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = str(Path(tmp.name) / 's.sock')
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        server.listen(4)
+        self.addCleanup(server.close)
+
+        def answer():
+            conn, _ = server.accept()
+            with conn:
+                Reader(conn).line()
+                time.sleep(self.DELAY)
+                for frame in frames:
+                    conn.sendall(dump(frame))
+        threading.Thread(target=answer, daemon=True).start()
+        return path
+
+    def test_the_constant_is_thirty_seconds(self):
+        from pandora.client import doctor
+        self.assertEqual(cli.OPERATOR_SECONDS, 30.0)
+        self.assertEqual(cli.ask.__defaults__[0], 30.0)
+        self.assertEqual(doctor.ping.__defaults__[0], 30.0)
+
+    def test_wait_hears_a_daemon_that_answers_after_five_seconds(self):
+        path = self.serve([{'t': 'accepted', 'run': 'x1', 'owned': True},
+                           {'t': 'exit', 'code': 3, 'run': 'x1'}])
+        code, _, err = capture(cli.attach, path, 'x1')
+        self.assertEqual(code, 3, err)
+
+    def test_doctor_hears_a_daemon_that_answers_after_five_seconds(self):
+        from pandora.client import doctor
+        path = self.serve([{'t': 'pong', 'pid': 1}])
+        self.assertEqual(doctor.ping(path)['t'], 'pong')

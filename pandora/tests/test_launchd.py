@@ -148,6 +148,9 @@ class Plist(Case):
                          ['--config', str(self.root / 'config.toml'), 'daemon'])
         self.assertIs(body['RunAtLoad'], True)
         self.assertIs(body['KeepAlive'], True)
+        # Not Background: that class is starved first under load (2026-09-24).
+        self.assertEqual(body['ProcessType'], 'Interactive')
+        self.assertNotIn('Nice', body)
         log = str(self.state / 'logs' / 'daemon.log')
         self.assertEqual(body['StandardOutPath'], log)
         self.assertEqual(body['StandardErrorPath'], log)
@@ -296,6 +299,14 @@ class Verbs(Case):
         with self.assertRaises(launchd.Refused):
             launchd.restart('com.pandora.daemon', uid=501, run=FakeLaunchd())
 
+    def test_kicked_is_said_before_the_status_line_is_read(self):
+        fake = FakeLaunchd({'com.pandora.daemon': 100})
+        at = []
+        launchd.restart('com.pandora.daemon', uid=501, run=fake, say=self.said.append,
+                        kicked=lambda: at.append(list(fake.calls)))
+        self.assertEqual(at[0][-1][:2], ['kickstart', '-k'])
+        self.assertEqual(fake.calls[-1][0], 'print')
+
     def test_the_cli_parses_the_verbs(self):
         from pandora import cli
         with mock.patch.object(cli, 'cmd_daemon_supervision', return_value=0) as called:
@@ -329,6 +340,27 @@ class Supervision(Case):
                                         launchctl=FakeLaunchd({'com.pandora.daemon': None}),
                                         home=self.home)
         self.assertIn('first python3 on its PATH', item['detail'])
+
+    def test_warn_when_the_plist_still_runs_it_as_background(self):
+        self.install(FakeLaunchd())
+        path = launchd.plist_path('com.pandora.daemon', self.home)
+        for kind in ('Background', None):
+            body = plistlib.loads(path.read_bytes())
+            body.pop('ProcessType', None)
+            if kind:
+                body['ProcessType'] = kind
+            path.write_bytes(plistlib.dumps(body))
+            item = doctor.check_supervision({'pid': 4242}, self.state, platform='darwin',
+                                            launchctl=FakeLaunchd({'com.pandora.daemon': 4242}),
+                                            home=self.home)
+            self.assertEqual(item['status'], 'warn', item)
+            self.assertIn('run `pandora daemon --install`', item['detail'])
+            self.assertIn(kind or '(unset', item['detail'])
+        self.install(FakeLaunchd())
+        item = doctor.check_supervision({'pid': 4242}, self.state, platform='darwin',
+                                        launchctl=FakeLaunchd({'com.pandora.daemon': 4242}),
+                                        home=self.home)
+        self.assertEqual(item['status'], 'ok', item)
 
     def test_warn_when_the_daemon_was_started_by_hand(self):
         item = self.supervision({'pid': 4242}, FakeLaunchd())

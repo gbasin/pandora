@@ -28,6 +28,12 @@ reached at all. There is no local lane to admit into, so the client applies the
 same policy from the claim cache -- a `refuse` verdict exits 70 with one
 line, and a `local` verdict runs under the file-lock slot budget and says that
 is what it did.
+
+A restart is not that case. A daemon that answers `draining` is alive and has
+run nothing, and no socket beside a fresh `<state>/draining` marker is the gap
+between two daemons; either way the client says so once and asks again, for up
+to `PANDORA_DRAIN_WAIT` seconds, before it decides as if there were no daemon
+(`drain.Waiter`).
 """
 import argparse
 import base64
@@ -40,7 +46,7 @@ import time
 from pathlib import Path
 
 from ..exits import INFRA, STALE, USAGE
-from . import enrollment, envfilter, fallback as fallback_module, placement
+from . import drain, enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
 PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
@@ -51,6 +57,11 @@ PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
 # stalled that thread past 20 s and a live 364 MiB upload was withdrawn.
 HANDSHAKE_SECONDS = 120.0
 CLAIMS_SECONDS = 20.0         # the slow path's question is local: no freeze, no worker
+# How long a claimed command waits for a daemon that is installed but not
+# answering, before exit 70: a `pandora daemon --restart` leaves the socket
+# unanswered for one to two seconds, and launchd restarts a crashed one as fast.
+DAEMON_GRACE_SECONDS = 5.0
+DAEMON_GRACE_PAUSE = 0.25
 REATTACH_ATTEMPTS = 20
 REATTACH_PAUSE = 0.25
 
@@ -120,15 +131,15 @@ def connect(path, timeout=HANDSHAKE_SECONDS):
     return sock
 
 
-def handshake(sock, request):
+def handshake(sock, request, reader=None):
     """Send the request; return (reader, accepted-or-error frame, or None)."""
     sock.sendall(dump(request))
-    reader = Reader(sock)
+    reader = reader or Reader(sock)
     while True:
         frame = reader.line()
         if frame is None:
             return reader, None
-        if frame.get('t') in ('accepted', 'error'):
+        if frame.get('t') in ('accepted', 'error', 'draining'):
             return reader, frame
         if frame.get('t') == 'notice':
             # Said before anything ran: a fallback, a re-root, a paused lane.
@@ -270,6 +281,45 @@ class Stream:
         return False
 
 
+def installed_here():
+    """The client configuration's path when it exists: the daemon was installed on this Mac.
+
+    Then a daemon that does not answer is broken, not absent, and a claimed
+    command is refused rather than run unmanaged. Where there is no
+    configuration (an enrolled clone on a Mac that never installed the
+    daemon), no daemon means no Pandora, and the command passes through.
+    """
+    # `settings.path_of`, without importing `settings`: it imports `tomllib`,
+    # which the interpreter the shim found (3.9 on a stock Mac) may not have.
+    path = Path(os.environ.get('PANDORA_CONFIG') or '~/.config/pandora/config.toml').expanduser()
+    return path if path.is_file() else None
+
+
+def connect_within(path, grace, *, clock=time.monotonic, pause=DAEMON_GRACE_PAUSE):
+    """`connect`, retried for `grace` seconds; raises the last OSError."""
+    deadline = clock() + grace
+    while True:
+        try:
+            return connect(path, timeout=2.0)
+        except (OSError, socket.timeout):
+            if clock() >= deadline:
+                raise
+            time.sleep(pause)
+
+
+def legacy_home_notice(cwd=None):
+    """One line when the file this worktree routes by still names a client home."""
+    found = enrollment.legacy_home(cwd or os.getcwd())
+    if found is None:
+        return
+    path, home = found
+    if os.path.realpath(home) == os.path.realpath(PACKAGE_HOME):
+        return                           # nothing changes; the next rewrite drops it quietly
+    notice('%s names %s as the client home; that line is no longer read, and this client '
+           'runs from %s. The next claimed command rewrites a claim cache without it; '
+           '`pandora enroll <root>` rewrites the registration' % (path, home, PACKAGE_HOME))
+
+
 def ask_claims(sock_path, command):
     """The daemon's verdict on a command the shim could not decide: {claimed, heavy}.
 
@@ -286,7 +336,7 @@ def ask_claims(sock_path, command):
         sock.close()
     if frame is None:
         raise OSError('the daemon closed the connection without answering')
-    if frame.get('t') != 'claims':
+    if frame.get('t') not in ('claims', 'draining'):
         return None
     return frame
 
@@ -329,15 +379,14 @@ def local_claims(sock_path, cwd=None):
         config = settings.load()
     except ConfigError:
         return None
-    from . import install
-    # `current`, never this process's own version directory: a cache written
-    # here outlives the version, and prune removes it two upgrades later.
     text, sources = enrollment.derive(root, enrollment.repo_entry(config, cwd),
                                       socket_path=str(sock_path),
-                                      client=str(settings.path_of()),
-                                      home=install.package_home(running=PACKAGE_HOME))
-    enrollment.write_owned(root, text, sources, sock_path)
-    return enrollment.parse(text)
+                                      client=str(settings.path_of()))
+    written, _why = enrollment.write_owned(root, text, sources, sock_path)
+    parsed = enrollment.parse(text)
+    if written == enrollment.CHANGED:
+        notice('claim cache refreshed from %s' % enrollment.refreshed_from(parsed))
+    return parsed
 
 
 def claimed_here(sock_path, command, cwd=None):
@@ -361,18 +410,45 @@ def claimed_here(sock_path, command, cwd=None):
     return claimed, not claimed and enrollment.heavy(command, marker)
 
 
-def refresh(args, command, state):
-    """The slow path: None when the command is claimed, else the exit code it ran to."""
-    try:
-        answer = ask_claims(args.sock, command)
-    except (OSError, ValueError):
-        # No daemon: decide from this worktree's own config, as the daemon
-        # would have. A claimed command then meets the no-daemon passthrough
-        # below, with its notice and its row.
-        claimed, heavy = claimed_here(args.sock, command)
-        if claimed:
+def refresh(args, command, state, waiter):
+    """The slow path: None when the command is claimed, else the exit code it ran to.
+
+    A restart is waited for here as it is for a run, on the same budget, and
+    only by a claimed command: an unclaimed one is decided from this
+    worktree's own config and runs at once.
+    """
+    decided = []
+
+    def here():
+        if not decided:
+            decided.append(claimed_here(args.sock, command))
+        return decided[0]
+    while True:
+        try:
+            answer = ask_claims(args.sock, command)
+        except (OSError, ValueError):
+            # No daemon: decide from this worktree's own config, as the daemon
+            # would have. A claimed command then waits for a restart, or meets
+            # the no-daemon passthrough below, with its notice and its row.
+            claimed, heavy = here()
+            if not claimed:
+                return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+            if waiter.absent():
+                continue
             return None
-        return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+        if answer is not None and answer.get('t') == 'draining':
+            claimed, heavy = here()
+            if not claimed:
+                return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+            if waiter.draining(answer.get('retry_after')):
+                continue
+            notice(waiter.still_draining())
+            return STALE
+        break
+    if answer is not None and answer.get('refreshed'):
+        # The daemon found this worktree's config changed and rewrote its
+        # claims: said once, here, because the next command reads the new ones.
+        notice('claim cache refreshed from %s' % answer['refreshed'])
     if answer is None or answer.get('claimed'):
         return None
     return unclaimed(args.real, command, state=state, repo=args.repo,
@@ -446,8 +522,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     state = args.state or str(Path(args.sock).parent)
+    # Before a refresh can rewrite the file it names: the line is the evidence.
+    legacy_home_notice()
+    # One wait for a restart per command, however many times it asks.
+    waiter = drain.Waiter(state)
     if args.refresh:
-        code = refresh(args, command, state)
+        code = refresh(args, command, state, waiter)
         if code is not None:
             return code
     updating = '--update' in command
@@ -478,6 +558,16 @@ def main(argv=None):
         if subdirectory_offender(command) is not None:
             notice('run from the repo root to route')
             return USAGE
+        installed = installed_here()
+        if installed is not None:
+            # Installed and not answering is a broken install, not a machine
+            # without Pandora: running the claimed command here, unmanaged, is
+            # how this Mac went into swap on 2026-09-24. `PANDORA_OFF=1` still
+            # bypasses everything; the shim never gets here with it set.
+            notice('%s; the daemon is installed on this Mac (%s) but does not answer, so '
+                   'nothing ran' % (message, installed))
+            notice('hint: run `pandora doctor`; it names the fix')
+            return INFRA
         if where == 'remote':
             # Only the daemon can reach the worker, and an explicit `--remote`
             # is never answered with a local run.
@@ -527,24 +617,58 @@ def main(argv=None):
         return pass_through('claimed only at the worktree root; not routed')
 
     request = build_request(command, where=where)
-    try:
-        sock = connect(args.sock, timeout=2.0)
-    except (OSError, socket.timeout) as error:
-        return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
-    sock.settimeout(HANDSHAKE_SECONDS)
-    try:
-        reader, frame = handshake(sock, request)
-    except (OSError, socket.timeout, ValueError) as error:
+    grace = None
+    while True:
+        try:
+            sock = connect(args.sock, timeout=2.0)
+        except (OSError, socket.timeout) as error:
+            what = waiter.decide(installed_here() is not None)
+            if what == drain.WAIT_FOR_RESTART:
+                # The restart gap: no socket, and a drain says a daemon is coming.
+                if waiter.absent():
+                    continue
+                if not waiter.waited():
+                    continue          # the marker aged out just now: decide again
+                notice(waiter.gave_up())
+                return STALE
+            if what == drain.GRACE_THEN_REFUSE:
+                # Installed here and not answering: a few seconds for a restart
+                # nobody drained, then `no_daemon` refuses with exit 70.
+                grace = grace or time.monotonic() + DAEMON_GRACE_SECONDS
+                if time.monotonic() < grace:
+                    time.sleep(DAEMON_GRACE_PAUSE)
+                    continue
+            return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
+        sock.settimeout(HANDSHAKE_SECONDS)
+        reader = Reader(sock)
+        sent = time.time()
+        try:
+            answered, frame = handshake(sock, request, reader)
+        except (OSError, socket.timeout, ValueError) as error:
+            sock.close()
+            if reader.consumed == 0 and waiter.fresh_since(sent) and waiter.absent():
+                continue        # a stopping daemon dropped it unanswered: nothing ran
+            notice('connection failed after submission (%s); execution is uncertain. '
+                   'Check pandora ps before retrying. Nothing was replayed locally.'
+                   % type(error).__name__)
+            return INFRA
+        if frame is None:
+            sock.close()
+            if reader.consumed == 0 and waiter.fresh_since(sent) and waiter.absent():
+                continue        # a stopping daemon dropped it unanswered: nothing ran
+            notice('daemon closed the connection after submission; execution is uncertain. '
+                   'Check pandora ps before retrying. Nothing was replayed locally.')
+            return INFRA
+        if frame.get('t') != 'draining':
+            reader = answered or reader
+            break
+        # Nothing ran: the daemon is restarting and said so. Ask again. A live
+        # daemon that still says so when the wait runs out is not a missing
+        # one: running the command here unmanaged is the overload it prevents.
         sock.close()
-        notice('connection failed after submission (%s); execution is uncertain. '
-               'Check pandora ps before retrying. Nothing was replayed locally.'
-               % type(error).__name__)
-        return INFRA
-    if frame is None:
-        sock.close()
-        notice('daemon closed the connection after submission; execution is uncertain. '
-               'Check pandora ps before retrying. Nothing was replayed locally.')
-        return INFRA
+        if not waiter.draining(frame.get('retry_after')):
+            notice(waiter.still_draining())
+            return STALE
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')

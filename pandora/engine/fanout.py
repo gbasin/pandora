@@ -242,12 +242,15 @@ def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
     """Create one child row and everything its supervisor reads from disk."""
     run_id = 'r' + uuid.uuid4().hex[:15]
     with gate(paths.root):
+        # A child is its parent's client's work: attribution and cancel scope follow.
+        owner = ledger.get(parent)
         row, _ = ledger.claim('%s:%s' % (parent, request_suffix), run_id,
                               repo=plan['repo'], job=plan['job'], input_id=plan['input_id'],
                               source_path=plan['source_path'], argv=argv, env=env,
                               cwd=plan['cwd'], outputs=outputs, size_class=plan['size_class'],
                               role=role, parent=parent, shard_index=index, shard_total=total,
-                              retry_of=retry_of)
+                              retry_of=retry_of,
+                              client=owner['client'] if owner is not None else None)
     run_id = row['run_id']
     attempt = paths.attempt(run_id)
     attempt.mkdir(parents=True, exist_ok=True)

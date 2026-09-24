@@ -10,13 +10,13 @@ INVARIANTS
   * Run from the repository root. Below it, `[matching] subdirectory` re-roots
     a command (64 if an argument names a path), refuses it, or leaves it alone.
   * Exit codes that are not the command's own:
-      70  infrastructure failure, never a test verdict
-      75  busy or stale: a validation already active here, or the tree changed
+      70  infrastructure failure, never a test verdict (also: daemon installed
+          here but not answering after 5 s; nothing ran; run `pandora doctor`)
+      75  busy or stale: validation active here, tree changed, or restart ran long
      124  `--max-wait` elapsed; the run was NOT stopped
      130  canceled
-  * `--update` runs on the worker, never here. Its files come back only from
-    a passing run (every shard) over a tree you did not edit meanwhile;
-    otherwise exit 75, your files untouched, and the next step printed.
+  * `--update` runs on the worker, never here; its files come back only from a
+    passing run (every shard) over a tree you did not edit, else 75 and a next step.
   * `PANDORA_WHERE=local|remote <command>` moves one run between lanes, in the
     queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
@@ -39,7 +39,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
-  pandora doctor [--json] (read-only) | enroll <repo> | unenroll <repo> | worker <verb>
+  pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
   pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...]
 """
 import argparse
@@ -53,7 +53,7 @@ from pathlib import Path
 from .client import enrollment, settings
 from .client.protocol import Reader, VERSION, dump
 from .config import loader
-from .errors import ConfigError, PandoraError
+from .errors import ConfigError, PandoraError, UnknownSchema
 from .exits import INFRA, STILL_RUNNING
 
 
@@ -62,7 +62,14 @@ def notice(text):
     sys.stderr.flush()
 
 
-def ask(sock_path, request, timeout=30.0):
+# How long an operator verb (`ps`, `cancel`, `wait`, `doctor`) waits for the
+# daemon. A starved daemon at load 90 answered in 66 s on 2026-09-24, and a
+# 2-5 s client called it "not running". The shim keeps its 2 s connect: a slow
+# daemon must not delay every pnpm call.
+OPERATOR_SECONDS = 30.0
+
+
+def ask(sock_path, request, timeout=OPERATOR_SECONDS):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     sock.connect(str(sock_path))
@@ -81,6 +88,28 @@ def state_of(args):
 
 # -- commands ---------------------------------------------------------------
 
+def restart_drained(args, launchd, label, state):
+    """`--restart`: drain, wait for what a restart would end, then kickstart."""
+    from .client import drain
+    # Before the drain, so a daemon launchd does not run is never left draining.
+    agent = launchd.status(label)
+    if not agent['loaded']:
+        raise launchd.Refused('%s is not loaded in launchd; `pandora daemon --install` first, '
+                              'or restart a hand-started daemon by stopping it and starting '
+                              'it' % label)
+    holder = launchd.lock_holder(state)
+    if holder and agent['pid'] != holder:
+        # A kickstart would restart launchd's agent, not the daemon that
+        # answers: that one would be drained and never restarted.
+        raise launchd.Refused('pid %s holds %s but launchd runs %s as pid %s, so a restart '
+                              'would not reach it. `pandora daemon --stop`, then `pandora '
+                              'daemon --restart`' % (holder, state / 'daemon.lock', label,
+                                                     agent['pid']))
+    return drain.drain_and_restart(
+        state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
+        now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice))
+
+
 def cmd_daemon(args):
     """Run the daemon in the foreground, or manage the launchd agent that runs it.
 
@@ -90,6 +119,9 @@ def cmd_daemon(args):
     for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
+    if (args.wait is not None or args.now) and not args.restart:
+        notice('--wait and --now go with --restart')
+        return 64
     if verb:
         return cmd_daemon_supervision(args)
     if args.label:
@@ -120,7 +152,7 @@ def cmd_daemon_supervision(args):
         elif args.uninstall:
             launchd.uninstall(label, state=state, say=notice)
         elif args.restart:
-            launchd.restart(label, say=notice)
+            return restart_drained(args, launchd, label, state)
         else:
             launchd.stop(label, state=state, say=notice)
     except launchd.Refused as error:
@@ -130,7 +162,7 @@ def cmd_daemon_supervision(args):
 
 
 def cmd_upgrade(args):
-    """Snapshot the checkout into `<data>/versions`, flip `current`, restart at a safe moment.
+    """Snapshot the checkout into `<data>/versions`, drain the daemon, flip `current`, restart.
 
     See `client/install.py` for the layout and why nothing runs from the checkout.
     """
@@ -153,9 +185,11 @@ def cmd_upgrade(args):
 
 
 def cmd_enroll(args):
-    """Register a repository once: `[[repos]]`, registration, and this worktree's cache.
+    """Consent, once per repository, to route it: `[[repos]]`, registration, this cache.
 
-    Nothing here has to be run again after `pandora.toml` changes: the daemon
+    Enrolling says "Pandora may route this repository on this Mac". It is not a
+    configuration step: what is routed is each worktree's own `pandora.toml`,
+    and nothing here has to be run again after it changes: the daemon
     derives each worktree's claim cache from that worktree's own file, and the
     shim notices a file newer than its cache. What enrolling writes:
 
@@ -165,9 +199,8 @@ def cmd_enroll(args):
       including ones created tomorrow, to the daemon once;
     * this worktree's claim cache, so its first command is fork-free.
 
-    It removes the v0.2 `pandora-enrolled` marker, which the new files replace.
+    It removes the old `pandora-enrolled` marker, which the new files replace.
     """
-    from .client import install
     state, config = state_of(args)
     common = enrollment.common_dir(args.repo)
     root = enrollment.worktree_root(args.repo)
@@ -177,6 +210,12 @@ def cmd_enroll(args):
     try:
         path, origin = loader.resolve(root, args.config_toml)
         repo_config = loader.load(path)
+    except UnknownSchema as error:
+        from .client import install
+        notice('%s. If the file is right, this Pandora is older than the file needs: %s. If '
+               'it is a mistake, fix the file'
+               % (error, install.update_fix(str(Path(__file__).resolve().parents[1]))))
+        return 1
     except ConfigError as error:
         notice(str(error))
         return 1
@@ -210,19 +249,18 @@ def cmd_enroll(args):
                'if it is not what you meant, change it to:\n%s'
                % (config_path, known['name'], known['root'],
                   settings.repo_block(name, Path(root).resolve(), external)))
-    home = install.package_home()
     socket_path = str(state / 'client.sock')
     enrollment.write(common, enrollment.registration_text(
-        socket_path=socket_path, repo=known['name'], home=home), enrollment.REGISTRATION)
+        socket_path=socket_path, repo=known['name']), enrollment.REGISTRATION)
     cache = enrollment.cache_path(root)
     text, sources = enrollment.derive(root, known, socket_path=socket_path,
-                                      client=str(config_path), home=home)
+                                      client=str(config_path))
     enrollment.write_cache(cache, text, sources)
     claims = enrollment.parse(text)['claim']
     legacy = Path(common) / enrollment.MARKER
     if legacy.is_file():
         legacy.unlink()
-        notice('removed the v0.2 marker %s; the files below replace it' % legacy)
+        notice('removed the old marker %s; the files below replace it' % legacy)
     notice('enrolled %s: %d claimed form%s here; registration %s, claim cache %s. Other '
            'worktrees derive theirs from their own %s on their first command; after a '
            'change to it, the next command takes effect with no enroll'
@@ -237,8 +275,12 @@ def check_daemon_knows_claims(sock_path, root):
     try:
         answer = ask(sock_path, {'op': 'claims', 'cwd': str(root), 'argv': []}, timeout=5.0)
     except OSError as error:
-        notice('no daemon answers on %s (%s). Claimed commands run here unmanaged until '
-               'one does: `pandora daemon --install`' % (sock_path, error))
+        notice('no daemon answers on %s (%s). Claimed commands exit 70 until one does: '
+               '`pandora daemon --install`' % (sock_path, error))
+        return
+    if (answer or {}).get('t') == 'draining':
+        notice('the daemon on %s is draining for a restart; the next claimed command in '
+               'this worktree writes its cache' % sock_path)
         return
     if (answer or {}).get('t') != 'claims':
         notice('the daemon on %s predates claim caches. Until it restarts, every command '
@@ -247,7 +289,7 @@ def check_daemon_knows_claims(sock_path, root):
 
 
 def cmd_unenroll(args):
-    """Remove the registration, the v0.2 marker and every claim cache under the common dir."""
+    """Remove the registration, the old marker and every claim cache under the common dir."""
     common = enrollment.common_dir(args.repo)
     if common is None:
         notice('not a git repository: %s' % args.repo)
@@ -294,7 +336,7 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
     """Follow one run to its exit. Returns its code, or None if cut off."""
     from .client import shim
     try:
-        sock = shim.connect(str(sock_path), timeout=5.0)
+        sock = shim.connect(str(sock_path), timeout=OPERATOR_SECONDS)
     except OSError as error:
         notice('daemon unreachable: %s' % error)
         return INFRA
@@ -393,13 +435,20 @@ def read_json(path):
 
 
 def cmd_ps(args):
+    from .client import drain
     state, _ = state_of(args)
-    pause, worker = {}, {}
+    pause, worker, me, draining = {}, {}, None, None
     try:
         answer = ask(state / 'client.sock', {'op': 'ps'})
         rows = answer['data']
         pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
-    except OSError:
+        me = answer.get('client')
+        draining = answer.get('draining')
+    except OSError as error:
+        marker = drain.read_marker(state)
+        if marker is not None and marker['age'] < drain.STALE_SECONDS:
+            # The restart gap: the old daemon has gone and the new one is not up.
+            draining = dict(marker, gap=True)
         rows = []
         for meta in sorted((state / 'runs').glob('*/meta.json')):
             try:
@@ -407,12 +456,18 @@ def cmd_ps(args):
             except (OSError, ValueError):
                 continue
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
-        worker = {'worker': 'unknown', 'reason': 'the daemon is not running'}
+        worker = {'worker': 'unknown', 'reason': (
+            'the daemon did not answer within %ds' % OPERATOR_SECONDS
+            if isinstance(error, TimeoutError) else 'the daemon is not running')}
     if args.json:
-        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker}
+        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me,
+                          'draining': draining}
                          if pause or worker else rows, indent=1, sort_keys=True))
         return 0
-    print(worker_line(worker))
+    if draining:
+        # First: every command typed now waits for the restart, and says so.
+        print(draining_line(draining))
+    print(worker_line(worker, me))
     if pause.get('paused'):
         # First line, not a footnote: a queue that is not admitting is the most
         # important fact on the screen.
@@ -429,6 +484,16 @@ def cmd_ps(args):
     return 0
 
 
+def draining_line(draining):
+    since = draining.get('since')
+    ago = ' for %ds' % max(0, time.time() - since) if isinstance(since, (int, float)) else ''
+    if draining.get('gap'):
+        return ('daemon: draining%s; restarting, no daemon answers yet. New commands wait '
+                'for the next one' % ago)
+    return ('daemon: draining%s for a restart (asked by pid %s); new commands wait, running '
+            'ones finish' % (ago, draining.get('pid') or '?'))
+
+
 # A queued remote row's pre-accept step, as `ps` shows it: `remote shipping`.
 PRE_ACCEPT = {'freeze': 'freezing', 'ship': 'shipping', 'submit': 'submitting'}
 
@@ -440,8 +505,11 @@ def state_word(row):
     return state
 
 
-def worker_line(worker):
+def worker_line(worker, me=None):
     """The header. `down` is what a reader most needs and it is said first.
+
+    `me` is this daemon's client name. A worker other Macs share says how many
+    runs each other client has live on it, and the line ends `as <me>`.
 
     A stale reading reads as `unknown`, not as its last value, because a daemon
     that has not polled since yesterday knows nothing about now -- and a header
@@ -460,8 +528,15 @@ def worker_line(worker):
     age = worker.get('age_seconds')
     if age is not None and state != 'unknown':
         extra.append('polled %ds ago' % age)
-    return 'worker: %s%s' % (state.upper() if state == 'down' else state,
-                             ' (' + '; '.join(extra) + ')' if extra else '')
+    others = {name: count for name, count in
+              ((worker.get('health') or {}).get('live_by_client') or {}).items()
+              if name != me and count}
+    if others:
+        extra.append('live from other clients: ' + ', '.join(
+            '%s %d' % item for item in sorted(others.items())))
+    return 'worker: %s%s%s' % (state.upper() if state == 'down' else state,
+                               ' (' + '; '.join(extra) + ')' if extra else '',
+                               ' as ' + me if me else '')
 
 
 def cmd_logs(args):
@@ -507,6 +582,9 @@ def cmd_result(args):
     if (meta or {}).get('submitter'):
         # The engine never sees who submitted a run; the row does.
         result.setdefault('submitter', meta['submitter'])
+    if (meta or {}).get('client'):
+        # A remote result carries the engine's record; a local one has only the row.
+        result.setdefault('client', meta['client'])
     if args.json:
         # A result from an engine before the rename has only the old key; both
         # are printed for one release, `same_input_as` as the alias.
@@ -562,6 +640,8 @@ def render_result(run_id, result):
     who = submitted(result)
     if who:
         lines.append('  submitted by ' + who)
+    if result.get('client'):
+        lines.append('  client ' + result['client'])
     placed = result.get('placement') or {}
     if placed.get('overridden'):
         lines.append('  placed %s by override; the job says %s'
@@ -671,7 +751,7 @@ def cmd_stats(args):
         data = (answer or {}).get('data')
         if not isinstance(data, dict) or 'by_job' not in data:
             # An older daemon: no answer, or the pre-v0.2 shape.
-            raise OSError('the daemon gave no v0.2 report; restart it to pick one up')
+            raise OSError('the daemon runs older code and gave no report; restart it to pick one up')
     except OSError as error:
         notice('no report from the daemon (%s); reporting from %s without the worker'
                % (error, state))
@@ -707,16 +787,21 @@ def main(argv=None):
     verbs.add_argument('--uninstall', action='store_true',
                        help='unload the agent and delete its plist')
     verbs.add_argument('--restart', action='store_true',
-                       help='launchctl kickstart -k; `pandora upgrade` does it at a safe '
-                            'moment')
+                       help='drain, then launchctl kickstart -k; `pandora upgrade` does it '
+                            'too')
     verbs.add_argument('--stop', action='store_true',
                        help='SIGTERM a hand-started daemon and wait up to 10 s')
+    daemon.add_argument('--wait', type=float, default=None, metavar='SECONDS',
+                        help='--restart: how long to wait for the runs a restart would end '
+                             '(default 300)')
+    daemon.add_argument('--now', action='store_true',
+                        help='--restart: restart when the wait runs out, ending those runs')
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
 
     upgrade = sub.add_parser('upgrade', help="install the checkout's HEAD as the version "
-                             'everything runs, and restart the daemon at a safe moment')
+                             'everything runs, and restart the daemon after a drain')
     upgrade.add_argument('--from', dest='source', default=None, metavar='CHECKOUT',
                          help='the checkout to snapshot (default: the one current came from)')
     upgrade.add_argument('--dirty', action='store_true',
@@ -724,8 +809,9 @@ def main(argv=None):
     upgrade.add_argument('--version', default=None, metavar='NAME',
                          help='install a version already under versions/ (to go back to one)')
     upgrade.add_argument('--now', action='store_true',
-                         help='restart the daemon at once: local runs and remote runs not yet '
-                              'accepted end (a submitting one is looked up on the worker)')
+                         help='restart the daemon at once: local runs executing and remote runs '
+                              'not yet accepted end (a submitting one is looked up on the '
+                              'worker); queued local runs are submitted again')
     upgrade.add_argument('--no-restart', action='store_true',
                          help='move current even though the daemon keeps its version until it '
                               'restarts')
@@ -733,7 +819,8 @@ def main(argv=None):
                          help='re-point the launchers on PATH even with a non-default data '
                               'directory')
     upgrade.add_argument('--wait', type=float, default=600, metavar='SECONDS',
-                         help='how long to wait for a safe moment to restart (default 600)')
+                         help='how long the drain waits for the runs a restart would end '
+                              '(default 600)')
     upgrade.add_argument('--keep', type=int, default=3,
                          help='versions to keep, current included (default 3, at least 2)')
     upgrade.set_defaults(func=cmd_upgrade)
@@ -741,7 +828,14 @@ def main(argv=None):
     # `enrol` and `unenrol` are the old British spellings, kept as hidden aliases
     # for one release so scripts and muscle memory keep working.
     enroll = sub.add_parser('enroll', aliases=['enrol'],
-                            help='register a repository once, all worktrees at once')
+                            help='consent to route a repository: once, for every worktree. '
+                                 'What is routed is each worktree\'s own pandora.toml; a '
+                                 'change to it needs no enroll',
+                            description='Consent, once per repository, for Pandora to route '
+                                        'it on this Mac. Enrolling is not configuration: each '
+                                        'worktree routes by its own pandora.toml, and a '
+                                        'change to that file takes effect on the next command '
+                                        'with no enroll.')
     enroll.add_argument('repo')
     enroll.add_argument('--name', default=None)
     enroll.add_argument('--config', dest='config_toml', default=None,

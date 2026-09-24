@@ -37,11 +37,12 @@ Three things launchd does differently from a shell, each handled here:
 
 A daemon keeps running the code it imported at start. With a snapshot
 installed, pulling the checkout changes nothing live, and `pandora upgrade`
-installs the new commit and restarts the daemon at a safe moment. Without one,
-run `pandora daemon --restart` after updating the checkout. Both restart with
-`launchctl kickstart -k`: launchd stops the daemon with SIGTERM and starts it
-again from the same plist. Runs on the worker survive that; the daemon
-re-attaches to them on start (`Daemon.resume_interrupted`).
+installs the new commit and restarts the daemon. Without one, run `pandora
+daemon --restart` after updating the checkout. Both drain the daemon first
+(`drain.drain_and_restart`), then restart it with `launchctl kickstart -k`:
+launchd stops the daemon with SIGTERM and starts it again from the same plist.
+Runs on the worker survive that; the daemon re-attaches to them on start
+(`Daemon.resume_interrupted`).
 
 `status` and `lock_holder` are read-only and are what `pandora doctor` uses.
 Everything that talks to launchd goes through one `run` callable so the tests
@@ -66,6 +67,12 @@ RECORD = 'launchd.json'
 # `/usr/sbin` for `sysctl`, which the pause gate samples.
 BASE_PATH = ('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin')
 STOP_SECONDS = 10.0
+# launchd's class for the agent. `Background` is Apple's class for batch work:
+# low CPU, I/O and network priority, and the first target of memory pressure.
+# At load 90 on 2026-09-24 it starved the daemon for 66 s while every agent
+# waited on it. `Interactive` is the class for work a person is waiting on. No
+# `Nice` key: a negative nice needs root.
+PROCESS_TYPE = 'Interactive'
 RESTART_NOTE = ('after updating the checkout, run `pandora daemon --restart` '
                 '(launchctl kickstart -k): the daemon runs the code it started with')
 UPGRADE_NOTE = ('pulling the checkout changes nothing live; `pandora upgrade` installs '
@@ -270,7 +277,7 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
         # launchd's own floor between restarts, stated so it is not a surprise:
         # a daemon that cannot start is retried every ten seconds, not in a loop.
         'ThrottleInterval': 10,
-        'ProcessType': 'Background',
+        'ProcessType': PROCESS_TYPE,
         'StandardOutPath': log,
         'StandardErrorPath': log,
         'WorkingDirectory': str(Path.home()),
@@ -283,6 +290,15 @@ def agent_program(label, home=None):
         with open(plist_path(label, home), 'rb') as handle:
             return (plistlib.load(handle).get('ProgramArguments') or [None])[0]
     except (OSError, ValueError, plistlib.InvalidFileException, AttributeError, IndexError):
+        return None
+
+
+def agent_process_type(label, home=None):
+    """The installed plist's `ProcessType`: its value, '' when it has none, None without a plist."""
+    try:
+        with open(plist_path(label, home), 'rb') as handle:
+            return plistlib.load(handle).get('ProcessType') or ''
+    except (OSError, ValueError, plistlib.InvalidFileException, AttributeError):
         return None
 
 
@@ -381,7 +397,8 @@ def uninstall(label, *, state, uid=None, home=None, run=subprocess.run, say=prin
         '`pandora daemon --install`')
 
 
-def restart(label, *, uid=None, run=subprocess.run, say=print):
+def restart(label, *, uid=None, run=subprocess.run, say=print, kicked=None):
+    """`kickstart -k`. `kicked()` runs the moment launchd has taken it, before anything else."""
     before = status(label, uid=uid, run=run)
     if not before['loaded']:
         raise Refused('%s is not loaded in launchd; `pandora daemon --install` first, or '
@@ -389,6 +406,8 @@ def restart(label, *, uid=None, run=subprocess.run, say=print):
     out = launchctl(['kickstart', '-k', '%s/%s' % (domain(uid), label)], run=run)
     if out.returncode != 0:
         raise Refused('launchctl kickstart failed: %s' % (out.stderr or out.stdout).strip())
+    if kicked is not None:
+        kicked()
     say('launchd  %s: %s' % (label, status(label, uid=uid, run=run)['line']))
 
 

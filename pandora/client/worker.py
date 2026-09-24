@@ -70,11 +70,16 @@ class Submission:
 class Worker:
     """One worker, one SSH conversation, for the life of the daemon."""
 
+    client = None          # this daemon's name to a shared worker; set by the daemon
+
     def __init__(self, host, *, state, engine_root='pandora-engine', persist='10m',
-                 source_root=None):
+                 source_root=None, client=None):
         if not host:
             raise WorkerUnreachable('no worker host is configured')
         self.host = host
+        # Who this daemon is to the engine: `user@host`, or `[client] name`.
+        # Sent with every submission and every cancel; the daemon keeps it current.
+        self.client = client
         self.engine_root = engine_root
         self.state = Path(state)
         self.link = transfer.Link(host, self.state / 'ssh', persist=persist)
@@ -177,6 +182,8 @@ class Worker:
             request = {'request_id': request_id, 'input_id': input_id,
                        'source_path': source['path'], 'plan': plan,
                        'manifest_files': len(manifest), 'dropped': len(dropped)}
+            if self.client:
+                request['client'] = self.client
             if plan.get('git') == 'synthetic':
                 # The engine builds the run's repository from the tree plus these
                 # two lists, so its index is this worktree's tracked set.
@@ -221,7 +228,7 @@ class Worker:
 
     def lookup(self, request_id, *, plan=None, fence=True):
         """The engine's record of one request id (`service.cmd_lookup`)."""
-        argv = ['lookup', '--request-id', request_id]
+        argv = ['lookup', '--request-id', request_id] + self.as_client()
         if fence:
             argv += ['--fence', '--repo', (plan or {}).get('repo') or '',
                      '--job', (plan or {}).get('job') or '']
@@ -274,8 +281,8 @@ class Worker:
         request back, so the retry tests the tree the caller was told about.
         Raises `EngineError` when the engine refuses, exactly as `submit` does.
         """
-        answer = self.engine(['resubmit', '--run', run_id, '--request-id', request_id],
-                             timeout=120)
+        answer = self.engine(['resubmit', '--run', run_id, '--request-id', request_id]
+                             + self.as_client(), timeout=120)
         if not answer.get('ok'):
             raise EngineError(json.dumps({'code': answer.get('code', 'rejected'),
                                           'detail': answer.get('admission')}))
@@ -296,7 +303,11 @@ class Worker:
         return self.engine(['result', '--run', run_id], timeout=60)
 
     def cancel(self, run_id):
-        return self.engine(['cancel', '--run', run_id], timeout=60)
+        return self.engine(['cancel', '--run', run_id] + self.as_client(), timeout=60)
+
+    def as_client(self):
+        """`--client NAME` for an engine verb scoped to this client, or nothing."""
+        return ['--client', self.client] if self.client else []
 
     def ps(self, *, live=False, limit=25):
         return self.engine(['ps'] + (['--live'] if live else []) + ['--limit', str(limit)],
