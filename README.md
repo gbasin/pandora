@@ -196,11 +196,16 @@ pandora daemon --install
 The command writes `~/Library/LaunchAgents/com.pandora.daemon.plist`, loads it,
 and prints the launchd state line. When launchd already runs the daemon, the
 command drains it first, the same way `pandora daemon --restart` does (see
-below; `--wait` and `--now` work the same). It then boots the old job out,
-waits until `launchctl print` no longer lists it, bootstraps the new plist,
-and waits until launchd lists the new job with a pid. If a step does not
-happen within 30 s, the command prints the `launchctl bootstrap` command that
-loads the plist by hand, and exits 1.
+below; `--wait`, `--now` and `--idle-cancel` work the same). It then boots
+the old job out, waits until `launchctl print` says "Could not find service",
+runs `launchctl enable` and bootstraps the new plist, and waits until launchd
+lists the new job with a new pid. The wait for the old job and the bootstrap
+retries share 300 s, with a progress line every 15 s; the new pid has 30 s
+of its own. When a step fails, the command says what to run, and exits 1:
+the `launchctl bootstrap` command once `launchctl print` says "Could not find
+service", or `launchctl kickstart` and the log when the job is loaded but
+its daemon does not start. Ctrl-C, SIGHUP or SIGTERM after the bootout still
+bootstraps the new plist before the command exits.
 
 Every line in `daemon.log` starts with a UTC time. The log records worker health changes, each transfer's start, end or
 failure (run, worktree, input id, files, MiB, rsync exit, elapsed), each

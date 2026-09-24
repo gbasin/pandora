@@ -866,13 +866,47 @@ class TheCommand(DrainCase):
             self.ask({'op': 'cancel', 'run': row['id']})
         thread.join(timeout=30)
 
+    def test_a_failed_load_after_the_bootout_does_not_ask_the_gone_daemon_to_undrain(self):
+        from pandora.client import launchd
+        fake = self.launchd({'com.pandora.daemon': os.getpid()})
+        fake.bootstrap_fails = True
+        with mock.patch.object(launchd, 'REPLACE_SECONDS', 0.0), \
+                mock.patch.object(cli, 'OLD_PID_SECONDS', 0.0):
+            code, _, err = self.pandora('daemon', '--install', '--wait', '5')
+        self.assertEqual(code, 1, err)
+        self.assertIn('launchctl bootstrap', err)
+        self.assertNotIn('could not end the drain', err)
+        # The in-process daemon stands in for one launchd stopped: nobody undrained it.
+        self.assertIsNotNone(self.daemon.draining)
+        # Its pid is alive and it holds the lock, so the marker stays for it.
+        self.assertTrue(drain.marker_path(self.state).exists())
+
+    def test_the_marker_is_cleared_only_once_the_old_pid_is_gone_and_nobody_is_coming(self):
+        from pandora.client import launchd
+        from types import SimpleNamespace
+        drain.write_marker(self.state, {'since': 0})
+        alive = {4242}
+        fake = SimpleNamespace(
+            wait_pid_gone=lambda pid, seconds: pid not in alive,
+            status=lambda label: {'loaded': False, 'pid': None},
+            lock_holder=lambda state: None)
+        self.assertFalse(cli.settle_marker(fake, drain, 'x', self.state, 4242))
+        self.assertTrue(drain.marker_path(self.state).exists())
+        fake.status = lambda label: {'loaded': True, 'pid': 9001}
+        alive.clear()
+        self.assertFalse(cli.settle_marker(fake, drain, 'x', self.state, 4242))
+        fake.status = lambda label: {'loaded': False, 'pid': None}
+        self.assertTrue(cli.settle_marker(fake, drain, 'x', self.state, 4242))
+        self.assertFalse(drain.marker_path(self.state).exists())
+        self.assertTrue(callable(launchd.wait_pid_gone))
+
     def test_install_with_nothing_loaded_and_no_daemon_loads_at_once(self):
         self.daemon.stop()
         fake = self.launchd({})
         code, _, err = self.pandora('daemon', '--install')
         self.assertEqual(code, 0, err)
         self.assertNotIn('drain', err)
-        self.assertEqual(fake.verbs()[:3], ['print', 'print', 'bootstrap'])
+        self.assertEqual(fake.verbs()[:4], ['print', 'print', 'enable', 'bootstrap'])
 
 
 class Doctor(unittest.TestCase):

@@ -135,29 +135,51 @@ def install_drained(args, launchd, label, state, config_path):
     Nothing to drain when launchd runs no agent and no daemon holds the lock:
     the plist is loaded at once. A daemon launchd did not start is refused
     before any drain, so it is never left draining for a restart that will not
-    come. A load that fails after the old daemon has gone clears the draining
-    marker: no successor is coming to clear it, and a client should hear "not
-    answering" in seconds rather than wait for a restart for eleven minutes.
+    come. Once the old job is booted out, the drain is not ended on failure:
+    that daemon is gone. A load that fails then clears the draining marker, but
+    only after the old pid has exited, with no daemon holding the lock and none
+    under launchd: no successor is coming to clear it, and a client should
+    hear "not answering" in seconds rather than wait eleven minutes.
     """
     from .client import drain
+    before = launchd.check_install(label, state=state)
+    booted = []
 
     def load():
         try:
             launchd.install(label, config_path=config_path, state=state,
-                            state_arg=bool(args.state), say=notice)
-        except launchd.Refused:
-            if not launchd.lock_holder(state):
-                drain.clear_marker(state)
+                            state_arg=bool(args.state), say=notice,
+                            on_bootout=lambda: booted.append(True))
+        except BaseException:
+            if booted:
+                settle_marker(launchd, drain, label, state, before.get('pid'))
             raise
 
-    before = launchd.check_install(label, state=state)
     if not before['loaded'] and not launchd.lock_holder(state):
         load()
         return 0
     return drain.drain_and_restart(
         state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
         now=args.now, say=notice, restart=load, again='`pandora daemon --install --now`',
-        idle_cancel=idle_cancel_of(args))
+        idle_cancel=idle_cancel_of(args), gone=lambda: bool(booted))
+
+
+# How long a failed --install waits for the booted-out daemon to exit before
+# it decides whether a successor is coming.
+OLD_PID_SECONDS = 30.0
+
+
+def settle_marker(launchd, drain, label, state, old_pid, *, seconds=None):
+    """After a failed load: remove the draining marker when no daemon is coming to."""
+    if old_pid and not launchd.wait_pid_gone(old_pid, OLD_PID_SECONDS if seconds is None
+                                             else seconds):
+        return False              # still exiting: the lock says nothing yet
+    agent = launchd.status(label)
+    if launchd.lock_holder(state) or (agent['loaded'] and agent['pid']
+                                      and agent['pid'] != old_pid):
+        return False
+    drain.clear_marker(state)
+    return True
 
 
 def cmd_daemon(args):

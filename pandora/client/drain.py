@@ -427,7 +427,7 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                       clock=time.monotonic, sleep=time.sleep, interval=1.0,
                       successor_seconds=SUCCESSOR_SECONDS,
                       again='`pandora daemon --restart --now`', report=None, held_lock=None,
-                      idle_cancel=DEFAULT_IDLE_CANCEL):
+                      idle_cancel=DEFAULT_IDLE_CANCEL, gone=None):
     """Drain the daemon, wait for what a restart would end, restart it. Returns an exit code.
 
     `restart()` restarts the daemon (launchd's kickstart for `pandora daemon
@@ -440,6 +440,8 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
     anyway. `report`, a dict, gets `undrained`: False when the drain could not
     be ended and lingers until its lease runs out. A local blocker with no CPU
     progress for `idle_cancel` seconds is canceled (0 or None: never).
+    `gone()`, when it says True, means `restart` already stopped the old
+    daemon: a failure after that ends no drain, since nobody is left to ask.
 
     0 when the successor cleared the marker; 75 (`STALE`) when the wait ran out
     without `now`, after the daemon left draining; 1 when the successor did not
@@ -461,7 +463,7 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                  'argv': ['(did not answer: %s)' % why]}]
 
     def undrain():
-        if held:
+        if held and not (gone is not None and gone()):
             report['undrained'] = end_loudly(sock, ask=ask, say=say)
 
     with _Signals():

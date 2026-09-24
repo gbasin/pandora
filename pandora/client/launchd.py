@@ -56,9 +56,11 @@ import fcntl
 import json
 import os
 import plistlib
+import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -71,12 +73,24 @@ RECORD = 'launchd.json'
 # `/usr/sbin` for `sysctl`, which the pause gate samples.
 BASE_PATH = ('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin')
 STOP_SECONDS = 10.0
-# How long --install waits for `bootout` to take the old job out of launchd's
-# list, and then for the new one to be loaded with a pid. launchd gives a job
-# 20 s (`ExitTimeOut`) between SIGTERM and SIGKILL.
-GONE_SECONDS = 30.0
-LOADED_SECONDS = 30.0
+# launchd's time between SIGTERM and SIGKILL for the daemon, stated in the
+# plist (it is also launchd's default). A stopping daemon closes its local runs
+# and joins their connection threads for 2 s; the rest is headroom.
+EXIT_TIMEOUT = 20
+# How long --install keeps replacing the job after `bootout`: waiting for the
+# old one to leave launchd's list, then bootstrapping. Long, because giving up
+# leaves no daemon at all; far past EXIT_TIMEOUT, after which launchd SIGKILLs.
+REPLACE_SECONDS = 300.0
+# How long a loaded job may take to show a pid, apart from the above.
+PID_SECONDS = 30.0
+# After an interrupt between bootout and bootstrap: how long the one bootstrap
+# attempt waits for the old job to leave.
+RESCUE_SECONDS = 30.0
 POLL_SECONDS = 0.25
+PROGRESS_SECONDS = 15.0
+# `launchctl print` of a label launchd does not list: "Could not find service".
+# Any other failure says nothing either way.
+NOT_FOUND = 113
 # launchd's class for the agent. `Background` is Apple's class for batch work:
 # low CPU, I/O and network priority, and the first target of memory pressure.
 # At load 90 on 2026-09-24 it starved the daemon for 66 s while every agent
@@ -156,8 +170,14 @@ def status(label, *, uid=None, run=subprocess.run):
     proc = launchctl(['print', '%s/%s' % (domain(uid), label)], run=run)
     if proc.returncode != 0:
         said = (proc.stderr or proc.stdout or '').strip().splitlines()
+        # Only "Could not find service" is launchd saying the job is not
+        # there; a timeout or a missing launchctl says nothing about it.
+        unknown = proc.returncode != NOT_FOUND and not any(
+            'Could not find service' in line for line in said)
         return {'label': label, 'loaded': False, 'state': None, 'pid': None,
-                'line': 'not loaded' + (' (%s)' % said[-1] if said else '')}
+                'unknown': unknown,
+                'line': ('launchctl print failed' if unknown else 'not loaded')
+                + (' (%s)' % said[-1] if said else '')}
     return parse_print(label, proc.stdout)
 
 
@@ -182,7 +202,8 @@ def parse_print(label, text):
         line += ', pid = %d' % pid
     if exit_line:
         line += ', last exit code = %s' % exit_line
-    return {'label': label, 'loaded': True, 'state': state, 'pid': pid, 'line': line}
+    return {'label': label, 'loaded': True, 'state': state, 'pid': pid, 'line': line,
+            'unknown': False}
 
 
 def lock_holder(state):
@@ -288,6 +309,8 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
         # a daemon that cannot start is retried every ten seconds, not in a loop.
         'ThrottleInterval': 10,
         'ProcessType': PROCESS_TYPE,
+        # Stated, so `--install` knows how long a booted-out daemon may take.
+        'ExitTimeOut': EXIT_TIMEOUT,
         'StandardOutPath': log,
         'StandardErrorPath': log,
         'WorkingDirectory': str(Path.home()),
@@ -350,13 +373,59 @@ def check_install(label, *, state, uid=None, run=subprocess.run):
 
 
 def bootstrap_command(label, target, uid=None):
-    """The command a person runs to load the plist by hand, exactly."""
-    return 'launchctl bootstrap %s %s' % (domain(uid), target)
+    """The command a person runs to load the plist by hand, exactly, quoted for a shell."""
+    return 'launchctl bootstrap %s %s' % (domain(uid), shlex.quote(str(target)))
+
+
+def pid_alive(pid):
+    """Whether a process with this pid exists (ours to signal or not)."""
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def wait_pid_gone(pid, seconds, *, clock=time.monotonic, sleep=time.sleep, alive=pid_alive):
+    """Wait up to `seconds` for `pid` to exit. True when it has."""
+    deadline = clock() + seconds
+    while alive(pid):
+        if clock() >= deadline:
+            return False
+        sleep(POLL_SECONDS)
+    return True
+
+
+class _Deferred:
+    """SIGINT, SIGHUP and SIGTERM held back for a block, on the main thread; delivered after."""
+
+    SIGNALS = (signal.SIGINT, signal.SIGHUP, signal.SIGTERM)
+
+    def __enter__(self):
+        self.blocked = False
+        if (hasattr(signal, 'pthread_sigmask')
+                and threading.current_thread() is threading.main_thread()):
+            try:
+                signal.pthread_sigmask(signal.SIG_BLOCK, self.SIGNALS)
+                self.blocked = True
+            except (OSError, ValueError):
+                pass
+        return self
+
+    def __exit__(self, *_):
+        if self.blocked:
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, self.SIGNALS)
+        return False
 
 
 def install(label, *, config_path, state, state_arg=False, env=None, uid=None, home=None,
             python=None, run=subprocess.run, say=print, clock=time.monotonic,
-            sleep=time.sleep, gone_seconds=None, loaded_seconds=None):
+            sleep=time.sleep, replace_seconds=None, pid_seconds=None, rescue_seconds=None,
+            on_bootout=None):
     """Write the plist, replace a loaded agent with it, and prove launchd runs it.
 
     A loaded agent keeps the plist it was loaded with, so a rewritten one takes
@@ -365,13 +434,25 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     launchd still lists fails with error 5. On 2026-09-24 that failure fell
     through to `launchctl load`, which exits 0 when it fails, and --install
     reported success with no agent loaded. So each step is checked against
-    `launchctl print`: the old job gone, then the new one loaded with a pid.
-    Any step that does not happen within its bound is Refused with the
-    `launchctl bootstrap` command that finishes the job by hand.
+    `launchctl print`:
+
+    * after `bootout`, only "Could not find service" means the old job is
+      gone; any other failed `print` is unknown and polled again. The wait and
+      the bootstraps after it share `REPLACE_SECONDS`, with a progress line:
+      giving up there leaves no daemon at all;
+    * `launchctl enable` before every bootstrap, so a label disabled by an old
+      `unload -w` loads again;
+    * success is a loaded job with a pid other than the old one's, within its
+      own `PID_SECONDS`.
+
+    An interrupt (Ctrl-C, SIGHUP, SIGTERM) after the bootout and before a
+    bootstrap was attempted still attempts one, with those signals held, then
+    re-raises. `on_bootout()` runs once the old job has been booted out.
     """
     env = dict(os.environ if env is None else env)
-    gone_seconds = GONE_SECONDS if gone_seconds is None else gone_seconds
-    loaded_seconds = LOADED_SECONDS if loaded_seconds is None else loaded_seconds
+    replace_seconds = REPLACE_SECONDS if replace_seconds is None else replace_seconds
+    pid_seconds = PID_SECONDS if pid_seconds is None else pid_seconds
+    rescue_seconds = RESCUE_SECONDS if rescue_seconds is None else rescue_seconds
     before = check_install(label, state=state, uid=uid, run=run)
     target = plist_path(label, home)
     # The interpreter running this install, by the stable name `this_python`
@@ -397,48 +478,113 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     say('  log      %s' % body['StandardOutPath'])
     by_hand = bootstrap_command(label, target, uid)
     service = '%s/%s' % (domain(uid), label)
+    log_path = body['StandardOutPath']
+    old_pid = before['pid'] if before['loaded'] else None
 
-    def refuse(why):
-        raise Refused('launchd did not load %s: %s. The plist is written; load it with `%s`, '
-                      'then check `launchctl print %s` and %s'
-                      % (label, why, by_hand, service, body['StandardOutPath']))
+    def not_loaded(now):
+        return not now['loaded'] and not now.get('unknown')
 
-    def poll(done, seconds):
-        deadline = clock() + seconds
+    def bootstrap():
+        launchctl(['enable', service], run=run)
+        return launchctl(['bootstrap', domain(uid), str(target)], run=run)
+
+    progress = {'next': clock() + PROGRESS_SECONDS, 'began': clock()}
+
+    def tell(what):
+        if clock() >= progress['next']:
+            say('launchd  %s for %ds: %s' % (what, clock() - progress['began'],
+                                            status(label, uid=uid, run=run)['line']))
+            progress['next'] = clock() + PROGRESS_SECONDS
+
+    attempted = False
+    booted = False
+    try:
+        if before['loaded']:
+            out = launchctl(['bootout', service], run=run)
+            booted = True
+            if on_bootout is not None:
+                on_bootout()
+            deadline = clock() + replace_seconds
+            while True:
+                now = status(label, uid=uid, run=run)
+                if not_loaded(now):
+                    break
+                if clock() >= deadline:
+                    raise Refused(
+                        'launchd did not load %s: the old job was still listed %ds after '
+                        '`launchctl bootout` (%s; bootout said %s). The plist is written. Wait '
+                        'until `launchctl print %s` says "Could not find service", then load '
+                        'it with `%s`' % (label, replace_seconds, now['line'], said_by(out),
+                                          service, by_hand))
+                tell('waiting for the old job to leave')
+                sleep(POLL_SECONDS)
+        else:
+            deadline = clock() + replace_seconds
         while True:
-            now = status(label, uid=uid, run=run)
-            if done(now) or clock() >= deadline:
-                return now
-            sleep(POLL_SECONDS)
-
-    if before['loaded']:
-        out = launchctl(['bootout', service], run=run)
-        gone = poll(lambda now: not now['loaded'], gone_seconds)
-        if gone['loaded']:
-            refuse('the old job was still listed %ds after `launchctl bootout` (%s; bootout '
-                   'said %s)' % (gone_seconds, gone['line'], said_by(out)))
-    deadline = clock() + loaded_seconds
-    while True:
-        loaded = launchctl(['bootstrap', domain(uid), str(target)], run=run)
-        if loaded.returncode == 0 or status(label, uid=uid, run=run)['loaded']:
-            break
-        if clock() >= deadline:
-            refuse('`launchctl bootstrap` failed (%s)' % said_by(loaded))
-        sleep(1.0)
+            attempted = True
+            loaded = bootstrap()
+            if loaded.returncode == 0 or status(label, uid=uid, run=run)['loaded']:
+                break
+            if clock() >= deadline:
+                raise Refused('launchd did not load %s: `launchctl bootstrap` failed (%s). The '
+                              'plist is written; load it with `%s`, then check `launchctl '
+                              'print %s` and %s' % (label, said_by(loaded), by_hand, service,
+                                                    log_path))
+            tell('bootstrap refused, retrying')
+            sleep(1.0)
+    except Refused:
+        raise
+    except BaseException:
+        if booted and not attempted:
+            rescue(label, target, uid=uid, run=run, say=say, clock=clock, sleep=sleep,
+                   seconds=rescue_seconds, by_hand=by_hand, service=service)
+        raise
     # Without `-k`: `RunAtLoad` has usually started it already, and `-k` would
     # SIGTERM a daemon that may not have installed its handler yet. This only
     # starts one when the bootstrap did not.
     launchctl(['kickstart', service], run=run)
-    after = poll(lambda now: now['loaded'] and now['pid'], max(0.0, deadline - clock()))
-    if not after['loaded']:
-        refuse('`launchctl print` does not list it after the bootstrap (%s)' % after['line'])
-    if not after['pid']:
-        refuse('it is loaded but no daemon is running (%s); the daemon may be failing at '
-               'start' % after['line'])
+    deadline = clock() + pid_seconds
+    while True:
+        after = status(label, uid=uid, run=run)
+        if after['loaded'] and after['pid'] and after['pid'] != old_pid:
+            break
+        if clock() >= deadline:
+            if after['loaded']:
+                raise Refused('%s is loaded but no new daemon is running after %ds (%s). Start '
+                              'it with `launchctl kickstart %s`; if it does not stay up, read '
+                              '%s' % (label, pid_seconds, after['line'], service, log_path))
+            raise Refused('launchd did not load %s: `launchctl print` does not list it after '
+                          'the bootstrap (%s). Load it with `%s`, then read %s'
+                          % (label, after['line'], by_hand, log_path))
+        sleep(POLL_SECONDS)
     say('launchd  %s: %s' % (label, after['line']))
     from . import install
     say(UPGRADE_NOTE if install.installed(install.data_root(env, home)) else RESTART_NOTE)
     return body
+
+
+def rescue(label, target, *, uid, run, say, clock, sleep, seconds, by_hand, service):
+    """Interrupted after `bootout`: one bootstrap, with the interrupting signals held."""
+    with _Deferred():
+        say('interrupted after the old job was booted out; loading the new plist before '
+            'exiting')
+        deadline = clock() + seconds
+        while True:
+            now = status(label, uid=uid, run=run)
+            if not now['loaded'] and not now.get('unknown'):
+                break
+            if clock() >= deadline:
+                say('the old job is still listed; wait until `launchctl print %s` says "Could '
+                    'not find service", then run `%s`' % (service, by_hand))
+                return False
+            sleep(POLL_SECONDS)
+        launchctl(['enable', service], run=run)
+        loaded = launchctl(['bootstrap', domain(uid), str(target)], run=run)
+        if loaded.returncode == 0:
+            say('loaded %s' % target)
+            return True
+        say('`launchctl bootstrap` failed (%s); run `%s`' % (said_by(loaded), by_hand))
+        return False
 
 
 def said_by(proc):
@@ -451,9 +597,9 @@ def uninstall(label, *, state, uid=None, home=None, run=subprocess.run, say=prin
     target = plist_path(label, home)
     before = status(label, uid=uid, run=run)
     if before['loaded']:
-        out = launchctl(['bootout', '%s/%s' % (domain(uid), label)], run=run)
-        if out.returncode != 0 and target.is_file():
-            launchctl(['unload', '-w', str(target)], run=run)
+        # Never `unload -w`: it disables the label, and a later bootstrap of a
+        # disabled label fails until `launchctl enable`.
+        launchctl(['bootout', '%s/%s' % (domain(uid), label)], run=run)
         say('booted %s out of launchd (the daemon it ran has stopped)' % label)
     else:
         say('%s was not loaded in launchd' % label)
