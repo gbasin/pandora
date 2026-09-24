@@ -174,6 +174,172 @@ class FreezeTest(unittest.TestCase):
                 snapshot.verify(materialized, manifest)
 
 
+class IndexTest(unittest.TestCase):
+    """A file git vouches for is not read, and the manifest cannot tell."""
+
+    def both_ways(self, repo, cache):
+        """Freeze by reading everything, then from the index cold and warm."""
+        legacy = snapshot.freeze(repo, index=False)
+        cold, warm = {}, {}
+        self.assertEqual(snapshot.freeze(repo, cache=cache, counts=cold), legacy)
+        self.assertEqual(snapshot.freeze(repo, cache=cache, counts=warm), legacy)
+        return legacy, cold, warm
+
+    def fixture(self, root):
+        repo = make_repo(root, {
+            'clean.txt': 'clean\n', 'src/deep.js': 'deep\n', 'modified.txt': 'old\n',
+            'restaged.txt': 'one\n', 'deleted.txt': 'gone\n', 'assumed.txt': 'kept\n',
+            'crlf.txt': 'a\nb\n', 'big.bin': 'pointer\n',
+            '.gitattributes': 'crlf.txt eol=crlf\n*.bin filter=fake\n',
+            '.gitignore': '*.log\n'})
+        (repo / 'run.sh').write_text('#!/bin/sh\n')
+        os.chmod(repo / 'run.sh', 0o755)
+        (repo / 'later.sh').write_text('#!/bin/sh\n')
+        (repo / 'alias').symlink_to('clean.txt')
+        (repo / 'forced.log').write_text('tracked though ignored\n')
+        git(repo, 'add', '-f', 'run.sh', 'later.sh', 'alias', 'forced.log')
+        git(repo, 'commit', '-qm', 'second')
+        (repo / 'modified.txt').write_text('new\n')
+        (repo / 'restaged.txt').write_text('two\n')
+        git(repo, 'add', 'restaged.txt')
+        (repo / 'restaged.txt').write_text('three\n')
+        (repo / 'deleted.txt').unlink()
+        os.chmod(repo / 'later.sh', 0o755)
+        (repo / 'untracked.txt').write_text('u\n')
+        (repo / 'ignored.log').write_text('i\n')
+        git(repo, 'update-index', '--assume-unchanged', 'assumed.txt')
+        (repo / 'assumed.txt').write_text('edited, and git was told not to look\n')
+        # Checked out again under eol=crlf: the bytes on disk are not the blob's.
+        (repo / 'crlf.txt').unlink()
+        git(repo, 'checkout', '--', 'crlf.txt')
+        git(repo, 'worktree', 'add', '-q', '-b', 'side', str(repo / 'inner'))
+        return repo
+
+    def test_every_kind_of_entry_freezes_exactly_as_when_every_file_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.fixture(Path(tmp) / 'repo')
+            vouched = set(snapshot.index_blobs(repo))
+            self.assertEqual(vouched, {'clean.txt', 'src/deep.js', 'run.sh', 'forced.log',
+                                       '.gitattributes', '.gitignore'})
+            (manifest, dropped, _), cold, warm = self.both_ways(repo, Path(tmp) / 'cache')
+            paths = {record['path'] for record in manifest}
+            self.assertIn('untracked.txt', paths)
+            self.assertIn('inner/', dropped)
+            self.assertFalse({'deleted.txt', 'ignored.log'} & paths)
+            self.assertFalse([path for path in paths if path.startswith('inner/')])
+            # Six vouched files over two passes: read once, then known everywhere.
+            self.assertEqual(cold['index'], 6)
+            self.assertEqual(warm['index'], 12)
+            self.assertEqual(warm['read'] + warm['stat'] + 6, cold['read'] + cold['stat'])
+
+    def test_a_same_size_rewrite_in_the_index_s_own_second_is_seen(self):
+        # Racy git: with only mtime seconds and size compared, the stat still
+        # matches. Git must compare content itself, and the freeze must not
+        # vouch for the old blob.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'repo'
+            root.mkdir()
+            git(root, 'init', '-q', '-b', 'main')
+            git(root, 'config', 'core.trustctime', 'false')
+            git(root, 'config', 'core.checkStat', 'minimal')
+            repo = make_repo(root, {'racy.txt': 'aaaa\n', 'other.txt': 'o\n'})
+            before = os.stat(repo / 'racy.txt')
+            (repo / 'racy.txt').write_text('bbbb\n')
+            os.utime(repo / 'racy.txt', ns=(before.st_atime_ns, before.st_mtime_ns))
+            self.assertNotIn('racy.txt', snapshot.index_blobs(repo))
+            manifest, _, _ = self.both_ways(repo, Path(tmp) / 'cache')[0]
+            record = next(item for item in manifest if item['path'] == 'racy.txt')
+            self.assertEqual(record['sha256'], snapshot.digest(repo / 'racy.txt'))
+
+    def test_a_fresh_worktree_at_a_known_commit_reads_no_tracked_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', 'src/b.js': 'b\n'})
+            cache = Path(tmp) / 'cache'
+            first = snapshot.freeze(repo, cache=cache)
+            git(repo, 'worktree', 'add', '-q', '--detach', str(Path(tmp) / 'fresh'))
+            counts = {}
+            second = snapshot.freeze(Path(tmp) / 'fresh', cache=cache, counts=counts)
+            self.assertEqual(second[2], first[2])
+            self.assertEqual(counts, {'read': 0, 'index': 4, 'stat': 0})
+
+    def test_the_index_is_never_written(self):
+        # A status that refreshed the index would take index.lock, and the
+        # agent's own `git add` in this worktree would fail on it.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            (repo / 'a.txt').touch()                 # stat-dirty: a refresh would rewrite
+            index = repo / '.git' / 'index'
+            before = (index.read_bytes(), index.stat().st_mtime_ns)
+            snapshot.freeze(repo)
+            self.assertEqual((index.read_bytes(), index.stat().st_mtime_ns), before)
+
+    def test_bytes_that_are_not_the_blob_never_enter_the_map(self):
+        # The file moved between git's answer and our read: remembering that
+        # sha256 under the old blob id would mislead every later worktree.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            real = snapshot.index_blobs
+            with mock.patch.object(snapshot, 'index_blobs',
+                                   lambda root: {'a.txt': '0' * 40} if real(root) else {}):
+                snapshot.freeze(repo, cache=Path(tmp) / 'cache')
+            self.assertEqual(snapshot.Blobs(Path(tmp) / 'cache' / 'blobs.json').table, {})
+            sha, same = snapshot.digest_blob(repo / 'a.txt', real(repo)['a.txt'], 2)
+            self.assertTrue(same)
+            self.assertEqual(sha, snapshot.digest(repo / 'a.txt'))
+
+    def test_without_git_answers_every_file_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            real = snapshot._git
+
+            def broken(root, *args, **kwargs):
+                if 'status' in args:
+                    raise SnapshotError('git status failed')
+                return real(root, *args, **kwargs)
+            counts = {}
+            with mock.patch.object(snapshot, '_git', broken):
+                result = snapshot.freeze(repo, counts=counts)
+            self.assertEqual(result, snapshot.freeze(repo, index=False))
+            self.assertEqual(counts['index'], 0)
+
+    def test_time_prints_where_the_digests_came_from(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                snapshot.main(['--time', str(repo)])
+            self.assertRegex(out.getvalue(), r' s  1 entries  read 1  index 1  stat 0 ')
+
+    def test_the_map_forgets_what_no_freeze_has_used_for_a_month(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'blobs.json'
+            old = snapshot.Blobs(path)
+            old.today -= snapshot.Blobs.KEEP_DAYS + 1
+            old.put('a' * 40, 1, 'x' * 64)
+            old.save()
+            new = snapshot.Blobs(path)
+            new.put('b' * 40, 2, 'y' * 64)
+            new.save()
+            self.assertEqual(set(snapshot.Blobs(path).table), {'b' * 40})
+
+    def test_concurrent_saves_merge_rather_than_overwrite(self):
+        import threading
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'blobs.json'
+            maps = [snapshot.Blobs(path) for _ in range(8)]
+            for number, blobs in enumerate(maps):
+                blobs.put('%040x' % number, number, '%064x' % number)
+            threads = [threading.Thread(target=blobs.save) for blobs in maps]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(len(snapshot.Blobs(path).table), 8)
+            self.assertEqual([item.name for item in Path(tmp).iterdir()], ['blobs.json'])
+
+
 class TransferPathTest(unittest.TestCase):
     def test_the_cache_is_addressed_by_input_id(self):
         from pandora.snapshot import transfer
@@ -332,11 +498,14 @@ class DigestsTest(unittest.TestCase):
             self.assertNotIn('b.txt', calls)
 
     def test_a_file_written_just_now_is_never_trusted_to_its_stat(self):
+        # Untracked, so the stat cache is its only shortcut: git vouches for
+        # nothing it does not track.
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            (repo / 'new.txt').write_text('n\n')
             cache = Path(tmp) / 'cache'
-            snapshot.freeze(repo, cache=cache)       # a.txt is seconds old: racy
+            snapshot.freeze(repo, cache=cache)       # new.txt is seconds old: racy
             calls, patch = self.counting()
             with patch:
                 snapshot.freeze(repo, cache=cache)
-            self.assertIn('a.txt', calls)
+            self.assertIn('new.txt', calls)
