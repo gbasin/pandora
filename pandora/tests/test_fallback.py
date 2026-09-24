@@ -370,7 +370,24 @@ class StaleMarker(DaemonCase):
         stale = [line for line in answer.notices if 'marker is stale' in line]
         # Five more forms in pandora.toml than in the marker.
         self.assertEqual(stale, ['enrollment marker is stale (5 forms differ); run pandora '
-                                 'enroll %s' % self.repo.resolve()])
+                                 'enroll %s' % self.repo])
+
+    def test_a_branch_whose_pandora_toml_differs_says_nothing(self):
+        # The marker matches the enrolled root; a sibling worktree on a branch
+        # that drops most jobs is normal and must not be told to re-enroll.
+        from pandora.config import loader
+        self.mark(enrollment.routing_of(loader.load(self.repo / 'pandora.toml'))['claim'])
+        branch = self.root / 'branch'
+        branch.mkdir()
+        (self.repo / '.git' / 'worktrees' / 'branch').mkdir(parents=True)
+        (branch / '.git').write_text('gitdir: %s\n' % (self.repo / '.git' / 'worktrees'
+                                                         / 'branch'))
+        text = (self.repo / 'pandora.toml').read_text()
+        (branch / 'pandora.toml').write_text(text[:text.index('[[jobs]]\nid = "surface"')]
+                                             + text[text.index('[worker]'):])
+        answer = self.call(['pnpm', 'unit'], cwd=branch)
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
 
     def test_a_current_marker_says_nothing(self):
         from pandora.config import loader

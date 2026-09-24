@@ -151,25 +151,30 @@ def routing_of(repo_config):
 
 
 def stale_forms(marker, repo_config):
-    """How the marker's routing differs from this configuration, as readable lines.
+    """How the marker's routing differs from this configuration.
 
-    Empty when they agree. Only the lines the shim decides with: `strip`,
-    `claim` and `subdirectory`. A marker written before `subdirectory` existed
-    says nothing, which the shim reads as `reroot`.
+    A list of {'kind', 'text'}, empty when they agree. `kind` is `missing` (the
+    configuration routes it and the marker does not), `extra` (the reverse) or
+    `subdirectory`. Only the lines the shim decides with: `strip`, `claim` and
+    `subdirectory`. A marker written before `subdirectory` existed says nothing,
+    which the shim reads as `reroot`.
     """
     want = routing_of(repo_config)
     differences = []
     for key in ('claim', 'strip'):
         have = {tuple(item) for item in marker.get(key) or []}
         need = {tuple(item) for item in want[key]}
-        differences += ['%s %s missing from the marker' % (key, ' '.join(item))
+        differences += [{'kind': 'missing',
+                         'text': '%s %s missing from the marker' % (key, ' '.join(item))}
                         for item in sorted(need - have)]
-        differences += ['%s %s in the marker but not in pandora.toml' % (key, ' '.join(item))
+        differences += [{'kind': 'extra', 'text': '%s %s in the marker but not in '
+                                                  'pandora.toml' % (key, ' '.join(item))}
                         for item in sorted(have - need)]
     have = marker.get('subdirectory') or 'reroot'
     if have != want['subdirectory']:
-        differences.append('subdirectory %s in the marker, %s in pandora.toml'
-                           % (have, want['subdirectory']))
+        differences.append({'kind': 'subdirectory',
+                            'text': 'subdirectory %s in the marker, %s in pandora.toml'
+                                    % (have, want['subdirectory'])})
     return differences
 
 

@@ -304,8 +304,7 @@ def check_repository(cwd, config, sock_path):
                         break
                 except OSError:
                     continue
-    out.append(check_marker_forms(marker, root or cwd, (known or {}).get('config')
-                                  or marker.get('origin')))
+    out.append(check_marker_forms(marker, root or cwd, known))
     if config is not None:
         if known is None:
             out.append(check('daemon enrollment', FAIL,
@@ -318,26 +317,51 @@ def check_repository(cwd, config, sock_path):
     return out
 
 
-def check_marker_forms(marker, root, fallback):
-    """The marker routes what this worktree's `pandora.toml` claims.
+def check_marker_forms(marker, root, known):
+    """The marker routes what the enrolled checkout's `pandora.toml` claims.
 
     The shim decides from the marker alone, so a `pandora.toml` changed since
     the last enrollment routes the old claim set: a new form runs here unrouted,
-    and a removed one costs a Python start to pass through.
+    and a removed one costs a Python start to pass through. The marker is
+    compared with the *enrolled* checkout's configuration (the `[[repos]]` root,
+    else the file the marker was written from), never this worktree's: a branch
+    that changes `pandora.toml` is normal, and enrolling from it would flip the
+    marker for every other worktree. Such a branch gets a warning, and no
+    enroll command.
     """
+    enrolled_root = (known or {}).get('root')
     try:
-        repo_config = loader.load_for(root, fallback)
+        if enrolled_root:
+            enrolled = loader.load_for(enrolled_root, known.get('config') or None)
+        elif marker.get('origin'):
+            enrolled = loader.load(Path(marker['origin']))
+        else:
+            enrolled = loader.load_for(root, None)
+            enrolled_root = root
     except (ConfigError, OSError) as error:
-        return check('marker forms', WARN, 'cannot load this worktree\'s configuration to '
+        return check('marker forms', WARN, 'cannot load the enrolled configuration to '
                      'compare with the marker: %s' % error)
-    differences = enrollment.stale_forms(marker, repo_config)
-    if not differences:
-        return check('marker forms', OK, 'the marker matches this worktree\'s %s' % FILENAME)
-    missing = any('missing' in line or line.startswith('subdirectory') for line in differences)
-    return check('marker forms', FAIL if missing else WARN,
-                 'the marker is stale against this worktree\'s %s (%s); re-run `pandora '
-                 'enroll %s`' % (FILENAME, '; '.join(differences), root),
-                 differences=differences)
+    differences = enrollment.stale_forms(marker, enrolled)
+    if differences:
+        failing = any(item['kind'] in ('missing', 'subdirectory') for item in differences)
+        return check('marker forms', FAIL if failing else WARN,
+                     'the marker is stale against the enrolled %s at %s (%s); re-run '
+                     '`pandora enroll %s`' % (FILENAME, enrolled_root or marker.get('origin'),
+                                              '; '.join(item['text'] for item in differences),
+                                              enrolled_root or root),
+                     differences=[item['text'] for item in differences])
+    here = Path(root).resolve()
+    if enrolled_root and here != Path(enrolled_root).resolve():
+        try:
+            mine = loader.load_for(root, None)
+        except (ConfigError, OSError):
+            mine = None
+        if mine is not None and enrollment.stale_forms(marker, mine):
+            return check('marker forms', WARN,
+                         'this worktree\'s %s differs from the enrolled one (expected on a '
+                         'branch that changes it); commands here route by the enrolled one'
+                         % FILENAME)
+    return check('marker forms', OK, 'the marker matches the enrolled %s' % FILENAME)
 
 
 def check_cwd(cwd):

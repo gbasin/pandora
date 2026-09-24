@@ -245,6 +245,46 @@ class RepositoryAndCwd(Scratch):
         self.assertEqual(item['status'], 'warn')
         self.assertIn('claim old in the marker but not in pandora.toml', item['detail'])
 
+    def branch(self, *forms):
+        """A sibling worktree of the enrolled repository with its own pandora.toml."""
+        branch = self.root / 'branch'
+        branch.mkdir()
+        (self.repo / '.git' / 'worktrees' / 'branch').mkdir(parents=True)
+        (branch / '.git').write_text('gitdir: %s\n' % (self.repo / '.git' / 'worktrees'
+                                                         / 'branch'))
+        saved = (self.repo / 'pandora.toml').read_text()
+        self.configure(*forms)
+        (branch / 'pandora.toml').write_text((self.repo / 'pandora.toml').read_text())
+        (self.repo / 'pandora.toml').write_text(saved)
+        return branch
+
+    def test_a_branch_with_its_own_pandora_toml_only_warns_and_names_no_enroll(self):
+        self.configure('journey')
+        self.enroll()
+        branch = self.branch('journey', 'check')
+        item = next(item for item in doctor.check_repository(
+            str(branch), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('differs from the enrolled one (expected on a branch that changes it)',
+                      item['detail'])
+        self.assertNotIn('pandora enroll', item['detail'])
+
+    def test_from_a_branch_the_enrolled_roots_staleness_still_fails(self):
+        self.configure('journey', 'check')
+        self.enroll()
+        branch = self.branch('journey')
+        item = next(item for item in doctor.check_repository(
+            str(branch), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
+        self.assertEqual(item['status'], 'fail')
+        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
+
+    def test_a_form_named_missing_is_classified_by_kind_not_by_text(self):
+        self.configure('journey')
+        self.enroll(claims=(('journey',), ('missing',)))
+        item = next(item for item in doctor.check_repository(
+            str(self.repo), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
+        self.assertEqual(item['status'], 'warn')
+
     def test_a_marker_pinning_another_checkout_warns(self):
         other = self.root / 'other'
         (other / 'pandora' / 'client').mkdir(parents=True)

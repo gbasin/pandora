@@ -873,14 +873,20 @@ class Daemon:
         verdict['worktree'] = str(root)
         return repo, config, verdict
 
-    def stale_marker(self, worktree, config):
-        """How many routing forms the marker and this worktree's config disagree on.
+    def stale_marker(self, worktree, repo):
+        """How many routing forms the marker and the enrolled root's config disagree on.
 
         The shim routes from the marker alone, so a `pandora.toml` edited since
-        the last enrollment routes the old claim set without a word. Read once
-        per marker change: one stat per claimed run otherwise. Never a verdict:
-        0 when the marker cannot be read.
+        the last enrollment routes the old claim set without a word. The
+        enrolled root's configuration, not this worktree's: a branch whose
+        `pandora.toml` differs is normal and says nothing about the marker.
+        Read once per marker change: one stat per claimed run otherwise. Never a
+        verdict: 0 when the marker or that configuration cannot be read.
         """
+        try:
+            config = self.repo_config(repo, Path(repo['root']))
+        except (ConfigError, OSError, KeyError):
+            return 0
         try:
             common = enrollment.common_dir(worktree)
             path = Path(common) / enrollment.MARKER if common else None
@@ -950,11 +956,11 @@ class Daemon:
         plan = verdict['plan']
         job = config['jobs'][verdict['job']]
         worktree = verdict.get('worktree') or request['cwd']
-        stale = self.stale_marker(worktree, config)
+        stale = self.stale_marker(worktree, repo)
         if stale:
             self.tell(conn, 'enrollment marker is stale (%d form%s differ%s); run pandora '
                             'enroll %s' % (stale, '' if stale == 1 else 's',
-                                          's' if stale == 1 else '', worktree))
+                                          's' if stale == 1 else '', repo['root']))
         # Only names the repository asked for: an undeclared variable the shim
         # filtered was never going to travel, so saying so would be noise.
         for line in envfilter.notices(plan['env_passthrough'], request.get('env_dropped')):

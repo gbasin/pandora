@@ -244,12 +244,14 @@ Enroll again after any change to the claimed forms or to `[matching]
 subdirectory` in `pandora.toml`. The shim reads the claim list and the
 subdirectory mode from the marker, not from `pandora.toml`, so until you enroll
 again the shim acts on the old values. `pandora doctor` reports a marker whose
-claim list, strip prefixes or subdirectory mode differ from this worktree's
-`pandora.toml`, a marker whose `home` names a removed checkout or a checkout
+claim list, strip prefixes or subdirectory mode differ from the enrolled
+checkout's `pandora.toml`, a marker whose `home` names a removed checkout or a checkout
 other than the one the doctor runs from, and a marker whose socket is not the
 one the doctor checked. A claimed command routed through a stale marker prints
 one line: `pandora: enrollment marker is stale (N forms differ); run pandora
-enroll <root>`.
+enroll <root>`. A branch worktree whose own `pandora.toml` differs is not stale:
+its commands route by the enrolled one, and the doctor only warns. Do not
+enroll from it.
 
 To stop routing a repository, remove the marker.
 
@@ -280,7 +282,7 @@ ok    pandora on PATH    ~/.local/bin/pandora imports ~/Code/pandora from any di
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, same package as the client
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
 ok    repository         enrolled as eichler: 20 claimed form(s), marker ~/Code/eichler/.git/pandora-enrolled
-ok    marker forms       the marker matches this worktree's pandora.toml
+ok    marker forms       the marker matches the enrolled pandora.toml
 ok    daemon enrollment  [[repos]] eichler at ~/Code/eichler
 ok    working directory  the worktree root, ~/Code/eichler
 ok    variables          none of PANDORA_OFF, PANDORA_WHERE, PANDORA_SHARDS set
