@@ -12,8 +12,8 @@ The cache is content-addressed by `input_id`, which is the manifest digest, so:
   engine can say `same_tree_as`;
 * a run's source is immutable for the life of the run, which is what lets a
   second run start while the first is still reading;
-* publishing is a rename, so a transfer interrupted halfway leaves a `.partial`
-  directory that no run can name.
+* each transfer stages in its own `.partial.*` directory; publishing is a
+  rename, so an interrupted transfer cannot expose an incomplete tree.
 
 SSH connection reuse belongs here rather than in the caller: rsync and the
 engine calls are the same conversation with the same host, and a ControlMaster
@@ -141,33 +141,63 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
     if out.strip() == 'present':
         return {'path': paths['final'], 'reused': True, 'link_dest': None,
                 'seconds': 0.0, 'files': len(manifest)}
-    link.run(['sh', '-c', 'mkdir -p %s && rm -rf %s && mkdir -p %s'
-              % (shlex.quote(paths['base']), shlex.quote(paths['partial']),
-                 shlex.quote(paths['partial']))], timeout=120)
     _, previous, _ = link.run(['sh', '-c', 'readlink %s 2>/dev/null || true'
                                % shlex.quote(paths['latest'])], timeout=60)
     link_dest = previous.strip() or None
-    argv = ['rsync', '-a', '--delete', '--files-from=-', '--from0', '-e', link.rsh]
+    # Fresh worktrees have new mtimes for identical content. Match by checksum
+    # and omit timestamp preservation so link-dest can reuse immutable files.
+    # Checksums also catch equal-size edits whose mtime did not change.
+    argv = ['rsync', '-a', '--no-times', '--checksum', '--delete',
+            '--files-from=-', '--from0', '-e', link.rsh]
     if link_dest and link_dest != paths['final']:
         argv += ['--link-dest=' + link_dest]
-    argv += [str(worktree) + '/', '%s:%s/' % (link.host, paths['partial'])]
     names = b'\0'.join(record['path'].encode() for record in manifest) + b'\0'
-    if on_send is not None:
-        on_send()
+    _, staged, _ = link.feed('''
+import os, sys, tempfile
+base, input_id = sys.argv[1:]
+os.makedirs(base, exist_ok=True)
+print(tempfile.mkdtemp(prefix=input_id + '.partial.', dir=base))
+''', (paths['base'], input_id), timeout=120)
+    stage = staged.rstrip('\n')
+    argv += [str(worktree) + '/', '%s:%s/' % (link.host, stage)]
     import time
-    started = time.monotonic()
-    proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, timeout=timeout)
-    if proc.returncode != 0:
-        raise TransferError('rsync to %s failed (%d): %s'
-                            % (link.host, proc.returncode,
-                               (proc.stderr or b'').decode('utf-8', 'replace').strip()[:600]))
-    # Publish by rename, then move the `latest` pointer. A crash between the two
-    # costs the next transfer its link-dest and nothing else.
-    link.run(['sh', '-c', 'mv %s %s && ln -sfn %s %s.tmp && mv -T %s.tmp %s'
-              % (shlex.quote(paths['partial']), shlex.quote(paths['final']),
-                 shlex.quote(paths['final']), shlex.quote(paths['latest']),
-                 shlex.quote(paths['latest']), shlex.quote(paths['latest']))], timeout=120)
+    try:
+        if on_send is not None:
+            on_send()
+        started = time.monotonic()
+        proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=timeout)
+        if proc.returncode != 0:
+            raise TransferError('rsync to %s failed (%d): %s'
+                                % (link.host, proc.returncode,
+                                   (proc.stderr or b'').decode('utf-8', 'replace').strip()[:600]))
+        # A concurrent attempt may already have published this input. Keep that
+        # completed tree, then atomically point latest at it. Each attempt uses
+        # a separate temporary symlink, including across different inputs.
+        link.feed('''
+import errno, os, sys, uuid
+stage, final, latest = sys.argv[1:]
+if not os.path.lexists(final):
+    try:
+        os.rename(stage, final)
+    except OSError as exc:
+        if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+            raise
+        if not os.path.isdir(final):
+            raise
+temporary = latest + '.tmp.' + uuid.uuid4().hex
+try:
+    os.symlink(final, temporary)
+    os.replace(temporary, latest)
+finally:
+    if os.path.lexists(temporary):
+        os.unlink(temporary)
+''', (stage, paths['final'], paths['latest']), timeout=120)
+    finally:
+        link.feed('''
+import shutil, sys
+shutil.rmtree(sys.argv[1], ignore_errors=True)
+''', (stage,), timeout=120)
     return {'path': paths['final'], 'reused': False, 'link_dest': link_dest,
             'seconds': round(time.monotonic() - started, 2), 'files': len(manifest)}
 
