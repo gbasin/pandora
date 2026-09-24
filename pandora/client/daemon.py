@@ -922,18 +922,24 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code,
                                'msg': message, 'exit': INFRA}))
 
+        # Whether an explicit PANDORA_WHERE=local could take this job: what the
+        # refusal steers to instead of an unmanaged PANDORA_OFF run.
+        local_lane = placement.why_not_local(job) is None
         if (request.get('placement') or {}).get('override') == 'remote':
             # The caller said where. Running it here instead would be the one
             # answer they ruled out, so the fallback lane is not consulted.
             refuse('%s (%s): --remote was asked for, so this is not run on '
-                   'this Mac. Retry, or drop the override.' % (cause, detail),
+                   'this Mac. %s' % (cause, detail,
+                                     'Retry, or run it in the local queue with '
+                                     'PANDORA_WHERE=local.' if local_lane else 'Retry.'),
                    'placement-unavailable')
             return
         verdict = policy.decide(cause=cause, size=plan['size'],
                                 writeback=bool(plan['options'].get('update'))
                                           or plan.get('writeback'),
                                 declared=job['fallback'],
-                                notice=(job['fallback'] or {}).get('notice'))
+                                notice=(job['fallback'] or {}).get('notice'),
+                                local_lane=local_lane)
         if verdict['action'] == 'refuse':
             refuse('%s (%s): %s' % (cause, detail, verdict['reason']), 'fallback-refused')
             return
@@ -1010,6 +1016,7 @@ class Daemon:
             # The machine, not the queue. Waiting longer would not have helped
             # and starting anyway is the one thing this gate exists to prevent.
             self.budget.finish(run.id, 0, 'lost')
+            run.note(str(error))
             run.finish(INFRA, state='refused')
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'local-paused',
                                'msg': str(error), 'exit': INFRA}))

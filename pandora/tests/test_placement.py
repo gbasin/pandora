@@ -169,7 +169,7 @@ class LocalOverride(PlacementCase):
         answer = self.place(['pnpm', 'surface', 'desk'], 'local')
         self.assertEqual((answer.error['code'], answer.exit), ('placement', 64))
         self.assertIn('sharded', answer.error['msg'])
-        self.assertIn('PANDORA_OFF=1', answer.error['msg'])
+        self.assertIn('last resort, PANDORA_OFF=1', answer.error['msg'])
         self.assertFalse(self.marker.exists())
         self.assertEqual(RecordingWorker.plans, [])
 
@@ -215,6 +215,8 @@ class RemoteOverride(PlacementCase):
         answer = self.place(['pnpm', 'unit'], 'remote')
         self.assertEqual((answer.error['code'], answer.exit), ('placement-unavailable', 70))
         self.assertIn('--remote was asked for', answer.error['msg'])
+        self.assertIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertNotIn('PANDORA_OFF', answer.error['msg'])
         self.assertFalse(self.marker.exists(), 'an explicit --remote fell back to this Mac')
 
     def test_a_worker_known_down_is_the_same_error_without_submitting(self):

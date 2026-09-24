@@ -17,9 +17,8 @@ INVARIANTS
   * `--update` runs on the worker, never here. Its files come back only from
     a passing run (every shard) over a tree you did not edit meanwhile;
     otherwise exit 75, your files untouched, and the next step printed.
-  * `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
-    `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
-    the queue and the stats; 64 if the job cannot run there, never a fallback.
+  * `PANDORA_WHERE=local|remote <command>` moves one run between lanes, in the
+    queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
     `pandora: hint: ...`: the next action, derived from evidence.
 

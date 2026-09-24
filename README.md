@@ -28,9 +28,10 @@ The invariants, as `pandora --help` states them:
 * `--update` runs on the worker, never here. Its files come back only from a
   passing run (every shard) over a tree you did not edit meanwhile; otherwise
   exit 75, your files untouched, and the next step printed.
-* `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
-  `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
+* `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
   the queue and the stats; 64 if the job cannot run there, never a fallback.
+  `PANDORA_OFF=1 <command>` runs it here with no Pandora at all: a last resort,
+  never a way around the queue or a memory-pressure refusal.
 * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
   `pandora: hint: ...`: the next action, derived from evidence.
 
@@ -500,7 +501,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 |---|---|---|
 | the command's own | The command's verdict. | As without Pandora. |
 | 64 | The command cannot run as typed: a path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
-| 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
+| 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry; do not bypass it. |
 | 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. | Wait for the other run. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 | 130 | Canceled. | Nothing. |
@@ -509,7 +510,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Variable | Effect |
 |---|---|
-| `PANDORA_OFF=1` | The shim execs the real pnpm before it reads anything. Use it to debug a routed failure, never to skip the queue. |
+| `PANDORA_OFF=1` | The shim execs the real pnpm before it reads anything: no queue, no memory gate, no receipt. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
 
@@ -578,8 +579,12 @@ above. A worker that cannot be asked ends the run with exit 70 and the message
 
 A job's `fallback = "local"` or `"refuse"` overrides the size column. The local
 lane is the same queue, memory admission and receipt as any local job, recorded
-as `fallback:<cause>`. A refusal prints the cause and `PANDORA_OFF=1`, and
-nothing runs.
+as `fallback:<cause>`. A refusal prints the cause and the next step, and
+nothing runs. The next step is "retry, or run it in the local queue with
+`PANDORA_WHERE=local`" when the job can run in the local lane. Only for a job
+that cannot (a sharded one) does it name `PANDORA_OFF=1`, as a last resort. A
+local run refused by the memory-pressure gate says to wait and retry, and not to
+bypass it.
 
 ### Write-back (`--update`)
 

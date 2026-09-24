@@ -66,6 +66,13 @@ forms = [{ prefix = ["writer"] }]
 options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
 outputs = [{ kind = "writeback", requires_option = "update", paths = ["out"] }]
 run = { argv = ["sh", "-c", "echo ran-writer > %(marker)s"] }
+[[jobs]]
+id = "fanout"
+size = "large"
+args = "optional"
+forms = [{ prefix = ["fanout"] }]
+shards = { strategy = "argv", template = "--shard={i}/{n}", default = 2, max = 4 }
+run = { argv = ["sh", "-c", "echo ran-fanout > %(marker)s", "--", "{args}"] }
 [worker]
 base_image = "images:ubuntu/26.04"
 '''
@@ -256,8 +263,33 @@ class OneFallbackPath(DaemonCase):
         self.assertEqual(answer.exit, 70)
         self.assertEqual(answer.error['code'], 'fallback-refused')
         self.assertIn('size large', answer.error['msg'])
-        self.assertIn('PANDORA_OFF=1', answer.error['msg'])
+        # The job could run in the local lane, so the refusal steers there and
+        # not to an unmanaged run (2026-09-24).
+        self.assertIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertNotIn('PANDORA_OFF', answer.error['msg'])
         self.assertFalse(self.marker.exists(), 'a large job ran on this Mac')
+
+    def test_a_sharded_job_offers_pandora_off_only_as_a_last_resort(self):
+        FakeWorker.raises = TransferError('rsync failed (255): unexpected end of file')
+        answer = self.call(['pnpm', 'fanout'])
+        self.assertEqual((answer.error['code'], answer.exit), ('fallback-refused', 70))
+        self.assertNotIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertIn('last resort, PANDORA_OFF=1', answer.error['msg'])
+
+    def test_a_paused_local_lane_says_why_in_the_refused_runs_log(self):
+        from pandora.client.pressure import Paused
+        FakeWorker.raises = WorkerUnreachable('down')
+        reason = 'this Mac has been under memory pressure for 300s (swap growing)'
+        with mock.patch.object(self.daemon.budget, 'admit', side_effect=Paused(reason)):
+            answer = self.call(['pnpm', 'unit'])
+        self.assertEqual((answer.error['code'], answer.exit), ('local-paused', 70))
+        local = [path.parent for path in (self.state / 'runs').glob('*/meta.json')
+                 if json.loads(path.read_text())['lane'] == 'local']
+        self.assertEqual(len(local), 1)
+        self.assertEqual(json.loads((local[0] / 'meta.json').read_text())['state'], 'refused')
+        frames = [json.loads(line) for line in (local[0] / 'log').read_text().splitlines()]
+        said = b''.join(base64.b64decode(frame['b64']) for frame in frames if 'b64' in frame)
+        self.assertIn(reason.encode(), said)
 
     def test_a_large_job_that_declares_local_is_allowed(self):
         FakeWorker.raises = WorkerUnreachable('down')
@@ -652,6 +684,18 @@ class Policy(unittest.TestCase):
                                 declared={'action': 'local', 'on': list(policy.CAUSES)})
         self.assertEqual(verdict['action'], 'refuse')
         self.assertIn('write-back', verdict['reason'])
+
+    def test_a_refusal_steers_to_the_local_queue_when_the_job_can_run_there(self):
+        for kwargs in ({'size': 'large'}, {'size': 'small', 'writeback': True},
+                       {'size': 'small', 'declared': {'action': 'local', 'on': ['queue-timeout']}}):
+            reason = policy.decide(cause='transfer-failed', **kwargs)['reason']
+            self.assertIn('PANDORA_WHERE=local', reason, kwargs)
+            self.assertNotIn('PANDORA_OFF', reason, kwargs)
+
+    def test_pandora_off_is_named_only_when_the_local_lane_cannot_take_it(self):
+        reason = policy.decide(cause='transfer-failed', size='large', local_lane=False)['reason']
+        self.assertNotIn('PANDORA_WHERE=local', reason)
+        self.assertIn('last resort, PANDORA_OFF=1', reason)
 
     def test_an_unknown_cause_is_refused_rather_than_guessed(self):
         self.assertEqual(policy.decide(cause='cosmic-ray', size='small')['action'], 'refuse')

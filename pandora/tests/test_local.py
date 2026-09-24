@@ -237,7 +237,9 @@ class PauseGate(unittest.TestCase):
         with self.assertRaises(Paused) as caught:
             pool.admit('a', repo='eichler', job='check', poll=0.01)
         self.assertIn('PSI', str(caught.exception))
-        self.assertIn('PANDORA_OFF=1', str(caught.exception))
+        self.assertIn('memory pressure', str(caught.exception))
+        self.assertIn('Do not bypass this with PANDORA_OFF=1', str(caught.exception))
+        self.assertNotIn('PANDORA_WHERE', str(caught.exception))
 
     def test_the_counters_are_what_pandora_stats_prints(self):
         gate = Gate({'sample_seconds': 0, 'max_wait_seconds': 0.1},

@@ -193,8 +193,12 @@ class Budget:
                 return
             if time.monotonic() >= deadline:
                 self.gate.refused()
-                raise Paused('this Mac has been under pressure for %ds (%s), so nothing new '
-                             'is being started here. Wait, or run it with PANDORA_OFF=1.'
+                # No bypass offered: an unmanaged run is more load on a machine
+                # that is already short of memory (2026-09-24).
+                raise Paused('this Mac has been under memory pressure for %ds (%s), so nothing '
+                             'new is being started here. Wait a few minutes, then retry. Do '
+                             'not bypass this with PANDORA_OFF=1: an unmanaged run adds to the '
+                             'pressure that stopped this one.'
                              % (self.gate.config['max_wait_seconds'], evidence))
 
     def admit(self, run_id, *, repo, job, canceled=None, timeout=0.0, poll=0.25, note=None):

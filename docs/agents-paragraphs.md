@@ -19,11 +19,13 @@ Read [...] for setup, suite selection, cancellation, and recovery." in the
 > repository root. Results, reports and artifacts are in your worktree before
 > the command returns, and the exit code is the command's own. Exit 70 is an
 > infrastructure failure, never a test verdict: retry, or run the command here
-> with `PANDORA_WHERE=local`, which keeps it in the queue. Exit 75 means a
-> validation is already active in this worktree or the source changed during the
-> run. `--update` runs on the worker too: do not edit the worktree while it runs,
-> then review `git diff` of the files it wrote back. When Pandora has advice, it
-> is the last line, `pandora: hint: ...`; act on it. Read
+> with `PANDORA_WHERE=local`, which keeps it in the queue. If the message says
+> this machine is under memory pressure, wait a few minutes and retry; do not
+> bypass it. Exit 75 means a validation is already active in this worktree or
+> the source changed during the run. `--update` runs on the worker too: do not
+> edit the worktree while it runs, then review `git diff` of the files it wrote
+> back. When Pandora has advice, it is the last line, `pandora: hint: ...`; act
+> on it. Read
 > [`tools/notes/local-validation.md`](tools/notes/local-validation.md) for
 > suite selection, cancellation, and recovery.
 
@@ -60,7 +62,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > | Exit | Meaning | Do this |
 > |---|---|---|
-> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
+> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the queue here with `PANDORA_WHERE=local <command>`. If the message says this machine is under memory pressure, wait a few minutes, then retry. |
 > | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. | Wait for the other run. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 > | 130 | You canceled it. | Nothing. |
@@ -88,5 +90,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > `pandora resolve <id> --keep-local`. Validate without `--update` after every
 > update.
 >
-> To run a command on this machine with no Pandora at all, set `PANDORA_OFF=1`.
-> Use it to debug a routed failure, never to skip the queue.
+> `PANDORA_OFF=1` runs a command on this machine with no Pandora at all: no
+> queue and no memory gate. Use it only when a refusal names it as the last
+> resort, or to debug a routed failure. Never use it to skip the queue, and
+> never after a refusal that says this machine is under memory pressure.

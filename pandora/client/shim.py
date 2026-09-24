@@ -77,7 +77,8 @@ def run_local(real, argv, *, state=None, claimed=True, reason='', where=None):
         else:
             if slot is None:
                 notice('%d local fallback slots are all busy; refusing to add a %s run to '
-                       'this Mac. Retry, or set PANDORA_OFF=1 to run it anyway.'
+                       'this Mac. Retry in a minute. As a last resort, PANDORA_OFF=1 runs '
+                       'it with no Pandora at all, outside every limit.'
                        % (count, argv[0] if argv else 'pnpm'))
                 return STALE
     try:
