@@ -527,10 +527,10 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | Command | What it does |
 |---|---|
 | `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. |
-| `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. |
+| `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. |
 | `pandora result <id> [--json]` | Outcome, exit, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
-| `pandora cancel <id>` | Stop a run. A remote instance is destroyed. |
+| `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
 | `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens and ready state. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |

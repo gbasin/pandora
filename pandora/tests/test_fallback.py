@@ -501,6 +501,131 @@ class RestartHygiene(DaemonCase):
         self.assertAlmostEqual(meta['pgid_started'], meta['started'], delta=30)
 
 
+class OrphanedRows(DaemonCase):
+    """A live row whose daemon has exited never leaves a client waiting forever."""
+
+    row = RestartHygiene.row
+    settled = RestartHygiene.settled
+    said = RestartHygiene.said
+
+    def attach(self, run_id, timeout=10):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'attach', 'run': run_id, 'from': 0}))
+        reader = Reader(sock)
+        first = reader.line()
+        code = None
+        while True:
+            frame = reader.line()
+            if frame is None:
+                break
+            if frame.get('t') == 'exit':
+                code = frame['code']
+                break
+        sock.close()
+        return first, code
+
+    def cancel(self, run_id):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'cancel', 'run': run_id}))
+        answer = Reader(sock).line()
+        sock.close()
+        return answer
+
+    def test_attaching_to_a_local_row_nobody_supervises_ends_it(self):
+        self.row('orph1', lane='local', state='running', accepted=time.time())
+        first, code = self.attach('orph1')
+        self.assertEqual((first['t'], first['owned'], code), ('accepted', True, 70))
+        self.assertEqual(self.settled('orph1')['state'], 'infra_failed')
+
+    def test_cancel_of_a_local_row_nobody_supervises_ends_it_canceled(self):
+        self.row('orph2', lane='local', state='running', accepted=time.time())
+        self.assertEqual(self.cancel('orph2')['t'], 'ok')
+        meta = self.settled('orph2')
+        self.assertEqual((meta['state'], meta['exit_code']), ('cancelled', 130))
+        self.assertIn('canceled: the daemon that supervised it has exited', self.said('orph2'))
+        # A client attaching afterward replays the exit rather than waiting.
+        self.assertEqual(self.attach('orph2')[1], 130)
+
+    def test_cancel_of_a_remote_row_nobody_follows_cancels_it_on_the_worker(self):
+        cancels = []
+
+        def follow(worker, run_id, *, should_cancel=None, **kwargs):
+            cancels.append((run_id, should_cancel()))
+            return {'outcome': 'cancelled', 'cli_exit': 130}, 0
+        self.row('orph3', state='running', remote='r55', accepted=time.time())
+        with mock.patch.object(FakeWorker, 'follow', follow):
+            self.cancel('orph3')
+            meta = self.settled('orph3')
+        self.assertEqual(cancels, [('r55', True)])
+        self.assertEqual((meta['state'], meta['exit_code']), ('cancelled', 130))
+
+    def test_a_row_saved_by_this_daemon_is_not_taken_over(self):
+        # Before `accepted` a row is live, not in `runs`, and still driven by
+        # its connection thread: attaching must not close it.
+        self.row('mine1', state='queued', owner=daemon_module.OWNER)
+        self.assertFalse(self.daemon.orphaned(json.loads(
+            (self.state / 'runs' / 'mine1' / 'meta.json').read_text())))
+        self.assertTrue(self.daemon.orphaned(dict(json.loads(
+            (self.state / 'runs' / 'mine1' / 'meta.json').read_text()), owner='gone')))
+
+
+class Unfollowed(unittest.TestCase):
+    """A client told that nothing follows its run exits 70 with one line."""
+
+    def serve(self, frame):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = str(Path(tmp.name) / 's.sock')
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        server.listen(4)
+        self.addCleanup(server.close)
+
+        def answer():
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    return
+                Reader(conn).line()
+                conn.sendall(dump(frame))
+                conn.close()
+        threading.Thread(target=answer, daemon=True).start()
+        return path
+
+    def idle(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(sock.close)
+        return sock
+
+    def test_the_shim_stops_reattaching_and_says_so(self):
+        path = self.serve({'v': VERSION, 't': 'accepted', 'run': 'x1', 'owned': False})
+        stream = shim.Stream(path, 'x1', Reader(self.idle()), None)
+        with mock.patch.object(shim, 'REATTACH_PAUSE', 0):
+            self.assertFalse(stream.reattach())
+        self.assertIn('not following', stream.unfollowed)
+
+    def test_the_shim_stops_on_a_run_the_daemon_does_not_have(self):
+        path = self.serve({'v': VERSION, 't': 'error', 'code': 'rejected',
+                           'msg': 'no such run x2'})
+        stream = shim.Stream(path, 'x2', Reader(self.idle()), None)
+        with mock.patch.object(shim, 'REATTACH_PAUSE', 0):
+            self.assertFalse(stream.reattach())
+        self.assertEqual(stream.unfollowed, 'no such run x2')
+
+    def test_pandora_wait_exits_70_at_once(self):
+        from pandora import cli
+        path = self.serve({'v': VERSION, 't': 'accepted', 'run': 'x3', 'owned': False})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(cli.attach(path, 'x3'), 70)
+        self.assertIn('the daemon is not following it', err.getvalue())
+
+
 class DaemonLog(DaemonCase):
     """Every line the daemon writes to its log starts with a UTC time."""
 

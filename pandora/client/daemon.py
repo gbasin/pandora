@@ -36,7 +36,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
                       WorkerUnreachable)
 from ..engine import bundle
 from ..engine import retry as retries
-from ..exits import INFRA, STALE
+from ..exits import CANCELED, INFRA, STALE
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
@@ -59,6 +59,9 @@ CODE_DIGEST = bundle.code_digest()
 # nobody can say. The next action, not a diagnosis: a blind retry could be the
 # second copy of a command that is already running.
 UNCERTAIN = 'execution is uncertain; check `pandora ps` before retrying'
+# This daemon process, as written into every row it saves. A live row whose
+# owner is another process is one no thread here is driving.
+OWNER = uuid.uuid4().hex
 
 
 def now():
@@ -206,7 +209,7 @@ class Run:
                                 else int((self.accepted - self.started) * 1000)),
                    'hint': self.hint, 'attempts': self.attempts, 'phase': self.phase,
                    'pre_accept': self.pre_accept, 'updated': now(),
-                   'placement': self.request.get('placement')}
+                   'placement': self.request.get('placement'), 'owner': OWNER}
         if self.fell_back_to:
             payload['fell_back_to'] = self.fell_back_to
         if self.refusal:
@@ -404,6 +407,7 @@ class Daemon:
         self.repo_configs = {}
         self.repo_stamps = {}
         self.markers = {}                  # marker path -> (mtime_ns, parsed)
+        self.adopting = threading.Lock()   # one takeover per orphaned row
         self.workers = {}
         self.worker_factory = Worker
         # One local queue per daemon, built once: its learned peaks live in a
@@ -563,38 +567,68 @@ class Daemon:
                 continue
             if payload.get('state') not in ('queued', 'running'):
                 continue
-            run = Run(self.state, payload['id'], payload)
-            run.lane = payload.get('lane') or 'remote'
-            run.remote = payload.get('remote')
-            run.accepted = payload.get('accepted')
-            run.started = payload.get('started') or run.started
-            run.phase = payload.get('phase')
-            if run.lane == 'local':
-                self.close_local(run, payload)
-                continue
-            if not run.remote:
-                log('resume: run %s was not accepted; asking the worker' % run.id)
-                threading.Thread(target=self.settle_unaccepted, args=(run, payload),
-                                 daemon=True).start()
-                continue
+            run = self.resume_row(payload)
+            if run is not None and run.remote and not run.done.is_set():
+                resumed.append(run.id)
+        return resumed
+
+    def orphaned(self, payload):
+        """A live row no thread of this daemon drives: its daemon has exited.
+
+        `owner` is the daemon process that last saved the row. One of ours that
+        is not in `self.runs` is a submission before `accepted`, still driven by
+        its connection thread; anything else live is nobody's.
+        """
+        return (payload.get('state') in ('queued', 'running')
+                and payload.get('id') not in self.runs and payload.get('owner') != OWNER)
+
+    def resume_row(self, payload, *, cancel=False):
+        """Take over one live row the last daemon left: follow it, settle it, or close it.
+
+        Returns the row's Run, registered in `self.runs` before anything else can
+        find it, so two attaches never start two followers. `cancel` is an
+        explicit `pandora cancel` of the row: a local one ends `cancelled`, a
+        remote one is followed with its cancel already asked for.
+        """
+        run = Run(self.state, payload['id'], payload)
+        run.lane = payload.get('lane') or 'remote'
+        run.remote = payload.get('remote')
+        run.accepted = payload.get('accepted')
+        run.started = payload.get('started') or run.started
+        run.phase = payload.get('phase')
+        if cancel:
+            run.canceled.set()
+        with self.runs_lock:
+            self.runs[run.id] = run
+        if run.lane == 'local':
+            self.close_local(run, payload)
+        elif not run.remote:
+            log('resume: run %s was not accepted; asking the worker' % run.id)
+            threading.Thread(target=self.settle_unaccepted, args=(run, payload),
+                             daemon=True).start()
+        else:
             log('resume: run %s re-attaching to %s' % (run.id, run.remote))
             run.state = 'running'
-            with self.runs_lock:
-                self.runs[run.id] = run
             threading.Thread(target=self.reattach, args=(run,), daemon=True).start()
-            resumed.append(run.id)
-        return resumed
+        return run
 
     def close_local(self, run, payload):
         """A local run's supervisor died with the last daemon: end the row, and the tree."""
         killed = local_module.kill_recorded(payload.get('pgid'), payload.get('pgid_started'))
-        log('resume: local run %s closed as infra_failed%s' % (
-            run.id, '; killed process group %s' % payload['pgid'] if killed else
+        canceled = run.canceled.is_set()
+        log('resume: local run %s closed as %s%s' % (
+            run.id, 'cancelled' if canceled else 'infra_failed',
+            '; killed process group %s' % payload['pgid'] if killed else
             ('; process group %s not ours any more, left alone' % payload['pgid']
              if payload.get('pgid') else '')))
-        run.note('daemon restarted during the run%s; rerun it'
-                 % ('; stopped its process group %s' % payload['pgid'] if killed else ''))
-        run.finish(INFRA, state='infra_failed')
+        run.note('%s: the daemon that supervised it has exited%s%s'
+                 % ('canceled' if canceled else 'daemon restarted during the run',
+                    '; stopped its process group %s' % payload['pgid'] if killed else '',
+                    '' if canceled else '; rerun it'))
+        if canceled:
+            run.finish(CANCELED, state='cancelled')
+        else:
+            run.finish(INFRA, state='infra_failed')
 
     def settle_unaccepted(self, run, payload):
         """A remote row that never reached `accepted`: ask the engine, once, by request id.
@@ -627,13 +661,16 @@ class Daemon:
                      'following it' % run.remote)
             log('resume: run %s adopted as %s' % (run.id, run.remote))
             run.save()
-            with self.runs_lock:
-                self.runs[run.id] = run
             self.reattach(run)
             return
         if why is None:
             why = ('the worker never started it' if not found.get('found')
                    else 'the worker has it as %s, not started' % (found.get('state') or '?'))
+        if run.canceled.is_set():
+            run.note('canceled; the daemon restarted before `accepted` and %s' % why)
+            log('resume: run %s closed as cancelled: %s' % (run.id, why))
+            run.finish(CANCELED, state='cancelled')
+            return
         run.note('daemon restarted before `accepted`; %s; rerun it' % why)
         log('resume: run %s closed as infra_failed: %s' % (run.id, why))
         run.finish(INFRA, state='infra_failed')
@@ -747,7 +784,9 @@ class Daemon:
         elif op == 'attach':
             self.serve_attach(conn, reader, first)
         elif op == 'cancel':
-            run = self.runs.get(first.get('run'))
+            # A row no thread here drives is taken over with its cancel asked
+            # for; answering `ok` and changing nothing left clients hung.
+            run = self.runs.get(first.get('run')) or self.adopt(first.get('run'), cancel=True)
             if run:
                 run.canceled.set()
             conn.sendall(dump({'t': 'ok', 'run': first.get('run')}))
@@ -1533,11 +1572,19 @@ class Daemon:
         except Exception:                        # noqa: BLE001 - a courtesy, never a verdict
             phase = None
         conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'reattached': True,
-                           'remote': run.remote, 'phase': phase}))
+                           'remote': run.remote, 'phase': phase,
+                           # Whether anything here will bring this run to an exit.
+                           'owned': run.done.is_set() or run.id in self.runs}))
         self.stream(conn, reader, run, int(request.get('from', 0)))
 
-    def adopt(self, run_id):
-        """A finished run this daemon did not start is still answerable from disk."""
+    def adopt(self, run_id, *, cancel=False):
+        """A run this daemon did not start is still answerable from disk.
+
+        A finished one is replayed. A live one nobody drives -- its daemon has
+        exited -- is taken over first (`resume_row`), so an attached client
+        always reaches an exit frame instead of waiting on a row nothing will
+        ever finish.
+        """
         if not run_id:
             return None
         meta = self.state / 'runs' / run_id / 'meta.json'
@@ -1547,6 +1594,11 @@ class Daemon:
             payload = json.loads(meta.read_text())
         except (OSError, ValueError):
             return None
+        with self.adopting:
+            if run_id in self.runs:
+                return self.runs[run_id]
+            if self.orphaned(dict(payload, id=run_id)):
+                return self.resume_row(dict(payload, id=run_id), cancel=cancel)
         run = Run(self.state, run_id, payload)
         run.state = payload.get('state', 'done')
         run.exit_code = payload.get('exit_code')

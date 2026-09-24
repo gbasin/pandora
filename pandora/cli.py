@@ -206,6 +206,12 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
         notice('cannot attach to %s: %s' % (run_id, (frame or {}).get('msg') or frame))
         sock.close()
         return INFRA
+    if frame.get('owned') is False:
+        # Nothing in the daemon will bring it to an exit; waiting would be forever.
+        notice('run %s is live on disk but the daemon is not following it; check '
+               '`pandora ps`' % run_id)
+        sock.close()
+        return INFRA
     if not quiet and frame.get('phase'):
         notice(frame['phase'])
     timer = None
