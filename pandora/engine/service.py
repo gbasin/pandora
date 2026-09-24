@@ -390,6 +390,12 @@ def cmd_cancel(args):
             waitlist.withdraw(paths, ledger, args.run, 'canceled while queued; nothing ran')
             return emit({'ok': True, 'withdrawn': True, 'run_id': args.run,
                          'state': 'queued'})
+        if getattr(args, 'queued_only', False):
+            # A withdrawal that lost the race to admission: the run is the
+            # caller's to follow now, not to stop (a daemon draining for a
+            # restart asks this way).
+            return emit({'ok': True, 'withdrawn': False, 'run_id': args.run,
+                         'state': row['state']})
         ledger.request_cancel(args.run)
     return emit({'ok': True, 'requested': True, 'run_id': args.run, 'state': row['state']})
 
@@ -628,6 +634,8 @@ def main(argv=None):
         node.add_argument('--run', required=True)
         if name == 'cancel':
             node.add_argument('--client', default=None)
+            node.add_argument('--queued-only', action='store_true',
+                              help='withdraw a queued row; leave an admitted one alone')
         node.set_defaults(func=function)
     logs = sub.add_parser('logs')
     logs.add_argument('--run', required=True)

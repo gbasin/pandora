@@ -317,6 +317,15 @@ class Worker:
     def cancel(self, run_id):
         return self.engine(['cancel', '--run', run_id] + self.as_client(), timeout=60)
 
+    def withdraw(self, run_id):
+        """Take a row out of the worker queue if it is still there.
+
+        `withdrawn: true` when it was: nothing ran. `false` when admission won
+        the race; the run is then left alone, to be followed like any other.
+        """
+        return self.engine(['cancel', '--run', run_id, '--queued-only'] + self.as_client(),
+                           timeout=60)
+
     def as_client(self):
         """`--client NAME` for an engine verb scoped to this client, or nothing."""
         return ['--client', self.client] if self.client else []
