@@ -5,10 +5,10 @@ day three `large` jobs were refused `admission-refused: memory` because other
 sessions' runs held 7.8 of the worker's 14 GiB, and a large job never falls back,
 so a busy worker meant exit 70 for every one of them. The owner's rulings:
 
-* **A full worker queues; it does not refuse.** When memory is the only
-  obstacle, `submit` leaves the row `queued` and starts a waiter. The disk floor,
-  `max_running`, and a reservation larger than the whole budget still refuse,
-  because waiting cannot fix them.
+* **A full worker queues; it does not refuse.** When memory or run slots are
+  short, `submit` leaves the row `queued` and starts a waiter. The disk floor
+  and a reservation larger than the whole budget still refuse, because waiting
+  cannot fix them.
 * **One queue, in arrival order.** No priority and no per-client share. The
   oldest waiting row is admitted first; a large row at the head blocks smaller
   ones behind it even when they would fit (`Scheduler.admit`, reason `queue`).
@@ -157,6 +157,10 @@ def wait(root, run_id, *, python=None, poll=POLL, clock=time.time, sleep=time.sl
                 row = ledger.get(run_id)
                 if row is None or row['state'] != 'queued':
                     return row['state'] if row is not None else 'stale'
+                if not row['queue_deadline'] or (row['role'] or 'single') != 'single':
+                    # Not a row `submit` queued: a shard its parent is admitting,
+                    # or one with no bound. Not this waiter's to admit or expire.
+                    return 'not-waitable'
                 if row['cancel_requested']:
                     withdraw(paths, ledger, run_id, 'canceled while queued; nothing ran')
                     return 'cancelled'

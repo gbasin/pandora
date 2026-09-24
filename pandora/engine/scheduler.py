@@ -65,7 +65,7 @@ class Scheduler:
         self.margin = margin
         self.floor = floor
 
-    def reservation(self, repo, job, declared_class=None):
+    def reservation(self, repo, job, declared_class=None, role='single'):
         """(reservation, ceiling, size_class) for the next run of this job.
 
         The repository declares a size class, and `learn` may since have moved
@@ -75,8 +75,9 @@ class Scheduler:
         with fewer than three observations reserves its whole ceiling, because
         the first runs of an unknown job are the ones most likely to surprise.
         """
-        size_class = self.store.size_class(repo, job, default=declared_class or 'medium')
-        peaks = self.store.peaks(repo, job)
+        key = admission.peak_key(job, role)
+        size_class = self.store.size_class(repo, key, default=declared_class or 'medium')
+        peaks = self.store.peaks(repo, key)
         reserve = admission.reserve(peaks, size_class=size_class,
                                     margin=self.margin, floor=self.floor)
         return reserve, admission.ceiling_for(size_class), size_class, len(peaks)
@@ -132,29 +133,36 @@ class Scheduler:
     def admit(self, run_id, repo, job, declared_class=None):
         """Decide, and write the decision into the ledger under one lock.
 
-        Refusal reasons, in the order they are checked: `memory` with `never`
-        (the reservation is larger than the whole budget, so waiting cannot
-        help), `slots`, `queue` (older rows are waiting, and the oldest goes
-        first even if this one would fit: a large row at the head blocks the
-        smaller ones behind it, by ruling), then `memory`.
+        Refusal reasons, in the order they are checked: `state` (the row is
+        not `queued`: it was admitted, withdrawn or expired by someone else, and
+        admitting it again would start a second supervisor), `memory` with
+        `never` (the reservation is larger than the whole budget, so waiting
+        cannot help), `queue` (older rows are waiting, and the oldest goes first
+        even if this one would fit: a large row at the head blocks the smaller
+        ones behind it, by ruling), then `slots` and `memory`. Every reason but
+        `state` and `never` is waited out in the one queue.
         """
-        reserve, ceiling, size_class, samples = self.reservation(repo, job, declared_class)
+        row = self.ledger.get(run_id)
+        if row is not None and row['state'] != 'queued':
+            return {'admitted': False, 'reason': 'state', 'state': row['state']}
+        role = (row['role'] if row is not None else None) or 'single'
+        reserve, ceiling, size_class, samples = self.reservation(repo, job, declared_class, role)
         cold = samples < admission.MIN_SAMPLES
         if reserve > self.budget_mib:
             return {'admitted': False, 'reason': 'memory', 'never': True,
                     'reservation_mib': reserve, 'held_mib': self.held_mib(exclude=run_id),
                     'budget_mib': self.budget_mib, 'size_class': size_class}
-        running = [row for row in self.live_rows()
-                   if row['state'] in ('admitted', 'running', 'collecting')]
-        if len(running) >= self.max_running:
-            return {'admitted': False, 'reason': 'slots', 'reservation_mib': reserve,
-                    'running': len(running), 'max_running': self.max_running}
         held = self.held_mib(exclude=run_id)
         ahead = self.ahead_of(run_id)
         if ahead:
             return {'admitted': False, 'reason': 'queue', 'ahead': len(ahead),
                     'reservation_mib': reserve, 'held_mib': held,
                     'budget_mib': self.budget_mib, 'size_class': size_class}
+        running = [item for item in self.live_rows()
+                   if item['state'] in ('admitted', 'running', 'collecting')]
+        if len(running) >= self.max_running:
+            return {'admitted': False, 'reason': 'slots', 'reservation_mib': reserve,
+                    'running': len(running), 'max_running': self.max_running}
         if held + reserve > self.budget_mib:
             return {'admitted': False, 'reason': 'memory', 'reservation_mib': reserve,
                     'held_mib': held, 'budget_mib': self.budget_mib,
@@ -186,19 +194,20 @@ class Scheduler:
         mapped = {'passed': 'ok', 'command_failed': 'failed', 'oom': 'oom',
                   'timed_out': 'timeout', 'cancelled': 'lost',
                   'infra_failed': 'lost'}[outcome]
-        repo, job = row['repo'], row['job']
-        keys = row.keys()
+        repo, keys = row['repo'], row.keys()
+        role = (row['role'] if 'role' in keys else None) or 'single'
+        job = admission.peak_key(row['job'], role)
         declared = ((row['size_declared'] if 'size_declared' in keys else None)
                     or row['size_class'] or 'medium')
         before = self.store.size_class(repo, job, default=declared)
-        self.store.record(repo, job, int(peak_mib), mapped)
+        self.store.record(repo, job, int(peak_mib), mapped, declared=declared)
         change = None
         if mapped == 'oom':
             if before != declared:
                 change = {'reason': 'oom'}
             self.store.set_class(repo, job, declared, declared=declared)
         elif mapped in ('ok', 'failed'):
-            clean = self.store.clean_since_oom(repo, job)
+            clean = self.store.clean_since_oom(repo, job, declared=declared)
             if len(clean) >= admission.MIN_SAMPLES:
                 chosen = admission.classify(clean, current=declared, learned=True)
                 if chosen != before:
@@ -206,9 +215,10 @@ class Scheduler:
                               'p95_mib': admission.percentile(clean, 95),
                               'samples': len(clean)}
                 self.store.set_class(repo, job, chosen, declared=declared)
-        reserve, ceiling, size_class, samples = self.reservation(repo, job, declared)
+        reserve, ceiling, size_class, samples = self.reservation(row['repo'], row['job'],
+                                                                declared, role)
         if change is not None:
-            change.update({'job': job, 'from': before, 'to': size_class})
+            change.update({'job': row['job'], 'from': before, 'to': size_class})
         return {'peak_mib': int(peak_mib), 'outcome': outcome,
                 'reservation_mib': row['reservation_mib'], 'ceiling_mib': row['ceiling_mib'],
                 'over_reservation': bool(row['reservation_mib']

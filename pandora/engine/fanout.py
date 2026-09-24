@@ -207,7 +207,7 @@ def free_lanes(paths, ledger, plan):
         try:
             scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
             reserve, _, _, _ = scheduler.reservation(plan['repo'], plan['job'],
-                                                     plan['size_class'])
+                                                     plan['size_class'], 'shard')
             spare = scheduler.budget_mib - scheduler.held_mib()
             by_memory = spare // max(1, reserve)
             by_slots = scheduler.max_running - len(scheduler.live_rows())
@@ -289,6 +289,11 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
                 if verdict['admitted']:
                     pid = runner.spawn(paths.root, run_id)
                     ledger.update(run_id, supervisor_pid=pid)
+                    return verdict
+                if verdict['reason'] == 'state':
+                    # Not queued any more: something else admitted or closed it.
+                    # Spawning here would be a second supervisor; the poll that
+                    # follows reads whatever became of it.
                     return verdict
                 # The shard stands in the worker's one queue (`waitlist`), in
                 # arrival order with every plain run, from its first refusal.

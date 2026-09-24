@@ -154,17 +154,31 @@ class AFullWorkerQueues(Engine):
         small = self.submit('c:suite', size='small', job='three')
         self.assertEqual(small['state'], 'admitted')
 
-    def test_slots_still_refuse_and_so_does_a_reservation_no_wait_can_fit(self):
+    def test_full_slots_queue_like_full_memory(self):
         with mock.patch.object(Scheduler, '__init__', _slots(1)):
-            self.submit('a:suite', size='small')
-            refused = self.submit('b:suite', size='small')
-        self.assertFalse(refused['ok'])
-        self.assertEqual(refused['code'], 'admission-refused')
-        self.assertEqual(refused['admission']['reason'], 'slots')
+            first = self.submit('a:suite', size='small')['run_id']
+            waiting = self.submit('b:suite', size='small')
+            self.assertEqual(waiting['state'], 'queued')
+            self.assertEqual(waiting['admission']['reason'], 'slots')
+            self.assertEqual(self.waiters, [waiting['run_id']])
+            self.assertEqual(self.wait(waiting['run_id']), 'waiting')
+            self.finish(first)
+            self.assertEqual(self.wait(waiting['run_id']), 'admitted')
+
+    def test_only_a_reservation_no_wait_can_fit_refuses_at_once(self):
         huge = self.submit('c:suite', size='xlarge')      # 12 GiB on an 8 GiB budget
         self.assertEqual(huge['code'], 'admission-refused')
         self.assertTrue(huge['admission']['never'])
         self.assertEqual(self.waiters, [])
+
+    def test_admission_refuses_a_row_that_is_no_longer_queued(self):
+        run = self.submit('a:suite', size='small')['run_id']
+        ledger = self.ledger()
+        store = admission.Store(str(self.paths.peaks))
+        self.addCleanup(store.close)
+        verdict = Scheduler(ledger, store, budget_mib=8192).admit(run, 'demo', 'suite', 'small')
+        self.assertEqual((verdict['admitted'], verdict['reason']), (False, 'state'))
+        self.assertEqual(self.spawned, [run])
 
     def test_the_disk_floor_still_refuses(self):
         with mock.patch.object(runner, 'disk_headroom',
@@ -271,6 +285,29 @@ class TheBound(Engine):
 
 
 class ReconcileKeepsTheQueue(Engine):
+    def test_a_waiting_shard_gets_no_waiter_and_is_admitted_once(self):
+        from pandora.engine import fanout
+        big = self.submit('a:suite', size='large', job='big')['run_id']
+        ledger = self.ledger()
+        claim(ledger, request_id='p', run_id='rparent', role='parent', input_id='input-p')
+        ledger.update('rparent', state='running', supervisor_pid=4141)
+        claim(ledger, request_id='p:shard:1', run_id='rshard', role='shard', parent='rparent',
+              source_path=str(self.source))
+        plan = dict(ledger.get('rshard'))
+        with mock.patch.object(fanout.time, 'sleep', side_effect=StopIteration):
+            with self.assertRaises(StopIteration):
+                fanout.admit_and_spawn(self.paths, ledger, 'rshard', plan, note=lambda t: None)
+        # The engine restarts; the parent's supervisor and the big run live on.
+        with mock.patch.object(runner, 'alive', lambda pid: pid in (4141, 4242)):
+            runner.reconcile(self.root, driver=FakeDriver())
+        self.assertNotIn('rshard', self.waiters)
+        self.finish(big)
+        self.assertEqual(self.wait('rshard'), 'not-waitable')   # a stray waiter refuses it
+        self.assertEqual(self.row('rshard')['state'], 'queued')
+        fanout.admit_and_spawn(self.paths, ledger, 'rshard', plan, note=lambda t: None)
+        fanout.admit_and_spawn(self.paths, ledger, 'rshard', plan, note=lambda t: None)
+        self.assertEqual(self.spawned.count('rshard'), 1)
+
     def test_a_queued_row_whose_waiter_died_gets_a_new_one_and_keeps_its_place(self):
         self.submit('a:suite', size='large')
         queued = self.submit('b:suite')['run_id']
@@ -347,10 +384,42 @@ class LearnedSizeClasses(unittest.TestCase):
             learned = self.scheduler.learn(row, 7000, 'passed')
         self.assertEqual(learned['size_class'], 'xlarge')        # 7000 x 1.25 > 8192
 
-    def test_p95_not_the_maximum_decides(self):
-        for peak in [3000] * 19 + [6000]:
+    def test_p95_not_an_old_maximum_decides(self):
+        for peak in [6000] + [3000] * 19:
             learned = self.learn(peak)
         self.assertEqual(learned['size_class'], 'medium')        # p95 3000 -> 3750
+
+    def test_never_a_ceiling_below_the_newest_peak(self):
+        # p95 of 20 drops the top one; the newest run used 6000 MiB, and a
+        # 4096 MiB ceiling would kill the next one.
+        for peak in [3000] * 19 + [6000]:
+            learned = self.learn(peak)
+        self.assertEqual(learned['size_class'], 'large')         # 6000 x 1.25 = 7500
+
+    def test_raising_size_in_the_toml_restarts_learning_from_it(self):
+        for _ in range(5):
+            self.learn(2500)                                     # large -> medium
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'medium')
+        claim(self.ledger, request_id='req-x', run_id='rx', size_class='xlarge')
+        row = self.ledger.get('rx')
+        for _ in range(2):
+            learned = self.scheduler.learn(row, 2600, 'passed')
+            self.assertEqual(learned['size_class'], 'xlarge')    # old peaks do not count
+        learned = self.scheduler.learn(row, 2600, 'passed')
+        self.assertEqual(learned['size_class'], 'medium')        # 3 under the new one
+
+    def test_a_plan_step_and_its_shards_keep_separate_histories(self):
+        claim(self.ledger, request_id='p:plan', run_id='rplan', role='plan', size_class='large')
+        claim(self.ledger, request_id='p:shard:1', run_id='rs1', role='shard',
+              size_class='large')
+        for _ in range(3):
+            self.scheduler.learn(self.ledger.get('rplan'), 7000, 'passed')
+            learned = self.scheduler.learn(self.ledger.get('rs1'), 700, 'passed')
+        self.assertEqual(learned['size_class'], 'small')
+        plan = self.scheduler.reservation('demo', 'suite', 'large', 'plan')
+        shard = self.scheduler.reservation('demo', 'suite', 'large', 'shard')
+        self.assertEqual((plan[2], shard[2]), ('xlarge', 'small'))
+        self.assertEqual(self.scheduler.reservation('demo', 'suite', 'large')[3], 0)
 
     def test_an_oom_resets_to_declared_and_learning_restarts_after_it(self):
         for _ in range(3):
@@ -386,6 +455,19 @@ class LearnedSizeClasses(unittest.TestCase):
         self.assertIsNone(size_line(None))
 
 
+class TheOomHint(unittest.TestCase):
+    def test_an_oom_under_a_learned_smaller_class_says_the_declared_one_applies_again(self):
+        from pandora.engine.result import hint_for
+        facts = {'outcome': 'oom', 'job': 'build', 'peak_mib': 1024, 'ceiling_mib': 1024,
+                 'size_declared': 'large', 'size_used': 'small', 'evidence': {}}
+        hint = hint_for(facts)
+        self.assertIn('learned class for job build was small', hint)
+        self.assertIn('declared large applies again', hint)
+        self.assertNotIn('raise', hint)
+        facts.update(size_declared='small')
+        self.assertIn('raise the size class', hint_for(facts))
+
+
 class TheRunUsesTheLearnedClass(Engine):
     def test_reservation_ceiling_limits_result_and_stderr_follow_the_learned_class(self):
         store = admission.Store(str(self.paths.peaks))
@@ -408,10 +490,18 @@ class TheRunUsesTheLearnedClass(Engine):
         self.assertEqual(seen['limits'].ceiling_mib, 1024)
         self.assertEqual((result['size_declared'], result['size_used']), ('large', 'small'))
 
+    def test_a_learning_failure_never_leaves_the_run_running(self):
+        run = self.submit('a:suite', size='large')['run_id']
+        with mock.patch.object(Scheduler, 'learn', side_effect=RuntimeError('store locked')):
+            result = runner.supervise(self.root, run, driver=FakeDriver())
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertIn('store locked', result['evidence']['learn_error'])
+        self.assertEqual(self.row(run)['state'], 'finished')
+
     def test_a_change_is_said_on_the_runs_stderr_before_it_finishes(self):
         store = admission.Store(str(self.paths.peaks))
         for _ in range(2):
-            store.record('demo', 'suite', 800, 'ok')
+            store.record('demo', 'suite', 800, 'ok', declared='large')
         store.close()
         run = self.submit('a:suite', size='large')['run_id']
         (self.paths.attempt(run) / 'toolchain.json').write_text(json.dumps(PLAN['worker']))

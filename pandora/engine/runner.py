@@ -367,15 +367,20 @@ def supervise(root, run_id, *, driver=None):
     if peak_mib > 0:
         # Learned before the row finishes, not after: a class change is said on
         # this run's stderr, and a client stops reading the log once the row
-        # says `finished`.
-        with gate(paths.root):
-            store = admission.Store(str(paths.peaks))
-            try:
-                scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
-                learned = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
-            finally:
-                store.close()
-        line = size_line(learned.get('size_change'))
+        # says `finished`. Never fatal: a run whose learning failed still gets
+        # its verdict, or it would stay `running` forever.
+        try:
+            with gate(paths.root):
+                store = admission.Store(str(paths.peaks))
+                try:
+                    scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
+                    learned = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
+                finally:
+                    store.close()
+        except Exception as error:                  # noqa: BLE001 - recorded, never fatal
+            evidence['learn_error'] = '%s: %s' % (type(error).__name__, error)
+            learned = None
+        line = size_line((learned or {}).get('size_change'))
         if line:
             try:
                 with paths.log(run_id).open('a') as handle:
@@ -655,15 +660,26 @@ def reconcile(root, *, driver=None):
         if pid and alive(pid):
             adopted.append(row['run_id'])
             continue
-        if row['state'] == 'queued' and row['queued_at'] and not pid:
+        if (row['state'] == 'queued' and row['queued_at'] and not pid
+                and (row['role'] or 'single') == 'single' and row['queue_deadline']):
             # A queued run has started nothing, so a waiter that died with the
             # engine is simply started again: same row, same place in the
             # queue, same deadline. The waiter expires it if the bound passed.
+            # Only a row `submit` queued: a waiting shard belongs to its
+            # parent's loop, and a waiter of its own would admit it twice.
             waiter = row['waiter_pid']
             if not (waiter and alive(waiter)):
                 ledger.update(row['run_id'], waiter_pid=spawn_waiter(paths.root, row['run_id']))
             adopted.append(row['run_id'])
             continue
+        if row['state'] == 'queued' and row['parent']:
+            # A shard or plan step not yet admitted: nothing of it ran, and its
+            # parent's loop is what admits it. While that parent lives, the row
+            # is the parent's, not an orphan.
+            owner = ledger.get(row['parent'])
+            if owner is not None and owner['supervisor_pid'] and alive(owner['supervisor_pid']):
+                adopted.append(row['run_id'])
+                continue
         evidence = {'reason': 'supervisor %s gone at engine restart' % (pid or 'never recorded'),
                     'cause': 'supervisor-gone'}
         receipt = None

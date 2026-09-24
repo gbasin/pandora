@@ -31,6 +31,18 @@ class AdmissionError(ValueError):
     pass
 
 
+def peak_key(job, role=None):
+    """The name a job's peaks and learned class are kept under, per role.
+
+    A tier-2 fan-out's plan step builds everything once and its shards each run
+    a slice of the tests: the same job, very different memory. Sharing one
+    history would size the build by the shards' peaks, or the shards by the
+    build's. A whole run (`single`) keeps the bare job name, so a store written
+    before roles were keyed reads exactly as it did.
+    """
+    return job if role in (None, 'single') else '%s@%s' % (job, role)
+
+
 def ceiling_for(size_class):
     if size_class not in CLASSES:
         raise AdmissionError('unknown size class ' + repr(size_class))
@@ -72,13 +84,16 @@ def classify(peaks, *, current='medium', learned=False):
     suggestion a person is shown after an `oom`. With `learned=True` it is the
     rule the worker applies by itself (ruled 2026-09-24): the smallest class
     whose ceiling holds p95 of the peaks times the margin, up *or* down, from
-    `small` to `xlarge`. p95 rather than the maximum, so one outlier does not
-    pin a job to a class its other runs never needed; the margin, so a class is
-    not chosen that the p95 run would fill to the brim.
+    `small` to `xlarge`. p95 rather than the maximum, so one old outlier does
+    not pin a job to a class its other runs never needed; the margin, so a
+    class is not chosen that the p95 run would fill to the brim. But never
+    below the newest peak times the margin (`peaks` is newest first): with 20
+    or more samples p95 drops the top one, and a class whose ceiling is below
+    what the job used last time is a class that kills its next run.
     """
     if not peaks:
         return current
-    observed = percentile(peaks, 95) if learned else max(peaks)
+    observed = max(percentile(peaks, 95), peaks[0]) if learned else max(peaks)
     for name in sorted(CLASSES, key=CLASSES.get):
         if CLASSES[name] >= observed * MARGIN:
             if learned:
@@ -100,17 +115,25 @@ class Store:
         self.db.execute('''CREATE TABLE IF NOT EXISTS peaks (
             id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, job TEXT NOT NULL,
             peak_mib INTEGER NOT NULL, outcome TEXT NOT NULL, at REAL NOT NULL)''')
+        # The class `pandora.toml` declared when the peak was recorded. Learning
+        # reads only peaks under the current declaration, so raising `size`
+        # really starts over instead of being re-learned away by old peaks.
+        self._add_column('peaks', 'declared')
         self.db.execute('''CREATE TABLE IF NOT EXISTS classes (
             repo TEXT NOT NULL, job TEXT NOT NULL, size_class TEXT NOT NULL,
             PRIMARY KEY (repo, job))''')
         # Which declared class a learned one was learned from. A store written
         # before learning existed has no such column; its rows read as NULL,
         # which is "not learned from anything", and are honored as before.
-        have = {row['name'] for row in self.db.execute('PRAGMA table_info(classes)')}
-        if 'declared' not in have:
+        self._add_column('classes', 'declared')
+
+    def _add_column(self, table, name):
+        have = {row['name'] for row in self.db.execute('PRAGMA table_info(%s)' % table)}
+        if name not in have:
             try:
-                self.db.execute('ALTER TABLE classes ADD COLUMN declared TEXT')
+                self.db.execute('ALTER TABLE %s ADD COLUMN %s TEXT' % (table, name))
             except sqlite3.OperationalError as error:
+                # Two engine processes opened an old store at once.
                 if 'duplicate column' not in str(error):
                     raise
 
@@ -134,18 +157,20 @@ class Store:
         self.db.execute('INSERT OR REPLACE INTO classes (repo, job, size_class, declared) '
                         'VALUES (?,?,?,?)', (repo, job, size_class, declared))
 
-    def clean_since_oom(self, repo, job):
+    def clean_since_oom(self, repo, job, declared=None):
         """Clean peaks recorded after this job's last `oom`, newest first.
 
         What the learned class is decided from. An `oom` resets the class to
         the declared one, and the peaks from before it are what chose the class
-        that was killed: learning from them again would choose it again.
+        that was killed: learning from them again would choose it again. With
+        `declared`, only peaks recorded under that declaration count.
         """
         last = self.db.execute("SELECT MAX(id) m FROM peaks WHERE repo=? AND job=? "
                                "AND outcome='oom'", (repo, job)).fetchone()['m'] or 0
         rows = self.db.execute(
             'SELECT peak_mib FROM peaks WHERE repo=? AND job=? AND outcome IN ("ok","failed") '
-            'AND id>? ORDER BY id DESC LIMIT ?', (repo, job, last, HISTORY)).fetchall()
+            'AND id>? AND (? IS NULL OR declared=?) ORDER BY id DESC LIMIT ?',
+            (repo, job, last, declared, declared, HISTORY)).fetchall()
         return [row['peak_mib'] for row in rows]
 
     def peaks(self, repo, job):
@@ -157,7 +182,7 @@ class Store:
     def close(self):
         self.db.close()
 
-    def record(self, repo, job, peak_mib, outcome, at=None):
+    def record(self, repo, job, peak_mib, outcome, at=None, declared=None):
         """A run's observed peak.
 
         `oom` peaks are stored for the record but never feed a reservation: a
@@ -168,8 +193,10 @@ class Store:
             raise AdmissionError('unknown outcome ' + repr(outcome))
         if not isinstance(peak_mib, int) or isinstance(peak_mib, bool) or peak_mib < 0:
             raise AdmissionError('peak must be a non-negative integer of MiB')
-        self.db.execute('INSERT INTO peaks(repo,job,peak_mib,outcome,at) VALUES (?,?,?,?,?)',
-                        (repo, job, peak_mib, outcome, at if at is not None else time.time()))
+        self.db.execute('INSERT INTO peaks(repo,job,peak_mib,outcome,at,declared) '
+                        'VALUES (?,?,?,?,?,?)',
+                        (repo, job, peak_mib, outcome, at if at is not None else time.time(),
+                         declared))
 
 
 class Admission:

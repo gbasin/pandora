@@ -173,11 +173,11 @@ def submit(args, paths, ledger, request):
         try:
             scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
             verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])
-            if (not verdict['admitted'] and verdict['reason'] in ('memory', 'queue')
+            if (not verdict['admitted'] and verdict['reason'] in ('memory', 'queue', 'slots')
                     and not verdict.get('never')):
-                # Memory is the only obstacle, or older rows are waiting for it:
-                # the row joins the queue and a waiter holds it there. Nothing
-                # runs, so no supervisor exists yet (`waitlist`).
+                # Memory or slots are short, or older rows are waiting for them:
+                # the row joins the one queue and a waiter holds it there.
+                # Nothing runs, so no supervisor exists yet (`waitlist`).
                 waitlist.enqueue(paths, ledger, scheduler, run_id, plan['repo'], plan['job'])
                 pid = runner.spawn_waiter(paths.root, run_id, python=args.python)
                 ledger.update(run_id, waiter_pid=pid)
@@ -189,9 +189,9 @@ def submit(args, paths, ledger, request):
         finally:
             store.close()
         if not verdict['admitted']:
-            # Refused before anything ran -- every slot taken, or a reservation
-            # no amount of waiting fits -- and the row is closed so it cannot
-            # be mistaken for work in progress. Not a fallback cause any more.
+            # Refused before anything ran -- a reservation no amount of
+            # waiting fits -- and the row is closed so it cannot be mistaken
+            # for work in progress. Not a fallback cause any more.
             runner.write_result(paths, ledger, run_id, outcome='infra_failed',
                                 layer='engine', exit_code=None, peak_mib=0,
                                 durations={},
