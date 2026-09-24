@@ -265,8 +265,9 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run):
         mine = None
     facts.update(code=code, client_code=mine)
     if code and mine and code != mine and now:
-        return check('daemon', WARN, '%s; daemon code differs from %s on disk, which no '
-                     'upgrade changes. Something edited it; run `pandora upgrade --now`'
+        return check('daemon', WARN, '%s; daemon code differs from %s on disk: something '
+                     'edited the version directory. `pandora upgrade` builds the commit '
+                     'again under a new name and restarts the daemon at a safe moment'
                      % (detail, now['path']), **facts), answer
     if code and mine and code != mine:
         # Same checkout, different bytes: it was updated after the daemon started.

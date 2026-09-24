@@ -253,19 +253,31 @@ def export_worktree(source, stage, *, run=subprocess.run):
             shutil.copy2(origin, target)
 
 
+def intact(path):
+    """A version directory whose files still hash to the digest written at build time."""
+    meta = read_meta(path)
+    return bool(meta.get('code')) and code_digest(path) == meta['code']
+
+
+def found(target, **extra):
+    return dict({'name': target.name, 'path': str(target), 'meta': read_meta(target),
+                 'reused': True}, **extra)
+
+
 def snapshot(info, data, *, run=subprocess.run, clock=time.time):
-    """Write the version directory for `info`, or find it already written.
+    """Write the version directory for `info`, or find it already written and intact.
 
     Built in `versions/.incoming-<pid>-*` and renamed into place, so a version
-    directory either holds a whole tree and its META or does not exist. A clean
-    commit's directory is reused as it stands: the same commit is the same tree.
+    directory either holds a whole tree and its META or does not exist. One
+    that exists is reused only while its files still hash to its META: a
+    version someone edited is never handed out again, and the fresh build goes
+    under `<name>-<code8>` instead, since the edited one may be running.
     """
     versions = Path(data) / VERSIONS
     versions.mkdir(parents=True, exist_ok=True)
     short = info['commit'][:12]
-    if not info['dirty'] and (versions / short / META).is_file():
-        return {'name': short, 'path': str(versions / short), 'meta': read_meta(versions / short),
-                'reused': True}
+    if not info['dirty'] and (versions / short / META).is_file() and intact(versions / short):
+        return found(versions / short)
     stage = Path(tempfile.mkdtemp(prefix='.incoming-%d-' % os.getpid(), dir=str(versions)))
     try:
         if info['dirty']:
@@ -274,9 +286,14 @@ def snapshot(info, data, *, run=subprocess.run, clock=time.time):
             export_commit(info['source'], info['commit'], stage, run=run)
         code = code_digest(stage)
         name = short + ('-dirty-' + code[:8] if info['dirty'] else '')
+        edited = None
+        if (versions / name / META).is_file():
+            if intact(versions / name):
+                return found(versions / name)
+            edited, name = name, name + '-' + code[:8]
+            if (versions / name / META).is_file() and intact(versions / name):
+                return found(versions / name, edited=edited)
         target = versions / name
-        if (target / META).is_file():
-            return {'name': name, 'path': str(target), 'meta': read_meta(target), 'reused': True}
         meta = {'name': name, 'commit': info['commit'], 'dirty': info['dirty'],
                 'source': info['source'], 'code': code, 'created': clock()}
         (stage / META).write_text(json.dumps(meta, indent=1, sort_keys=True) + '\n')
@@ -286,11 +303,11 @@ def snapshot(info, data, *, run=subprocess.run, clock=time.time):
         except OSError as error:
             # Another upgrade renamed the same version in first, which is fine;
             # a directory there without META is not ours to replace.
-            if (target / META).is_file():
-                return {'name': name, 'path': str(target), 'meta': read_meta(target),
-                        'reused': True}
+            if (target / META).is_file() and intact(target):
+                return found(target, edited=edited)
             raise Refused('cannot place %s: %s' % (target, error))
-        return {'name': name, 'path': str(target), 'meta': meta, 'reused': False}
+        return {'name': name, 'path': str(target), 'meta': meta, 'reused': False,
+                'edited': edited}
     finally:
         if stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
@@ -347,8 +364,17 @@ def prune(data, *, keep=KEEP, protect=(), is_alive=alive):
     for path in entries[max(keep, 1):]:
         if os.path.realpath(path) in kept:
             continue
-        shutil.rmtree(path, ignore_errors=True)
+        # Renamed out of the namespace first, so a reader never finds half a
+        # version under its name while the tree is deleted.
+        trash = versions / ('.trash-%d-%s' % (os.getpid(), path.name))
+        try:
+            os.rename(path, trash)
+        except OSError:
+            continue
+        shutil.rmtree(trash, ignore_errors=True)
         removed.append(path.name)
+    for path in versions.glob('.trash-*'):
+        shutil.rmtree(path, ignore_errors=True)
     for path in versions.glob('.incoming-*'):
         try:
             pid = int(path.name.split('-')[1])

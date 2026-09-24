@@ -104,6 +104,20 @@ class Snapshots(Case):
         self.assertTrue(second['reused'])
         self.assertEqual(first['meta'], second['meta'])
 
+    def test_an_edited_version_is_never_reused(self):
+        repo = self.checkout()
+        first = self.build(repo)
+        path = Path(first['path'])
+        (path / 'pandora' / 'cli.py').write_text('EDITED = 1\n')
+        again = self.build(repo)
+        self.assertEqual(again['name'], '%s-%s' % (first['name'], first['meta']['code'][:8]))
+        self.assertEqual(again['edited'], first['name'])
+        self.assertFalse(again['reused'])
+        self.assertEqual((Path(again['path']) / 'pandora' / 'cli.py').read_text(), 'VERSION = 1\n')
+        self.assertEqual((path / 'pandora' / 'cli.py').read_text(), 'EDITED = 1\n',
+                         'the edited one may be running; it is left as it is')
+        self.assertTrue(self.build(repo)['reused'], 'the rebuilt one is reused next time')
+
     def test_uncommitted_changes_are_refused(self):
         repo = self.checkout()
         (repo / 'untracked.txt').write_text('x\n')
@@ -213,7 +227,7 @@ class Prune(Case):
         removed = install.prune(self.data, keep=3, protect=[str(daemon_home)])
         self.assertEqual(sorted(removed), sorted(names[2:3]))
         left = sorted(p.name for p in (self.data / 'versions').iterdir())
-        self.assertEqual(left, sorted([names[0], names[1]] + names[3:]))
+        self.assertEqual(left, sorted([names[0], names[1]] + names[3:]), 'no .trash-* left')
 
     def test_a_dead_upgrades_stage_goes_and_a_live_one_stays(self):
         self.versions(1)
@@ -481,6 +495,16 @@ class Doctor(Case):
         item = self.daemon(old['path'])
         self.assertIn('and %s is at %s since; run `pandora upgrade`' % (self.repo, head[:12]),
                       item['detail'])
+
+    def test_an_edited_version_directory_is_named_with_the_way_out(self):
+        from pandora.client import doctor
+        pong = {'t': 'pong', 'pid': 7, 'v': 2, 'home': self.version['path'], 'code': '0' * 64,
+                'code_modules': ['cli.py']}
+        with mock.patch.object(doctor, 'ping', return_value=pong):
+            item, _ = doctor.check_daemon(self.state / 'client.sock', None, self.data)
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('something edited the version directory. `pandora upgrade` builds the '
+                      'commit again under a new name', item['detail'])
 
     def test_a_daemon_on_a_checkout_is_told_to_install_from_current(self):
         item = self.daemon(self.repo)
