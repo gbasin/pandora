@@ -291,6 +291,15 @@ if [ -n "$PANDORA_OFF" ]; then
         --state "${sock%/*}" --reason off -- "$@"
 fi
 
+# A `home` that no longer holds the client -- a removed checkout, a pruned
+# version -- must never block pnpm: the command runs here, unrouted, with one
+# line saying why. A builtin test, on the paths that start the client.
+if [ -n "$sock" ] && { [ "$fresh" = 0 ] || [ "$claimed" = 1 ]; } \
+        && [ ! -f "$home/pandora/client/shim.py" ]; then
+    echo "pandora: no client in $home; running here unrouted. \`pandora doctor\` says what to fix" >&2
+    exec "$real" "$@"
+fi
+
 # Missing or stale: the daemon decides, rewrites the cache as it does, and the
 # next invocation here is fork-free again. One Python start, once per change.
 if [ "$fresh" = 0 ] && [ -n "$sock" ]; then

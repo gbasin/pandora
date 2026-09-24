@@ -329,9 +329,13 @@ def local_claims(sock_path, cwd=None):
         config = settings.load()
     except ConfigError:
         return None
+    from . import install
+    # `current`, never this process's own version directory: a cache written
+    # here outlives the version, and prune removes it two upgrades later.
     text, sources = enrollment.derive(root, enrollment.repo_entry(config, cwd),
                                       socket_path=str(sock_path),
-                                      client=str(settings.path_of()), home=PACKAGE_HOME)
+                                      client=str(settings.path_of()),
+                                      home=install.package_home(running=PACKAGE_HOME))
     enrollment.write_owned(root, text, sources, sock_path)
     return enrollment.parse(text)
 

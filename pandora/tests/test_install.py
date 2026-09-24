@@ -354,6 +354,7 @@ class PhysicalHome(Case):
         (version / 'pandora' / 'client').mkdir(parents=True)
         (version / 'pandora' / 'cli.py').write_text('')
         (version / 'pandora' / 'client' / 'passthrough.py').write_text('')
+        (version / 'pandora' / 'client' / 'shim.py').write_text('')
         shutil.copytree(HERE / 'bin', version / 'bin')
         install.flip(self.data, 'v1')
         shim = self.root / 'shim'
