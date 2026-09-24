@@ -81,6 +81,19 @@ def state_of(args):
 
 # -- commands ---------------------------------------------------------------
 
+def restart_drained(args, launchd, label, state):
+    """`--restart`: drain, wait for what a restart would end, then kickstart."""
+    from .client import drain
+    # Before the drain, so a daemon launchd does not run is never left draining.
+    if not launchd.status(label)['loaded']:
+        raise launchd.Refused('%s is not loaded in launchd; `pandora daemon --install` first, '
+                              'or restart a hand-started daemon by stopping it and starting '
+                              'it' % label)
+    return drain.drain_and_restart(
+        state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
+        now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice))
+
+
 def cmd_daemon(args):
     """Run the daemon in the foreground, or manage the launchd agent that runs it.
 
@@ -90,6 +103,9 @@ def cmd_daemon(args):
     for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
+    if (args.wait is not None or args.now) and not args.restart:
+        notice('--wait and --now go with --restart')
+        return 64
     if verb:
         return cmd_daemon_supervision(args)
     if args.label:
@@ -120,7 +136,7 @@ def cmd_daemon_supervision(args):
         elif args.uninstall:
             launchd.uninstall(label, state=state, say=notice)
         elif args.restart:
-            launchd.restart(label, say=notice)
+            return restart_drained(args, launchd, label, state)
         else:
             launchd.stop(label, state=state, say=notice)
     except launchd.Refused as error:
@@ -749,10 +765,15 @@ def main(argv=None):
     verbs.add_argument('--uninstall', action='store_true',
                        help='unload the agent and delete its plist')
     verbs.add_argument('--restart', action='store_true',
-                       help='launchctl kickstart -k; `pandora upgrade` does it at a safe '
-                            'moment')
+                       help='drain, then launchctl kickstart -k; `pandora upgrade` does it '
+                            'too')
     verbs.add_argument('--stop', action='store_true',
                        help='SIGTERM a hand-started daemon and wait up to 10 s')
+    daemon.add_argument('--wait', type=float, default=None, metavar='SECONDS',
+                        help='--restart: how long to wait for the runs a restart would end '
+                             '(default 300)')
+    daemon.add_argument('--now', action='store_true',
+                        help='--restart: restart when the wait runs out, ending those runs')
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)

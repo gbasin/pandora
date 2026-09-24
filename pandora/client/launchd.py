@@ -37,11 +37,12 @@ Three things launchd does differently from a shell, each handled here:
 
 A daemon keeps running the code it imported at start. With a snapshot
 installed, pulling the checkout changes nothing live, and `pandora upgrade`
-installs the new commit and restarts the daemon at a safe moment. Without one,
-run `pandora daemon --restart` after updating the checkout. Both restart with
-`launchctl kickstart -k`: launchd stops the daemon with SIGTERM and starts it
-again from the same plist. Runs on the worker survive that; the daemon
-re-attaches to them on start (`Daemon.resume_interrupted`).
+installs the new commit and restarts the daemon. Without one, run `pandora
+daemon --restart` after updating the checkout. Both drain the daemon first
+(`drain.drain_and_restart`), then restart it with `launchctl kickstart -k`:
+launchd stops the daemon with SIGTERM and starts it again from the same plist.
+Runs on the worker survive that; the daemon re-attaches to them on start
+(`Daemon.resume_interrupted`).
 
 `status` and `lock_holder` are read-only and are what `pandora doctor` uses.
 Everything that talks to launchd goes through one `run` callable so the tests

@@ -387,3 +387,190 @@ class AClientDuringARestart(unittest.TestCase):
             self.assertEqual(cli.attach(self.state / 'client.sock', 'x1'), INFRA)
         self.assertLess(time.monotonic() - started, 2)
         self.assertNotIn(drain.NOTICE, err.getvalue())
+
+
+class ARestart(DrainCase):
+    """`drain_and_restart`: what `pandora daemon --restart` and `pandora upgrade` run."""
+
+    def setUp(self):
+        super().setUp()
+        self.said, self.restarts = [], []
+
+    def successor(self):
+        """What launchd's kickstart does: stop this daemon, start the next on the same state."""
+        self.restarts.append(time.monotonic())
+        self.daemon.stop()
+        successor = daemon_module.Daemon(config_path=str(self.root / 'config.toml'))
+        successor.worker_factory = FakeWorker
+        successor.start()
+        self.addCleanup(successor.stop)
+        threading.Thread(target=successor.serve, daemon=True).start()
+        self.next = successor
+
+    def restart(self, **kwargs):
+        kwargs.setdefault('restart', self.successor)
+        kwargs.setdefault('interval', 0.1)
+        return drain.drain_and_restart(self.state, say=self.said.append, **kwargs)
+
+    def test_it_waits_for_the_executing_run_then_restarts_and_the_successor_clears_the_marker(self):
+        thread, answer = self.in_background(['pnpm', 'brief'])
+        self.assertTrue(wait_until(lambda: any(row['state'] == 'running'
+                                               for row in self.rows('brief')), 15))
+        self.assertEqual(self.restart(wait=30), 0)
+        thread.join(timeout=10)
+        self.assertEqual(answer['value'].exit, 0, 'the restart ended the run it waited for')
+        self.assertEqual(len(self.restarts), 1)
+        self.assertEqual(self.rows('brief')[0]['state'], 'passed')
+        self.assertTrue(any('waiting up to' in line for line in self.said), self.said)
+        self.assertTrue(any('brief' in line for line in self.said), self.said)
+        self.assertFalse(drain.marker_path(self.state).exists())
+        self.assertIsNone(self.next.draining)
+
+    def test_nothing_running_restarts_at_once(self):
+        self.assertEqual(self.restart(wait=30), 0)
+        self.assertEqual(len(self.restarts), 1)
+        self.assertIn('the new daemon is up and admitting runs', self.said)
+
+    def test_a_timeout_undrains_and_exits_75_naming_what_still_runs(self):
+        thread, answer = self.in_background(['pnpm', 'slow'])
+        self.assertTrue(wait_until(lambda: any(row['state'] == 'running'
+                                               for row in self.rows('slow')), 15))
+        self.assertEqual(self.restart(wait=0.5), 75)
+        self.assertEqual(self.restarts, [])
+        self.assertIsNone(self.daemon.draining)
+        self.assertFalse(drain.marker_path(self.state).exists())
+        self.assertTrue(any('gave up' in line for line in self.said), self.said)
+        self.assertTrue(any('pnpm slow' in line for line in self.said), self.said)
+        self.assertEqual(self.call(['pnpm', 'unit']).exit, 0, 'still refusing after undrain')
+
+    def test_now_restarts_when_the_wait_runs_out_and_the_run_ends_70(self):
+        thread, answer = self.in_background(['pnpm', 'slow'])
+        self.assertTrue(wait_until(lambda: any(row['state'] == 'running'
+                                               for row in self.rows('slow')), 15))
+        self.assertEqual(self.restart(wait=0.5, now=True), 0)
+        thread.join(timeout=10)
+        self.assertEqual(answer['value'].exit, INFRA)
+        self.assertEqual(len(self.restarts), 1)
+        self.assertIn(drain.NOW_NOTE, self.said)
+        # The executor says its piece after the child dies; let it, before the
+        # temporary directory goes.
+        self.assertTrue(wait_until(lambda: not any(
+            'execute_local' in thread.name and thread.is_alive()
+            for thread in threading.enumerate()), 10))
+
+    def test_a_restart_that_fails_leaves_the_daemon_admitting(self):
+        def refused():
+            raise RuntimeError('kickstart failed')
+        with self.assertRaises(RuntimeError):
+            self.restart(wait=5, restart=refused)
+        self.assertIsNone(self.daemon.draining)
+        self.assertFalse(drain.marker_path(self.state).exists())
+
+    def test_before_restart_runs_once_nothing_blocks(self):
+        order = []
+        self.restart(wait=5, before_restart=lambda: order.append(
+            ('flip', self.daemon.draining is not None)),
+            restart=lambda: (order.append(('restart', None)), self.successor()))
+        self.assertEqual(order, [('flip', True), ('restart', None)])
+
+    def test_the_marker_is_dated_at_the_restart_not_at_the_drain(self):
+        seen = []
+
+        def restart():
+            seen.append(drain.read_marker(self.state)['age'])
+            self.successor()
+        self.ask({'op': 'drain'})
+        os.utime(drain.marker_path(self.state), (time.time() - 600, time.time() - 600))
+        self.restart(wait=5, restart=restart)
+        self.assertLess(seen[0], 5)
+
+
+class ARestartWithoutADrain(unittest.TestCase):
+    def setUp(self):
+        home = __import__('tempfile').TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.state = home.name
+        self.said, self.restarts = [], []
+
+    def restart(self, ask, **kwargs):
+        return drain.drain_and_restart(self.state, ask=ask, say=self.said.append,
+                                       restart=lambda: self.restarts.append(1),
+                                       interval=0.01, **kwargs)
+
+    def test_no_daemon_is_restarted_at_once(self):
+        self.assertEqual(self.restart(drain.ask, wait=5), 0)
+        self.assertEqual(self.restarts, [1])
+
+    def test_a_daemon_from_before_drain_is_waited_on_through_ps(self):
+        answers = iter([{'t': 'ps', 'data': [{'id': 'a', 'lane': 'local', 'state': 'running',
+                                              'argv': ['pnpm', 'x']}]},
+                        {'t': 'ps', 'data': [{'id': 'a', 'lane': 'local', 'state': 'passed'}]}])
+
+        def ask(_sock, request, timeout=30.0):
+            if request['op'] == 'drain':
+                return {'t': 'error', 'code': 'rejected', 'msg': "unknown op 'drain'"}
+            return next(answers)
+        self.assertEqual(self.restart(ask, wait=5), 0)
+        self.assertEqual(self.restarts, [1])
+        self.assertTrue(any('predates drain' in line for line in self.said))
+
+    def test_a_silent_daemon_is_restarted_only_with_now(self):
+        asked = []
+
+        def ask(_sock, request, timeout=30.0):
+            asked.append(request)
+            raise TimeoutError('timed out')
+        self.assertEqual(self.restart(ask, wait=5), 75)
+        self.assertEqual(self.restarts, [])
+        self.assertIn({'op': 'drain', 'cancel': True}, asked)
+        self.assertEqual(self.restart(ask, wait=5, now=True), 0)
+        self.assertEqual(self.restarts, [1])
+
+
+class TheCommand(DrainCase):
+    def pandora(self, *argv):
+        return capture(cli.main, ['--state', str(self.state),
+                                  '--config', str(self.root / 'config.toml'), *argv])
+
+    def test_wait_and_now_go_with_restart_only(self):
+        self.assertEqual(self.pandora('daemon', '--install', '--now')[0], 64)
+        self.assertEqual(self.pandora('daemon', '--wait', '5')[0], 64)
+
+    def launchd(self, loaded):
+        from pandora.client import launchd
+        from pandora.tests.test_launchd import FakeLaunchd
+        fake = FakeLaunchd(loaded)
+        patches = [mock.patch.object(launchd, 'launchctl',
+                                     lambda args, run=None: fake([launchd.LAUNCHCTL, *args])),
+                   mock.patch.object(cli.sys, 'platform', 'darwin')]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        return fake
+
+    def test_an_agent_launchd_does_not_run_is_refused_before_any_drain(self):
+        fake = self.launchd({})
+        code, _, err = self.pandora('daemon', '--restart')
+        self.assertEqual(code, 1)
+        self.assertIn('not loaded in launchd', err)
+        self.assertIsNone(self.daemon.draining)
+        self.assertNotIn('kickstart', [call[0] for call in fake.calls])
+
+    def test_restart_drains_then_kickstarts(self):
+        fake = self.launchd({'com.pandora.daemon': 100})
+        original = fake.__call__
+
+        def kickstart(argv, **kwargs):
+            if argv[1] == 'kickstart':
+                self.assertIsNotNone(self.daemon.draining, 'kickstarted before draining')
+                drain.clear_marker(self.state)            # the successor, in one line
+            return original(argv, **kwargs)
+        fake_call = mock.patch.object(type(fake), '__call__',
+                                      lambda self_, argv, **kw: kickstart(argv, **kw))
+        fake_call.start()
+        self.addCleanup(fake_call.stop)
+        code, _, err = self.pandora('daemon', '--restart', '--wait', '5')
+        self.assertEqual(code, 0, err)
+        self.assertIn(['kickstart', '-k', 'gui/%d/com.pandora.daemon' % os.getuid()],
+                      fake.calls)
+        self.assertIn('drained', err)

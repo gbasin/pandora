@@ -26,6 +26,7 @@ import sys
 import time
 from pathlib import Path
 
+from ..exits import STALE
 from .protocol import Reader, VERSION, dump
 
 MARKER = 'draining'
@@ -34,11 +35,15 @@ RETRY_AFTER = 2.0
 # How long a client waits for a restart before it runs the command unmanaged.
 WAIT_ENV = 'PANDORA_DRAIN_WAIT'
 DEFAULT_CLIENT_WAIT = 180.0
+# How long `pandora daemon --restart` waits for the runs a restart would end.
+DEFAULT_RESTART_WAIT = 300.0
 # A marker older than this is a restart that never finished; nobody waits on it.
 STALE_SECONDS = 15 * 60
 # Between asks while no socket exists: the gap is one or two seconds, so a
 # two-second poll would double what a command pays for it.
 ABSENT_POLL = 0.5
+# How long a restart waits for the successor to clear the marker.
+SUCCESSOR_SECONDS = 20.0
 NOTICE = 'daemon is restarting; waiting'
 
 
@@ -185,3 +190,162 @@ def blocker_line(row):
         state = PRE_ACCEPT[row['phase']]
     return '%s %s %s: %s' % (row.get('id', '?'), row.get('lane') or 'remote', state,
                              ' '.join(row.get('argv') or [])[:60])
+
+
+class Unanswered(Exception):
+    """The daemon is there, or may be, and did not answer the drain."""
+
+
+def begin(sock_path, *, ask=ask):
+    """Drain, or ask again: the rows still blocking a restart, or None for a daemon without drain.
+
+    Raises FileNotFoundError or ConnectionRefusedError when no daemon listens,
+    and Unanswered when one may and said nothing usable.
+    """
+    try:
+        answer = ask(sock_path, {'op': 'drain', 'pid': os.getpid()})
+    except (FileNotFoundError, ConnectionRefusedError):
+        raise
+    except (OSError, ValueError) as error:
+        raise Unanswered(str(error) or type(error).__name__) from None
+    if isinstance(answer, dict) and answer.get('t') == 'drain':
+        return answer.get('blockers') or []
+    if isinstance(answer, dict) and answer.get('t') == 'error' and 'unknown op' in (
+            answer.get('msg') or ''):
+        return None
+    raise Unanswered('it answered %s' % ((answer or {}).get('msg') if isinstance(answer, dict)
+                                          else answer))
+
+
+def end(sock_path, *, ask=ask):
+    """Leave draining. True when the daemon said so; never raises."""
+    try:
+        answer = ask(sock_path, {'op': 'drain', 'cancel': True})
+    except (OSError, ValueError):
+        return False
+    return isinstance(answer, dict) and answer.get('t') == 'drain' and not answer.get('draining')
+
+
+def rows_from_ps(sock_path, *, ask=ask):
+    """A daemon from before drain: the same question, asked of `ps`."""
+    try:
+        answer = ask(sock_path, {'op': 'ps'})
+    except (OSError, ValueError) as error:
+        raise Unanswered(str(error) or type(error).__name__) from None
+    if not isinstance(answer, dict) or answer.get('t') != 'ps':
+        raise Unanswered('it answered %s' % answer)
+    return blockers(answer.get('data') or [])
+
+
+NOW_NOTE = ('restarting now (--now): a local run still executing ends with exit 70; a remote '
+            'run still freezing or shipping ends with exit 70, one submitting is looked up '
+            'on the worker. Rerun what ended. Accepted remote runs continue')
+
+
+def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, say=notice,
+                      before_restart=None, ask=ask, clock=time.monotonic, sleep=time.sleep,
+                      interval=1.0, successor_seconds=SUCCESSOR_SECONDS):
+    """Drain the daemon, wait for what a restart would end, restart it. Returns an exit code.
+
+    `restart()` restarts the daemon (launchd's kickstart for `pandora daemon
+    --restart`); `before_restart()`, when given, runs once nothing blocks and
+    before the restart -- `pandora upgrade` moves `current` there. Either may
+    raise: the daemon leaves draining and the error propagates.
+
+    0 when the successor cleared the marker; 75 (`STALE`) when the wait ran out
+    without `now`, after the daemon left draining; 1 when the successor did not
+    come back. A daemon from before drain is waited on through `ps`, with no
+    submissions held. Nothing listening: restarted at once, nothing to wait for.
+    One that does not answer is restarted only with `now`.
+    """
+    state = Path(state)
+    sock = state / 'client.sock'
+    deadline = clock() + max(0.0, float(wait))
+    held = True
+    try:
+        blocking = begin(sock, ask=ask)
+    except (FileNotFoundError, ConnectionRefusedError) as error:
+        say('no daemon answers on %s (%s); restarting without a drain' % (sock, error))
+        held, blocking = False, []
+    except Unanswered as error:
+        if not now:
+            end(sock, ask=ask)        # in case it heard the drain and the answer was lost
+            say('the daemon did not answer the drain (%s); not restarting. Look at '
+                '%s, or restart anyway with --now' % (error, state / 'logs' / 'daemon.log'))
+            return STALE
+        say('the daemon did not answer the drain (%s); restarting anyway (--now)' % error)
+        held, blocking = False, []
+    if blocking is None:
+        held = False
+        say('the daemon predates drain: new submissions are not held, and the restart '
+            'waits for a moment when nothing it would end is running')
+        try:
+            blocking = rows_from_ps(sock, ask=ask)
+        except Unanswered as error:
+            blocking = [{'id': '-', 'lane': 'daemon', 'state': 'silent',
+                         'argv': ['(did not answer: %s)' % error]}]
+
+    def poll():
+        return begin(sock, ask=ask) if held else rows_from_ps(sock, ask=ask)
+
+    try:
+        said = None
+        while blocking:
+            lines = [blocker_line(row) for row in blocking]
+            if lines != said:
+                say('draining: waiting up to %ds for %d run%s a restart would end:'
+                    % (max(0, round(deadline - clock())), len(lines),
+                       '' if len(lines) == 1 else 's'))
+                for line in lines:
+                    say('  ' + line)
+                said = lines
+            remaining = deadline - clock()
+            if remaining <= 0:
+                break
+            sleep(min(interval, remaining))
+            try:
+                blocking = poll()
+            except Unanswered as error:
+                blocking = [{'id': '-', 'lane': 'daemon', 'state': 'silent',
+                             'argv': ['(did not answer: %s)' % error]}]
+            except (FileNotFoundError, ConnectionRefusedError):
+                say('the daemon went away while draining; restarting')
+                blocking = []
+        if blocking:
+            if not now:
+                if held:
+                    end(sock, ask=ask)
+                say('gave up after %ds; the daemon is admitting runs again and was not '
+                    'restarted. Still running:' % round(wait))
+                for row in blocking:
+                    say('  ' + blocker_line(row))
+                say('retry later, or `pandora daemon --restart --now` to end them')
+                return STALE
+            say(NOW_NOTE)
+        elif held:
+            say('drained: nothing a restart would end is running')
+        if before_restart is not None:
+            before_restart()
+        # The gap starts now, and a client trusts the marker only for its own
+        # wait from this date, not from when the drain began.
+        touch_marker(state)
+        restart()
+    except BaseException:
+        # Ctrl-C, a refused kickstart, a failed `before_restart`: the daemon
+        # must not be left refusing every submission for nobody.
+        if held:
+            end(sock, ask=ask)
+        raise
+    if not held:
+        return 0
+    limit = clock() + successor_seconds
+    while marker_path(state).exists():
+        if clock() >= limit:
+            say('the draining marker is still there %ds after the restart: no new daemon has '
+                'settled its runs. Read %s. Commands wait up to %s (%gs) each, then run '
+                'here unmanaged' % (successor_seconds, state / 'logs' / 'daemon.log',
+                                    WAIT_ENV, DEFAULT_CLIENT_WAIT))
+            return 1
+        sleep(0.25)
+    say('the new daemon is up and admitting runs')
+    return 0
