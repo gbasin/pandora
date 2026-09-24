@@ -355,58 +355,116 @@ class UploadPhases(DaemonCase):
         self.assertNotEqual(meta['phase'], 'ship')
 
 
-class StaleMarker(DaemonCase):
-    """A claimed run through a marker that no longer matches pandora.toml says so."""
+class ClaimCache(DaemonCase):
+    """The daemon derives each worktree's claim cache from that worktree's own config."""
 
-    def mark(self, claims):
+    def setUp(self):
+        super().setUp()
         (self.repo / '.git').mkdir(exist_ok=True)
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
-            socket_path=str(self.daemon.socket_path), repo='demo', claims=claims))
+        (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
+            socket_path=str(self.daemon.socket_path), repo='demo'))
+        self.cache = self.repo / '.git' / 'pandora-claims'
+        self.settle(self.root / 'config.toml', minutes=2)
+        self.settle()
 
-    def test_one_notice_line_names_the_count_and_the_fix(self):
-        self.mark([['unit']])
+    def settle(self, path=None, minutes=1):
+        """Date a config well before now, as if it was edited a minute ago."""
+        path = path or self.repo / 'pandora.toml'
+        stamp = time.time_ns() - minutes * 60 * 10**9
+        os.utime(path, ns=(stamp, stamp))
+        return path.stat().st_mtime_ns
+
+    def ask(self, argv, cwd=None):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(30)
+        sock.connect(str(self.daemon.socket_path))
+        try:
+            sock.sendall(dump({'v': VERSION, 'op': 'claims', 'cwd': str(cwd or self.repo),
+                               'argv': argv}))
+            return Reader(sock).line()
+        finally:
+            sock.close()
+
+    def test_a_claimed_run_writes_the_cache_dated_as_its_config(self):
+        stamp = self.settle()
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.exit, 0, answer.error)
-        stale = [line for line in answer.notices if 'marker is stale' in line]
-        # Five more forms in pandora.toml than in the marker.
-        self.assertEqual(stale, ['enrollment marker is stale (5 forms differ); run pandora '
-                                 'enroll %s' % self.repo])
+        cache = enrollment.parse(self.cache.read_text())
+        self.assertIn(['unit'], cache['claim'])
+        self.assertIn(['surface'], cache['claim'])
+        self.assertEqual(cache['sock'], str(self.daemon.socket_path))
+        self.assertIsNone(cache['config'])          # the worktree's own pandora.toml
+        self.assertEqual(self.cache.stat().st_mtime_ns, stamp)
 
-    def test_a_branch_whose_pandora_toml_differs_says_nothing(self):
-        # The marker matches the enrolled root; a sibling worktree on a branch
-        # that drops most jobs is normal and must not be told to re-enroll.
-        from pandora.config import loader
-        self.mark(enrollment.routing_of(loader.load(self.repo / 'pandora.toml'))['claim'])
+    def test_a_stale_marker_gets_no_notice_any_more(self):
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
+            socket_path=str(self.daemon.socket_path), repo='demo', claims=[['unit']]))
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
+
+    def test_a_changed_config_is_rewritten_on_the_next_classification(self):
+        self.call(['pnpm', 'unit'])
+        text = (self.repo / 'pandora.toml').read_text()
+        (self.repo / 'pandora.toml').write_text(text.replace('prefix = ["surface"]',
+                                                             'prefix = ["surface2"]'))
+        stamp = self.settle()
+        answer = self.ask(['surface2'])
+        self.assertEqual((answer['t'], answer['claimed']), ('claims', True))
+        cache = enrollment.parse(self.cache.read_text())
+        self.assertIn(['surface2'], cache['claim'])
+        self.assertNotIn(['surface'], cache['claim'])
+        self.assertEqual(self.cache.stat().st_mtime_ns, stamp)
+
+    def test_an_edit_that_has_not_settled_leaves_the_cache_dated_before_it(self):
+        path = self.repo / 'pandora.toml'
+        path.write_text(path.read_text())         # an edit this second
+        self.ask(['unit'])
+        self.assertLess(self.cache.stat().st_mtime_ns, path.stat().st_mtime_ns)
+        self.assertEqual(enrollment.cache_state(self.repo, self.cache)[0], 'stale')
+
+    def test_the_claims_op_answers_with_the_shims_rule(self):
+        self.assertEqual({key: self.ask(['unit', 'x'])[key] for key in ('claimed', 'heavy')},
+                         {'claimed': True, 'heavy': False})
+        self.assertEqual({key: self.ask(['build'])[key] for key in ('claimed', 'heavy')},
+                         {'claimed': False, 'heavy': True})
+        self.assertEqual({key: self.ask(['why'])[key] for key in ('claimed', 'heavy')},
+                         {'claimed': False, 'heavy': False})
+        self.assertEqual(enrollment.cache_state(self.repo, self.cache)[0], 'fresh')
+
+    def test_a_branch_worktree_routes_by_its_own_file_and_nothing_compares_them(self):
         branch = self.root / 'branch'
         branch.mkdir()
-        (self.repo / '.git' / 'worktrees' / 'branch').mkdir(parents=True)
-        (branch / '.git').write_text('gitdir: %s\n' % (self.repo / '.git' / 'worktrees'
-                                                         / 'branch'))
+        gitdir = self.repo / '.git' / 'worktrees' / 'branch'
+        gitdir.mkdir(parents=True)
+        (branch / '.git').write_text('gitdir: %s\n' % gitdir)
         text = (self.repo / 'pandora.toml').read_text()
         (branch / 'pandora.toml').write_text(text[:text.index('[[jobs]]\nid = "surface"')]
                                              + text[text.index('[worker]'):])
+        self.settle(branch / 'pandora.toml')
+        self.assertFalse(self.ask(['surface'], cwd=branch)['claimed'])
+        self.assertTrue(self.ask(['surface'])['claimed'])
+        mine = enrollment.parse((gitdir / 'pandora-claims').read_text())
+        self.assertEqual(mine['claim'], [['unit']])
         answer = self.call(['pnpm', 'unit'], cwd=branch)
         self.assertEqual(answer.exit, 0, answer.error)
-        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
+        self.assertEqual(answer.notices, [])
 
-    def test_a_current_marker_says_nothing(self):
-        from pandora.config import loader
-        self.mark(enrollment.routing_of(loader.load(self.repo / 'pandora.toml'))['claim'])
-        answer = self.call(['pnpm', 'unit'])
-        self.assertEqual(answer.exit, 0, answer.error)
-        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
+    def test_a_repository_without_a_repos_entry_gets_a_cache_that_claims_nothing(self):
+        other = self.root / 'other'
+        (other / '.git').mkdir(parents=True)
+        (other / '.git' / 'pandora-repo').write_text('sock /s\n')
+        (other / 'pandora.toml').write_text((self.repo / 'pandora.toml').read_text())
+        self.assertFalse(self.ask(['unit'], cwd=other)['claimed'])
+        text = (other / '.git' / 'pandora-claims').read_text()
+        self.assertIn('# claims nothing: no [[repos]] entry', text)
+        self.assertEqual(enrollment.parse(text)['claim'], [])
+        self.assertEqual(enrollment.parse(text)['client'], self.daemon.config['source'])
 
-    def test_the_marker_is_read_again_only_when_it_changes(self):
-        self.mark([['unit']])
-        self.call(['pnpm', 'unit'])
-        with mock.patch.object(enrollment, 'parse', side_effect=AssertionError('re-read')):
-            self.call(['pnpm', 'unit'])
-        path = self.repo / '.git' / 'pandora-enrolled'
-        stamp = path.stat().st_mtime_ns + 1_000_000
-        os.utime(path, ns=(stamp, stamp))
-        with mock.patch.object(enrollment, 'parse', wraps=enrollment.parse) as parse:
-            self.call(['pnpm', 'unit'])
-        self.assertEqual(parse.call_count, 1)
+    def test_an_unenrolled_repository_gets_no_cache(self):
+        (self.repo / '.git' / 'pandora-repo').unlink()
+        self.assertEqual(self.call(['pnpm', 'unit']).exit, 0)
+        self.assertFalse(self.cache.exists())
 
 
 class RestartHygiene(DaemonCase):

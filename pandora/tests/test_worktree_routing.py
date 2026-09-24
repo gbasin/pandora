@@ -54,6 +54,7 @@ class WorktreeConfig(unittest.TestCase):
             {'name': 'demo', 'root': str(self.enrolled), 'config': str(self.external)}]})
         self.client.repo_configs = {}
         self.client.repo_stamps = {}
+        self.client.socket_path = root / 'state' / 'client.sock'
 
     def plan(self, root):
         return self.client.plan_for({'cwd': str(root), 'argv': ['pnpm', 'journey', 'S0-01']})
