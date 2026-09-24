@@ -239,6 +239,9 @@ PANDORA_REAL_PNPM=$real
 PANDORA_ROUTE_DEPTH=1
 export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
 python=${PANDORA_PYTHON:-python3}
+# Every Python start below is `-B -P`: no bytecode written into a version
+# directory, and no cwd on sys.path, so a command typed inside a Pandora
+# checkout still runs the package `home` names.
 # The package lives beside the *file* this shim is, which is not beside the
 # symlink on PATH that reached it. The daemon and `pandora enroll` write the
 # answer into every file above as `home`, so this walk -- one `readlink` fork
@@ -265,7 +268,7 @@ home=${PANDORA_HOME:-$home}
 # only on the paths that already start Python.
 if [ -n "$PANDORA_OFF" ] || { [ -n "$sock" ] && { [ "$claimed" = 1 ] || [ "$heavy" = 1 ] \
         || [ -n "$PANDORA_WHERE" ]; }; }; then
-    if physical=$(cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
+    if physical=$(CDPATH='' cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
 fi
 
 if [ -n "$PANDORA_OFF" ]; then
@@ -276,10 +279,10 @@ if [ -n "$PANDORA_OFF" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
     if [ "$fresh" = 0 ]; then
-        exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        exec "$python" -B -P -m pandora.client.passthrough --real "$real" --repo "$common" \
             --state "${sock%/*}" --sock "$sock" --reason off --decide -- "$@"
     fi
-    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+    exec "$python" -B -P -m pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" --reason off -- "$@"
 fi
 
@@ -288,14 +291,14 @@ fi
 if [ "$fresh" = 0 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" --refresh \
+    exec "$python" -B -P -m pandora.client.shim --sock "$sock" --real "$real" --refresh \
         --repo "$common" -- "$@"
 fi
 
 if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" -- "$@"
+    exec "$python" -B -P -m pandora.client.shim --sock "$sock" --real "$real" -- "$@"
 fi
 # Unclaimed but heavy-looking: run it here, unchanged, and write down that it
 # happened, so `pandora stats` can say what routing did not take.  One Python
@@ -303,7 +306,7 @@ fi
 if [ "$heavy" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+    exec "$python" -B -P -m pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" -- "$@"
 fi
 # A placement override on a command nobody claims has nowhere to go, so it is
@@ -312,7 +315,7 @@ fi
 if [ -n "$PANDORA_WHERE" ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+    exec "$python" -B -P -m pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" --reason override-ignored -- "$@"
 fi
 exec "$real" "$@"

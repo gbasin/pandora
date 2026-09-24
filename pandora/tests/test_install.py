@@ -314,6 +314,56 @@ class PhysicalHome(Case):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.strip(), str(version))
 
+    def test_a_pandora_typed_inside_a_checkout_runs_its_own_package(self):
+        # `python -m` puts the cwd first on sys.path; `-P` keeps it off, so a
+        # checkout's package in the cwd does not shadow the launcher's own.
+        import sys
+        shadow = self.root / 'shadow'
+        (shadow / 'pandora').mkdir(parents=True)
+        (shadow / 'pandora' / '__init__.py').write_text('')
+        (shadow / 'pandora' / 'cli.py').write_text('print("SHADOW")\n')
+        env = {key: value for key, value in os.environ.items()
+               if key not in ('PYTHONPATH', 'PANDORA_HOME')}
+        env.update(PATH='/usr/bin:/bin', PANDORA_PYTHON=sys.executable)
+        proc = subprocess.run([str(HERE / 'bin' / 'pandora'), 'doctor', '--package-home'],
+                              cwd=str(shadow), env=env, capture_output=True, text=True,
+                              timeout=30)
+        self.assertEqual((proc.returncode, proc.stdout.strip()), (0, str(HERE)), proc.stderr)
+
+    def test_the_shim_hands_python_the_version_directory(self):
+        # The claimed path of the shim, with PANDORA_OFF so no daemon is needed:
+        # the marker's `home` is `current`, and Python must get the version.
+        import shutil
+        version = self.data / 'versions' / 'v1'
+        (version / 'pandora' / 'client').mkdir(parents=True)
+        (version / 'pandora' / 'cli.py').write_text('')
+        (version / 'pandora' / 'client' / 'passthrough.py').write_text('')
+        shutil.copytree(HERE / 'bin', version / 'bin')
+        install.flip(self.data, 'v1')
+        shim = self.root / 'shim'
+        shim.mkdir()
+        (shim / 'pnpm').symlink_to(self.data / 'current' / 'bin' / 'pnpm')
+        real = self.root / 'real'
+        real.mkdir()
+        (real / 'pnpm').write_text('#!/bin/sh\necho real\n')
+        (real / 'pnpm').chmod(0o755)
+        python = self.root / 'python'
+        python.write_text('#!/bin/sh\nprintf "%s|%s\\n" "$PYTHONPATH" "$*"\n')
+        python.chmod(0o755)
+        repo = self.root / 'repo'
+        repo.mkdir()
+        git(repo, 'init', '-q')
+        (repo / '.git' / 'pandora-enrolled').write_text(
+            'sock %s\nhome %s\nclaim build\n' % (self.state / 'client.sock', self.data / 'current'))
+        env = {'PATH': '%s:%s:/usr/bin:/bin' % (shim, real), 'HOME': str(self.root),
+               'PANDORA_PYTHON': str(python), 'PANDORA_OFF': '1'}
+        proc = subprocess.run([str(shim / 'pnpm'), 'build'], cwd=str(repo), env=env,
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        pythonpath, argv = proc.stdout.strip().split('|', 1)
+        self.assertEqual(pythonpath, str(version))
+        self.assertTrue(argv.startswith('-B -P -m pandora.client.passthrough'), argv)
+
 
 class WrittenHomes(Case):
     """What `daemon --install` and `enroll` write down once a snapshot is installed."""
