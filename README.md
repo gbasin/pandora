@@ -884,7 +884,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `id`, `summary`, `usage` | Name, one-line description, and the usage line printed on a refusal. |
 | `forms` | The argv prefixes the job claims, such as `[{ prefix = ["journey"] }]`. |
 | `where` | `remote` (default) or `local`. Local is the daemon's own lane: the same queue, admission, receipt and exit contract, on the Mac. |
-| `size` | `small`, `medium` (default), `large` or `xlarge`: memory ceilings of 1, 4, 8 and 12 GiB. The declared size is the starting class. On the worker, after 3 clean runs, the class becomes the one that p95 of the observed peaks times 1.25 fits, up or down. That class sets both the reservation and the ceiling, which is the hard cap. An `oom` resets the class to the declared one, and learning starts again after 3 more clean runs. A change prints `pandora: size for <job>: <old> -> <new> (p95 N MiB over K runs)`, and `pandora result --json` records `size_declared` and `size_used`. A changed `size` restarts learning from the new value. The declared size also decides fallback. |
+| `size` | `small`, `medium` (default), `large` or `xlarge`: memory ceilings of 1, 4, 8 and 12 GiB. The declared size is the starting class. On the worker, after 3 clean runs under the current declaration, the class becomes the one that p95 of those peaks times 1.25 fits, up or down, and never one whose ceiling is below the newest peak times 1.25. A fan-out's plan step and its shards learn separately. That class sets both the reservation and the ceiling, which is the hard cap. An `oom` resets the class to the declared one, and learning starts again after 3 more clean runs. A change prints `pandora: size for <job>: <old> -> <new> (p95 N MiB over K runs)`, and `pandora result --json` records `size_declared` and `size_used`. A changed `size` restarts learning from the new value. The declared size also decides fallback. |
 | `args` | `none` (default), `required` or `optional`. `on_extra = { action = "local" }` lets extra arguments fall out of the claim instead of being refused. |
 | `validate` | `{ argv, timeout_ms }`: the repository's own pre-flight check, run in the worktree before anything is frozen or queued. Exit 0 means "I would run this"; anything else is the repository's refusal, shown as is. |
 | `run` | `{ argv, env, unset, cwd }`: the command. `{args}` places the caller's arguments. |
@@ -945,7 +945,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
 | `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, how long runs waited in the worker queue (p50, p95) and how many ended `queue-timeout`, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
-| `pandora run --detach -- <pnpm args>` | Submit, print the run id, return. For orchestrators. `--local` and `--remote` place the run. |
+| `pandora run --detach -- <pnpm args>` | Submit, print the run id, return: at `accepted`, or at once when the run is queued on the worker. For orchestrators. `--local` and `--remote` place the run. |
 
 `ps` reads the daemon's published status without probing the host or worker.
 Pressure is sampled when local admission needs it. Its age can therefore grow
@@ -992,8 +992,8 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
-| the worker is full (memory) | queues on the worker; 70 after the bound (`queue-timeout`) | queues; 70 after the bound | queues; 70 after the bound |
-| `admission-refused`: every worker slot is taken, or the reservation is larger than the worker | refuse, 70 | refuse, 70 | refuse, 70 |
+| the worker is full (memory or slots) | queues on the worker; 70 after the bound (`queue-timeout`) | queues; 70 after the bound | queues; 70 after the bound |
+| `admission-refused`: the reservation is larger than the worker's whole budget | refuse, 70 | refuse, 70 | refuse, 70 |
 | `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
 | `daemon-unreachable`, never installed here (no client configuration) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
 | the `submit` call fails and the engine cannot then be asked whether it started the run | 70 | 70 | 70 |
@@ -1019,8 +1019,9 @@ bypass it.
 
 ### Queueing
 
-A full worker queues a run; it does not refuse it. When the worker's memory is
-the only obstacle, the run waits in the worker's queue before `accepted`. The
+A full worker queues a run; it does not refuse it. When the worker's memory or
+its run slots (8 at once) are full, the run waits in the worker's queue
+before `accepted`. The
 caller sees `pandora: queued on the worker behind 3 runs (position 2), ~4m10s;
 gives up after 10m00s`, then at most once a minute `still queued behind N
 (position P)`. The heartbeat continues under the wait, so the client does not
@@ -1036,9 +1037,13 @@ worker, from admission to finish. With fewer than 3 such runs, the bound is
 It never falls back and is never retried. `pandora cancel` withdraws a queued
 run. A daemon restart that drains withdraws it too, and the caller submits it
 again at the back of the queue. A daemon that crashes leaves the run queued on
-the worker; the next daemon follows it. The disk floor, a full set of worker
-slots (`max_running`), and a reservation larger than the worker's whole budget
-still refuse at once with exit 70, because waiting cannot fix them.
+the worker; the next daemon follows it. The disk floor and a reservation larger
+than the worker's whole budget still refuse at once with exit 70, because
+waiting cannot fix them.
+
+`pandora run --detach` returns at the first queue line with the run id; the run
+stays queued. `pandora wait <id>` follows it through the queue. A drained
+restart does not withdraw a detached run; the next daemon follows it.
 
 ### Write-back (`--update`)
 
