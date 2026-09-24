@@ -346,6 +346,20 @@ class SlowPathAgainstARealDaemon(DaemonCase):
         self.assertEqual((proc.returncode, proc.stdout), (0, 'real why\n'), proc.stderr)
         self.assertEqual(self.rows(), [])
 
+    def test_the_daemon_writes_current_as_the_cache_home_once_a_version_is_installed(self):
+        # A cache naming the version directory would name nothing after the
+        # next prune; `current` names whichever version is live.
+        from pandora.client import install
+        data = install.data_root()                  # the test package's scratch
+        version = data / 'versions' / 'v1'
+        (version / 'pandora').mkdir(parents=True, exist_ok=True)
+        (version / 'pandora' / 'cli.py').write_text('')
+        install.flip(data, 'v1')
+        self.addCleanup(lambda: os.unlink(data / 'current'))
+        proc = self.pnpm('why', 'react')
+        self.assertEqual((proc.returncode, proc.stdout), (0, 'real why react\n'), proc.stderr)
+        self.assertEqual(enrollment.parse(self.cache.read_text())['home'], str(data / 'current'))
+
     def test_a_stale_cache_is_rewritten_from_the_changed_file(self):
         self.cache.write_text(enrollment.render(
             socket_path=str(self.daemon.socket_path), repo='demo', claims=[['old']],

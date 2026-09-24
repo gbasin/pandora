@@ -268,9 +268,11 @@ home=${PANDORA_HOME:-$home}
 # Pinned to the physical directory when Python will start, so a client that
 # outlives a `pandora upgrade` keeps importing from the version it began with
 # (`home` is usually `<data>/current`, which the upgrade flips). One subshell,
-# only on the paths that already start Python.
-if [ -n "$PANDORA_OFF" ] || { [ -n "$sock" ] && { [ "$claimed" = 1 ] || [ "$heavy" = 1 ] \
-        || [ -n "$PANDORA_WHERE" ]; }; }; then
+# only on the paths that already start Python: the kill switch (with or
+# without `--decide`), a missing or stale cache's `--refresh`, a claim, and
+# the two loggers.
+if [ -n "$PANDORA_OFF" ] || { [ -n "$sock" ] && { [ "$fresh" = 0 ] || [ "$claimed" = 1 ] \
+        || [ "$heavy" = 1 ] || [ -n "$PANDORA_WHERE" ]; }; }; then
     if physical=$(CDPATH='' cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
 fi
 

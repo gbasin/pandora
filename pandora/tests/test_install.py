@@ -380,6 +380,18 @@ class PhysicalHome(Case):
         self.assertEqual(pythonpath, str(version))
         self.assertTrue(argv.startswith('-B -c '), argv)
         self.assertIn(' pandora.client.passthrough --real ', argv)
+        # No cache, and PANDORA_OFF unset: the `--refresh` start is pinned too.
+        (repo / '.git' / 'pandora-enrolled').unlink()
+        (repo / '.git' / 'pandora-repo').write_text(
+            'sock %s\nhome %s\n' % (self.state / 'client.sock', self.data / 'current'))
+        del env['PANDORA_OFF']
+        proc = subprocess.run([str(shim / 'pnpm'), 'build'], cwd=str(repo), env=env,
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        pythonpath, argv = proc.stdout.strip().split('|', 1)
+        self.assertEqual(pythonpath, str(version))
+        self.assertIn(' pandora.client.shim ', argv)
+        self.assertIn(' --refresh ', argv)
 
 
 class WrittenHomes(Case):
@@ -401,7 +413,7 @@ class WrittenHomes(Case):
         self.assertEqual(launchd.agent_program('com.pandora.daemon', self.home), program)
         self.assertIn('`pandora upgrade`', self.said[-1])
 
-    def test_enroll_writes_current_as_the_marker_home(self):
+    def test_enroll_writes_current_as_the_client_home(self):
         from pandora import cli
         from pandora.client import enrollment
         from pandora.tests.test_config import MINIMAL
@@ -412,12 +424,16 @@ class WrittenHomes(Case):
         data = install.data_root()                  # the test package's scratch directory
         install.flip(data, install.snapshot(install.describe(self.checkout()), data)['name'])
         self.addCleanup(lambda: os.unlink(data / 'current'))
-        with mock.patch('sys.stderr'):
-            code = cli.main(['--state', str(self.state), '--config',
-                             str(self.root / 'none.toml'), 'enroll', str(repo)])
+        config = self.root / 'client.toml'
+        config.write_text('[worker]\nhost = "w"\n\n[client]\nstate = "%s"\n' % self.state)
+        with mock.patch('sys.stderr'), mock.patch('pandora.cli.check_daemon_knows_claims',
+                                                  return_value=None):
+            code = cli.main(['--state', str(self.state), '--config', str(config),
+                             'enroll', str(repo)])
         self.assertEqual(code, 0)
-        marker = enrollment.parse((repo / '.git' / 'pandora-enrolled').read_text())
-        self.assertEqual(marker['home'], str(data / 'current'))
+        for path in (repo / '.git' / enrollment.REGISTRATION, enrollment.cache_path(repo)):
+            self.assertEqual(enrollment.parse(path.read_text())['home'], str(data / 'current'),
+                             path)
 
 
 class Doctor(Case):
@@ -525,26 +541,39 @@ class Doctor(Case):
         self.assertIn('daemon runs the checkout %s, current is %s. `pandora daemon --install`'
                       % (self.repo, self.version['name']), item['detail'])
 
-    def test_a_marker_home_outside_current_warns(self):
+    def test_a_client_home_outside_current_warns(self):
         from pandora.client import doctor, enrollment
         target = self.root / 'target'
         target.mkdir()
         git(target, 'init', '-q')
+        registration = target / '.git' / enrollment.REGISTRATION
         for home, warned in ((self.repo, True), (self.version['path'], True),
                              (self.data / 'current', False)):
-            (target / '.git' / 'pandora-enrolled').write_text(enrollment.render(
-                socket_path=str(self.state / 'client.sock'), repo='demo', claims=[['unit']],
-                home=str(home)))
+            registration.write_text(enrollment.registration_text(
+                socket_path=str(self.state / 'client.sock'), repo='demo', home=str(home)))
             items = {item['name']: item for item in
                      doctor.check_repository(str(target), None, self.state / 'client.sock',
                                              self.data)}
+            upgrade_rows = [item for item in items.values()
+                            if 'not follow an upgrade' in item['detail']]
             if warned:
-                self.assertEqual(items['marker home']['status'], 'warn', home)
-                self.assertIn('not %s, so claimed commands do not follow an upgrade'
-                              % (self.data / 'current'), items['marker home']['detail'])
+                self.assertEqual(items['client home']['status'], 'warn', home)
+                self.assertIn('pins the client to %s, not %s, so claimed commands do not '
+                              'follow an upgrade; run `pandora enroll'
+                              % (home, self.data / 'current'), items['client home']['detail'])
             else:
-                self.assertNotIn('marker home', {k for k, v in items.items()
-                                                 if 'not follow an upgrade' in v['detail']})
+                self.assertEqual(upgrade_rows, [])
+        # A cache the daemon wrote: the fix is the daemon's, and deleting the cache.
+        registration.write_text(enrollment.registration_text(
+            socket_path=str(self.state / 'client.sock'), repo='demo',
+            home=str(self.data / 'current')))
+        enrollment.cache_path(target).write_text(enrollment.render(
+            socket_path=str(self.state / 'client.sock'), repo='demo', claims=[['unit']],
+            home=str(self.repo)))
+        items = {item['name']: item for item in
+                 doctor.check_repository(str(target), None, self.state / 'client.sock',
+                                         self.data)}
+        self.assertIn('once the daemon runs current, delete', items['client home']['detail'])
 
 
 ROWS = [
