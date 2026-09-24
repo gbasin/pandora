@@ -195,7 +195,7 @@ class Run:
         self.spawn_lock = threading.Lock()
         # Around `finish`: two threads closing one row at the same instant --
         # a child exiting as a stop lands -- must produce one exit frame.
-        self.close_lock = threading.Lock()
+        self.close_lock = threading.RLock()
         # Whether any of the command's own output has been streamed. Kept in a
         # file, because a daemon that restarts mid-run must not forget that the
         # caller has already seen half an answer.
@@ -204,10 +204,14 @@ class Run:
         self.carry = b''
 
     def save(self):
-        if self.done.is_set():
-            # Closed. A thread still mid-flight when a stop closed the row
-            # must not write `running` over the daemon's last word.
-            return
+        with self.close_lock:
+            if self.done.is_set():
+                # Closed. A thread still mid-flight when a stop closed the row
+                # must not write `running` over the daemon's last word.
+                return
+            self._save()
+
+    def _save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
                    'worktree': self.worktree(),
@@ -1040,24 +1044,40 @@ class Daemon:
             candidates = list(self.runs.values()) + list(self.pending.values())
         closed = []
         for run in candidates:
-            if run.lane != 'local' or run.done.is_set() or run.id in closed:
+            if run.lane != 'local' or run.id in closed:
                 continue
             run.canceled.set()
-            if run.state == 'running':
-                run.note('the daemon stopped while this run was executing here, so its '
-                         'verdict is lost. Re-run it.')
-                run.finish(INFRA, state='infra_failed')
-            else:
-                run.note('the daemon stopped before this run was accepted; nothing ran. '
-                         'Re-run it.')
-                run.finish(INFRA, state='withdrawn')
+            with run.close_lock:
+                # The note and the close under one lock: a run whose child
+                # finished at this same instant keeps its verdict and never
+                # hears "re-run it".
+                if run.done.is_set():
+                    continue
+                if run.state == 'running':
+                    run.note('the daemon stopped while this run was executing here, so its '
+                             'verdict is lost. Re-run it.')
+                    run._finish(INFRA, 'infra_failed', None)
+                else:
+                    run.note('the daemon stopped before this run was accepted; nothing ran. '
+                             'Re-run it.')
+                    run._finish(INFRA, 'withdrawn', None)
             with run.spawn_lock:
-                pgid, started = run.pgid, run.pgid_started
-            if pgid and local_module.kill_recorded(pgid, started):
+                pgid = run.pgid
+            if pgid:
+                # The leader is this process's own child, not yet reaped, so
+                # its group id is nobody else's: no proof needed, and none
+                # of the reasons `kill_recorded` may decline apply. The
+                # sweep's helper follows, for descendants that left the group.
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                local_module.kill_recorded(pgid, run.pgid_started)
                 log('stop: killed the process group of run %s' % run.id)
             closed.append(run.id)
-        if closed:
-            log('stop: closed %d local run(s): %s' % (len(closed), ' '.join(closed)))
+        if not closed:
+            return closed
+        log('stop: closed %d local run(s): %s' % (len(closed), ' '.join(closed)))
         # The exit frames reach their callers through the connection threads,
         # which die with this process. Give them the moment they need.
         deadline = time.monotonic() + 2.0

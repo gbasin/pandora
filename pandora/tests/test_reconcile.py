@@ -85,6 +85,9 @@ class AStoppingDaemon(DaemonCase):
         closed = self.meta(row['id'])
         self.assertEqual((closed['state'], closed['exit_code']), ('infra_failed', INFRA))
         self.assertTrue(wait_until(lambda: not alive(pid), 5), 'the child outlived the daemon')
+        # The executor thread says its piece after the child dies; let it
+        # finish before the temporary directory goes, or it says it to stderr.
+        self.assertTrue(wait_until(lambda: self.daemon.budget.snapshot()['running'] == [], 10))
         # One exit frame, the daemon's, whatever the executor said afterwards.
         frames = [json.loads(line) for line in
                   (self.state / 'runs' / row['id'] / 'log').read_bytes().splitlines() if line]
