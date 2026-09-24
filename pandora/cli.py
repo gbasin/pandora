@@ -40,8 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] (read-only) | enroll <repo> | unenroll <repo> | worker <verb>
-  pandora upgrade [--from <checkout> | --version <name>] [--now] [--wait S]
-  pandora daemon [--install | --restart | --uninstall | --stop]
+  pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...]
 """
 import argparse
 import json
