@@ -462,16 +462,57 @@ class AClientDuringARestart(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn(drain.NOTICE, err)
 
-    def test_a_restart_that_never_ends_costs_the_wait_then_runs_here(self):
+    def test_a_restart_that_never_ends_costs_the_wait_then_exits_75(self):
         os.environ[drain.WAIT_ENV] = '0.6'
         self.marker()
         code, err = self.shim(['unit'])
+        self.assertEqual(code, 75)
+        self.assertFalse(self.ran.exists())
+        self.assertIn('was draining for a restart and did not come back', err)
+        self.assertNotIn('pandora daemon --install', err)
+
+    # -- the three states of an unanswered socket, end to end ----------------
+
+    def installed(self):
+        config = self.root / 'config.toml'
+        config.write_text('[client]\nstate = "%s"\n' % self.state)
+        os.environ['PANDORA_CONFIG'] = str(config)
+
+    def test_a_fresh_marker_waits_even_where_the_daemon_is_installed(self):
+        self.installed()
+        os.environ[drain.WAIT_ENV] = '0.6'
+        self.marker()
+        started = time.monotonic()
+        code, err = self.shim(['unit'])
+        self.assertGreater(time.monotonic() - started, 0.5)
+        self.assertEqual(code, 75)
+        self.assertIn(drain.NOTICE, err)
+        self.assertNotIn('installed on this Mac', err)
+
+    def test_no_marker_and_installed_is_a_short_grace_then_70(self):
+        self.installed()
+        with mock.patch.object(shim, 'DAEMON_GRACE_SECONDS', 0.3):
+            started = time.monotonic()
+            code, err = self.shim(['unit'])
+        self.assertGreater(time.monotonic() - started, 0.25)
+        self.assertEqual(code, INFRA)
+        self.assertFalse(self.ran.exists())
+        self.assertIn('installed on this Mac', err)
+        self.assertNotIn(drain.NOTICE, err)
+
+    def test_no_marker_and_never_installed_passes_through(self):
+        code, err = self.shim(['unit'])
         self.assertEqual(code, 0)
         self.assertTrue(self.ran.exists())
-        self.assertIn('was draining for a restart and did not come back', err)
-        self.assertIn('no new one answered', err)
-        self.assertNotIn('pandora daemon --install', err)
-        self.assertIn('daemon-unreachable', (self.state / 'passthrough.jsonl').read_text())
+        self.assertIn('as if Pandora were not installed', err)
+
+    def test_a_stale_marker_where_installed_is_the_grace_not_a_wait(self):
+        self.installed()
+        self.marker(age=drain.STALE_SECONDS + 60)
+        with mock.patch.object(shim, 'DAEMON_GRACE_SECONDS', 0.1):
+            code, err = self.shim(['unit'])
+        self.assertEqual(code, INFRA)
+        self.assertNotIn(drain.NOTICE, err)
 
     def test_the_slow_path_waits_too_on_the_same_budget(self):
         fake = self.daemon(drains=1)
@@ -831,6 +872,33 @@ class Doctor(unittest.TestCase):
                             runner=failed, launchctl=FakeLaunchd())
         names = [item['name'] for item in report['checks']]
         self.assertIn('restart drain', names)
+
+
+class TheDecision(unittest.TestCase):
+    """No daemon answers: wait for a restart, a short grace then 70, or pass through."""
+
+    def test_a_fresh_marker_is_a_restart_whether_or_not_installed(self):
+        for installed in (True, False):
+            self.assertEqual(drain.when_unanswered({'age': 5}, installed, budget=660),
+                             drain.WAIT_FOR_RESTART)
+
+    def test_no_marker_installed_is_the_grace_then_70(self):
+        self.assertEqual(drain.when_unanswered(None, True), drain.GRACE_THEN_REFUSE)
+
+    def test_no_marker_never_installed_passes_through(self):
+        self.assertEqual(drain.when_unanswered(None, False), drain.PASS_THROUGH)
+
+    def test_a_marker_older_than_the_wait_or_stale_is_no_marker(self):
+        self.assertEqual(drain.when_unanswered({'age': 700}, True, budget=660),
+                         drain.GRACE_THEN_REFUSE)
+        self.assertEqual(drain.when_unanswered({'age': drain.STALE_SECONDS}, False,
+                                               budget=10 ** 6), drain.PASS_THROUGH)
+        self.assertEqual(drain.when_unanswered({'age': 0}, True, budget=0),
+                         drain.GRACE_THEN_REFUSE)
+
+    def test_a_wait_already_begun_stays_a_wait(self):
+        self.assertEqual(drain.when_unanswered(None, False, waited=True),
+                         drain.WAIT_FOR_RESTART)
 
 
 class TheWaiter(unittest.TestCase):

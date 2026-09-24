@@ -119,6 +119,26 @@ def client_wait(environ=None):
         return DEFAULT_CLIENT_WAIT
 
 
+# What a client does when no daemon answers the socket: the one decision.
+WAIT_FOR_RESTART = 'wait-for-restart'     # a drain says a daemon is coming
+GRACE_THEN_REFUSE = 'grace-then-refuse'   # installed here: a short grace, then exit 70
+PASS_THROUGH = 'pass-through'             # never installed here: no daemon, no Pandora
+
+
+def when_unanswered(marker, installed, *, waited=False, budget=DEFAULT_CLIENT_WAIT):
+    """Which of the three a command takes when the socket is absent or refuses.
+
+    A fresh draining marker (younger than the client's wait, and never a stale
+    one), or a wait this command already began, is a restart: wait for it on the
+    client's budget, then exit 75. Otherwise an installed daemon that does not
+    answer gets a few seconds, then exit 70 with nothing run. Only a Mac where
+    the daemon was never installed runs the command as if Pandora were absent.
+    """
+    if waited or (marker is not None and marker['age'] < min(budget, STALE_SECONDS)):
+        return WAIT_FOR_RESTART
+    return GRACE_THEN_REFUSE if installed else PASS_THROUGH
+
+
 class Waiter:
     """One command's wait for a restart: one notice, one budget, shared by every ask.
 
@@ -188,10 +208,15 @@ class Waiter:
         return (marker is not None and marker['age'] < min(self.budget, STALE_SECONDS)
                 and isinstance(since, (int, float)) and since <= sent)
 
+    def decide(self, installed):
+        """`when_unanswered` for this command, from the marker as it is now."""
+        return when_unanswered(read_marker(self.state, clock=self.wall), installed,
+                               waited=self.waited(), budget=self.budget)
+
     def gave_up(self):
-        """The one line said when the budget ran out on a daemon that is gone."""
-        return ('the daemon was draining for a restart and did not come back within %gs (%s)'
-                % (self.budget, WAIT_ENV))
+        """The one line said when the budget ran out with no daemon answering."""
+        return ('the daemon was draining for a restart and did not come back within %gs (%s); '
+                'nothing ran. Retry, or run `pandora doctor`' % (self.budget, WAIT_ENV))
 
     def still_draining(self):
         """The one line said when the budget ran out on a daemon that still says `draining`."""

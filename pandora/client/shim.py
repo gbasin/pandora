@@ -541,7 +541,7 @@ def main(argv=None):
         notice(str(error))
         return USAGE
 
-    def no_daemon(cause, message, hint=None):
+    def no_daemon(cause, message):
         """The daemon is not there: run the command as if Pandora were absent.
 
         Only two requests cannot be honored without a daemon and are refused:
@@ -583,8 +583,8 @@ def main(argv=None):
         # and an engineer whose daemon died must not lose `pnpm journey` (the
         # owner's rule for machines without Pandora: always run directly).
         notice('%s; running it here as if Pandora were not installed (exit codes '
-               'are the command\'s own; %s)' % (message, hint or 'start the daemon with '
-                                                 '`pandora daemon --install` to route again'))
+               'are the command\'s own; start the daemon with `pandora daemon '
+               '--install` to route again)' % message)
         return run_local(args.real, command, state=state, claimed=False,
                          reason=cause, where=where)
 
@@ -617,21 +617,28 @@ def main(argv=None):
         return pass_through('claimed only at the worktree root; not routed')
 
     request = build_request(command, where=where)
-    after_drain = ('a restart drained the daemon and no new one answered; `pandora doctor` '
-                   'and <state>/logs/daemon.log say why')
+    grace = None
     while True:
         try:
-            # A daemon installed here gets a short grace, for a restart in progress;
-            # one never installed gets none, and the command passes through at once.
-            sock = connect_within(args.sock, DAEMON_GRACE_SECONDS if installed_here() else 0.0)
+            sock = connect(args.sock, timeout=2.0)
         except (OSError, socket.timeout) as error:
-            # The restart gap: no socket, and a fresh marker says one is coming.
-            if waiter.absent():
-                continue
-            if waiter.waited():
+            what = waiter.decide(installed_here() is not None)
+            if what == drain.WAIT_FOR_RESTART:
+                # The restart gap: no socket, and a drain says a daemon is coming.
+                if waiter.absent():
+                    continue
+                if not waiter.waited():
+                    continue          # the marker aged out just now: decide again
                 notice(waiter.gave_up())
-            return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error),
-                             hint=after_drain if waiter.waited() else None)
+                return STALE
+            if what == drain.GRACE_THEN_REFUSE:
+                # Installed here and not answering: a few seconds for a restart
+                # nobody drained, then `no_daemon` refuses with exit 70.
+                grace = grace or time.monotonic() + DAEMON_GRACE_SECONDS
+                if time.monotonic() < grace:
+                    time.sleep(DAEMON_GRACE_PAUSE)
+                    continue
+            return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
         sock.settimeout(HANDSHAKE_SECONDS)
         reader = Reader(sock)
         sent = time.time()

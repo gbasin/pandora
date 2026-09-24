@@ -266,15 +266,15 @@ What a client sees during the drain and the restart:
   same way. It loses its place in the queue.
 * A command the claim cache does not claim is not held: it runs at once.
 * While no daemon listens, the client keeps asking only while the marker is
-  younger than its wait. A daemon that is simply gone still gives the no-daemon
-  behavior at once. A connection the stopping daemon closes before it answers
-  is asked again, when the drain began before the command was sent.
+  younger than its wait. With no fresh marker, the rules in [When the daemon
+  is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
+  apply. A connection the stopping daemon closes before it answers is asked
+  again, when the drain began before the command was sent.
 * A client waits at most `PANDORA_DRAIN_WAIT` seconds, 660 by default: the
   longest restart wait (`pandora upgrade`, 600 s) and a minute for the restart.
-  When the wait runs out on a daemon that still answers `draining`, the command
-  exits 75 and nothing ran; retry. It never runs unmanaged beside a live
-  daemon. When it runs out with no daemon listening, the command runs as if no
-  daemon were there, with one more line that says a restart did not finish.
+  When the wait runs out, the command exits 75 and nothing ran: "still
+  draining" when the daemon still answers `draining`, "did not come back" when
+  no daemon listens. Retry. It never runs unmanaged during a drain.
 * `pandora wait`, `ps`, `logs`, `result` and `cancel` work during the drain.
 
 A marker older than 15 minutes is a restart that never finished. Clients
@@ -298,7 +298,7 @@ What a restart does to each run:
 | Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
 | Local, executing | The drain waits for it to finish. With `--now` after the wait: it ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
 | Local, queued | Ends `withdrawn` when the drain starts. Its client submits it again to the next daemon. |
-| A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait below, then exit 70. |
+| A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait, then exit 70 (see [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)). |
 
 A client attached to a run that ends this way exits 70. It does not wait.
 `kill -USR1 <daemon pid>` writes every thread's stack to the daemon log, for a
@@ -402,14 +402,21 @@ for one more release.
 
 ### When the daemon is installed but does not answer
 
-The client configuration, `~/.config/pandora/config.toml`, is how the shim
-knows the daemon was installed on this Mac. Where it exists, a claimed command
-that finds no daemon on the socket waits up to five seconds, which covers a
-restart. Then it exits 70 and prints ``pandora: hint: run `pandora doctor` ``.
-Nothing runs. Where the file does not exist, Pandora was never installed here.
-A claimed command in an enrolled clone then runs here as if Pandora were not
-installed, with one notice and a row in `<state>/passthrough.jsonl`.
-`PANDORA_OFF=1` bypasses both: the command runs here with no Pandora.
+A claimed command that finds no daemon on the socket, or a socket that
+refuses it, takes one of three paths, in this order:
+
+1. A fresh `<state>/draining` marker: a restart is in progress. The command
+   waits for the new daemon, up to `PANDORA_DRAIN_WAIT`, then exits 75 with
+   "did not come back". Nothing runs.
+2. No fresh marker, and the client configuration, `~/.config/pandora/config.toml`,
+   exists: the daemon was installed on this Mac. The command waits up to five
+   seconds, which covers a restart without a drain. Then it exits 70 and prints
+   ``pandora: hint: run `pandora doctor` ``. Nothing runs.
+3. No fresh marker and no client configuration: Pandora was never installed
+   here. A claimed command in an enrolled clone runs here as if Pandora were
+   not installed, with one notice and a row in `<state>/passthrough.jsonl`.
+
+`PANDORA_OFF=1` bypasses all three: the command runs here with no Pandora.
 
 To stop routing a repository, unenroll it.
 
@@ -884,7 +891,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | the command's own | The command's verdict. | As without Pandora. |
 | 64 | The command cannot run as typed: a path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
 | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry; do not bypass it. |
-| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or the daemon still answered `draining` when `PANDORA_DRAIN_WAIT` ran out; nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
+| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or a restart did not finish within `PANDORA_DRAIN_WAIT`; nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 | 130 | Canceled. | Nothing. |
 
@@ -895,7 +902,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
-| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 660. Then it exits 75 if the daemon still answers `draining`, or runs as if no daemon were there if none listens. |
+| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 660. Then it exits 75; nothing ran. |
 | `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own; the client runs none. |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
