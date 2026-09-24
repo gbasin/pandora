@@ -219,6 +219,7 @@ def _message(config, text):
 
 
 SUBDIRECTORY_MESSAGE = 'run from the repo root to route'
+SUBDIRECTORY_UNCLAIMED = 'claimed only at the worktree root, and this was typed in %s'
 
 
 def path_like(tokens, exists=None):
@@ -250,7 +251,8 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
 
     `cwd` is where the command was typed, relative to the worktree root. When it
     is not the root, the verdict carries `rerooted` naming that directory, and
-    the caller runs the job from the root instead.
+    the caller runs the job from the root instead -- unless the repository says
+    `subdirectory = "passthrough"`, and then nothing is claimed there at all.
     """
     tokens, tool = list(argv), None
     if tokens[:1] and tokens[0] in config['repo']['entrypoints']:
@@ -263,6 +265,10 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
     job, form, rest = found
     rerooted = None
     if cwd not in ('', '.'):
+        if config['matching']['subdirectory'] == 'passthrough':
+            # `pnpm test` in a package is that package's test, not the root's.
+            return {'decision': 'local', 'reason': SUBDIRECTORY_UNCLAIMED % cwd,
+                    'plan': None, 'job': job['id'], 'forwarded': []}
         if config['matching']['subdirectory'] == 'reject':
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
                     'message': _message(config, 'Run this command from the repository root.')}

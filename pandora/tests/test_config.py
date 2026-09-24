@@ -271,6 +271,32 @@ class ClassifyTest(unittest.TestCase):
         verdict = classify.classify(config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
         self.assertEqual(verdict['decision'], 'reject')
 
+    def test_a_subdirectory_can_claim_nothing_instead(self):
+        # `pnpm test` in a package is that package's test, not the root's job.
+        config = loader.load(EXAMPLE)
+        config['matching']['subdirectory'] = 'passthrough'
+        verdict = classify.classify(config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
+        self.assertEqual((verdict['decision'], verdict['plan']), ('local', None))
+        self.assertIn('worktree root', verdict['reason'])
+        self.assertIn('apps/agent', verdict['reason'])
+        # A path in the argv is not refused either: nothing is claimed there.
+        verdict = classify.classify(config, ['pnpm', 'unit', 'src/x.test.ts'], cwd='apps/agent')
+        self.assertEqual(verdict['decision'], 'local')
+        with self.assertRaises(NotClaimed):
+            classify.claimed_or_raise(config, ['pnpm', 'journey', 'S0-01'], cwd='apps')
+        self.assertEqual(classify.classify(config, ['pnpm', 'journey', 'S0-01'])['decision'],
+                         'remote')
+
+    def test_passthrough_is_a_subdirectory_mode_the_loader_accepts(self):
+        text = EXAMPLE.read_text().replace('subdirectory = "reroot"',
+                                           'subdirectory = "passthrough"')
+        self.assertEqual(loader.validate(tomllib.loads(text))['matching']['subdirectory'],
+                         'passthrough')
+        text = EXAMPLE.read_text().replace('subdirectory = "reroot"', 'subdirectory = "root"')
+        with self.assertRaises(ConfigError) as caught:
+            loader.validate(tomllib.loads(text))
+        self.assertIn('passthrough', str(caught.exception))
+
     def test_update_arms_the_writeback_output(self):
         plain = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'])['plan']
         armed = classify.classify(self.config, ['pnpm', 'journey', 'S0-01', '--update'])['plan']
