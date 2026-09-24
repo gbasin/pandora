@@ -67,6 +67,12 @@ RECORD = 'launchd.json'
 # `/usr/sbin` for `sysctl`, which the pause gate samples.
 BASE_PATH = ('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin')
 STOP_SECONDS = 10.0
+# launchd's class for the agent. `Background` is Apple's class for batch work:
+# low CPU, I/O and network priority, and the first target of memory pressure.
+# At load 90 on 2026-09-24 it starved the daemon for 66 s while every agent
+# waited on it. `Interactive` is the class for work a person is waiting on. No
+# `Nice` key: a negative nice needs root.
+PROCESS_TYPE = 'Interactive'
 RESTART_NOTE = ('after updating the checkout, run `pandora daemon --restart` '
                 '(launchctl kickstart -k): the daemon runs the code it started with')
 UPGRADE_NOTE = ('pulling the checkout changes nothing live; `pandora upgrade` installs '
@@ -271,7 +277,7 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
         # launchd's own floor between restarts, stated so it is not a surprise:
         # a daemon that cannot start is retried every ten seconds, not in a loop.
         'ThrottleInterval': 10,
-        'ProcessType': 'Background',
+        'ProcessType': PROCESS_TYPE,
         'StandardOutPath': log,
         'StandardErrorPath': log,
         'WorkingDirectory': str(Path.home()),
@@ -284,6 +290,15 @@ def agent_program(label, home=None):
         with open(plist_path(label, home), 'rb') as handle:
             return (plistlib.load(handle).get('ProgramArguments') or [None])[0]
     except (OSError, ValueError, plistlib.InvalidFileException, AttributeError, IndexError):
+        return None
+
+
+def agent_process_type(label, home=None):
+    """The installed plist's `ProcessType`: its value, '' when it has none, None without a plist."""
+    try:
+        with open(plist_path(label, home), 'rb') as handle:
+            return plistlib.load(handle).get('ProcessType') or ''
+    except (OSError, ValueError, plistlib.InvalidFileException, AttributeError):
         return None
 
 

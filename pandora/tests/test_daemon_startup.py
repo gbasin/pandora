@@ -43,16 +43,20 @@ class Startup(unittest.TestCase):
                 order.append('stopped')
 
         handlers = {}
+        err = io.StringIO()
         with mock.patch.object(daemon_module, 'Daemon', Recorder), \
                 mock.patch.object(daemon_module.signal, 'signal',
                                   lambda number, handler: (order.append(number),
                                                            handlers.setdefault(number, handler))), \
                 mock.patch.object(daemon_module.faulthandler, 'register',
                                   lambda number, **_: order.append(number)), \
-                contextlib.redirect_stderr(io.StringIO()):
+                mock.patch.object(daemon_module, 'raise_accept_qos',
+                                  lambda: order.append('qos') or True), \
+                contextlib.redirect_stderr(err):
             self.assertEqual(daemon_module.main([]), 0)
-        self.assertEqual(order[:3], [signal.SIGTERM, signal.SIGUSR1, 'built'], order)
+        self.assertEqual(order[:4], [signal.SIGTERM, signal.SIGUSR1, 'qos', 'built'], order)
         self.assertEqual(order[-1], 'stopped')
+        self.assertIn('accept thread QoS user-interactive', err.getvalue())
 
     def test_a_sigterm_while_starting_is_kept_and_the_daemon_never_serves(self):
         stopping = threading.Event()
@@ -69,6 +73,57 @@ class Startup(unittest.TestCase):
         served.start()
         served.join(timeout=5)
         self.assertFalse(served.is_alive(), 'a daemon told to stop while starting served')
+
+
+class AcceptThreadQoS(unittest.TestCase):
+    def libsystem(self, returns=0):
+        calls = []
+
+        class Function:
+            def __call__(self, qos, relative):
+                calls.append((qos, relative))
+                return returns
+
+        class Library:
+            pthread_set_qos_class_self_np = Function()
+
+        opened = []
+        return calls, opened, lambda path: opened.append(path) or Library()
+
+    def setUp(self):
+        self.addCleanup(daemon_module.RAISED.clear)
+
+    def test_on_darwin_the_call_is_made_with_user_interactive(self):
+        calls, opened, cdll = self.libsystem()
+        self.assertTrue(daemon_module.raise_accept_qos(platform='darwin', cdll=cdll))
+        self.assertEqual(calls, [(0x21, 0)])
+        self.assertEqual(opened, ['/usr/lib/libSystem.B.dylib'])
+        self.assertTrue(daemon_module.RAISED.is_set())
+
+    def test_elsewhere_nothing_is_loaded(self):
+        calls, opened, cdll = self.libsystem()
+        self.assertFalse(daemon_module.raise_accept_qos(platform='linux', cdll=cdll))
+        self.assertEqual((calls, opened), ([], []))
+        self.assertFalse(daemon_module.RAISED.is_set())
+
+    def test_a_refusal_or_a_missing_library_is_silent(self):
+        calls, _, cdll = self.libsystem(returns=22)
+        self.assertFalse(daemon_module.raise_accept_qos(platform='darwin', cdll=cdll))
+
+        def missing(path):
+            raise OSError('no libSystem')
+        self.assertFalse(daemon_module.raise_accept_qos(platform='darwin', cdll=missing))
+        self.assertFalse(daemon_module.RAISED.is_set())
+
+    def test_a_handler_thread_steps_back_to_the_default(self):
+        daemon_module.RAISED.set()
+        asked = []
+        with mock.patch.object(daemon_module, 'set_qos', asked.append):
+            daemon = object.__new__(daemon_module.Daemon)
+            daemon.runs_lock, daemon.handlers = threading.Lock(), set()
+            daemon._handle = lambda conn: None
+            daemon.handle(None)
+        self.assertEqual(asked, [daemon_module.QOS_CLASS_DEFAULT])
 
 
 class TheLock(unittest.TestCase):

@@ -202,6 +202,17 @@ failed transfer also leaves rsync's whole stderr in
 interpreter that ran the install. If a hand-started daemon already holds the
 lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 
+The plist sets `ProcessType` to `Interactive`. Every agent's command waits on
+the daemon, so it must be scheduled on a loaded Mac. `Background`, the earlier
+value, is Apple's class for batch work: low CPU, I/O and network priority, and
+the first target of memory pressure. At load 90 it left the daemon unanswered
+for 66 s. The daemon also runs its accept loop at user-interactive QoS; the
+threads that serve each connection run at the default. There is no `Nice` key,
+because a negative nice needs root. `pandora doctor` warns when the installed
+plist still says `Background` or sets no `ProcessType`. Run `pandora daemon
+--install` to rewrite it. That restarts the daemon without a drain, so check
+`pandora ps` first.
+
 The daemon runs the version it started with. `pandora upgrade` restarts it into
 a new version when no run would be lost; see [Upgrade](#upgrade). On an
 install that runs the checkout, restart it after you update the checkout.

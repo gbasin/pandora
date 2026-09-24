@@ -617,6 +617,15 @@ def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
                      'launchd has %s loaded (%s) but the daemon answering is pid %s, which '
                      'it did not start. `pandora daemon --stop`, then `pandora daemon '
                      '--restart`; %s' % (label, agent['line'], pid, starts), **facts)
+    kind = launchd.agent_process_type(label, home)
+    facts['process_type'] = kind
+    if kind is not None and kind != launchd.PROCESS_TYPE:
+        return check('daemon supervision', WARN,
+                     'launchd runs pid %s as %s at ProcessType %s, the class macOS starves '
+                     'first under load; run `pandora daemon --install` to rewrite it as %s '
+                     '(that restarts the daemon without a drain: check `pandora ps` first)'
+                     % (pid, label, kind or '(unset, which launchd treats as Standard)',
+                        launchd.PROCESS_TYPE), **facts)
     return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; %s after '
                  'updating the checkout' % (pid, label, runs, starts,
                                             '`pandora upgrade`' if upgraded

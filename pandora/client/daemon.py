@@ -921,6 +921,8 @@ class Daemon:
     # -- connections -------------------------------------------------------
 
     def handle(self, conn):
+        if RAISED.is_set():
+            set_qos(QOS_CLASS_DEFAULT)
         try:
             self._handle(conn)
         finally:
@@ -2146,6 +2148,37 @@ class Daemon:
                                 window=window or 'all', client=self.client_name())
 
 
+# <pthread/qos.h>. The accept loop runs on the main thread: at user-interactive
+# QoS a Mac at load 90 still schedules it, so a client is answered. A thread
+# may start at its creator's class, so each handler thread puts itself back at
+# the default: the work a connection does is not what a person waits on first.
+QOS_CLASS_USER_INTERACTIVE = 0x21
+QOS_CLASS_DEFAULT = 0x15
+RAISED = threading.Event()
+
+
+def set_qos(qos_class, platform=None, cdll=None):
+    """Put the calling thread at `qos_class` on macOS. True when it took; never raises."""
+    if (platform or sys.platform) != 'darwin':
+        return False
+    try:
+        import ctypes
+        system = (cdll or ctypes.CDLL)('/usr/lib/libSystem.B.dylib')
+        call = system.pthread_set_qos_class_self_np
+        call.argtypes, call.restype = [ctypes.c_uint, ctypes.c_int], ctypes.c_int
+        return call(qos_class, 0) == 0
+    except Exception:                               # noqa: BLE001 - a priority, never a failure
+        return False
+
+
+def raise_accept_qos(platform=None, cdll=None):
+    """The accept thread at user-interactive QoS; remembered so handlers step back down."""
+    raised = set_qos(QOS_CLASS_USER_INTERACTIVE, platform=platform, cdll=cdll)
+    if raised:
+        RAISED.set()
+    return raised
+
+
 def main(argv=None):
     # Before anything else: a daemon still starting had no handlers, and
     # SIGUSR1's default action ends a process, which killed one on 2026-09-24.
@@ -2155,6 +2188,7 @@ def main(argv=None):
     # `kill -USR1 <pid>` writes every thread's stack to the daemon log: the
     # one question a stuck run raises that `ps` cannot answer.
     faulthandler.register(signal.SIGUSR1, all_threads=True)
+    raised = raise_accept_qos()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', default=None)
     parser.add_argument('--config', default=None)
@@ -2164,6 +2198,8 @@ def main(argv=None):
     daemon = Daemon(args.state, config_path=args.config, stopping=stopping).start()
     if args.ready_fd is not None:
         os.write(args.ready_fd, b'1')
+    if raised:
+        log('accept thread QoS user-interactive')
     log('daemon on %s, worker %s, pid %d, code %s'
         % (daemon.socket_path, daemon.config['worker']['host'] or '(none)', os.getpid(),
            daemon.code[:12]))
