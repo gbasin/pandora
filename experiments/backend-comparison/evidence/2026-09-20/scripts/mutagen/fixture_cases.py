@@ -2,7 +2,7 @@ import json,os,subprocess,time
 from pathlib import Path
 poc=Path(__file__).resolve().parent
 binary=str(poc/'mutagen');env=dict(os.environ,MUTAGEN_DATA_DIRECTORY=str(poc/'state'))
-fixture=poc/'fixture';host='ubuntu@40.160.93.34';name='pandora-allowlist-probe'
+fixture=poc/'fixture';host='ubuntu@WORKER';name='pandora-allowlist-probe'
 def sync(*args):return subprocess.run([binary,'sync',*args],env=env,check=True,capture_output=True,text=True,timeout=30)
 def remote(code):return subprocess.check_output(['ssh','-o','BatchMode=yes',host,'python3 -'],input=code,text=True)
 root='/home/ubuntu/pandora-backend-poc'

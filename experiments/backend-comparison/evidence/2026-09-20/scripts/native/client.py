@@ -29,14 +29,14 @@ if fault:
 env=dict(os.environ,DOCKER_CONFIG=str(poc/'docker-config'),BUILDX_CONFIG=str(poc/'buildx-config'))
 Path(env['DOCKER_CONFIG']).mkdir(exist_ok=True)
 log=(run/'transport.log').open('w')
-server=subprocess.Popen(['ssh','-o','BatchMode=yes','ubuntu@40.160.93.34','python3 -u pandora-native-poc.py'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,text=True)
+server=subprocess.Popen(['ssh','-o','BatchMode=yes','ubuntu@WORKER','python3 -u pandora-native-poc.py'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,text=True)
 tunnel=None
 buildx='/Applications/Docker.app/Contents/Resources/cli-plugins/docker-buildx'
 builder='pandora-poc-native-stable' if stable else 'poc-'+run.name
 sock='/tmp/pandora-native-stable.sock' if stable else '/tmp/pandora-native-'+run.name[:12]+'.sock'
 try:
  ready=json.loads(server.stdout.readline());assert ready['ready']
- tunnel=subprocess.Popen(['ssh','-o','BatchMode=yes','-o','ExitOnForwardFailure=yes','-N','-L',sock+':'+ready['socket'],'ubuntu@40.160.93.34'],stderr=log)
+ tunnel=subprocess.Popen(['ssh','-o','BatchMode=yes','-o','ExitOnForwardFailure=yes','-N','-L',sock+':'+ready['socket'],'ubuntu@WORKER'],stderr=log)
  for _ in range(100):
   if Path(sock).exists():break
   time.sleep(.1)
@@ -58,7 +58,7 @@ try:
  if fault:
   assert status!=0
   time.sleep(2)
-  processes=subprocess.check_output(['ssh','-o','BatchMode=yes','ubuntu@40.160.93.34','sudo docker top pandora-poc-native-builder -eo pid,args'],text=True)
+  processes=subprocess.check_output(['ssh','-o','BatchMode=yes','ubuntu@WORKER','sudo docker top pandora-poc-native-builder -eo pid,args'],text=True)
   (run/'fault.json').write_text(json.dumps({'status':status,'seconds':time.monotonic()-start,'processes_after_disconnect':processes},indent=2)+'\n')
   print(run,flush=True)
   raise SystemExit(0)
@@ -66,7 +66,7 @@ try:
  server.stdin.write(json.dumps({'action':'import','tag':tag})+'\n');server.stdin.flush()
  image=json.loads(server.stdout.readline())['image'];imported=time.monotonic()
  # Equivalent subsequent foreground run, with the same resource limits.
- tested=subprocess.run(['ssh','-o','BatchMode=yes','ubuntu@40.160.93.34','sudo docker run --rm --cpus=2 --memory=6g --memory-swap=6g --network=none '+image+' node check.cjs '+expected],capture_output=True,text=True,check=True)
+ tested=subprocess.run(['ssh','-o','BatchMode=yes','ubuntu@WORKER','sudo docker run --rm --cpus=2 --memory=6g --memory-swap=6g --network=none '+image+' node check.cjs '+expected],capture_output=True,text=True,check=True)
  (run/'summary.json').write_text(json.dumps({'stable_context':stable,'source_edit_same_size_mtime':source_edit,'snapshot_seconds':frozen-start,'setup_seconds':before-frozen,'build_seconds':built-before,'import_seconds':imported-built,'ready_seconds':imported-start,'image':image,'test':tested.stdout},indent=2)+'\n')
  print(run,flush=True)
 finally:

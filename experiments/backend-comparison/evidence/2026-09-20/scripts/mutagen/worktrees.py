@@ -12,9 +12,9 @@ config=poc/'worktree-allow.json';config.write_text(json.dumps({'sync':{'defaults
 results=[]
 for label,local in [('a',repo),('b',other)]:
  name='pandora-worktree-'+label;remote='/home/ubuntu/pandora-backend-poc/worktree-'+label
- sync('create','--name',name,'--no-global-configuration','--configuration-file',str(config),'--mode','one-way-replica','--ignore-vcs',str(local),'ubuntu@40.160.93.34:'+remote)
+ sync('create','--name',name,'--no-global-configuration','--configuration-file',str(config),'--mode','one-way-replica','--ignore-vcs',str(local),'ubuntu@WORKER:'+remote)
  sync('flush',name);sync('pause',name)
  script='from pathlib import Path\nimport json\nr=Path('+repr(remote)+')\nprint(json.dumps({"value":(r/"value.txt").read_text(),"files":sorted(str(p.relative_to(r)) for p in r.rglob("*") if p.is_file())}))\n'
- result=json.loads(run(['ssh','-o','BatchMode=yes','ubuntu@40.160.93.34','python3 -'],input=script).stdout)
+ result=json.loads(run(['ssh','-o','BatchMode=yes','ubuntu@WORKER','python3 -'],input=script).stdout)
  assert result['value']==label+'\n' and result['files']==['.gitignore','value.txt'];results.append(result)
 (poc/'worktree-results.json').write_text(json.dumps(results,indent=2)+'\n')

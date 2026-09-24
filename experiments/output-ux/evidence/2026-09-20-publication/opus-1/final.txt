@@ -19,4 +19,4 @@ The publisher's own journal records the same digest in its manifest, and `publis
 
 **Unresolved problems**
 
-None. One thing worth knowing rather than a problem: the build is not hermetic — `bridge.py:50` runs it over SSH to `ubuntu@40.160.93.34` with a 90s timeout. It succeeded here, but the digest is only reproducible while that host is reachable and serving the same build logic.
+None. One thing worth knowing rather than a problem: the build is not hermetic — `bridge.py:50` runs it over SSH to `ubuntu@WORKER` with a 90s timeout. It succeeded here, but the digest is only reproducible while that host is reachable and serving the same build logic.

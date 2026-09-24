@@ -618,7 +618,7 @@ i.e. the two things §4 and §8 showed were not optional.
 
 ## 12. What is left on the worker
 
-`ubuntu@40.160.93.34`, left deliberately so the owner can continue from the
+`ubuntu@WORKER`, left deliberately so the owner can continue from the
 golden. **No run instances are running and none exist**; `ip -o link` shows
 zero veths and `/sys/fs/cgroup` has no `lxc.payload.*`.
 

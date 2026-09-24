@@ -7,7 +7,7 @@ from worker_bundle import bundle
 from transport import SSH_OPTIONS,follow,query
 repo=Path('/Users/garybasin/Code/eichler/.worktrees/pandora-journey-preflight')
 env=dict(os.environ,MUTAGEN_DATA_DIRECTORY=str(poc/'state'))
-mutagen=str(poc/'mutagen');host='ubuntu@40.160.93.34';ssh=['ssh',*SSH_OPTIONS,host]
+mutagen=str(poc/'mutagen');host='ubuntu@WORKER';ssh=['ssh',*SSH_OPTIONS,host]
 def cmd(args,**kwargs):return subprocess.run(args,check=True,**kwargs)
 def sync(*args):
  return cmd([mutagen,'sync',*args],env=env,capture_output=True,text=True,timeout=180)

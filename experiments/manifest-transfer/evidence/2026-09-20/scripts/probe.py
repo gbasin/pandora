@@ -16,7 +16,7 @@ from snapshot import names, excluded, entry, encode, freeze, verify
 from source_cache import repository_key
 from transport import SSH_OPTIONS
 
-HOST = 'ubuntu@40.160.93.34'
+HOST = 'ubuntu@WORKER'
 SSH = ['ssh', *SSH_OPTIONS, HOST]
 
 
