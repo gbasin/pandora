@@ -219,9 +219,11 @@ fi
 # claimed one it skips the queue and the memory gate, which is how the Mac was
 # pushed into swap on 2026-09-24 with nothing on record, so it is handed to the
 # passthrough logger below (one Python start on a path that is already a
-# bypass), which writes a `reason off` row and runs the real pnpm. A stale
-# cache is taken at its word here: the kill switch never waits on the daemon.
-if [ -n "$PANDORA_OFF" ] && { [ "$claimed" != 1 ] || [ -z "$sock" ]; }; then
+# bypass), which writes a `reason off` row and runs the real pnpm. With no
+# fresh cache the shim cannot tell, so the logger decides from this worktree's
+# own config (`--decide`) and execs an unclaimed command unlogged: the kill
+# switch never waits on the daemon.
+if [ -n "$PANDORA_OFF" ] && { [ -z "$sock" ] || { [ "$fresh" = 1 ] && [ "$claimed" != 1 ]; }; }; then
     PANDORA_ROUTE_DEPTH=1
     export PANDORA_ROUTE_DEPTH
     exec "$real" "$@"
@@ -260,6 +262,10 @@ if [ -n "$PANDORA_OFF" ]; then
     command -v "$python" >/dev/null 2>&1 || exec "$real" "$@"
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
+    if [ "$fresh" = 0 ]; then
+        exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+            --state "${sock%/*}" --sock "$sock" --reason off --decide -- "$@"
+    fi
     exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" --reason off -- "$@"
 fi

@@ -293,6 +293,39 @@ def repo_entry(config, cwd):
     return None
 
 
+def owner_of(common):
+    """The socket the registration (else the v0.2 marker) names, or None when neither exists.
+
+    Only the daemon on that socket, or a client acting for it, writes caches:
+    another daemon asked about this worktree must not point it at itself.
+    """
+    for name in (REGISTRATION, MARKER):
+        try:
+            return parse((Path(common) / name).read_text()).get('sock') or ''
+        except OSError:
+            continue
+    return None
+
+
+def write_owned(root, text, sources, socket_path):
+    """Write this worktree's cache if its repository is enrolled with `socket_path`.
+
+    Returns (written, why not). Never raises OSError.
+    """
+    cache, common = cache_path(root), common_dir(root)
+    if cache is None or common is None:
+        return False, 'not inside a repository'
+    owner = owner_of(common)
+    if owner is None:
+        return False, 'not enrolled'
+    if not owner or os.path.realpath(owner) != os.path.realpath(str(socket_path)):
+        return False, 'the repository is enrolled with %s, not %s' % (owner, socket_path)
+    try:
+        return write_cache(cache, text, sources), None
+    except OSError as error:
+        return False, 'cannot write %s: %s' % (cache, error)
+
+
 def derive(root, repo, *, socket_path, client, home=None, load=None, why=None):
     """(cache text, the files it depends on) for one worktree and its `[[repos]]` entry.
 

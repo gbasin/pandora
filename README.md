@@ -260,8 +260,12 @@ the shim starts Python once. The daemon rewrites the cache and says whether
 the command is claimed. The command then routes, or runs as if Pandora were not
 installed. The next command reads the new cache. A file replaced by one with an
 older date is not seen by the shim. The next claimed command rewrites the cache,
-and `pandora doctor` reports it until then. Without a daemon, the shim decides
-by the stale cache and a claimed command runs here, as with no daemon at all.
+and `pandora doctor` reports it until then. Without a daemon, the client
+derives the cache itself from the worktree's `pandora.toml` and writes it. A
+claimed command then runs here with the no-daemon notice and a row in
+`<state>/passthrough.jsonl`; an unclaimed one runs as usual. With
+`PANDORA_OFF=1` and no fresh cache, the passthrough logger decides the same
+way and logs only a claimed command.
 
 A cache records `home`, the checkout whose client code the shim runs for a
 claimed command. The daemon writes its own checkout there. After you update

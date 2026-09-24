@@ -997,33 +997,16 @@ class Daemon:
             root, repo, socket_path=str(self.socket_path),
             client=str(settings.path_of(self.config_path)), home=PACKAGE_HOME,
             load=lambda where, entry: self.repo_config(entry, Path(where)))
-        cache = enrollment.cache_path(root)
-        common = enrollment.common_dir(root)
-        if cache is None or common is None:
-            return text
         # Only where the shim already looks: `pandora unenroll` removed the
         # registration and the marker, and a `pandora run` afterward must not
         # leave a cache that makes the shim route this worktree again. And only
         # for the daemon enrollment named: a second daemon (another `--state`)
         # asked about this worktree must not point its cache at itself.
-        owner = None
-        for name in (enrollment.REGISTRATION, enrollment.MARKER):
-            try:
-                owner = enrollment.parse((Path(common) / name).read_text()).get('sock')
-                break
-            except OSError:
-                continue
-        else:
-            return text
-        if not owner or os.path.realpath(owner) != os.path.realpath(self.socket_path):
-            log('claims: not writing %s: the repository is enrolled with %s, not this daemon'
-                % (cache, owner))
-            return text
-        try:
-            if enrollment.write_cache(cache, text, sources):
-                log('claims: wrote %s' % cache)
-        except OSError as error:
-            log('claims: cannot write %s: %s' % (cache, error))
+        written, why = enrollment.write_owned(root, text, sources, self.socket_path)
+        if written:
+            log('claims: wrote %s' % enrollment.cache_path(root))
+        elif why and why != 'not enrolled' and why != 'not inside a repository':
+            log('claims: not writing %s: %s' % (enrollment.cache_path(root), why))
         return text
 
     def claims(self, request):

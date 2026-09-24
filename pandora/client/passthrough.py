@@ -58,11 +58,23 @@ def main(argv=None):
     parser.add_argument('--repo', default='')
     parser.add_argument('--state', default=None)
     parser.add_argument('--reason', default='unclaimed')
+    parser.add_argument('--sock', default=None)
+    parser.add_argument('--decide', action='store_true',
+                        help='no fresh claim cache: log only if this worktree claims it')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     if BROKEN is not None:
         real_instead(sys.argv if argv is None else ['', *argv])
+    if args.decide:
+        # Whatever goes wrong deciding, the command runs: this is the kill switch.
+        try:
+            from .shim import claimed_here
+            claimed, _heavy = claimed_here(args.sock, command)
+        except Exception:                    # noqa: BLE001 - see `real_instead`
+            claimed = False
+        if not claimed:
+            real_instead(sys.argv if argv is None else ['', *argv])
     try:
         where = placement.parse(os.environ.get(placement.ENV))
     except ValueError as error:

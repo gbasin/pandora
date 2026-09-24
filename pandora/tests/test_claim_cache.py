@@ -7,6 +7,7 @@ nothing, so a Python start would fail the command).
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -298,6 +299,7 @@ class ThroughTheShim(unittest.TestCase):
 
 
 class SlowPathAgainstARealDaemon(DaemonCase):
+    maxDiff = None
     """Stale or missing: one Python start, the daemon rewrites the cache, then none."""
 
     def setUp(self):
@@ -312,9 +314,11 @@ class SlowPathAgainstARealDaemon(DaemonCase):
         fake.mkdir()
         (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\n')
         (fake / 'pnpm').chmod(0o755)
-        self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
-        for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_HOME', 'PANDORA_WHERE',
-                     'PANDORA_PYTHON'):
+        self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin',
+                        PANDORA_CONFIG=str(self.root / 'config.toml'),
+                        # Deriving claims without the daemon reads TOML: 3.11+.
+                        PANDORA_PYTHON=sys.executable)
+        for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_HOME', 'PANDORA_WHERE'):
             self.env.pop(name, None)
 
     def pnpm(self, *argv, **extra):
@@ -359,16 +363,39 @@ class SlowPathAgainstARealDaemon(DaemonCase):
         self.assertIn('on the worker', proc.stderr)
         self.assertTrue(self.cache.is_file())
 
-    def test_with_no_daemon_the_stale_cache_decides_and_nothing_is_refused(self):
-        self.cache.write_text(enrollment.render(
-            socket_path=str(self.root / 'nobody.sock'), repo='demo', claims=[['unit']],
-            home=str(HERE)))
-        age(self.cache, 90)
+    def stop_daemon(self):
+        self.daemon.stop()
+        self.assertFalse(self.daemon.socket_path.exists())
+
+    def test_with_no_daemon_and_no_cache_the_worktrees_own_config_decides(self):
+        self.stop_daemon()
         proc = self.pnpm('why')
         self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, 'real why\n', ''))
+        # Derived here and written, so the next command is fork-free again.
+        self.assertEqual(enrollment.cache_state(self.repo, self.cache)[0], 'fresh')
+        self.assertIn(['unit'], enrollment.parse(self.cache.read_text())['claim'])
+        self.cache.unlink()
         proc = self.pnpm('unit')
         self.assertEqual((proc.returncode, proc.stdout), (0, 'real unit\n'))
         self.assertIn('as if Pandora were not installed', proc.stderr)
+        [row] = self.rows()
+        self.assertEqual((row['reason'], row['argv']), ('daemon-unreachable', ['unit']))
+
+    def test_pandora_off_with_no_cache_logs_a_claimed_command_and_nothing_else(self):
+        self.stop_daemon()
+        proc = self.pnpm('why', PANDORA_OFF='1')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, 'real why\n', ''))
+        self.assertEqual(self.rows(), [])
+        self.cache.unlink(missing_ok=True)
+        proc = self.pnpm('unit', PANDORA_OFF='1')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, 'real unit\n', ''))
+        self.assertEqual([row['reason'] for row in self.rows()], ['off'])
+
+    def test_pandora_off_runs_the_command_when_deciding_fails(self):
+        self.stop_daemon()
+        (self.root / 'config.toml').write_text('not toml [')
+        proc = self.pnpm('unit', PANDORA_OFF='1')
+        self.assertEqual((proc.returncode, proc.stdout), (0, 'real unit\n'), proc.stderr)
 
 
 class EnrollOnce(unittest.TestCase):

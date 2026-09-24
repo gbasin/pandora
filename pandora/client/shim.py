@@ -43,11 +43,14 @@ from ..exits import INFRA, STALE, USAGE
 from . import enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
+PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
+
 # Silence tolerated before `accepted`, while freeze, ship and submit run. A
 # dead daemon is EOF, not silence, so this guards only a hung one; the daemon
 # beats every 5 s, but on 2026-09-24 a Mac at load 25 with 5.6 GiB swapped
 # stalled that thread past 20 s and a live 364 MiB upload was withdrawn.
 HANDSHAKE_SECONDS = 120.0
+CLAIMS_SECONDS = 20.0         # the slow path's question is local: no freeze, no worker
 REATTACH_ATTEMPTS = 20
 REATTACH_PAUSE = 0.25
 
@@ -275,7 +278,7 @@ def ask_claims(sock_path, command):
     """
     sock = connect(sock_path, timeout=2.0)
     try:
-        sock.settimeout(HANDSHAKE_SECONDS)
+        sock.settimeout(CLAIMS_SECONDS)
         sock.sendall(dump({'v': VERSION, 'op': 'claims', 'cwd': os.getcwd(),
                            'argv': list(command)}))
         frame = Reader(sock).line()
@@ -308,22 +311,64 @@ def unclaimed(real, command, *, state, repo, heavy):
                              '--reason', reason, '--', *command])
 
 
+def local_claims(sock_path, cwd=None):
+    """This worktree's claims, derived here from its own config, with no daemon.
+
+    The same derivation the daemon makes, from the same files, and written as
+    the cache when the repository is enrolled with `sock_path`, so the next
+    command is fork-free even while the daemon is down. None outside a
+    worktree or when the client configuration cannot be read.
+    """
+    cwd = cwd or os.getcwd()
+    root = enrollment.worktree_root(cwd)
+    if root is None:
+        return None
+    from . import settings
+    from ..errors import ConfigError
+    try:
+        config = settings.load()
+    except ConfigError:
+        return None
+    text, sources = enrollment.derive(root, enrollment.repo_entry(config, cwd),
+                                      socket_path=str(sock_path),
+                                      client=str(settings.path_of()), home=PACKAGE_HOME)
+    enrollment.write_owned(root, text, sources, sock_path)
+    return enrollment.parse(text)
+
+
+def claimed_here(sock_path, command, cwd=None):
+    """(claimed, heavy) by the shim's rule, from `local_claims`, else the file as it stands."""
+    cwd = cwd or os.getcwd()
+    try:
+        marker = local_claims(sock_path, cwd)
+    except (OSError, ImportError, ValueError):
+        # ImportError: an interpreter without `tomllib` (3.10 and older) runs
+        # the client fine and cannot read TOML. Then the file as it stands.
+        marker = None
+    if marker is None:
+        try:
+            _common, marker = enrollment.marker_for(cwd)
+        except OSError:
+            marker = None
+    if not marker:
+        return False, False
+    claimed = (enrollment.claimed(command, marker)
+               and not enrollment.claims_nothing_here(cwd, marker))
+    return claimed, not claimed and enrollment.heavy(command, marker)
+
+
 def refresh(args, command, state):
     """The slow path: None when the command is claimed, else the exit code it ran to."""
     try:
         answer = ask_claims(args.sock, command)
     except (OSError, ValueError):
-        # No daemon: decide by the cache as it stands, stale or not. A claimed
-        # command then meets the no-daemon passthrough below, with its notice.
-        try:
-            _common, marker = enrollment.marker_for(os.getcwd())
-        except OSError:
-            marker = None
-        if (marker and enrollment.claimed(command, marker)
-                and not enrollment.claims_nothing_here(os.getcwd(), marker)):
+        # No daemon: decide from this worktree's own config, as the daemon
+        # would have. A claimed command then meets the no-daemon passthrough
+        # below, with its notice and its row.
+        claimed, heavy = claimed_here(args.sock, command)
+        if claimed:
             return None
-        return unclaimed(args.real, command, state=state, repo=args.repo,
-                         heavy=bool(marker) and enrollment.heavy(command, marker))
+        return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
     if answer is None or answer.get('claimed'):
         return None
     return unclaimed(args.real, command, state=state, repo=args.repo,
