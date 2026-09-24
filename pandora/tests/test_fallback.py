@@ -497,10 +497,57 @@ class RestartHygiene(DaemonCase):
         self.assertEqual(meta['state'], 'infra_failed')
         self.assertIn('could not be asked (no route)', self.said('pre3'))
 
+    def test_an_unaccepted_write_back_the_engine_started_is_stopped_not_adopted(self):
+        # Its frozen context is saved only at `accepted`, so following it would
+        # finish `passed` with nothing written back.
+        stopped = []
+        self.row('wb1', state='queued', phase='submit', argv=['pnpm', 'writer', '--update'],
+                 job='writer')
+        with mock.patch.object(FakeWorker, 'lookup', create=True, return_value={
+                'ok': True, 'found': True, 'spawned': True, 'run_id': 'r9'}), \
+                mock.patch.object(FakeWorker, 'cancel', create=True,
+                                  side_effect=lambda run_id: stopped.append(run_id)):
+            self.daemon.resume_interrupted()
+            meta = self.settled('wb1')
+        self.assertEqual(stopped, ['r9'])
+        self.assertEqual((meta['state'], meta['exit_code'], meta['remote']),
+                         ('infra_failed', 70, None))
+        self.assertIn('frozen context was never saved', self.said('wb1'))
+
+    def test_a_row_still_freezing_or_shipping_is_closed_without_asking(self):
+        for phase in ('freeze', 'ship'):
+            self.row('early-' + phase, state='queued', phase=phase)
+        with mock.patch.object(FakeWorker, 'lookup', create=True,
+                               side_effect=AssertionError('asked the worker')):
+            self.daemon.resume_interrupted()
+            for phase in ('freeze', 'ship'):
+                meta = self.settled('early-' + phase)
+                self.assertEqual(meta['state'], 'infra_failed')
+                self.assertIn('still in %s' % phase, self.said('early-' + phase))
+
+    def test_a_row_the_engine_cannot_account_for_is_uncertain_not_rerun(self):
+        self.row('unk1', state='queued', phase='submit')
+        self.row('unk2', state='queued', phase='submit')
+        answers = {'unk1': WorkerUnreachable('no route'),
+                   'unk2': {'ok': True, 'found': True, 'spawned': False, 'state': 'claimed'}}
+
+        def lookup(worker, request_id, **kwargs):
+            answer = answers[request_id.split(':')[0]]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        with mock.patch.object(FakeWorker, 'lookup', lookup, create=True):
+            self.daemon.resume_interrupted()
+            for run_id in answers:
+                self.settled(run_id)
+                said = self.said(run_id)
+                self.assertIn('check `pandora ps` before retrying', said)
+                self.assertNotIn('rerun it', said)
+
     def test_an_exception_nobody_named_still_ends_the_row(self):
         # `bundle.call` raises TimeoutExpired, which the takeover did not catch:
         # the thread died and the row stayed live with its client waiting.
-        self.row('pre4', state='queued')
+        self.row('pre4', state='queued', phase='submit')
         self.row('acc4', state='running', remote='r4', accepted=time.time())
         timeout = subprocess.TimeoutExpired(['ssh'], 60)
         with mock.patch.object(FakeWorker, 'lookup', create=True, side_effect=timeout), \

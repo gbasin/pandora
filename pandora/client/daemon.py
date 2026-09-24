@@ -209,7 +209,10 @@ class Run:
                                 else int((self.accepted - self.started) * 1000)),
                    'hint': self.hint, 'attempts': self.attempts, 'phase': self.phase,
                    'pre_accept': self.pre_accept, 'updated': now(),
-                   'placement': self.request.get('placement'), 'owner': OWNER}
+                   'placement': self.request.get('placement'), 'owner': OWNER,
+                   # A write-back run, so a daemon that finds this row before
+                   # `accepted` knows its frozen context was never saved.
+                   'writeback': bool(self.request.get('writeback'))}
         if self.fell_back_to:
             payload['fell_back_to'] = self.fell_back_to
         if self.refusal:
@@ -659,25 +662,45 @@ class Daemon:
         """A remote row that never reached `accepted`: ask the engine, once, by request id.
 
         The lookup fences the id, so a submit still in flight cannot start the
-        run after this answer. Spawned: adopted like any accepted run. Anything
-        else: closed as an infrastructure failure, with the reason.
+        run after this answer. A row still freezing or shipping never reached
+        `submit`, so it is closed without asking. Spawned: adopted like any
+        accepted run, unless it writes back -- its frozen context was saved only
+        at `accepted`, so there is nothing to check a proposal against, and it is
+        stopped on the worker instead. Refused or never seen: nothing ran, so
+        rerun it. Anything the engine cannot account for: execution is uncertain.
         """
+        if payload.get('phase') in ('freeze', 'ship'):
+            self.close_unaccepted(run, 'it was still in %s, before anything reached the '
+                                  'engine; rerun it' % payload['phase'])
+            return
         job = payload.get('job') or ''
         repo = next((item for item in self.config['repos']
                      if item['name'] == (payload.get('repo') or '')), None)
-        why = None
-        found = {}
         if repo is None or not self.config['worker']['host']:
-            why = 'no worker or enrollment to ask about it'
-        else:
-            try:
-                found = self.worker_for(repo).lookup(
-                    run.id + ':' + job, plan={'repo': payload.get('repo'), 'job': job},
-                    fence=True)
-            except (PandoraError, OSError) as error:
-                why = ('the worker could not be asked (%s); if it started the run, it runs '
-                       'unfollowed' % error)
-        if why is None and found.get('ok') and found.get('spawned') and found.get('run_id'):
+            self.close_unaccepted(run, 'no worker or enrollment to ask about it; %s'
+                                  % UNCERTAIN)
+            return
+        worker = self.worker_for(repo)
+        try:
+            found = worker.lookup(run.id + ':' + job,
+                                  plan={'repo': payload.get('repo'), 'job': job}, fence=True)
+        except (PandoraError, OSError) as error:
+            self.close_unaccepted(run, 'the worker could not be asked (%s); %s'
+                                  % (error, UNCERTAIN))
+            return
+        if found.get('ok') and found.get('spawned') and found.get('run_id'):
+            argv = payload.get('argv') or []
+            if payload.get('writeback') or '--update' in argv:
+                try:
+                    worker.cancel(found['run_id'])
+                    stopped = 'stopped it there'
+                except (PandoraError, OSError) as error:
+                    stopped = 'could not stop it there (%s)' % error
+                self.close_unaccepted(run, 'the worker had started this write-back run as %s '
+                                      'but its frozen context was never saved, so nothing '
+                                      'could be written back; %s; rerun it'
+                                      % (found['run_id'], stopped))
+                return
             run.remote = found['run_id']
             run.state = 'running'
             run.accepted = run.accepted or now()
@@ -688,15 +711,23 @@ class Daemon:
             run.save()
             self.reattach(run)
             return
-        if why is None:
-            why = ('the worker never started it' if not found.get('found')
-                   else 'the worker has it as %s, not started' % (found.get('state') or '?'))
+        if found.get('ok') and not found.get('found'):
+            why = 'the worker never started it; rerun it'
+        elif found.get('ok') and found.get('state') == 'finished':
+            why = 'the worker refused it before it ran (%s); rerun it' % (
+                found.get('cause') or found.get('outcome') or '?')
+        else:
+            why = 'the worker has it as %s with no supervisor recorded; %s' % (
+                found.get('state') or '?', UNCERTAIN)
+        self.close_unaccepted(run, why)
+
+    def close_unaccepted(self, run, why):
         if run.canceled.is_set():
             run.note('canceled; the daemon restarted before `accepted` and %s' % why)
             log('resume: run %s closed as cancelled: %s' % (run.id, why))
             run.finish(CANCELED, state='cancelled')
             return
-        run.note('daemon restarted before `accepted`; %s; rerun it' % why)
+        run.note('daemon restarted before `accepted`; %s' % why)
         log('resume: run %s closed as infra_failed: %s' % (run.id, why))
         run.finish(INFRA, state='infra_failed')
 
@@ -993,7 +1024,8 @@ class Daemon:
             return
 
         run = Run(self.state, uuid.uuid4().hex[:12],
-                  dict(request, repo=repo['name'], job=job['id'], worktree=worktree))
+                  dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
+                       writeback=bool(plan.get('writeback'))))
         run.state = 'queued'
         run.save()
         try:

@@ -193,7 +193,7 @@ What a restart does to each run:
 | Run | After the restart |
 |---|---|
 | Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
-| Remote, not yet accepted | The next daemon asks the worker for it by request id. A run the worker started is followed. Any other ends `infra_failed`, exit 70. Rerun it. |
+| Remote, not yet accepted | Still freezing or shipping: ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
 | Local | Ends `infra_failed`, exit 70. Its process tree is stopped. Rerun it. |
 | A claimed command typed while no daemon listens (1-2 s) | Runs here unmanaged, as if Pandora were not installed. |
 
