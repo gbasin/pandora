@@ -683,16 +683,22 @@ def gc_sources(paths, ledger, *, grace_seconds=3600, keep=4,
     A snapshot is collectible only when all three hold: it is not the
     transfer's `latest` link-dest base, no live attempt's row names its input
     (the row is claimed at submit, before the source is ever read), and its
-    directory mtime predates the grace window -- the ship-to-submit gap is
-    seconds, so a fresh mtime is the only sign of a snapshot published but not
-    yet claimed. A published snapshot's content is immutable: re-shipping the
-    same input keeps the existing tree, so deleting one can only cost a later
-    re-ship, never corrupt a run.
+    directory mtime predates the grace window. Transfer refreshes that mtime
+    on publication and reuse, protecting the ship-to-submit gap. Collection
+    holds the admission lock across the ledger read and deletion, so a new
+    claim or cache refresh cannot race that decision. A published snapshot's
+    content is immutable: re-shipping the same input keeps the existing tree.
 
     The newest `keep` collectible snapshots survive as the re-ship cache and
     as extra link-dest bases. `.partial.` staging directories older than the
     ship timeout are orphans: a live ship cannot outlive rsync's own timeout.
     """
+    with gate(paths.root):
+        return _gc_sources_locked(paths, ledger, grace_seconds=grace_seconds,
+                                  keep=keep, ship_timeout=ship_timeout, now=now)
+
+
+def _gc_sources_locked(paths, ledger, *, grace_seconds, keep, ship_timeout, now):
     import shutil
     now = time.time() if now is None else now
     live_inputs, live_paths = set(), set()

@@ -57,7 +57,7 @@ class PausedPublicationLink(LocalLink):
         return super().run(argv, **kwargs)
 
     def feed(self, script, args=(), **kwargs):
-        if len(args) == 3 and str(args[1]).endswith('/one'):
+        if len(args) == 4 and str(args[1]).endswith('/one'):
             pause = ("import os as _os, time as _time\n"
                      "_real_replace = _os.replace\n"
                      "def _paused_replace(source, target):\n"
