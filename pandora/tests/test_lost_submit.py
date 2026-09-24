@@ -70,12 +70,15 @@ class LostReply(unittest.TestCase):
         self.root = Path(self.tmp.name) / 'engine'
         self.worktree = Path(self.tmp.name) / 'tree'
         self.worktree.mkdir()
-        self.spawned = []
+        self.spawned, self.waiting = [], []
         for patch in (
                 mock.patch.dict(os.environ, {'PANDORA_BUDGET_MIB': '8192'}),
                 mock.patch.object(runner, 'spawn',
                                   lambda root, run_id, python=None: self.spawned.append(run_id)
                                   or 4242),
+                mock.patch.object(runner, 'spawn_waiter',
+                                  lambda root, run_id, python=None: self.waiting.append(run_id)
+                                  or 4343),
                 mock.patch.object(runner, 'disk_headroom', lambda paths, driver=None: {'ok': True}),
                 mock.patch.object(worker_module.snapshot, 'freeze',
                                   lambda *a, **k: ([{'path': 'a'}], [], 'input-a')),

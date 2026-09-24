@@ -38,6 +38,7 @@ MEMBERS = (
     'engine/shards.py',
     'engine/service.py',
     'engine/turbocache.py',
+    'engine/waitlist.py',
     'engine/writeback.py',
     'executor/__init__.py',
     'executor/interface.py',

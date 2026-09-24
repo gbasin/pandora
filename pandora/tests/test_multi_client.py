@@ -94,16 +94,22 @@ class TwoClientsOneEngine(unittest.TestCase):
         self.root = Path(self.tmp.name) / 'engine'
         self.tree = Path(self.tmp.name) / 'tree'
         self.tree.mkdir()
-        self.spawned = []
+        self.spawned, self.waiters = [], []
         lock = threading.Lock()
 
         def spawn(root, run_id, python=None):
             with lock:
                 self.spawned.append(run_id)
             return 4242
+
+        def spawn_waiter(root, run_id, python=None):
+            with lock:
+                self.waiters.append(run_id)
+            return 4343
         for patch in (
                 mock.patch.dict(os.environ, {'PANDORA_BUDGET_MIB': '8192'}),
                 mock.patch.object(runner, 'spawn', spawn),
+                mock.patch.object(runner, 'spawn_waiter', spawn_waiter),
                 mock.patch.object(runner, 'disk_headroom', lambda paths, driver=None: {'ok': True}),
                 mock.patch.object(worker_module.snapshot, 'freeze',
                                   lambda *a, **k: ([{'path': 'a'}], [], 'input-a')),
@@ -165,14 +171,17 @@ class TwoClientsOneEngine(unittest.TestCase):
         self.assertEqual(again.run_id, mine.run_id)
 
     def test_memory_admission_caps_the_total_across_clients(self):
-        # 8 GiB budget; a cold medium job reserves its 4 GiB ceiling.
+        # 8 GiB budget; a cold medium job reserves its 4 GiB ceiling. The third
+        # run queues behind both -- whoever's they are -- and starts nothing.
         self.submit(self.alice, 'a1:suite')
         self.submit(self.alice, 'a2:suite')
-        with self.assertRaises(EngineError) as caught:
-            self.submit(self.bob, 'b1:suite')
-        refusal = json.loads(str(caught.exception))
-        self.assertEqual(refusal['code'], 'admission-refused')
+        queued = self.submit(self.bob, 'b1:suite')
+        self.assertEqual(queued.state, 'queued')
+        self.assertEqual(queued.queued['position'], 1)
+        self.assertEqual(queued.queued['running'], 2)
         self.assertEqual(len(self.spawned), 2)
+        self.assertEqual(self.waiters, [queued.run_id])
+        self.assertEqual(self.rows()[queued.run_id]['client'], BOB)
 
     def test_a_cancel_from_one_client_never_cancels_the_others_run(self):
         run = self.submit(self.bob, 'b1:suite').run_id
@@ -235,7 +244,7 @@ class TwoClientsOneEngine(unittest.TestCase):
             service.main(['--root', str(self.root), 'stats'])
         stats = json.loads(out.getvalue())
         self.assertEqual(stats['by_client'], {ALICE: 1, BOB: 2})
-        self.assertEqual(stats['engine'], 3)
+        self.assertEqual(stats['engine'], 4)
 
 
 class OpeningOneLedgerAtOnce(unittest.TestCase):

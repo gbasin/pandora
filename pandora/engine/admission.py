@@ -65,13 +65,24 @@ def reserve(peaks, *, size_class, floor=FLOOR_MIB, margin=MARGIN, min_samples=MI
     return int(min(ceiling, max(floor, math.ceil(percentile(usable, 95) * margin))))
 
 
-def classify(peaks, *, current='medium'):
-    """Suggest a size class from history; never lowers below observed peaks."""
+def classify(peaks, *, current='medium', learned=False):
+    """Suggest a size class from history.
+
+    By default it never lowers below `current` and reads the largest peak: the
+    suggestion a person is shown after an `oom`. With `learned=True` it is the
+    rule the worker applies by itself (ruled 2026-09-24): the smallest class
+    whose ceiling holds p95 of the peaks times the margin, up *or* down, from
+    `small` to `xlarge`. p95 rather than the maximum, so one outlier does not
+    pin a job to a class its other runs never needed; the margin, so a class is
+    not chosen that the p95 run would fill to the brim.
+    """
     if not peaks:
         return current
-    observed = max(peaks)
+    observed = percentile(peaks, 95) if learned else max(peaks)
     for name in sorted(CLASSES, key=CLASSES.get):
         if CLASSES[name] >= observed * MARGIN:
+            if learned:
+                return name
             return name if CLASSES[name] >= CLASSES[current] else current
     return max(CLASSES, key=CLASSES.get)
 
@@ -92,14 +103,50 @@ class Store:
         self.db.execute('''CREATE TABLE IF NOT EXISTS classes (
             repo TEXT NOT NULL, job TEXT NOT NULL, size_class TEXT NOT NULL,
             PRIMARY KEY (repo, job))''')
+        # Which declared class a learned one was learned from. A store written
+        # before learning existed has no such column; its rows read as NULL,
+        # which is "not learned from anything", and are honored as before.
+        have = {row['name'] for row in self.db.execute('PRAGMA table_info(classes)')}
+        if 'declared' not in have:
+            try:
+                self.db.execute('ALTER TABLE classes ADD COLUMN declared TEXT')
+            except sqlite3.OperationalError as error:
+                if 'duplicate column' not in str(error):
+                    raise
 
     def size_class(self, repo, job, default='medium'):
-        row = self.db.execute('SELECT size_class FROM classes WHERE repo=? AND job=?', (repo, job)).fetchone()
-        return row['size_class'] if row else default
+        """The class this job runs in: the learned one, else `default`.
 
-    def set_class(self, repo, job, size_class):
+        A class learned from a declaration the repository has since changed is
+        stale: the new `size` in `pandora.toml` is the new starting point, and
+        learning begins again from it rather than from the old answer.
+        """
+        row = self.db.execute('SELECT size_class, declared FROM classes WHERE repo=? AND job=?',
+                              (repo, job)).fetchone()
+        if row is None:
+            return default
+        if row['declared'] is not None and default and row['declared'] != default:
+            return default
+        return row['size_class']
+
+    def set_class(self, repo, job, size_class, declared=None):
         ceiling_for(size_class)
-        self.db.execute('INSERT OR REPLACE INTO classes VALUES (?,?,?)', (repo, job, size_class))
+        self.db.execute('INSERT OR REPLACE INTO classes (repo, job, size_class, declared) '
+                        'VALUES (?,?,?,?)', (repo, job, size_class, declared))
+
+    def clean_since_oom(self, repo, job):
+        """Clean peaks recorded after this job's last `oom`, newest first.
+
+        What the learned class is decided from. An `oom` resets the class to
+        the declared one, and the peaks from before it are what chose the class
+        that was killed: learning from them again would choose it again.
+        """
+        last = self.db.execute("SELECT MAX(id) m FROM peaks WHERE repo=? AND job=? "
+                               "AND outcome='oom'", (repo, job)).fetchone()['m'] or 0
+        rows = self.db.execute(
+            'SELECT peak_mib FROM peaks WHERE repo=? AND job=? AND outcome IN ("ok","failed") '
+            'AND id>? ORDER BY id DESC LIMIT ?', (repo, job, last, HISTORY)).fetchall()
+        return [row['peak_mib'] for row in rows]
 
     def peaks(self, repo, job):
         rows = self.db.execute(

@@ -40,12 +40,14 @@ def _durations(row):
 def samples(ledger, repo, job, *, role='single', key='execute', limit=RECENT):
     """Up to `limit` recent values of one recorded duration, newest first.
 
-    `key='wall'` is the attempt's whole life, created to finished, which is
-    what a queue estimate needs: the lane frees when the attempt ends, not when
-    its command does.
+    `key='wall'` is the attempt's whole life, created to finished. `key='run'`
+    is the same from admission to finished: what a queue estimate needs, since
+    the lane frees when the attempt ends rather than when its command does, and
+    time the attempt itself spent queued says nothing about how long it holds
+    the lane. A row from before admission was recorded counts from `created`.
     """
     rows = ledger.db.execute(
-        "SELECT durations, created, finished FROM attempts WHERE repo=? AND job=? "
+        "SELECT durations, created, finished, admitted_at FROM attempts WHERE repo=? AND job=? "
         "AND COALESCE(role, 'single')=? AND state='finished' AND outcome IN (?, ?) "
         "ORDER BY finished DESC LIMIT ?",
         (repo, job, role, *VERDICTS, limit * 2)).fetchall()
@@ -53,6 +55,8 @@ def samples(ledger, repo, job, *, role='single', key='execute', limit=RECENT):
     for row in rows:
         if key == 'wall':
             value = (row['finished'] or 0) - (row['created'] or 0)
+        elif key == 'run':
+            value = (row['finished'] or 0) - (row['admitted_at'] or row['created'] or 0)
         else:
             value = _durations(row).get(key)
         if isinstance(value, (int, float)) and value > 0:
@@ -81,10 +85,11 @@ def queue_eta(ledger, rows, *, now=None):
     best = None
     for row in rows:
         wall = typical(ledger, row['repo'], row['job'],
-                       role=row['role'] or 'single', key='wall')
+                       role=row['role'] or 'single', key='run')
         if wall is None:
             continue
-        remaining = max(0.0, wall - (now - (row['created'] or now)))
+        started = row['admitted_at'] if 'admitted_at' in row.keys() else None
+        remaining = max(0.0, wall - (now - (started or row['created'] or now)))
         best = remaining if best is None else min(best, remaining)
     return best
 

@@ -56,7 +56,13 @@ CAUSES = {
     # Raised before `accepted`. They never reach a retry: the fallback policy
     # owns them. Listed so that every cause the engine can write has an answer.
     'disk-floor': (False, 'refused before acceptance; the fallback policy decides'),
-    'admission-refused': (False, 'refused before acceptance; the fallback policy decides'),
+    'admission-refused': (False, 'refused before acceptance: every slot was taken, or the '
+                                 'reservation is larger than the worker'),
+    # A queued run that waited its whole bound (`waitlist`). Before `accepted`
+    # for a first attempt, so it is exit 70 and never a fallback; a retry that
+    # queues and expires would only join the same full queue again.
+    'queue-timeout': (False, 'the worker queue did not admit it within its bound, and a '
+                             'retry joins the same queue'),
     # The daemon's own, not the engine's: the worker stopped answering while the
     # run was going, so the run may still be executing, and a resubmission would
     # run it twice.
