@@ -276,3 +276,75 @@ class SlowPathAgainstARealDaemon(DaemonCase):
         self.assertEqual((proc.returncode, proc.stdout), (0, 'real unit\n'))
         self.assertIn('as if Pandora were not installed', proc.stderr)
 
+
+class EnrollOnce(unittest.TestCase):
+    """`pandora enroll` registers a repository once; a later pandora.toml needs nothing."""
+
+    TOML = ('version = 1\n[repo]\nname = "demo"\nentrypoints = ["pnpm"]\n'
+            '[worker]\nbase_image = "images:ubuntu/26.04"\n'
+            '[[jobs]]\nid = "j"\nargs = "none"\nforms = [{ prefix = ["journey"] }]\n'
+            'run = { argv = ["true"] }\n')
+
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.root = Path(home.name).resolve()
+        self.repo = self.root / 'repo'
+        (self.repo / '.git' / 'worktrees' / 'b').mkdir(parents=True)
+        (self.repo / 'pandora.toml').write_text(self.TOML)
+        self.config = self.root / 'cfg' / 'config.toml'
+        self.config.parent.mkdir()
+        self.config.write_text('# mine\n[client]\nstate = "%s"\n' % (self.root / 'state'))
+
+    def pandora(self, *argv):
+        from pandora import cli
+        from pandora.tests.test_cli import capture
+        return capture(cli.main, ['--config', str(self.config), *argv])
+
+    def test_enroll_registers_writes_this_worktrees_cache_and_adds_repos(self):
+        (self.repo / '.git' / 'pandora-enrolled').write_text('sock /old\nclaim old\n')
+        code, _out, err = self.pandora('enroll', str(self.repo))
+        self.assertEqual(code, 0, err)
+        self.assertTrue((self.repo / '.git' / 'pandora-repo').is_file())
+        self.assertFalse((self.repo / '.git' / 'pandora-enrolled').exists())
+        cache = enrollment.parse((self.repo / '.git' / 'pandora-claims').read_text())
+        self.assertEqual(cache['claim'], [['journey']])
+        self.assertEqual(cache['client'], str(self.config))
+        text = self.config.read_text()
+        self.assertTrue(text.startswith('# mine\n[client]\n'))
+        self.assertIn('[[repos]]\nname = "demo"\nroot = "%s"\n' % self.repo, text)
+        self.assertIn('added [[repos]] demo', err)
+        self.assertIn('removed the v0.2 marker', err)
+
+    def test_enrolling_again_adds_nothing_and_a_changed_toml_needs_no_enroll(self):
+        self.pandora('enroll', str(self.repo))
+        before = self.config.read_text()
+        code, _out, err = self.pandora('enroll', str(self.repo))
+        self.assertEqual((code, self.config.read_text()), (0, before), err)
+        self.assertNotIn('added', err)
+        # The file changes; the cache the shim reads is now stale, which sends
+        # the next command to the daemon. No enroll is involved.
+        cache = self.repo / '.git' / 'pandora-claims'
+        age(cache, 30)
+        (self.repo / 'pandora.toml').write_text(self.TOML.replace('journey', 'check'))
+        self.assertEqual(enrollment.cache_state(self.repo, cache)[0], 'stale')
+
+    def test_an_entry_under_another_name_is_left_alone_and_the_block_printed(self):
+        with self.config.open('a') as handle:
+            handle.write('[[repos]]\nname = "mine"\nroot = "%s"\n' % self.repo)
+        before = self.config.read_text()
+        code, _out, err = self.pandora('enroll', str(self.repo))
+        self.assertEqual((code, self.config.read_text()), (0, before))
+        self.assertIn('left as it is', err)
+        self.assertIn('name = "demo"', err)
+
+    def test_unenroll_removes_registration_marker_and_every_cache(self):
+        self.pandora('enroll', str(self.repo))
+        (self.repo / '.git' / 'worktrees' / 'b' / 'pandora-claims').write_text('sock /s\n')
+        (self.repo / '.git' / 'pandora-enrolled').write_text('sock /s\n')
+        code, _out, err = self.pandora('unenroll', str(self.repo))
+        self.assertEqual(code, 0, err)
+        for name in ('pandora-repo', 'pandora-enrolled', 'pandora-claims',
+                     'worktrees/b/pandora-claims'):
+            self.assertFalse((self.repo / '.git' / name).exists(), name)
+        self.assertIn('[[repos]] demo is still in', err)
