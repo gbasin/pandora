@@ -153,7 +153,7 @@ class Merge(unittest.TestCase):
         self.assertEqual(merged['changes'], {})
         self.assertEqual(merged['collisions'], [{'path': ROUTES, 'shards': [1, 2]}])
 
-    def test_a_serialisation_the_merge_cannot_reproduce_is_a_collision(self):
+    def test_a_serialization_the_merge_cannot_reproduce_is_a_collision(self):
         odd = '{ "S0-01": ["x"],\n  "S0-02": ["b"] }\n'
         merged = proposals.merge(self.source, {
             1: self.shard(1, {ROUTES: odd}),

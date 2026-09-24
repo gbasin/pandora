@@ -13,7 +13,7 @@ INVARIANTS
       70  infrastructure failure, never a test verdict
       75  busy or stale: a validation already active here, or the tree changed
      124  `--max-wait` elapsed; the run was NOT stopped
-     130  cancelled
+     130  canceled
   * `--update` runs on the worker, never here. Its files come back only from
     a passing run (every shard) over a tree you did not edit meanwhile;
     otherwise exit 75, your files untouched, and the next step printed.
@@ -237,7 +237,7 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
 
 
 def cmd_wait(args):
-    """Re-attach to one run and exit as it exits, or to several and summarise.
+    """Re-attach to one run and exit as it exits, or to several and summarize.
 
     With one id the output streams exactly as the original caller saw it. With
     several it would be an interleaving nobody can read, so each run gets one
@@ -569,7 +569,7 @@ def main(argv=None):
     run.add_argument('argv', nargs=argparse.REMAINDER)
     run.set_defaults(func=cmd_run)
 
-    wait = sub.add_parser('wait', help='re-attach to one run, or summarise several')
+    wait = sub.add_parser('wait', help='re-attach to one run, or summarize several')
     wait.add_argument('run', nargs='+')
     wait.add_argument('--max-wait', type=float, default=0)
     wait.set_defaults(func=cmd_wait)

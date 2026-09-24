@@ -50,7 +50,7 @@ class WorktreeConfig(unittest.TestCase):
         self.external = root / 'external.toml'
         self.external.write_text(config('tools/validation/journey-runner.mjs'))
         self.client = daemon.Daemon.__new__(daemon.Daemon)
-        self.client.config = settings.normalise({'repos': [
+        self.client.config = settings.normalize({'repos': [
             {'name': 'demo', 'root': str(self.enrolled), 'config': str(self.external)}]})
         self.client.repo_configs = {}
         self.client.repo_stamps = {}

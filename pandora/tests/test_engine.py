@@ -337,7 +337,7 @@ class SuperviseTest(unittest.TestCase):
         self.assertEqual(result['outcome'], 'infra_failed')
         self.assertFalse(result['receipt']['clean'])
 
-    def test_a_cancelled_run_exits_130(self):
+    def test_a_canceled_run_exits_130(self):
         self.ledger.request_cancel('r1')
         result = self.run_with(FakeDriver())
         self.assertEqual(result['outcome'], 'cancelled')

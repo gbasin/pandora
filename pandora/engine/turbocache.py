@@ -17,7 +17,7 @@ Every request carries `Authorization: Bearer <token>`, and `?slug=` or
   `/v8/artifacts/...` to whatever it is given, so the repository travels in
   every URL without turbo knowing it exists.
 * the **team slug**, `linux` for runs. turbo's hash covers inputs and task but
-  not the operating system that produced the outputs, so a darwin artefact is
+  not the operating system that produced the outputs, so a darwin artifact is
   not a linux one; the slug is how CI (v0.3) and runs stay apart.
 
 Storage is one file per entry under `<root>/store/<repo>/<slug>/<hash>`: a
@@ -52,7 +52,7 @@ DEFAULT_PORT = 4199
 DEFAULT_BRIDGE = 'pandorabr0'
 DEFAULT_MAX_MIB = 4096
 RUN_SLUG = 'linux'
-# One artefact larger than this is refused rather than allowed to evict the
+# One artifact larger than this is refused rather than allowed to evict the
 # whole store to make room for itself.
 MAX_ARTIFACT_FRACTION = 4
 
@@ -432,7 +432,7 @@ def env_for(root, repo, *, probe_timeout=1.0):
     Never fatal: a run without the cache is slower, not wrong. `TURBO_CACHE =
     remote:rw` turns the local cache off, because a run's local cache lives in
     an instance that is destroyed when the run ends -- writing it is a second
-    copy of every artefact that nothing will ever read.
+    copy of every artifact that nothing will ever read.
     """
     store = Store(root)
     if not REPO.match(repo or ''):

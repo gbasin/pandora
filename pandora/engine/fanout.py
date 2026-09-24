@@ -444,7 +444,7 @@ def wait_for(paths, ledger, run_ids, *, tails, log):
 
 
 def drain_tails(tails, log, only=None):
-    """Interleave the children's logs into the parent's, each line labelled.
+    """Interleave the children's logs into the parent's, each line labeled.
 
     The caller is attached to one log file, so a fan-out that says nothing for
     four minutes looks identical to one that has hung. Prefixing rather than

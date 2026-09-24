@@ -61,7 +61,7 @@ WORKER = {
 INTS = ('loop_size_gib', 'disk_floor_gib', 'run_disk_gib', 'golden_keep')
 
 
-def normalise(raw):
+def normalize(raw):
     """Validate a parsed versions.toml and fill in the defaults."""
     unknown = sorted(set(raw) - {'packages', 'worker'})
     if unknown:
@@ -92,12 +92,12 @@ def normalise(raw):
 
 def load(path=None):
     if path is None:
-        return normalise({})
+        return normalize({})
     path = Path(path).expanduser()
     if not path.is_file():
         raise ConfigError('no versions manifest at %s' % path)
     try:
-        return normalise(tomllib.loads(path.read_text()))
+        return normalize(tomllib.loads(path.read_text()))
     except tomllib.TOMLDecodeError as error:
         raise ConfigError('%s is not valid TOML: %s' % (path, error)) from None
 

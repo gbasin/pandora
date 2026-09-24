@@ -81,7 +81,7 @@ class Store:
 
     def __init__(self, path=':memory:'):
         # `check_same_thread=False` because the client daemon admits from one
-        # thread per connection and serialises every touch of this store behind
+        # thread per connection and serializes every touch of this store behind
         # its own lock; SQLite's assertion would protect nothing and cost the
         # local lane its learned peaks.
         self.db = sqlite3.connect(path, isolation_level=None, check_same_thread=False)

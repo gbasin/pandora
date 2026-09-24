@@ -21,33 +21,33 @@ class Versions(unittest.TestCase):
 
     def test_unknown_table_is_refused(self):
         with self.assertRaises(ConfigError):
-            versions.normalise({'nonsense': {}})
+            versions.normalize({'nonsense': {}})
 
     def test_unknown_worker_key_is_refused(self):
         with self.assertRaises(ConfigError):
-            versions.normalise({'worker': {'pooll': 'x'}})
+            versions.normalize({'worker': {'pooll': 'x'}})
 
     def test_device_must_be_a_dev_path(self):
         with self.assertRaises(ConfigError):
-            versions.normalise({'worker': {'device': 'sdb'}})
+            versions.normalize({'worker': {'device': 'sdb'}})
 
     def test_digest_ignores_nothing_declared_and_changes_with_a_pin(self):
-        one = versions.normalise({})
-        two = versions.normalise({'packages': {'incus': '6.0.5-8'}})
+        one = versions.normalize({})
+        two = versions.normalize({'packages': {'incus': '6.0.5-8'}})
         self.assertNotEqual(versions.digest(one), versions.digest(two))
-        self.assertEqual(versions.digest(one), versions.digest(versions.normalise({})))
+        self.assertEqual(versions.digest(one), versions.digest(versions.normalize({})))
 
     def test_render_round_trips(self):
-        manifest = versions.normalise({'packages': {'incus': '6.0.5-8'},
+        manifest = versions.normalize({'packages': {'incus': '6.0.5-8'},
                                        'worker': {'loop_size_gib': 24}})
         import tomllib
-        again = versions.normalise(tomllib.loads(versions.render(manifest)))
+        again = versions.normalize(tomllib.loads(versions.render(manifest)))
         self.assertEqual(versions.digest(manifest), versions.digest(again))
 
 
 class Drift(unittest.TestCase):
     def setUp(self):
-        self.manifest = versions.normalise({'packages': {'incus': '6.0.5-8', 'git': '*'}})
+        self.manifest = versions.normalize({'packages': {'incus': '6.0.5-8', 'git': '*'}})
 
     def test_missing_package_drifts(self):
         items = versions.drift(self.manifest, {'packages': {'incus': '6.0.5-8'}})
@@ -150,7 +150,7 @@ class ProvisionParsing(unittest.TestCase):
         self.assertTrue(text.endswith("\n"), text[-20:])
 
     def test_a_pinned_package_reaches_the_script_as_name_equals_version(self):
-        manifest = versions.normalise({'packages': {'incus': '6.0.5-8'}})
+        manifest = versions.normalize({'packages': {'incus': '6.0.5-8'}})
         text = provision.preamble(manifest, root='/w', engine_root='/e', pool_file='/p')
         self.assertIn('incus=6.0.5-8', text)
 

@@ -235,7 +235,7 @@ MISSING = object()
 def merge_json(base, targets):
     """Merge JSON objects whose shards changed disjoint top-level keys, or None.
 
-    The serialisation must be one this function can reproduce byte for byte --
+    The serialization must be one this function can reproduce byte for byte --
     detected from the base, and confirmed against every shard's own output --
     because a merged fixture that differs from what the repository's own writer
     would have produced is a diff nobody asked for. Anything else is a collision.

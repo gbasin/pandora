@@ -165,7 +165,7 @@ def marker_for(cwd):
 
 
 def key_of(argv, strip_prefixes):
-    """Normalise one argv tail for matching against claims of any length.
+    """Normalize one argv tail for matching against claims of any length.
 
     ``argv`` excludes the tool name.  Declared wrapper prefixes (``pnpm run
     test:unit``) are removed once each, in declaration order, exactly as the

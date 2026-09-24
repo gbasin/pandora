@@ -154,7 +154,7 @@ class DaemonCase(unittest.TestCase):
         config = self.root / 'config.toml'
         config.write_text(
             '[client]\nstate = "%s"\n[worker]\nhost = "fake@nowhere"\n'
-            # No notification centre pop-ups from a test suite.
+            # No notification center pop-ups from a test suite.
             '[notify]\nenabled = false\n'
             '[local]\nbudget_mib = 16384\nqueue_timeout_seconds = 20\ndrift = "off"\n'
             '[local.pause]\nenabled = false\n'
@@ -624,7 +624,7 @@ class RemoteCancelContract(unittest.TestCase):
         self.assertIn('kill -9', script)
         self.assertGreater(seen[0][1]['timeout'], 240)
 
-    def test_the_default_is_the_old_behaviour_exactly(self):
+    def test_the_default_is_the_old_behavior_exactly(self):
         from pandora.executor.incus import IncusDriver
         from pandora.executor.interface import Instance
         driver = IncusDriver(root='/tmp/none', sudo=False)

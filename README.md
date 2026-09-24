@@ -24,7 +24,7 @@ The invariants, as `pandora --help` states them:
   command runs as if Pandora were not installed.
 * Exit codes that are not the command's own: 70 infrastructure failure, never a
   test verdict; 75 busy or stale; 124 `--max-wait` elapsed and the run was not
-  stopped; 130 cancelled.
+  stopped; 130 canceled.
 * `--update` runs on the worker, never here. Its files come back only from a
   passing run (every shard) over a tree you did not edit meanwhile; otherwise
   exit 75, your files untouched, and the next step printed.
@@ -494,7 +494,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
 | 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. | Wait for the other run. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
-| 130 | Cancelled. | Nothing. |
+| 130 | Canceled. | Nothing. |
 
 ### Variables
 
@@ -544,7 +544,7 @@ ignores and the snapshot therefore did not ship.
 A job that runs on the worker gets `PANDORA_CPUS`, the host's cores divided by
 the runs admitted when it starts. A runner can use it for its own parallelism.
 
-## Behaviour tables
+## Behavior tables
 
 ### Fallback
 
@@ -591,7 +591,7 @@ deletes.
 | A shard failed, was never dispatched, filed no report, or the partition is unverified | Nothing from any shard | The command's own non-zero, or 70 |
 | Two shards changed one declared file differently | Nothing | 75 |
 | Two shards changed disjoint top-level keys of one JSON object | The merged file | 0 |
-| Run failed, oom, timed out or cancelled | Nothing | The run's own |
+| Run failed, oom, timed out or canceled | Nothing | The run's own |
 | Proposed bytes arrive with the wrong digest, or the fetch fails | Nothing | 70 |
 | Infrastructure failure before `accepted` | Nothing, and nothing runs here | 70 |
 
@@ -621,7 +621,7 @@ runs locally.
 | `partition-unverified` | no | The shards ran; their reports will not change. |
 | `shard-failed` | no | The shard already had its own retry. |
 | `admission-timeout` | no | A retry joins the same full queue. |
-| `engine-error` | no | An unrecognised failure is not retried. |
+| `engine-error` | no | An unrecognized failure is not retried. |
 | `worker-lost` | no | The run may still be executing. |
 
 `oom`, `timed_out`, `cancelled` and `command_failed` are verdicts and are never
@@ -689,7 +689,7 @@ Known caveats:
   the other app's paths as missing.
 * `PANDORA_CPUS` is fixed when a command starts. A run admitted alone keeps its
   larger hint when others join.
-* A remote run's verdict is not checked against the worktree afterwards. Only
+* A remote run's verdict is not checked against the worktree afterward. Only
   write-back re-freezes. Do not edit a worktree while a remote validation runs.
 * One remote run per worktree is not enforced. Only the local lane holds a
   worktree lock.

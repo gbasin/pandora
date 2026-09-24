@@ -53,7 +53,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
 > | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. | Wait for the other run. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
-> | 130 | You cancelled it. | Nothing. |
+> | 130 | You canceled it. | Nothing. |
 >
 > Pandora's own lines go to stderr and start with `pandora:`. The last one can
 > be `pandora: hint: ...`. A hint comes from measured evidence, such as a memory

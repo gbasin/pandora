@@ -135,7 +135,7 @@ class Run:
         self.meta = self.dir / 'meta.json'
         self.lock = threading.Lock()
         self.wake = threading.Condition(self.lock)
-        self.cancelled = threading.Event()
+        self.canceled = threading.Event()
         self.done = threading.Event()
         self.exit_code = None
         self.state = 'queued'
@@ -151,7 +151,7 @@ class Run:
         # When the client was told `accepted`. The gap between this and
         # `started` is the queue wait -- everything the caller spent not knowing
         # whether its command would run anywhere -- and it is the one number
-        # `pandora stats` cannot derive from anything else afterwards.
+        # `pandora stats` cannot derive from anything else afterward.
         self.accepted = None
         self.hint = None
         # The local run a remote row handed its request to, when a fallback
@@ -632,7 +632,7 @@ class Daemon:
         elif op == 'cancel':
             run = self.runs.get(first.get('run'))
             if run:
-                run.cancelled.set()
+                run.canceled.set()
             conn.sendall(dump({'t': 'ok', 'run': first.get('run')}))
         else:
             self.deny(conn, 'rejected', 'unknown op %r' % op)
@@ -753,7 +753,7 @@ class Daemon:
                             'argument names a path' % verdict['rerooted'])
 
         # The job's `where`, or the caller's `--local`/`--remote`. A request the
-        # job cannot honour is refused here, before anything is frozen or queued.
+        # job cannot honor is refused here, before anything is frozen or queued.
         try:
             placed = placement.decide(job, plan, request.get('where'))
         except Refused as error:
@@ -999,7 +999,7 @@ class Daemon:
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
-                                          cancelled=run.cancelled.is_set,
+                                          canceled=run.canceled.is_set,
                                           timeout=self.local.queue_timeout,
                                           note=lambda text: self.tell(conn, text))
         except Busy as error:
@@ -1114,7 +1114,7 @@ class Daemon:
                 result, offset = worker.follow(
                     run.remote, offset=offset,
                     on_log=lambda chunk: run.stream_in(chunk),
-                    should_cancel=run.cancelled.is_set,
+                    should_cancel=run.canceled.is_set,
                     on_status=lambda row: self.observe(run, row))
                 run.flush_remote()
                 if self.retry(run, repo, plan, result):
@@ -1161,7 +1161,7 @@ class Daemon:
             while True:
                 result, _ = worker.follow(run.remote, offset=run.consumed(),
                                           on_log=lambda chunk: run.stream_in(chunk),
-                                          should_cancel=run.cancelled.is_set,
+                                          should_cancel=run.canceled.is_set,
                                           on_status=lambda row: self.observe(run, row))
                 run.flush_remote()
                 # The plan is gone, so write-back is judged from the argv.
@@ -1188,7 +1188,7 @@ class Daemon:
         """(retry?, cause, why-not) for one finished attempt.
 
         The order is the order of the rules in `engine.retry`: only an infra
-        failure, only once, never a cancelled or stale run, never once the
+        failure, only once, never a canceled or stale run, never once the
         caller has seen the command's own output, and then only a cause the
         table names as retryable. Write-back is allowed only because the first
         attempt is never delivered: its outputs are not collected, so nothing
@@ -1200,8 +1200,8 @@ class Daemon:
         cause = retries.cause_of(result)
         if run.attempts:
             return False, cause, 'this was already the retry'
-        if run.cancelled.is_set():
-            return False, cause, 'the run was cancelled'
+        if run.canceled.is_set():
+            return False, cause, 'the run was canceled'
         if result.get('cli_exit') == STALE:
             return False, cause, 'the run is stale'
         if run.output_seen():
@@ -1416,7 +1416,7 @@ class Daemon:
             if frame is None:
                 return                   # disconnect == detach, never cancel
             if frame.get('t') == 'cancel':
-                run.cancelled.set()
+                run.canceled.set()
             elif frame.get('t') == 'detach':
                 return
 

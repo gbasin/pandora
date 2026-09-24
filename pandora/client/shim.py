@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..exits import CANCELLED, INFRA, STALE, USAGE
+from ..exits import CANCELED, INFRA, STALE, USAGE
 from . import enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
@@ -175,16 +175,16 @@ class Stream:
         self.sock = sock
         self.base = 0                    # log-file offset this connection started at
         self.mark = reader.consumed      # reader bytes that were handshake, not log
-        self.cancelled = False
+        self.canceled = False
 
     @property
     def offset(self):
         return self.base + (self.reader.consumed - self.mark)
 
     def cancel(self, *_):
-        if not self.cancelled:
-            notice('cancelling run %s on the worker; its instance will be destroyed.' % self.run)
-        self.cancelled = True
+        if not self.canceled:
+            notice('canceling run %s on the worker; its instance will be destroyed.' % self.run)
+        self.canceled = True
         try:
             self.sock.sendall(dump({'t': 'cancel', 'run': self.run}))
         except OSError:
@@ -300,7 +300,7 @@ def main(argv=None):
     def no_daemon(cause, message):
         """The daemon is not there: run the command as if Pandora were absent.
 
-        Only two requests cannot be honoured without a daemon and are refused:
+        Only two requests cannot be honored without a daemon and are refused:
         `--detach` (there is no run id to print) and an explicit remote
         placement (only the daemon reaches the worker). Everything else is a
         passthrough with one line on stderr.

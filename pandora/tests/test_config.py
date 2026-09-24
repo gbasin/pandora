@@ -234,7 +234,7 @@ class ClassifyTest(unittest.TestCase):
 
     def test_a_subdirectory_invocation_is_re_rooted_when_nothing_names_a_path(self):
         # `S0-01` means the same thing in every directory, because the repository
-        # resolves it against its own catalogue.
+        # resolves it against its own catalog.
         verdict = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
         self.assertEqual(verdict['decision'], 'remote')
         self.assertEqual(verdict['rerooted'], 'apps/agent')

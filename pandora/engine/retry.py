@@ -19,7 +19,7 @@ them:
 * **Remote to remote, once.** A retry is a second submission of the same frozen
   input to the same worker. It is never the local lane: that is fallback, and
   fallback ends at `accepted`.
-* **Never a cancelled run, never a stale one, never a resource verdict.** An
+* **Never a canceled run, never a stale one, never a resource verdict.** An
   `oom` is its own outcome and never reaches this table; a disk quota is a
   resource verdict that arrives as an infra failure and is named here as not
   retryable.
@@ -51,8 +51,8 @@ CAUSES = {
     'shard-failed': (False, 'a shard failed after its own retry inside the fan-out'),
     'admission-timeout': (False, 'the worker had no room for the whole admission wait, '
                                  'and a retry joins the same queue'),
-    'engine-error': (False, 'the engine failed in a way it does not recognise, and an '
-                            'unrecognised failure is not retried'),
+    'engine-error': (False, 'the engine failed in a way it does not recognize, and an '
+                            'unrecognized failure is not retried'),
     # Raised before `accepted`. They never reach a retry: the fallback policy
     # owns them. Listed so that every cause the engine can write has an answer.
     'disk-floor': (False, 'refused before acceptance; the fallback policy decides'),

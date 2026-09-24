@@ -82,7 +82,7 @@ def _expand(value):
     return str(Path(value).expanduser()) if value else value
 
 
-def normalise(raw):
+def normalize(raw):
     config = {'worker': dict(DEFAULTS['worker']), 'client': dict(DEFAULTS['client']),
               'backend': dict(DEFAULTS['backend']), 'local': dict(DEFAULTS['local']),
               'notify': dict(DEFAULTS['notify']), 'repos': []}
@@ -132,14 +132,14 @@ def normalise(raw):
 def load(path=None):
     path = Path(path or os.environ.get('PANDORA_CONFIG') or DEFAULT_PATH).expanduser()
     if not path.is_file():
-        config = normalise({})
+        config = normalize({})
         config['source'] = None
         return config
     try:
         raw = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as error:
         raise ConfigError('%s is not valid TOML: %s' % (path, error)) from None
-    config = normalise(raw)
+    config = normalize(raw)
     config['source'] = str(path)
     return config
 

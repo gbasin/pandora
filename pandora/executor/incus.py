@@ -407,7 +407,7 @@ rm -rf "$2"
 
         Measured on the worker over eichler (4,961 files, 375 MiB): `git add -A`
         is 9.1 s with git's default loose-object compression and 2.9-3.0 s with
-        it off; the commit is 0.1 s and eichler's whole fingerprint afterwards is
+        it off; the commit is 0.1 s and eichler's whole fingerprint afterward is
         25 ms. The objects are uncompressed on purpose: they live exactly as long
         as the instance. Returns seconds.
         """

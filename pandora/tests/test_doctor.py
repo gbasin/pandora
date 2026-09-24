@@ -145,7 +145,7 @@ class Launcher(Scratch):
                if key not in ('PYTHONPATH', 'PANDORA_HOME')}
         env['PATH'] = '%s:/usr/bin:/bin' % path
         # /usr/bin/python3 on macOS is 3.9, which has no tomllib; the launcher
-        # honours PANDORA_PYTHON, so the test names the interpreter it runs under.
+        # honors PANDORA_PYTHON, so the test names the interpreter it runs under.
         env['PANDORA_PYTHON'] = sys.executable
         return env
 

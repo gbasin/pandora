@@ -116,7 +116,7 @@ An equivalent active request from the same worktree and local state directory re
 reports the existing job. A changed request while one is queued reports that
 fact; it does not submit or replace automatically. A deliberate rerun after a
 terminal result creates a new attempt. Preserve identity through ambiguous
-network acknowledgements. This is duplicate prevention, not result caching.
+network acknowledgments. This is duplicate prevention, not result caching.
 
 Explicit cancellation stops the owned workload and verifies cleanup. A tool
 yield with a continuing handle is not cancellation. Abrupt client loss is a
