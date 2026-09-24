@@ -428,6 +428,32 @@ class SupervisorBehavior(unittest.TestCase):
         # A turbo or watchman daemon it meant to leave behind.
         self.assertEqual(self.signalled(self.supervised(0)), [('group', 100)])
 
+    def recorded(self, table, ages, started):
+        def ps(argv, **kwargs):
+            out = table if 'pid=,ppid=,pgid=,rss=' in argv else ages
+            return subprocess.CompletedProcess(argv, 0, stdout=out, stderr='')
+        groups, pids = [], []
+        killed = local.kill_recorded(100, started, run=ps, clock=lambda: 1000.0,
+                                     kill=lambda pid, sig: groups.append(pid),
+                                     kill_one=lambda pid, sig: pids.append(pid))
+        return killed, groups, pids
+
+    def test_a_group_whose_leader_died_is_still_killed_when_it_is_the_runs(self):
+        # 100 died of EPIPE; 101 and 104 are left in its group, 102 left it.
+        table = '101 1 100 1024\n102 101 102 1024\n104 1 100 1024\n'
+        killed, groups, pids = self.recorded(table, '101 01:30\n104 00:10\n', started=900.0)
+        self.assertEqual((killed, groups, pids), (True, [100], [102]))
+
+    def test_a_leaderless_group_older_than_the_run_is_left_alone(self):
+        table = '101 1 100 1024\n'
+        self.assertEqual(self.recorded(table, '101 10:00\n', started=900.0),
+                         (False, [], []))
+
+    def test_a_live_leader_must_have_started_with_the_run(self):
+        table = '100 1 100 1024\n'
+        self.assertTrue(self.recorded(table, '100 01:40\n', started=900.0)[0])
+        self.assertFalse(self.recorded(table, '100 00:10\n', started=900.0)[0])
+
     def test_a_cancel_reaches_a_descendant_that_called_setsid(self):
         with tempfile.TemporaryDirectory() as tmp:
             record = Path(tmp) / 'pid'

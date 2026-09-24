@@ -165,34 +165,53 @@ def elapsed_seconds(text):
         return None
 
 
-def kill_recorded(pgid, started, *, run=subprocess.run, clock=time.time, kill=None):
+def kill_recorded(pgid, started, *, run=subprocess.run, clock=time.time, kill=None,
+                  kill_one=None):
     """SIGKILL a local run's process group left behind by a daemon that died.
 
-    Only when its leader is still the process that run started: a pid is reused,
-    and a group recorded yesterday may now be someone else's. The leader's age
-    from `ps` must put its start within a few seconds of the recorded one.
-    Returns True when a signal was sent.
+    A pid is reused, and a group recorded yesterday may now be someone else's,
+    so the group is proved to be the run's first:
+
+    * its leader is alive and `ps` puts its start within a few seconds of the
+      recorded one; or
+    * the leader is gone -- it usually dies of EPIPE when the old daemon's pipes
+      close -- but `ps` still lists members of that group, and one of them
+      started no earlier than the run did. A group id cannot be handed out
+      again while any member of the old group lives, so those members are the
+      run's own.
+
+    Descendants of the members that left the group (`setsid`) are signalled
+    too. Returns True when a signal was sent.
     """
     if not pgid or not started:
         return False
     try:
-        proc = run(['ps', '-o', 'etime=', '-p', str(int(pgid))], capture_output=True,
-                   text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError, ValueError):
+        pgid = int(pgid)
+    except (TypeError, ValueError):
         return False
-    age = elapsed_seconds(proc.stdout)
-    if proc.returncode != 0 or age is None or abs((clock() - age) - float(started)) > 5:
+    table = process_table(run)
+    members = [pid for pid, _ppid, group, _rss in table if group == pgid]
+    if not members:
         return False
-    # The leader is ours, so its descendants are too, including any that
-    # called setsid (see `tree_of`).
-    members = tree_of(process_table(run), int(pgid), int(pgid))
+    ages = process_ages(members, run=run)
+    now = clock()
+    if pgid in members:
+        age = ages.get(pgid)
+        ours = age is not None and abs((now - age) - float(started)) <= 5
+    else:
+        ours = any(age is not None and age <= now - float(started) + 5
+                   for age in (ages.get(pid) for pid in members))
+    if not ours:
+        return False
+    outside = [pid for member in members for pid in tree_of(table, member)
+               if pid not in members]
     try:
-        (kill or os.killpg)(int(pgid), signal.SIGKILL)
+        (kill or os.killpg)(pgid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
         return False
-    for pid in members:
+    for pid in dict.fromkeys(outside):
         try:
-            os.kill(pid, signal.SIGKILL)
+            (kill_one or os.kill)(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             pass
     return True
