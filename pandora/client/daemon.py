@@ -409,6 +409,7 @@ class Daemon:
         self.markers = {}                  # marker path -> (mtime_ns, parsed)
         self.adopting = threading.Lock()   # one takeover per orphaned row
         self.workers = {}
+        self.workers_lock = threading.Lock()
         self.worker_factory = Worker
         # One local queue per daemon, built once: its learned peaks live in a
         # SQLite file beside the runs, so a restart does not forget what a job
@@ -508,11 +509,14 @@ class Daemon:
     def worker_for(self, repo):
         host = self.config['worker']['host']
         key = (host, self.config['worker']['engine_root'])
-        if key not in self.workers:
-            self.workers[key] = self.worker_factory(
-                host, state=self.state, engine_root=self.config['worker']['engine_root'],
-                persist=self.config['worker']['ssh_persist'])
-        return self.workers[key]
+        # Startup settles several rows on their own threads; two Workers for one
+        # host would be two SSH masters and two engine bundles resolved.
+        with self.workers_lock:
+            if key not in self.workers:
+                self.workers[key] = self.worker_factory(
+                    host, state=self.state, engine_root=self.config['worker']['engine_root'],
+                    persist=self.config['worker']['ssh_persist'])
+            return self.workers[key]
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -604,13 +608,34 @@ class Daemon:
             self.close_local(run, payload)
         elif not run.remote:
             log('resume: run %s was not accepted; asking the worker' % run.id)
-            threading.Thread(target=self.settle_unaccepted, args=(run, payload),
+            threading.Thread(target=self.guarded, args=(self.settle_unaccepted, run, payload),
                              daemon=True).start()
         else:
             log('resume: run %s re-attaching to %s' % (run.id, run.remote))
             run.state = 'running'
-            threading.Thread(target=self.reattach, args=(run,), daemon=True).start()
+            threading.Thread(target=self.guarded, args=(self.reattach, run),
+                             daemon=True).start()
         return run
+
+    def guarded(self, body, run, *args):
+        """Run a takeover thread's body; whatever it raises, the row still ends.
+
+        As `execute` does for a run this daemon started: an exception nobody
+        named (a `TimeoutExpired` from an engine call) must not kill the thread
+        and leave the row live with a client waiting on it. A daemon that is
+        stopping leaves the row alone for the next one.
+        """
+        try:
+            body(run, *args)
+        except Exception as error:                 # noqa: BLE001 - never a silent pass
+            if not self.stopping.is_set() and not run.done.is_set():
+                run.note('%s: %s' % (type(error).__name__, error))
+        finally:
+            if not run.done.is_set() and not self.stopping.is_set():
+                run.note('the takeover of this run ended without a verdict; %s' % UNCERTAIN)
+                log('resume: run %s closed as infra_failed: its takeover thread ended'
+                    % run.id)
+                run.finish(INFRA, state='infra_failed')
 
     def close_local(self, run, payload):
         """A local run's supervisor died with the last daemon: end the row, and the tree."""

@@ -480,6 +480,37 @@ class RestartHygiene(DaemonCase):
         self.assertEqual(meta['state'], 'infra_failed')
         self.assertIn('could not be asked (no route)', self.said('pre3'))
 
+    def test_an_exception_nobody_named_still_ends_the_row(self):
+        # `bundle.call` raises TimeoutExpired, which the takeover did not catch:
+        # the thread died and the row stayed live with its client waiting.
+        self.row('pre4', state='queued')
+        self.row('acc4', state='running', remote='r4', accepted=time.time())
+        timeout = subprocess.TimeoutExpired(['ssh'], 60)
+        with mock.patch.object(FakeWorker, 'lookup', create=True, side_effect=timeout), \
+                mock.patch.object(FakeWorker, 'follow', side_effect=timeout):
+            self.daemon.resume_interrupted()
+            for run_id in ('pre4', 'acc4'):
+                meta = self.settled(run_id)
+                self.assertEqual((meta['state'], meta['exit_code']), ('infra_failed', 70))
+                self.assertIn('TimeoutExpired', self.said(run_id))
+
+    def test_threads_that_ask_at_once_share_one_worker(self):
+        built = []
+
+        class Slow(FakeWorker):
+            def __init__(self, host, **kwargs):
+                time.sleep(0.1)
+                built.append(self)
+        self.daemon.worker_factory = Slow
+        self.daemon.workers.clear()
+        threads = [threading.Thread(target=self.daemon.worker_for, args=({},))
+                   for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(built), 1)
+
     def test_a_local_run_records_its_process_group(self):
         # `unit` is remote; placed locally, the supervisor spawns it here.
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
