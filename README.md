@@ -597,7 +597,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
-| `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_SESSION_ID` or `CODEX_COMPANION_SESSION_ID` is used. Without any of them, the run records the top interactive process above the command, as `name:pid` (one `ps` on a claimed command). |
+| `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own; the client runs none. |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
 

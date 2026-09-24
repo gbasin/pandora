@@ -38,6 +38,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
 from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
+from . import attribution
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
@@ -1158,6 +1159,12 @@ class Daemon:
         plan = verdict['plan']
         job = config['jobs'][verdict['job']]
         worktree = verdict.get('worktree') or request['cwd']
+        if not submitted_by(request):
+            # No session variable came with it: name the caller's session here,
+            # on this thread, rather than make every client run `ps`.
+            who = attribution.of_peer(conn)
+            if who:
+                request = dict(request, submitter=who)
         # Only names the repository asked for: an undeclared variable the shim
         # filtered was never going to travel, so saying so would be noise.
         for line in envfilter.notices(plan['env_passthrough'], request.get('env_dropped')):
