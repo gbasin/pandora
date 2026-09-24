@@ -364,7 +364,8 @@ class RepositoryAndCwd(Scratch):
         self.configure('journey')
         self.register()
         cache = self.cache(home=str(self.root / 'gone'))
-        self.assertIn('then delete %s' % cache, self.row('client home')['detail'])
+        self.assertIn('; delete %s; the next command writes it again' % cache,
+                      self.row('client home')['detail'])
 
     def test_a_cache_routing_elsewhere_warns(self):
         self.configure('journey')

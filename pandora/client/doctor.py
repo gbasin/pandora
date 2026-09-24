@@ -394,8 +394,7 @@ def check_repository(cwd, config, sock_path, data=None):
     if home and not (Path(home) / 'pandora' / 'client' / 'shim.py').is_file():
         # A cache is safe to delete: the next command writes it again. The
         # registration and the marker are not: deleting either unenrolls.
-        fix = ('restart the daemon from the checkout you mean, then delete %s; the next '
-               'command writes it again' % source if kind == 'cache' else
+        fix = ('delete %s; the next command writes it again' % source if kind == 'cache' else
                'run `pandora enroll %s` from the checkout you mean' % (root or cwd))
         out.append(check('client home', FAIL,
                          '%s says the client lives in %s, which has no pandora package (a '
@@ -404,8 +403,8 @@ def check_repository(cwd, config, sock_path, data=None):
     elif home and now and not install.through_current(home, data):
         # A checkout, or a version directory by its own name: either way the
         # next upgrade leaves claimed commands behind.
-        fix = ('the daemon writes it; once the daemon runs current, delete %s and the next '
-               'command writes it again' % source if kind == 'cache' else
+        fix = ('a daemon from before this release, or the client with no daemon, wrote it; '
+               'delete %s and the next command writes it again' % source if kind == 'cache' else
                'run `pandora enroll %s`' % (root or cwd))
         out.append(check('client home', WARN,
                          '%s pins the client to %s, not %s, so claimed commands do not follow '

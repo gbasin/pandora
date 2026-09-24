@@ -591,7 +591,19 @@ class Doctor(Case):
         items = {item['name']: item for item in
                  doctor.check_repository(str(target), None, self.state / 'client.sock',
                                          self.data)}
-        self.assertIn('once the daemon runs current, delete', items['client home']['detail'])
+        self.assertIn('a daemon from before this release, or the client with no daemon, wrote '
+                      'it; delete %s and the next command writes it again'
+                      % enrollment.cache_path(target), items['client home']['detail'])
+        # A cache naming a pruned version: fail, and the same one-step fix.
+        enrollment.cache_path(target).write_text(enrollment.render(
+            socket_path=str(self.state / 'client.sock'), repo='demo', claims=[['unit']],
+            home=str(self.data / 'versions' / 'gone')))
+        items = {item['name']: item for item in
+                 doctor.check_repository(str(target), None, self.state / 'client.sock',
+                                         self.data)}
+        self.assertEqual(items['client home']['status'], 'fail')
+        self.assertTrue(items['client home']['detail'].endswith(
+            'delete %s; the next command writes it again' % enrollment.cache_path(target)))
 
 
 ROWS = [
