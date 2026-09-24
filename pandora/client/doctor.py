@@ -676,13 +676,14 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
     checks.append(check_worker(pong, sock_path.parent))
     checks.append(check_supervision(pong, sock_path.parent, launchctl=launchctl,
                                     upgraded=install.installed(data) is not None))
-    drained = check_drain(sock_path.parent)
-    if drained is not None:
-        checks.append(drained)
     checks.extend(check_repository(cwd, loaded, state_path / 'client.sock', data))
     checks.append(check_cwd(cwd))
     checks.append(check_variables(env))
     checks.append(check_shim_markers(env, pnpm['facts'].get('shim')))
+    # Last: shown only while a marker exists, after every row that is always there.
+    drained = check_drain(sock_path.parent)
+    if drained is not None:
+        checks.append(drained)
     return {'ok': not any(item['status'] == FAIL for item in checks),
             'cwd': cwd, 'state': str(state_path), 'socket': str(sock_path),
             'package': PACKAGE_HOME, 'checks': checks}

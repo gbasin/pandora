@@ -871,7 +871,7 @@ class Doctor(unittest.TestCase):
         report = doctor.run(state=self.state, env={'PATH': '/nonexistent'}, cwd=self.state,
                             runner=failed, launchctl=FakeLaunchd())
         names = [item['name'] for item in report['checks']]
-        self.assertIn('restart drain', names)
+        self.assertEqual(names[-1], 'restart drain', names)
 
 
 class TheDecision(unittest.TestCase):
