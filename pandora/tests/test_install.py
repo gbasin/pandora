@@ -295,6 +295,44 @@ class PhysicalHome(Case):
         self.assertEqual(proc.stdout.strip(), str(version))
 
 
+class WrittenHomes(Case):
+    """What `daemon --install` and `enroll` write down once a snapshot is installed."""
+
+    def test_the_plist_runs_current_once_it_exists(self):
+        # Before: the checkout, as before `upgrade` existed (test_launchd).
+        data = self.home / '.local' / 'share' / 'pandora'
+        repo = self.checkout()
+        version = install.snapshot(install.describe(repo), data)
+        install.flip(data, version['name'])
+        fake = FakeLaunchd()
+        body = launchd.install('com.pandora.daemon', config_path=self.root / 'c.toml',
+                               state=self.state, env={'PATH': '/usr/bin:/bin'}, uid=501,
+                               home=self.home, python='/usr/bin/python3', run=fake,
+                               say=self.said.append)
+        program = str(data / 'current' / 'bin' / 'pandora')
+        self.assertEqual(body['ProgramArguments'][0], program, 'through current, as spelled')
+        self.assertEqual(launchd.agent_program('com.pandora.daemon', self.home), program)
+        self.assertIn('`pandora upgrade`', self.said[-1])
+
+    def test_enroll_writes_current_as_the_marker_home(self):
+        from pandora import cli
+        from pandora.client import enrollment
+        from pandora.tests.test_config import MINIMAL
+        repo = self.root / 'target'
+        repo.mkdir()
+        git(repo, 'init', '-q')
+        (repo / 'pandora.toml').write_text(MINIMAL)
+        data = install.data_root()                  # the test package's scratch directory
+        install.flip(data, install.snapshot(install.describe(self.checkout()), data)['name'])
+        self.addCleanup(lambda: os.unlink(data / 'current'))
+        with mock.patch('sys.stderr'):
+            code = cli.main(['--state', str(self.state), '--config',
+                             str(self.root / 'none.toml'), 'enroll', str(repo)])
+        self.assertEqual(code, 0)
+        marker = enrollment.parse((repo / '.git' / 'pandora-enrolled').read_text())
+        self.assertEqual(marker['home'], str(data / 'current'))
+
+
 ROWS = [
     {'id': 'r-local-run', 'lane': 'local', 'state': 'running', 'argv': ['check']},
     {'id': 'r-local-q', 'lane': 'local', 'state': 'queued', 'argv': ['test']},

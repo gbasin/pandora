@@ -85,9 +85,10 @@ def state_of(args):
 def cmd_daemon(args):
     """Run the daemon in the foreground, or manage the launchd agent that runs it.
 
-    `--install` writes a user agent that keeps the daemon running from this
-    checkout; after updating the checkout, `--restart` makes it load the new
-    code. See `client/launchd.py` for what the plist carries and why.
+    `--install` writes a user agent that keeps the daemon running from
+    `<data>/current` once `pandora upgrade` has run, else from this checkout;
+    `--restart` makes it load the code its plist names. See `client/launchd.py`
+    for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
     if verb:
@@ -162,6 +163,7 @@ def cmd_enroll(args):
 
     It removes the v0.2 `pandora-enrolled` marker, which the new files replace.
     """
+    from .client import install
     state, config = state_of(args)
     common = enrollment.common_dir(args.repo)
     root = enrollment.worktree_root(args.repo)
@@ -204,7 +206,7 @@ def cmd_enroll(args):
                'if it is not what you meant, change it to:\n%s'
                % (config_path, known['name'], known['root'],
                   settings.repo_block(name, Path(root).resolve(), external)))
-    home = str(Path(__file__).resolve().parents[1])
+    home = install.package_home()
     socket_path = str(state / 'client.sock')
     enrollment.write(common, enrollment.registration_text(
         socket_path=socket_path, repo=known['name'], home=home), enrollment.REGISTRATION)
@@ -696,11 +698,13 @@ def main(argv=None):
     verbs = daemon.add_mutually_exclusive_group()
     verbs.add_argument('--install', action='store_true',
                        help='write a launchd user agent that keeps the daemon running from '
-                            'this checkout, and load it')
+                            '<data>/current (after `pandora upgrade`) or else this checkout, '
+                            'and load it')
     verbs.add_argument('--uninstall', action='store_true',
                        help='unload the agent and delete its plist')
     verbs.add_argument('--restart', action='store_true',
-                       help='launchctl kickstart -k: run after updating the checkout')
+                       help='launchctl kickstart -k; `pandora upgrade` does it at a safe '
+                            'moment')
     verbs.add_argument('--stop', action='store_true',
                        help='SIGTERM a hand-started daemon and wait up to 10 s')
     daemon.add_argument('--label', default=None,
