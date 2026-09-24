@@ -39,6 +39,7 @@ from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
 from . import attribution
+from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
@@ -203,6 +204,9 @@ class Run:
         self.output_mark = self.dir / 'command-output'
         self.seen = self.output_mark.exists()
         self.carry = b''
+        # A local run still queued when a drain began: it never starts here,
+        # and its caller is told to submit it again to the next daemon.
+        self.drained = False
 
     def save(self):
         with self.close_lock:
@@ -473,6 +477,11 @@ class Daemon:
         self.runs = {}
         self.runs_lock = threading.Lock()
         self.stopping = threading.Event()
+        # {'since', 'pid', 'daemon'} while a restart drains this daemon, else
+        # None. Read and set under `admitting`, with every row a request opens,
+        # so a drain's count of what is in flight misses nothing.
+        self.draining = None
+        self.admitting = threading.Lock()
         self.handlers = set()             # live connection threads, drained at stop
         self.server = None
         self.lock_handle = None
@@ -844,6 +853,9 @@ class Daemon:
         os.chmod(self.socket_path, 0o600)
         self.server.listen(64)
         self.resume_interrupted()
+        # Every row the last daemon left is settled or followed: the restart it
+        # drained for is over, and a client in the gap may submit again.
+        draining.clear_marker(self.state)
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
              'worker': self.config['worker']['host'], 'started': now(),
@@ -955,8 +967,20 @@ class Daemon:
             self.gate.sample()          # a person asked; answer about now, not about then
             conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
                                'pause': self.gate.state(),
-                               'worker': self.health.state(), 'client': self.client_name()}))
+                               'worker': self.health.state(), 'client': self.client_name(),
+                               'draining': self.draining}))
+        elif op == 'drain':
+            if first.get('cancel'):
+                self.undrain()
+                conn.sendall(dump({'v': VERSION, 't': 'drain', 'draining': False}))
+            else:
+                conn.sendall(dump(dict({'v': VERSION, 't': 'drain', 'draining': True},
+                                       **self.drain(first.get('pid')))))
         elif op == 'claims':
+            # The next daemon may derive caches differently; let it write this one.
+            if self.draining:
+                self.answer_draining(conn)
+                return
             conn.sendall(dump(dict({'v': VERSION, 't': 'claims'}, **self.claims(first))))
         elif op == 'run':
             self.serve_run(conn, reader, first)
@@ -1124,6 +1148,64 @@ class Daemon:
         except OSError:
             pass
 
+    # -- draining ----------------------------------------------------------
+
+    def drain(self, pid=None):
+        """Stop admitting runs for a restart; the rows a restart would still end.
+
+        Idempotent: asked again, it answers again, which is how `pandora daemon
+        --restart` polls. A local run still queued is withdrawn and its caller
+        told `draining`, so it submits again to the next daemon: nothing ran,
+        and a queue position is all it loses. A local run executing and a
+        remote row before `accepted` are waited for; an accepted remote run is
+        the successor's to follow and blocks nothing.
+        """
+        with self.admitting:
+            if self.draining is None:
+                self.draining = {'since': now(), 'pid': pid, 'daemon': os.getpid()}
+                try:
+                    draining.write_marker(self.state, self.draining)
+                except OSError as error:
+                    log('drain: could not write %s: %s'
+                        % (draining.marker_path(self.state), error))
+                log('drain: requested by pid %s; admitting nothing new' % (pid or '?'))
+            with self.runs_lock:
+                live = [run for run in list(self.runs.values()) + list(self.pending.values())
+                        if not run.done.is_set()]
+            withdrawn = []
+            for run in live:
+                if run.lane == 'local' and run.state == 'queued' and not run.drained:
+                    run.drained = True
+                    withdrawn.append(run.id)
+            if withdrawn:
+                log('drain: withdrew %d queued local run(s) for resubmission: %s'
+                    % (len(withdrawn), ' '.join(withdrawn)))
+            seen, blocking = set(), []
+            for run in live:
+                if run.id in seen:
+                    continue
+                seen.add(run.id)
+                if ((run.lane == 'local' and run.state == 'running')
+                        or (run.lane != 'local' and run.state == 'queued')):
+                    blocking.append({'id': run.id, 'lane': run.lane, 'state': run.state,
+                                     'phase': run.phase, 'argv': run.request.get('argv')})
+        return {'since': self.draining['since'], 'blockers': blocking,
+                'local': sum(row['lane'] == 'local' for row in blocking),
+                'pre_accept': sum(row['lane'] != 'local' for row in blocking)}
+
+    def undrain(self):
+        with self.admitting:
+            was, self.draining = self.draining, None
+            draining.clear_marker(self.state)
+        if was is not None:
+            log('drain: cancelled; admitting runs again')
+
+    def answer_draining(self, conn):
+        """Nothing ran: ask again in a moment, of this daemon or the next."""
+        conn.sendall(dump({'v': VERSION, 't': 'draining', 'retry_after': draining.RETRY_AFTER,
+                           'reason': 'restarting',
+                           'msg': 'the daemon is restarting; nothing ran. Ask again.'}))
+
     # -- stopping ----------------------------------------------------------
 
     def close_local_runs(self):
@@ -1195,6 +1277,11 @@ class Daemon:
                       'Re-run it.', exit=run.exit_code if run.exit_code is not None else INFRA)
 
     def serve_run(self, conn, reader, request):
+        if self.draining:
+            # Before the stop check: a daemon stopping for a drained restart
+            # has a successor coming, and the caller should wait for it.
+            self.answer_draining(conn)
+            return
         if self.stopping.is_set():
             self.deny(conn, 'daemon-stopping', 'the daemon is stopping; nothing ran. Re-run it.',
                       exit=INFRA)
@@ -1259,12 +1346,16 @@ class Daemon:
                                'msg': error.stderr or str(error), 'exit': error.code}))
             return
 
-        run = Run(self.state, uuid.uuid4().hex[:12],
-                  dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
-                       writeback=bool(plan.get('writeback'))))
-        run.state = 'queued'
-        self.hold(run)
-        run.save()
+        with self.admitting:
+            if self.draining:
+                self.answer_draining(conn)
+                return
+            run = Run(self.state, uuid.uuid4().hex[:12],
+                      dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
+                           writeback=bool(plan.get('writeback'))))
+            run.state = 'queued'
+            self.hold(run)
+            run.save()
         try:
             self.submit_remote(conn, reader, request, repo, job, plan, worktree, checked, run)
         finally:
@@ -1432,6 +1523,15 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code,
                                'msg': message, 'exit': INFRA}))
 
+        if self.draining:
+            # Nothing ran, and the local lane admits nothing new: the caller
+            # submits it again, to this daemon or the next.
+            if origin is not None:
+                origin.note('the daemon began a restart before this run was accepted; '
+                            'nothing ran, and the client submits it again')
+                origin.finish(INFRA, state='withdrawn')
+            self.answer_draining(conn)
+            return
         if self.stopping.is_set():
             # A worker that failed because this daemon is going down must not
             # hand the job to a local lane that is going down with it.
@@ -1499,21 +1599,29 @@ class Daemon:
         # row at all: a `queued` line in `pandora ps` for a job that was told to
         # go away would be a lie the next reader has to un-learn.
         run_id = uuid.uuid4().hex[:12]
-        try:
-            self.budget.reserve(run_id, repo=repo['name'], job=job['id'],
-                                worktree=worktree, singleton=job['singleton'],
-                                size=plan['size'])
-        except Busy as error:
-            # Not a pre-accept fallback: running it locally anyway is the exact
-            # thing the rule exists to prevent.
-            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
-                               'msg': str(error), 'exit': STALE}))
-            return
-        run = Run(self.state, run_id,
-                  dict(request, repo=repo['name'], job=job['id'], reason=reason))
-        run.lane = 'local'
-        self.hold(run)
-        run.save()
+        with self.admitting:
+            if self.draining:
+                if origin is not None:
+                    origin.note('the daemon began a restart before this run was accepted; '
+                                'nothing ran, and the client submits it again')
+                    origin.finish(INFRA, state='withdrawn')
+                self.answer_draining(conn)
+                return
+            try:
+                self.budget.reserve(run_id, repo=repo['name'], job=job['id'],
+                                    worktree=worktree, singleton=job['singleton'],
+                                    size=plan['size'])
+            except Busy as error:
+                # Not a pre-accept fallback: running it locally anyway is the exact
+                # thing the rule exists to prevent.
+                conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
+                                   'msg': str(error), 'exit': STALE}))
+                return
+            run = Run(self.state, run_id,
+                      dict(request, repo=repo['name'], job=job['id'], reason=reason))
+            run.lane = 'local'
+            self.hold(run)
+            run.save()
         if origin is not None:
             # Closed the moment its successor exists, not when that successor
             # ends: for the length of a local run there are otherwise two live
@@ -1524,7 +1632,8 @@ class Daemon:
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
-                                          canceled=run.canceled.is_set,
+                                          canceled=lambda: (run.canceled.is_set()
+                                                            or run.drained),
                                           timeout=self.local.queue_timeout,
                                           note=lambda text: self.tell(conn, text))
         except Busy as error:
@@ -1545,6 +1654,15 @@ class Daemon:
         except OSError:
             self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
             run.finish(STALE, state='refused')
+            return
+        if admission is None and run.drained and not run.canceled.is_set():
+            # A restart began while it queued: nothing started, and the next
+            # daemon queues it again when the caller asks.
+            self.budget.finish(run.id, 0, 'lost')
+            run.note('the daemon began a restart while this run was queued; nothing ran, '
+                     'and the client submits it again')
+            run.finish(INFRA, state='withdrawn')
+            self.answer_draining(conn)
             return
         if admission is None and run.canceled.is_set():
             # `pandora cancel` while it queued, or a stop: nothing started.

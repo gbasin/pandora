@@ -399,14 +399,20 @@ def read_json(path):
 
 
 def cmd_ps(args):
+    from .client import drain
     state, _ = state_of(args)
-    pause, worker, me = {}, {}, None
+    pause, worker, me, draining = {}, {}, None, None
     try:
         answer = ask(state / 'client.sock', {'op': 'ps'})
         rows = answer['data']
         pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
         me = answer.get('client')
+        draining = answer.get('draining')
     except OSError:
+        marker = drain.read_marker(state)
+        if marker is not None and marker['age'] < drain.STALE_SECONDS:
+            # The restart gap: the old daemon has gone and the new one is not up.
+            draining = dict(marker, gap=True)
         rows = []
         for meta in sorted((state / 'runs').glob('*/meta.json')):
             try:
@@ -416,9 +422,13 @@ def cmd_ps(args):
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
         worker = {'worker': 'unknown', 'reason': 'the daemon is not running'}
     if args.json:
-        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me}
+        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me,
+                          'draining': draining}
                          if pause or worker else rows, indent=1, sort_keys=True))
         return 0
+    if draining:
+        # First: every command typed now waits for the restart, and says so.
+        print(draining_line(draining))
     print(worker_line(worker, me))
     if pause.get('paused'):
         # First line, not a footnote: a queue that is not admitting is the most
@@ -434,6 +444,16 @@ def cmd_ps(args):
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
+
+
+def draining_line(draining):
+    since = draining.get('since')
+    ago = ' for %ds' % max(0, time.time() - since) if isinstance(since, (int, float)) else ''
+    if draining.get('gap'):
+        return ('daemon: draining%s; restarting, no daemon answers yet. New commands wait '
+                'for the next one' % ago)
+    return ('daemon: draining%s for a restart (asked by pid %s); new commands wait, running '
+            'ones finish' % (ago, draining.get('pid') or '?'))
 
 
 # A queued remote row's pre-accept step, as `ps` shows it: `remote shipping`.
