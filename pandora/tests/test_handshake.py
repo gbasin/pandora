@@ -28,7 +28,8 @@ class HandshakeTest(DaemonCase):
         super().setUp()
         SlowWorker.canceled = []
         self.daemon.worker_factory = SlowWorker
-        self.daemon.workers.clear()
+        with self.daemon.workers_lock:   # the health thread may be building one
+            self.daemon.workers.clear()
         self.every = daemon_module.Heartbeat.EVERY
         daemon_module.Heartbeat.EVERY = 0.1
         self.addCleanup(setattr, daemon_module.Heartbeat, 'EVERY', self.every)

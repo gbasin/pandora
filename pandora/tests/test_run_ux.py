@@ -469,7 +469,8 @@ class DaemonRetry(DaemonCase):
         RetryWorker.script, RetryWorker.output = [], {}
         RetryWorker.resubmitted, RetryWorker.resubmit_raises = [], None
         self.daemon.worker_factory = RetryWorker
-        self.daemon.workers.clear()
+        with self.daemon.workers_lock:   # the health thread may be building one
+            self.daemon.workers.clear()
 
     def run_unit(self):
         answer = self.call(['pnpm', 'unit'])
