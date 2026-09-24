@@ -225,7 +225,8 @@ def overrides_from(runs, passthrough):
             if record.get('overridden'):
                 out[record['override']]['moved'] += 1
     for row in passthrough:
-        if row.get('override') in out:
+        # PANDORA_OFF outranks PANDORA_WHERE: that row is a bypass, not an override.
+        if row.get('override') in out and row.get('reason') != 'off':
             out[row['override']]['unclaimed'] += 1
     return out
 

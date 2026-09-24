@@ -184,6 +184,10 @@ fi
 home=${PANDORA_HOME:-$home}
 
 if [ -n "$PANDORA_OFF" ]; then
+    # The kill switch must never fail: without the logger or an interpreter to
+    # run it, the command runs unlogged. Both checks are builtins.
+    [ -f "$home/pandora/client/passthrough.py" ] || exec "$real" "$@"
+    command -v "$python" >/dev/null 2>&1 || exec "$real" "$@"
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
     exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \

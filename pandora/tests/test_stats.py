@@ -140,6 +140,15 @@ class Build(unittest.TestCase):
         self.assertIn('bypassed with PANDORA_OFF: 3 claimed command(s) (check x2, journey x1)',
                       text)
 
+    def test_pandora_off_with_a_placement_is_a_bypass_not_an_override(self):
+        with (self.state.root / 'passthrough.jsonl').open('a') as handle:
+            handle.write(json.dumps({'ts': 200, 'kind': 'passthrough', 'reason': 'off',
+                                     'override': 'local', 'argv': ['check'],
+                                     'duration_ms': 1, 'exit': 0}) + '\n')
+        report = stats.build(self.state.root)
+        self.assertEqual(report['overrides']['local']['unclaimed'], 0)
+        self.assertEqual(report['bypassed']['runs'], 1)
+
     def test_a_corrupt_meta_is_skipped(self):
         (self.state.root / 'runs' / 'bad').mkdir()
         (self.state.root / 'runs' / 'bad' / 'meta.json').write_text('{not json')

@@ -27,8 +27,29 @@ import subprocess
 import sys
 import time
 
-from ..exits import USAGE
-from . import fallback, placement
+try:
+    from ..exits import USAGE
+    from . import fallback, placement
+    BROKEN = None
+except Exception as error:               # noqa: BLE001 - see `real_instead`
+    USAGE = fallback = placement = None
+    BROKEN = error
+
+# Set once the real pnpm is running: after that, a failure here must not run it twice.
+STARTED = False
+
+
+def real_instead(argv):
+    """Exec the real pnpm straight from our own argv, with no Pandora at all.
+
+    `PANDORA_OFF` hands a claimed command to this module to be logged, and a kill
+    switch that fails is worse than one that logs nothing: an import that fails,
+    or any error before the child starts, ends here instead.
+    """
+    real = argv[argv.index('--real') + 1]
+    command = argv[argv.index('--') + 1:] if '--' in argv else []
+    os.environ['PANDORA_ROUTE_DEPTH'] = '1'
+    os.execv(real, [real, *command])
 
 
 def main(argv=None):
@@ -40,6 +61,8 @@ def main(argv=None):
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
+    if BROKEN is not None:
+        real_instead(sys.argv if argv is None else ['', *argv])
     try:
         where = placement.parse(os.environ.get(placement.ENV))
     except ValueError as error:
@@ -56,6 +79,8 @@ def main(argv=None):
     except OSError as error:
         sys.stderr.write('pandora: cannot run %s: %s\n' % (args.real, error))
         return 127
+    global STARTED
+    STARTED = True
     forward = lambda number, _frame: child.send_signal(number)  # noqa: E731
     for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
         signal.signal(number, forward)
@@ -81,4 +106,10 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    try:
+        code = main()
+    except Exception:                    # noqa: BLE001 - see `real_instead`
+        if STARTED:
+            raise
+        real_instead(sys.argv)
+    raise SystemExit(code)

@@ -88,6 +88,35 @@ class ThroughTheShim(unittest.TestCase):
         self.assertEqual(self.pnpm('journey').returncode, 3)
         self.assertEqual([row['reason'] for row in self.rows()], ['off'])
 
+    def rerender(self, home):
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
+            socket_path=str(self.state / 'client.sock'), repo='demo',
+            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]), home=str(home)))
+
+    def test_pandora_off_runs_the_command_when_the_logger_is_missing(self):
+        self.rerender(self.state / 'no-such-checkout')
+        self.env['PANDORA_OFF'] = '1'
+        proc = self.pnpm('journey')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, 'real journey\n', ''))
+
+    def test_pandora_off_runs_the_command_when_there_is_no_python(self):
+        self.env.update(PANDORA_OFF='1', PANDORA_PYTHON='/nonexistent/python3')
+        proc = self.pnpm('journey')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, 'real journey\n', ''))
+
+    def test_pandora_off_runs_the_command_when_the_logger_cannot_import(self):
+        broken = self.state / 'broken'
+        (broken / 'pandora' / 'client').mkdir(parents=True)
+        for name in ('pandora/__init__.py', 'pandora/client/__init__.py'):
+            (broken / name).write_text('')
+        (broken / 'pandora' / 'client' / 'passthrough.py').write_text(
+            (HERE / 'pandora' / 'client' / 'passthrough.py').read_text())
+        self.rerender(broken)
+        self.env['PANDORA_OFF'] = '1'
+        proc = self.pnpm('journey', 'x')
+        self.assertEqual((proc.returncode, proc.stdout), (3, 'real journey x\n'), proc.stderr)
+        self.assertEqual(self.rows(), [])
+
     def test_pandora_off_on_anything_else_is_not_logged(self):
         self.env['PANDORA_OFF'] = '1'
         self.assertEqual(self.pnpm('build').returncode, 3)                 # heavy, unclaimed
