@@ -935,6 +935,10 @@ class Daemon:
 
     def prune_loop(self, every=runindex.PRUNE_EVERY):
         """At start, then hourly: remove finished runs older than `[client] keep_runs_days`."""
+        keep = runindex.keep_seconds(self.config)
+        log('prune: %s' % ('on: finished runs older than %g day(s) are removed at start and '
+                           'every %ds ([client] keep_runs_days)' % (keep / 86400.0, every)
+                           if keep > 0 else 'off: [client] keep_runs_days = 0 keeps every run'))
         while True:
             self.prune()
             if self.stopping.wait(every):

@@ -17,8 +17,11 @@ Two things that view does not cover are here:
   (default 7; 0 keeps everything) are removed at start and every hour. Never a
   live row, never a row younger than the retention by any of its dates, never
   a row whose write-back is conflicted (it waits for `pandora resolve`), and
-  never a directory whose `meta.json` cannot be read: what cannot be
-  classified is left alone. A removed directory is renamed into
+  never a directory whose `meta.json` cannot be parsed: what cannot be
+  classified is left alone. A directory with no `meta.json` at all, past the
+  retention, is a run that died before its first save, and goes. Dates are
+  read with `stat` before any file is, so the hourly pass reads only rows
+  about to go. A removed directory is renamed into
   `<state>/runs-trash` first, so no reader ever sees half a row.
 
 Nothing else writes `meta.json`: the daemon holds the state directory's lock,
@@ -200,23 +203,35 @@ def keep_seconds(config):
 
 
 def prunable(directory, keep, now, *, read=read_json):
-    """Whether one run directory is finished, older than `keep` by every date, and not held."""
+    """Whether one run directory is finished, older than `keep` by every date, and not held.
+
+    The dates come first, from `stat` alone: a row younger than the retention
+    is never read, so the hourly pass over a week of runs reads only the few
+    about to go. A directory with no `meta.json` at all -- a run that died
+    before its first save -- goes once the directory itself is past the
+    retention; one whose `meta.json` cannot be parsed stays.
+    """
     try:
-        stat = directory.stat()
+        dates = [directory.stat().st_mtime]
     except OSError:
         return False
-    meta = read(directory / 'meta.json')
-    if not isinstance(meta, dict) or meta.get('state') in LIVE:
-        return False
-    dates = [stat.st_mtime]
+    has_meta = False
     for name in ('meta.json', 'log', 'result.json'):
         try:
             dates.append((directory / name).stat().st_mtime)
+            has_meta = has_meta or name == 'meta.json'
         except OSError:
             pass
-    dates += [value for value in (meta.get('started'), meta.get('updated'))
-              if isinstance(value, (int, float))]
     if now - max(dates) < keep:
+        return False
+    if not has_meta:
+        return True
+    meta = read(directory / 'meta.json')
+    if not isinstance(meta, dict) or meta.get('state') in LIVE:
+        return False
+    stated = [value for value in (meta.get('started'), meta.get('updated'))
+              if isinstance(value, (int, float))]
+    if stated and now - max(stated) < keep:
         return False
     result = read(directory / 'result.json')
     writeback = (result or {}).get('writeback') if isinstance(result, dict) else None

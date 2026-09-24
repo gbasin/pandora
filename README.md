@@ -170,7 +170,7 @@ The optional keys and their defaults:
 | `[client]` | `name` | `user@host` | Who this Mac is to a shared worker: your login name and the short host name. 1 to 64 letters, digits and `. _ @ + -`. See [Sharing a worker](#sharing-a-worker). |
 | | `fallback_slots` | `2` | Local runs allowed at once when the daemon itself is gone. |
 | | `fallback_wait_seconds` | `0` | How long such a run waits for a slot. 0 refuses at once. |
-| | `keep_runs_days` | `7` | The daemon removes a finished run's directory once all its dates are older than this, at start and every hour. It never removes a live run or a conflicted write-back that waits for `pandora resolve`. 0 keeps every run. `pandora stats` sees only what is kept. |
+| | `keep_runs_days` | `7` | The daemon removes a finished run's directory once all its dates are older than this, at start and every hour, and logs the setting at start. It never removes a live run, a conflicted write-back that waits for `pandora resolve`, or a run whose `meta.json` it cannot parse. A run directory with no `meta.json` goes once the directory is older than this. 0 keeps every run. `pandora stats` sees only what is kept. |
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |
 | | `max_running` | `4` | Local-lane jobs at once. |

@@ -11,6 +11,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pandora.client import runindex, settings, stats
 from pandora.client.daemon import Run
@@ -113,21 +114,26 @@ class Pruning(unittest.TestCase):
             {'writeback': {'state': 'conflicted', 'conflicts': [{'path': 'x'}]}}))
         (self.runs / 'unreadable').mkdir()
         (self.runs / 'unreadable' / 'meta.json').write_text('{not json')
+        # A run that died before its first save: a directory, a log, no meta.json.
+        (self.runs / 'nometa').mkdir()
+        (self.runs / 'nometa' / 'log').write_text('')
 
     def test_only_old_finished_rows_nobody_holds_are_removed(self):
         index = runindex.RunIndex(self.runs)
         index.newest()
         removed = runindex.prune(self.state, 7 * DAY, live={'driven'}, now=self.now,
                                  index=index)
-        self.assertEqual(removed, ['old'])
+        self.assertEqual(removed, ['nometa', 'old'])
         left = sorted(path.name for path in self.runs.iterdir())
         self.assertEqual(left, ['conflicted', 'driven', 'old-live', 'recent', 'unreadable'])
         self.assertNotIn('old', index.dates)
         self.assertEqual(list((self.state / runindex.TRASH).iterdir()), [])
 
-    def test_nothing_is_young_enough_to_go(self):
-        self.assertEqual(runindex.prune(self.state, 7 * DAY, now=time.time()), [])
-        self.assertEqual(len(list(self.runs.iterdir())), 6)
+    def test_nothing_is_old_enough_to_go_and_nothing_young_is_read(self):
+        counting = Counting()
+        self.assertEqual(runindex.prune(self.state, 7 * DAY, now=time.time(), read=counting), [])
+        self.assertEqual(len(list(self.runs.iterdir())), 7)
+        self.assertEqual(counting.paths, [], 'a row younger than the retention was read')
 
     def test_zero_keeps_everything(self):
         self.assertEqual(runindex.prune(self.state, 0, now=self.now), [])
@@ -160,6 +166,17 @@ class TheDaemonPrunes(DaemonCase):
         self.assertNotIn('old', [row['id'] for row in self.daemon.ps(200)])
         self.assertTrue((self.state / 'runs' / 'mine').is_dir())
         self.assertTrue(any(thread.name == 'prune' for thread in threading.enumerate()))
+
+    def test_one_line_at_start_says_pruning_is_on_and_the_retention(self):
+        from pandora.client import daemon as daemon_module
+        said, stopping = [], self.daemon.stopping
+        self.daemon.stopping = threading.Event()
+        self.daemon.stopping.set()
+        self.addCleanup(setattr, self.daemon, 'stopping', stopping)
+        with mock.patch.object(daemon_module, 'log', said.append):
+            self.daemon.prune_loop()
+        self.assertTrue(said[0].startswith('prune: on: finished runs older than 7 day(s)'),
+                        said)
 
 
 class Stats(unittest.TestCase):
