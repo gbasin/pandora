@@ -31,8 +31,15 @@ from .protocol import Reader, VERSION, dump
 MARKER = 'draining'
 # What the daemon tells a client to wait between asks, in seconds.
 RETRY_AFTER = 2.0
+# How long a client waits for a restart before it runs the command unmanaged.
+WAIT_ENV = 'PANDORA_DRAIN_WAIT'
+DEFAULT_CLIENT_WAIT = 180.0
 # A marker older than this is a restart that never finished; nobody waits on it.
 STALE_SECONDS = 15 * 60
+# Between asks while no socket exists: the gap is one or two seconds, so a
+# two-second poll would double what a command pays for it.
+ABSENT_POLL = 0.5
+NOTICE = 'daemon is restarting; waiting'
 
 
 def notice(text):
@@ -80,6 +87,69 @@ def read_marker(state, clock=time.time):
         record = {}
     record['age'] = max(0.0, age)
     return record
+
+
+def client_wait(environ=None):
+    """PANDORA_DRAIN_WAIT in seconds, or the default; never negative."""
+    raw = (os.environ if environ is None else environ).get(WAIT_ENV, '').strip()
+    try:
+        return max(0.0, float(raw)) if raw else DEFAULT_CLIENT_WAIT
+    except ValueError:
+        return DEFAULT_CLIENT_WAIT
+
+
+class Waiter:
+    """One command's wait for a restart: one notice, one budget, shared by every ask.
+
+    `draining` is for a daemon that answered `draining`: it is alive and said
+    so, and the marker does not matter. `absent` is for no socket: only a
+    marker younger than the budget (and never a stale one) says a daemon is on
+    its way. Each returns True after sleeping, when the caller should ask
+    again, and False when the budget is spent or there is nothing to wait for.
+    """
+
+    def __init__(self, state, *, budget=None, clock=time.monotonic, wall=time.time,
+                 sleep=time.sleep, say=notice):
+        self.state = state
+        self.budget = client_wait() if budget is None else budget
+        self.clock, self.wall, self.sleep, self.say = clock, wall, sleep, say
+        self.began = None
+        self.exhausted = False
+
+    def spent(self):
+        return 0.0 if self.began is None else self.clock() - self.began
+
+    def waited(self):
+        """Whether this command has waited on a restart at all."""
+        return self.began is not None
+
+    def pause(self, seconds):
+        if self.began is None:
+            self.began = self.clock()
+            self.say(NOTICE)
+        remaining = self.budget - self.spent()
+        if remaining <= 0:
+            self.exhausted = True
+            return False
+        self.sleep(max(0.0, min(seconds, remaining)))
+        return True
+
+    def draining(self, retry_after=None):
+        try:
+            every = float(retry_after) if retry_after is not None else RETRY_AFTER
+        except (TypeError, ValueError):
+            every = RETRY_AFTER
+        return self.pause(every if every > 0 else RETRY_AFTER)
+
+    def absent(self):
+        marker = read_marker(self.state, clock=self.wall)
+        if marker is None or marker['age'] >= min(self.budget, STALE_SECONDS):
+            return False
+        return self.pause(ABSENT_POLL)
+
+    def gave_up(self):
+        """The one line said when the budget ran out, before the no-daemon path."""
+        return 'the daemon did not come back within %gs (%s)' % (self.budget, WAIT_ENV)
 
 
 # -- asking the daemon -----------------------------------------------------------

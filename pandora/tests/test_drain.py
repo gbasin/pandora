@@ -5,18 +5,23 @@ traffic ends no run: a new request is told `draining` and asked to come back, a
 local run executing here finishes, and a remote row before `accepted` reaches
 it. The successor removes the marker once it has settled every row.
 """
+import contextlib
+import io
 import json
 import os
 import socket
 import threading
 import time
+import unittest
+from unittest import mock
 
 from pandora import cli
 from pandora.client import daemon as daemon_module
-from pandora.client import drain
+from pandora.client import drain, shim
 from pandora.client.protocol import Reader, VERSION, dump
 from pandora.exits import INFRA
 from pandora.tests.test_cli import capture
+from pandora.tests import test_fallback
 from pandora.tests.test_fallback import DaemonCase, FakeWorker, Submission
 
 JOBS = '''
@@ -234,3 +239,151 @@ class ARemoteRowBeforeAccepted(DrainCase):
         self.assertEqual(answer['value'].exit, 0)
         self.assertEqual(answer['value'].accepted['remote'], 'r-gated')
         self.assertEqual(self.ask({'op': 'drain'})['blockers'], [])
+
+
+class FlippingDaemon:
+    """A socket that answers `draining` a number of times, then like a daemon that runs it."""
+
+    def __init__(self, path, drains=0, retry_after=0.05):
+        self.path, self.drains, self.retry_after = str(path), drains, retry_after
+        self.asked = []
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(self.path)
+        self.server.listen(8)
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        while True:
+            try:
+                conn, _ = self.server.accept()
+            except OSError:
+                return
+            with conn:
+                request = Reader(conn).line() or {}
+                self.asked.append(request.get('op'))
+                if self.drains > 0:
+                    self.drains -= 1
+                    conn.sendall(dump({'v': VERSION, 't': 'draining',
+                                       'retry_after': self.retry_after,
+                                       'reason': 'restarting'}))
+                elif request.get('op') == 'claims':
+                    conn.sendall(dump({'v': VERSION, 't': 'claims', 'claimed': True,
+                                       'heavy': False}))
+                else:
+                    conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': 'd1',
+                                       'remote': 'w1'}))
+                    conn.sendall(dump({'t': 'exit', 'code': 0, 'run': 'd1'}))
+
+    def close(self):
+        self.server.close()
+
+
+class AClientDuringARestart(unittest.TestCase):
+    """The shim waits for a restart, and only for a restart, and only so long."""
+
+    POLICY = [{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto', 'writeback': False}]
+    enroll = test_fallback.WithoutADaemon.enroll
+
+    def setUp(self):
+        test_fallback.WithoutADaemon.setUp(self)
+        self.enroll(self.POLICY)
+        environ = mock.patch.dict(os.environ, {drain.WAIT_ENV: '5'})
+        environ.start()
+        self.addCleanup(environ.stop)
+
+    def daemon(self, **kwargs):
+        fake = FlippingDaemon(self.state / 'client.sock', **kwargs)
+        self.addCleanup(fake.close)
+        return fake
+
+    def shim(self, command, *extra):
+        real = self.root / 'fake-pnpm'
+        real.write_text('#!/bin/sh\necho ran > %s\n' % self.ran)
+        real.chmod(0o755)
+        code, _, err = capture(shim.main, ['--sock', str(self.state / 'client.sock'),
+                                           '--real', str(real), '--state', str(self.state),
+                                           *extra, '--', *command])
+        return code, err
+
+    def marker(self, age=0.0):
+        drain.write_marker(self.state, {'since': time.time() - age, 'pid': 1})
+        stamp = time.time() - age
+        os.utime(drain.marker_path(self.state), (stamp, stamp))
+
+    def test_a_draining_answer_is_waited_out_and_the_run_submitted_once_it_flips(self):
+        fake = self.daemon(drains=2)
+        code, err = self.shim(['unit'])
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.asked, ['run', 'run', 'run'])
+        self.assertEqual(err.count(drain.NOTICE), 1, err)
+        self.assertFalse(self.ran.exists(), 'it ran here as well')
+
+    def test_the_budget_runs_out_and_the_command_runs_as_if_pandora_were_absent(self):
+        os.environ[drain.WAIT_ENV] = '0.3'
+        self.daemon(drains=10_000)
+        code, err = self.shim(['unit'])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.ran.exists())
+        self.assertIn('did not come back within 0.3s', err)
+        self.assertIn('as if Pandora were not installed', err)
+        self.assertIn('daemon-draining', (self.state / 'passthrough.jsonl').read_text())
+
+    def test_the_restart_gap_is_waited_out_while_a_fresh_marker_says_one_is_coming(self):
+        self.marker()
+        fakes = []
+        timer = threading.Timer(0.6, lambda: fakes.append(self.daemon()))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        code, err = self.shim(['unit'])
+        self.assertEqual(code, 0)
+        self.assertEqual(fakes[0].asked, ['run'])
+        self.assertIn(drain.NOTICE, err)
+        self.assertFalse(self.ran.exists())
+
+    def test_a_stale_marker_is_ignored(self):
+        self.marker(age=drain.STALE_SECONDS + 60)
+        os.environ[drain.WAIT_ENV] = str(drain.STALE_SECONDS * 2)
+        started = time.monotonic()
+        code, err = self.shim(['unit'])
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(code, 0)
+        self.assertTrue(self.ran.exists())
+        self.assertNotIn(drain.NOTICE, err)
+
+    def test_a_marker_older_than_the_wait_is_ignored(self):
+        self.marker(age=30)
+        code, err = self.shim(['unit'])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.ran.exists())
+        self.assertNotIn(drain.NOTICE, err)
+
+    def test_no_marker_means_no_wait(self):
+        code, err = self.shim(['unit'])
+        self.assertEqual(code, 0)
+        self.assertNotIn(drain.NOTICE, err)
+
+    def test_a_restart_that_never_ends_costs_the_wait_then_runs_here(self):
+        os.environ[drain.WAIT_ENV] = '0.6'
+        self.marker()
+        code, err = self.shim(['unit'])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.ran.exists())
+        self.assertIn('did not come back', err)
+        self.assertIn('daemon-unreachable', (self.state / 'passthrough.jsonl').read_text())
+
+    def test_the_slow_path_waits_too_on_the_same_budget(self):
+        fake = self.daemon(drains=1)
+        code, err = self.shim(['unit'], '--refresh')
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.asked, ['claims', 'claims', 'run'])
+        self.assertEqual(err.count(drain.NOTICE), 1, err)
+
+    def test_an_attached_client_does_not_wait(self):
+        from pandora import cli
+        self.marker()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            started = time.monotonic()
+            self.assertEqual(cli.attach(self.state / 'client.sock', 'x1'), INFRA)
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertNotIn(drain.NOTICE, err.getvalue())
