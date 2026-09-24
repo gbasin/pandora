@@ -8,16 +8,32 @@
 #
 #   1. find the real pnpm   walk PATH, skip our own directory
 #   2. recursion guard      PANDORA_ROUTE_DEPTH (and PANDORA_OFF when nested)
-#   3. find the repo        walk up for .git; a worktree's .git is a FILE
-#   4. enrollment           one stat() for <git-common-dir>/pandora-enrolled;
-#                           PANDORA_OFF outside an enrolled repo execs here
-#   5. claim                read the marker with the `read` builtin, no fork;
+#   3. find the repo        walk up for .git; a worktree's .git is a FILE, and
+#                           its target is this worktree's own git dir
+#   4. claim source         <git dir>/pandora-claims, the cache the daemon
+#                           derives from this worktree's pandora.toml; else
+#                           <common>/pandora-repo (enrolled, no cache yet);
+#                           else the v0.2 <common>/pandora-enrolled marker;
+#                           else not enrolled, and PANDORA_OFF execs here too
+#   5. claim                read the file with the `read` builtin, no fork;
 #                           any claim length, any declared strip prefix; below
 #                           the worktree root, none under `subdirectory passthrough`
-#   6. PANDORA_OFF          unclaimed: exec; claimed: logged by passthrough, then run
-#   7. hand off             pandora.client.shim (claimed), passthrough (heavy, or
-#                           unclaimed with PANDORA_WHERE set, so the ignored
-#                           override is counted), or exec
+#   6. freshness            the cache is stale when the config it names, or the
+#                           worktree's pandora.toml, or the client config is
+#                           newer (`-nt`, a builtin); registration is always stale
+#   7. PANDORA_OFF          unclaimed: exec; claimed: logged by passthrough, then run
+#   8. hand off             stale: pandora.client.shim --refresh asks the daemon,
+#                           which rewrites the cache and says whether it is
+#                           claimed; claimed: pandora.client.shim; heavy, or
+#                           unclaimed with PANDORA_WHERE set: passthrough; else exec
+#
+# What each path costs:
+#   not enrolled (no cache, registration or marker)   sh + three stats + exec
+#   fresh cache, unclaimed and light                  sh + stats + one read + exec
+#   fresh cache, claimed                              + one Python start (the client)
+#   missing or stale cache                            + one Python start and one
+#                                                     daemon round trip, once: the
+#                                                     daemon rewrites the cache
 #
 # Anything that goes wrong before the daemon says `accepted` ends in a local
 # exec with one line on stderr.  After `accepted`, the client never falls back.
@@ -68,16 +84,19 @@ fi
 # than the entire per-invocation budget.  This walk costs nothing measurable and
 # agreed with git on all 57 eichler worktrees.
 common=
+gitdir=
 dir=$PWD
 while :; do
-    if [ -d "$dir/.git" ]; then common=$dir/.git; break; fi
+    if [ -d "$dir/.git" ]; then common=$dir/.git; gitdir=$common; break; fi
     if [ -f "$dir/.git" ]; then
-        # A linked worktree: ".git" holds "gitdir: <path>/.git/worktrees/<name>".
+        # A linked worktree: ".git" holds "gitdir: <path>/.git/worktrees/<name>",
+        # which is this worktree's own git dir; the common dir is above it.
         IFS= read -r pointer < "$dir/.git" || pointer=
         case $pointer in
             "gitdir: "*)
                 target=${pointer#gitdir: }
                 case $target in /*) ;; *) target=$dir/$target ;; esac
+                gitdir=$target
                 case $target in */worktrees/*) target=${target%/worktrees/*} ;; esac
                 common=$target
                 ;;
@@ -92,10 +111,24 @@ done
 # The walk stopped at the worktree root, spelled the way $PWD spells it.
 root=$dir
 
-# --- 4. enrollment: one stat, and it covers every worktree of the repo --------
-# PANDORA_OFF outside an enrolled repository takes this same exec: nothing here
+# --- 4. claim source: stats only --------------------------------------------
+# The worktree's own cache first: it is derived from the pandora.toml this
+# worktree routes by, so two branches with different files each claim their
+# own forms. Registration covers a worktree that has no cache yet. The v0.2
+# marker is read for one release, for a repository not enrolled again since.
+# PANDORA_OFF outside an enrolled repository takes the exec below: nothing here
 # is Pandora's, so there is nothing to bypass and nothing to log.
-if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
+source=
+fresh=1
+if [ -n "$gitdir" ] && [ -f "$gitdir/pandora-claims" ]; then
+    source=$gitdir/pandora-claims
+elif [ -n "$common" ] && [ -f "$common/pandora-repo" ]; then
+    source=$common/pandora-repo
+    fresh=0
+elif [ -n "$common" ] && [ -f "$common/pandora-enrolled" ]; then
+    source=$common/pandora-enrolled
+fi
+if [ -z "$source" ]; then
     PANDORA_ROUTE_DEPTH=1; export PANDORA_ROUTE_DEPTH
     exec "$real" "$@"
 fi
@@ -108,12 +141,14 @@ fi
 # Token equality implies that, so the shim never misses a claim the daemon
 # would make; a token holding a space can make it claim one the daemon does not,
 # and the daemon then answers `passthrough`, which costs a Python start and no
-# more.  `pandora enroll` writes every strip line before any claim line, so one
-# pass strips first and matches after.  Both the argv as typed and the stripped
-# one are tried, because a claim may itself begin with a strip word.
+# more.  Every strip line is written before any claim line, so one pass strips
+# first and matches after.  Both the argv as typed and the stripped one are
+# tried, because a claim may itself begin with a strip word.
 sock=
 home=
 scope=
+config=
+client=
 claimed=0
 heavy=0
 IFS=' '
@@ -125,6 +160,8 @@ while IFS=' ' read -r key rest; do
         sock) sock=$rest ;;
         home) home=$rest ;;
         subdirectory) scope=$rest ;;
+        config) config=$rest ;;
+        client) client=$rest ;;
         strip)
             case $keyed in
                 "$rest") keyed= ;;
@@ -140,33 +177,54 @@ while IFS=' ' read -r key rest; do
             case $keyed in "$rest"|"$rest "*) heavy=1 ;; esac
             ;;
     esac
-done < "$common/pandora-enrolled"
+done < "$source"
 # `subdirectory passthrough`: a claim holds only at the worktree root, because
 # `pnpm test` in a package is that package's test. Below it the command is
 # unclaimed, and the rules below treat it exactly as one. A string compare.
 if [ "$scope" = passthrough ] && [ "$PWD" != "$root" ]; then claimed=0; fi
 
-# --- 6. PANDORA_OFF ----------------------------------------------------------
+# --- 6. freshness: `-nt` is a builtin, so still no fork ------------------------
+# A cache is as old as the newest file it was derived from (the daemon dates it
+# so). Any of them newer means the cache predates an edit: the worktree's own
+# pandora.toml; the `[[repos]] config` fallback, which the cache names as
+# `config` only when it was derived from one, and which a pandora.toml at the
+# root then overrides; and the client config that chose it. POSIX.1-2024 has `-nt`; dash and bash
+# both have had it for decades, and bash 3.2 compares whole seconds, which the
+# daemon's dating allows for.
+if [ "$source" = "$gitdir/pandora-claims" ]; then
+    own=$root/pandora.toml
+    if [ "$own" -nt "$source" ]; then
+        fresh=0
+    elif [ -n "$config" ] && { [ -f "$own" ] || [ "$config" -nt "$source" ]; }; then
+        fresh=0
+    elif [ -n "$client" ] && [ "$client" -nt "$source" ]; then
+        fresh=0
+    fi
+fi
+
+# --- 7. PANDORA_OFF ----------------------------------------------------------
 # On an unclaimed command it changes nothing, so it execs here as before. On a
 # claimed one it skips the queue and the memory gate, which is how the Mac was
 # pushed into swap on 2026-09-24 with nothing on record, so it is handed to the
 # passthrough logger below (one Python start on a path that is already a
-# bypass), which writes a `reason off` row and runs the real pnpm.
+# bypass), which writes a `reason off` row and runs the real pnpm. A stale
+# cache is taken at its word here: the kill switch never waits on the daemon.
 if [ -n "$PANDORA_OFF" ] && { [ "$claimed" != 1 ] || [ -z "$sock" ]; }; then
     PANDORA_ROUTE_DEPTH=1
     export PANDORA_ROUTE_DEPTH
     exec "$real" "$@"
 fi
 
-# --- 7. hand off -------------------------------------------------------------
+# --- 8. hand off -------------------------------------------------------------
 PANDORA_REAL_PNPM=$real
 PANDORA_ROUTE_DEPTH=1
 export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
 python=${PANDORA_PYTHON:-python3}
 # The package lives beside the *file* this shim is, which is not beside the
-# symlink on PATH that reached it. `pandora enroll` writes the answer into the
-# marker as `home`, so this walk -- one `readlink` fork per hop -- runs only for
-# a marker that has none, and never on the non-enrolled path above.
+# symlink on PATH that reached it. The daemon and `pandora enroll` write the
+# answer into every file above as `home`, so this walk -- one `readlink` fork
+# per hop -- runs only for a v0.2 marker that has none, and never on the
+# non-enrolled path above.
 if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
     target=$self
     case $target in */*) ;; *) target=./$target ;; esac
@@ -192,6 +250,15 @@ if [ -n "$PANDORA_OFF" ]; then
     export PYTHONPATH
     exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" --reason off -- "$@"
+fi
+
+# Missing or stale: the daemon decides, rewrites the cache as it does, and the
+# next invocation here is fork-free again. One Python start, once per change.
+if [ "$fresh" = 0 ] && [ -n "$sock" ]; then
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" --refresh \
+        --repo "$common" -- "$@"
 fi
 
 if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
