@@ -614,13 +614,35 @@ class Daemon:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def acquire_lock(self):
+    # How long a starting daemon waits for its predecessor to let go of the lock.
+    LOCK_WAIT = 120.0
+
+    def acquire_lock(self, wait=None, poll=0.2):
+        """Take `daemon.lock`, waiting up to `LOCK_WAIT` for a predecessor still stopping.
+
+        `launchctl kickstart -k` starts the new daemon without waiting for the
+        old one to exit. Refusing at once made launchd relaunch it every
+        `ThrottleInterval`, and a restart took minutes (2026-09-24).
+        """
         handle = (self.state / 'daemon.lock').open('a+')
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            handle.close()
-            raise SystemExit('pandora daemon already running for ' + str(self.state))
+        deadline = time.monotonic() + (self.LOCK_WAIT if wait is None else wait)
+        said = False
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                pass
+            if time.monotonic() >= deadline or self.stopping.is_set():
+                handle.close()
+                raise SystemExit('pandora daemon already running for ' + str(self.state))
+            if not said:
+                handle.seek(0)
+                holder = (handle.read().split() or ['?'])[0]
+                log('waiting for pid %s to stop: it holds %s' % (holder,
+                                                                 self.state / 'daemon.lock'))
+                said = True
+            time.sleep(poll)
         handle.seek(0)
         handle.truncate()
         handle.write(str(os.getpid()) + '\n')

@@ -6,11 +6,14 @@ daemon launchd started while its predecessor was still stopping (`kickstart
 -k` does not wait) exited "already running", so launchd relaunched it every
 ten seconds and the restart took minutes.
 """
-import io
 import contextlib
+import fcntl
+import io
+import os
 import signal
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -66,6 +69,54 @@ class Startup(unittest.TestCase):
         served.start()
         served.join(timeout=5)
         self.assertFalse(served.is_alive(), 'a daemon told to stop while starting served')
+
+
+class TheLock(unittest.TestCase):
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.state = Path(home.name) / 'state'
+        config = Path(home.name) / 'config.toml'
+        config.write_text('[client]\nstate = "%s"\n[notify]\nenabled = false\n'
+                          '[local.pause]\nenabled = false\n' % self.state)
+        self.daemon = daemon_module.Daemon(config_path=str(config))
+        self.addCleanup(lambda: self.daemon.lock_handle and self.daemon.lock_handle.close())
+
+    def hold(self, pid):
+        """The predecessor: it holds the lock and has written its pid."""
+        handle = (self.state / 'daemon.lock').open('a+')
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate()
+        handle.write('%d\n' % pid)
+        handle.flush()
+        self.addCleanup(handle.close)
+        return handle
+
+    def test_it_waits_for_a_predecessor_that_is_still_stopping(self):
+        predecessor = self.hold(4321)
+        threading.Timer(0.6, predecessor.close).start()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            started = time.monotonic()
+            self.daemon.acquire_lock(wait=10, poll=0.05)
+        self.assertGreater(time.monotonic() - started, 0.5)
+        self.assertEqual(err.getvalue().count('waiting for pid 4321 to stop'), 1, err.getvalue())
+        self.assertEqual((self.state / 'daemon.lock').read_text().split(), [str(os.getpid())])
+
+    def test_it_gives_up_when_the_holder_never_lets_go(self):
+        self.hold(4321)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stop:
+            self.daemon.acquire_lock(wait=0.3, poll=0.05)
+        self.assertIn('already running', str(stop.exception))
+
+    def test_a_stop_while_it_waits_ends_the_wait(self):
+        self.hold(4321)
+        threading.Timer(0.2, self.daemon.stopping.set).start()
+        started = time.monotonic()
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.daemon.acquire_lock(wait=30, poll=0.05)
+        self.assertLess(time.monotonic() - started, 5)
 
 
 if __name__ == '__main__':
