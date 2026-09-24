@@ -120,9 +120,19 @@ def execute_seconds(meta, result):
 
 
 def build(state, *, since=None, worker=None, pause=None, local=None, window=None,
-          client=None):
-    """The whole report, as one dictionary. `--json` prints exactly this."""
-    runs = read_runs(state, since)
+          client=None, runs=None, retention=None):
+    """The whole report, as one dictionary. `--json` prints exactly this.
+
+    `runs`, from the daemon's index (`RunIndex.history`), is the window's
+    (meta, result) pairs without reading every row; without it, the rows are
+    read from disk. `retention` is {'keep_days', 'oldest'}: runs older than
+    `[client] keep_runs_days` are removed, so no window sees past them.
+    """
+    if runs is None:
+        runs = read_runs(state, since)
+    else:
+        # The remote half of a fallback is counted by its local run (`read_runs`).
+        runs = [(meta, result) for meta, result in runs if meta.get('state') != 'fell_back']
     passthrough = read_passthrough(state, since)
     by_job, waits, executes = {}, {'local': [], 'remote': []}, {}
     fallbacks, drift = {}, {'warned': 0, 'failed': 0}
@@ -191,7 +201,22 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         'worker': worker or {},
         # Who this daemon is to a shared worker; every row above is its own.
         'client': client,
+        'retention': visible(since, retention),
     }
+
+
+def visible(since, retention, now=None):
+    """What history the report can see: {'keep_days', 'oldest', 'clipped'}, or None.
+
+    `clipped` is True when runs are being removed and the window opens before
+    the retention does: the report may cover less than was asked.
+    """
+    if not retention:
+        return None
+    keep, oldest = retention.get('keep_days'), retention.get('oldest')
+    now = time.time() if now is None else now
+    clipped = bool(keep) and (since is None or since < now - keep * 86400.0)
+    return {'keep_days': keep, 'oldest': oldest, 'clipped': clipped}
 
 
 def bypassed(rows):
@@ -266,6 +291,19 @@ def render(report):
     lines = ['window: %s, %d routed run(s)%s'
              % (report.get('window') or 'all', report['runs'],
                 ' from %s' % report['client'] if report.get('client') else '')]
+    kept = report.get('retention') or {}
+    if kept.get('keep_days'):
+        oldest = kept.get('oldest')
+        lines.append('history: runs finished more than %g day(s) ago are removed '
+                     '([client] keep_runs_days); %s%s'
+                     % (kept['keep_days'],
+                        'the oldest run kept started %s' % time.strftime(
+                            '%Y-%m-%d %H:%M UTC', time.gmtime(oldest)) if oldest else
+                        'no run is kept',
+                        '; this window reaches further back than that, so it counts only '
+                        'what is kept' if kept.get('clipped') else ''))
+    elif kept:
+        lines.append('history: every run is kept ([client] keep_runs_days = 0)')
     if report['by_job']:
         lines.append('')
         lines.append('%-22s %-6s %-14s %6s' % ('job', 'lane', 'outcome', 'runs'))

@@ -170,6 +170,7 @@ The optional keys and their defaults:
 | `[client]` | `name` | `user@host` | Who this Mac is to a shared worker: your login name and the short host name. 1 to 64 letters, digits and `. _ @ + -`. See [Sharing a worker](#sharing-a-worker). |
 | | `fallback_slots` | `2` | Local runs allowed at once when the daemon itself is gone. |
 | | `fallback_wait_seconds` | `0` | How long such a run waits for a slot. 0 refuses at once. |
+| | `keep_runs_days` | `7` | The daemon removes a finished run's directory once all its dates are older than this, at start and every hour. It never removes a live run or a conflicted write-back that waits for `pandora resolve`. 0 keeps every run. `pandora stats` sees only what is kept. |
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |
 | | `max_running` | `4` | Local-lane jobs at once. |
@@ -921,7 +922,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
 | `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
-| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. |
+| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return. For orchestrators. `--local` and `--remote` place the run. |
 

@@ -803,7 +803,7 @@ def cmd_stats(args):
     from the same files it would have read, minus the worker's half -- which is
     exactly when a person most wants to see what has been happening here.
     """
-    state, _ = state_of(args)
+    state, _config = state_of(args)
     from .client import stats as statistics
     try:
         since = statistics.parse_since(args.since)
@@ -820,7 +820,11 @@ def cmd_stats(args):
     except OSError as error:
         notice('no report from the daemon (%s); reporting from %s without the worker'
                % (error, state))
-        data = statistics.build(state, since=since, window=args.since or 'all')
+        from .client import runindex
+        data = statistics.build(
+            state, since=since, window=args.since or 'all',
+            retention={'keep_days': runindex.keep_seconds(_config) / 86400.0,
+                       'oldest': runindex.RunIndex(state / 'runs').oldest()})
     if args.json:
         print(json.dumps(data, indent=1, sort_keys=True))
         return 0

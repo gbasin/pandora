@@ -38,7 +38,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
 from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
-from . import attribution
+from . import attribution, runindex
 from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
@@ -480,6 +480,9 @@ class Daemon:
         self.socket_path = self.state / 'client.sock'
         self.runs = {}
         self.status = RunStatus()
+        # Run ids by date, and every finished row once read: `stats` reads only
+        # its window, and pruning keeps history bounded (`runindex`).
+        self.index = runindex.RunIndex(self.state / 'runs')
         self.runs_lock = threading.Lock()
         self.stopping = stopping if stopping is not None else threading.Event()
         # {'since', 'pid', 'daemon'} while a restart drains this daemon, else
@@ -700,6 +703,9 @@ class Daemon:
             except (OSError, ValueError):
                 continue
             self.status.update(dict(payload, id=meta.parent.name))
+            if isinstance(payload, dict) and payload.get('id') == meta.parent.name:
+                # Read anyway: `stats` then reads nothing it has seen here.
+                self.index.learn(payload)
             if payload.get('state') not in ('queued', 'running'):
                 continue
             run = self.resume_row(payload)
@@ -742,7 +748,7 @@ class Daemon:
         explicit `pandora cancel` of the row: a local one ends `cancelled`, a
         remote one is followed with its cancel already asked for.
         """
-        run = Run(self.state, payload['id'], payload, on_save=self.status.update)
+        run = Run(self.state, payload['id'], payload, on_save=self.saved)
         run.lane = payload.get('lane') or 'remote'
         run.remote = payload.get('remote')
         run.accepted = payload.get('accepted')
@@ -900,7 +906,33 @@ class Daemon:
              'code_modules': self.code_modules}) + '\n')
         if self.config['worker']['host']:
             self.health.start()
+        threading.Thread(target=self.prune_loop, name='prune', daemon=True).start()
         return self
+
+    def prune_loop(self, every=runindex.PRUNE_EVERY):
+        """At start, then hourly: remove finished runs older than `[client] keep_runs_days`."""
+        while True:
+            self.prune()
+            if self.stopping.wait(every):
+                return
+
+    def prune(self, now=None):
+        keep = runindex.keep_seconds(self.config)
+        with self.runs_lock:
+            live = {run_id for run_id, run in list(self.runs.items()) + list(self.pending.items())
+                    if not run.done.is_set()}
+        try:
+            removed = runindex.prune(self.state, keep, live=live, now=now, index=self.index)
+        except OSError as error:
+            log('prune: %s' % error)
+            return []
+        for run_id in removed:
+            self.status.forget(run_id)
+        if removed:
+            log('prune: removed %d finished run(s) older than %g day(s): %s'
+                % (len(removed), keep / 86400.0, ' '.join(removed[:20])
+                   + (' ...' if len(removed) > 20 else '')))
+        return removed
 
     def serve(self):
         self.server.settimeout(0.25)
@@ -1419,7 +1451,7 @@ class Daemon:
                 return
             run = Run(self.state, uuid.uuid4().hex[:12],
                       dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
-                           writeback=bool(plan.get('writeback'))), on_save=self.status.update)
+                           writeback=bool(plan.get('writeback'))), on_save=self.saved)
             run.state = 'queued'
             self.hold(run)
             run.save()
@@ -1686,7 +1718,7 @@ class Daemon:
                 return
             run = Run(self.state, run_id,
                       dict(request, repo=repo['name'], job=job['id'], reason=reason),
-                      on_save=self.status.update)
+                      on_save=self.saved)
             run.lane = 'local'
             self.hold(run)
             run.save()
@@ -2107,7 +2139,7 @@ class Daemon:
                 return driven
             if self.orphaned(dict(payload, id=run_id)):
                 return self.resume_row(dict(payload, id=run_id), cancel=cancel)
-        run = Run(self.state, run_id, payload, on_save=self.status.update)
+        run = Run(self.state, run_id, payload, on_save=self.saved)
         run.state = payload.get('state', 'done')
         run.exit_code = payload.get('exit_code')
         run.remote = payload.get('remote')
@@ -2167,6 +2199,11 @@ class Daemon:
 
     # -- reporting ---------------------------------------------------------
 
+    def saved(self, payload):
+        """Every save of a row: the published status (`ps`) and the index (`stats`)."""
+        self.status.update(payload)
+        self.index.learn(payload)
+
     def ps(self, limit=20):
         return self.status.rows(limit)
 
@@ -2182,10 +2219,14 @@ class Daemon:
         worker = self.health.state()
         if self.config['worker']['host'] and worker.get('worker') == 'unknown':
             worker = self.health.poll()
-        return statistics.build(self.state, since=statistics.parse_since(window),
+        since = statistics.parse_since(window)
+        return statistics.build(self.state, since=since,
                                 worker=worker, pause=self.gate.state(),
                                 local=self.budget.snapshot(sample=True),
-                                window=window or 'all', client=self.client_name())
+                                window=window or 'all', client=self.client_name(),
+                                runs=self.index.history(since),
+                                retention={'keep_days': runindex.keep_seconds(self.config)
+                                           / 86400.0, 'oldest': self.index.oldest()})
 
 
 # <pthread/qos.h>. The accept loop runs on the main thread: at user-interactive

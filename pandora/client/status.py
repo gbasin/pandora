@@ -28,6 +28,11 @@ class RunStatus:
                     oldest = min(self.recent, key=lambda key: self.recent[key].get('started', 0))
                     del self.recent[oldest]
 
+    def forget(self, run_id):
+        """A finished row whose directory was pruned (`runindex.prune`)."""
+        with self.lock:
+            self.recent.pop(run_id, None)
+
     def rows(self, limit=20):
         with self.lock:
             active = list(self.active.values())
