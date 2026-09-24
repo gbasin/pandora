@@ -31,6 +31,7 @@ The one invariant the rest of the design leans on holds here too: `accepted` is
 sent only after admission. Queueing, refusal and the repository's own validator
 all happen before it, so all of them are provably non-executing.
 """
+import contextlib
 import os
 import signal
 import subprocess
@@ -414,9 +415,10 @@ class Supervisor:
     """One local command, its process group, its peak and its verdict."""
 
     def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None,
-                 on_start=None):
+                 on_start=None, spawn_lock=None):
         self.argv = list(argv)
         self.on_start = on_start
+        self.spawn_lock = spawn_lock
         self.cwd = str(cwd)
         self.env = dict(env)
         self.timeout_seconds = timeout_seconds
@@ -512,19 +514,24 @@ class Supervisor:
 
     def run(self, canceled):
         """Returns (outcome, exit_code). `outcome` is the engine's vocabulary."""
-        try:
-            self.proc = subprocess.Popen(
-                self.argv, cwd=self.cwd, env=self.env, start_new_session=True,
-                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except OSError as error:
-            self.on_log('err', ('pandora: cannot start %r: %s\n'
-                                % (self.argv[0], error)).encode())
-            return 'infra_failed', None
-        if self.on_start is not None:
+        with self.spawn_lock if self.spawn_lock is not None else contextlib.nullcontext():
+            # A cancel that lands before the child exists means no child: a
+            # stop that is closing this run reads the group under the same lock.
+            if canceled():
+                return 'cancelled', None
             try:
-                self.on_start(self.proc.pid)
-            except OSError:
-                pass                     # the record is for a restart; never fail the run
+                self.proc = subprocess.Popen(
+                    self.argv, cwd=self.cwd, env=self.env, start_new_session=True,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except OSError as error:
+                self.on_log('err', ('pandora: cannot start %r: %s\n'
+                                    % (self.argv[0], error)).encode())
+                return 'infra_failed', None
+            if self.on_start is not None:
+                try:
+                    self.on_start(self.proc.pid)
+                except OSError:
+                    pass                 # the record is for a restart; never fail the run
         stop = threading.Event()
         threads = [threading.Thread(target=self._pump, args=(self.proc.stdout, 'out'), daemon=True),
                    threading.Thread(target=self._pump, args=(self.proc.stderr, 'err'), daemon=True),
@@ -672,7 +679,8 @@ class LocalExecutor:
             timeout_seconds=60 * int(plan.get('timeout_minutes') or 30),
             cancel=plan.get('cancel'),
             on_log=lambda which, chunk: run.stream_local(which, chunk),
-            on_start=getattr(run, 'spawned', None))
+            on_start=getattr(run, 'spawned', None),
+            spawn_lock=getattr(run, 'spawn_lock', None))
         outcome, code = supervisor.run(run.canceled.is_set)
         after, after_files = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after
