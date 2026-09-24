@@ -636,7 +636,7 @@ def main(argv=None):
         reader = Reader(sock)
         sent = time.time()
         try:
-            reader, frame = handshake(sock, request, reader)
+            answered, frame = handshake(sock, request, reader)
         except (OSError, socket.timeout, ValueError) as error:
             sock.close()
             if reader.consumed == 0 and waiter.fresh_since(sent) and waiter.absent():
@@ -653,6 +653,7 @@ def main(argv=None):
                    'Check pandora ps before retrying. Nothing was replayed locally.')
             return INFRA
         if frame.get('t') != 'draining':
+            reader = answered or reader
             break
         # Nothing ran: the daemon is restarting and said so. Ask again. A live
         # daemon that still says so when the wait runs out is not a missing
