@@ -708,20 +708,25 @@ def gc_sources(paths, ledger, *, grace_seconds=3600, keep=4,
         latest = os.path.realpath(repo / 'latest')
         candidates = []
         for entry in repo.iterdir():
-            if not entry.is_dir() or entry.is_symlink():
+            # Anything that vanishes mid-scan -- a concurrent pass or a ship's
+            # own staging cleanup -- is simply not ours to collect.
+            try:
+                if not entry.is_dir() or entry.is_symlink():
+                    continue
+                age = now - entry.stat().st_mtime
+            except OSError:
                 continue
             if '.partial.' in entry.name:
-                if now - entry.stat().st_mtime > ship_timeout:
+                if age > ship_timeout:
                     shutil.rmtree(entry, ignore_errors=True)
                     removed.append(entry.name)
                 continue
             if (entry.name in live_inputs or str(entry) in live_paths
-                    or os.path.realpath(entry) == latest
-                    or now - entry.stat().st_mtime < grace_seconds):
+                    or os.path.realpath(entry) == latest or age < grace_seconds):
                 continue
-            candidates.append(entry)
-        candidates.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
-        for entry in candidates[keep:]:
+            candidates.append((age, entry))
+        candidates.sort()
+        for _, entry in candidates[keep:]:
             shutil.rmtree(entry, ignore_errors=True)
             removed.append(entry.name)
     return removed

@@ -619,7 +619,7 @@ The other worker verbs:
 | `pandora worker goldens` | Each golden: repository, referenced and exclusive bytes, pinned or not, last use. |
 | `pandora worker pins --toolchain F [--source D]` | Resolve a toolchain to its base-image fingerprint, lockfile digest and registry manifest digests. |
 | `pandora worker reconcile` | Adopt or fail runs whose supervisor is gone after an engine restart. |
-| `pandora worker retain` | Delete old attempt directories. |
+| `pandora worker retain` | Delete old attempt directories and unreferenced source snapshots. |
 | `pandora worker stats` | The engine's scheduler picture and outcome counts. |
 | `pandora cache stats`, `pandora cache clear [--repo R]` | The worker's turbo remote cache, served on the runs' bridge. |
 
