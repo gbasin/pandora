@@ -4,7 +4,7 @@ Every failure this looks for has already happened to somebody. A `pnpm` earlier
 on PATH than the shim routes nothing and says nothing. A leaked
 `PANDORA_ROUTE_DEPTH` makes every command a passthrough. A launcher symlinked
 into `~/.local/bin` imported the package only when the cwd happened to be a
-checkout. A marker that names a checkout since deleted, or an enrolment the
+checkout. A marker that names a checkout since deleted, or an enrollment the
 daemon's own config does not have, turns every claimed command into a silent
 local run. None of these produce an error on their own; each of them shows up
 later as "Pandora did not route my command", which is the hardest report to act
@@ -31,7 +31,7 @@ from pathlib import Path
 
 from ..config.loader import FILENAME
 from ..errors import ConfigError
-from . import enrolment, placement, settings
+from . import enrollment, placement, settings
 from .health import DEFAULT_INTERVAL, STALE_FACTOR
 from .protocol import Reader, VERSION, dump
 
@@ -247,18 +247,18 @@ def check_worker(pong, state):
 
 def check_repository(cwd, config, sock_path):
     """This worktree's repository is enrolled on both sides: the marker and the daemon's config."""
-    common = enrolment.common_dir(cwd)
-    root = enrolment.worktree_root(cwd)
+    common = enrollment.common_dir(cwd)
+    root = enrollment.worktree_root(cwd)
     if common is None:
         return [check('repository', FAIL, '%s is not inside a git repository' % cwd)]
-    path = Path(common) / enrolment.MARKER
+    path = Path(common) / enrollment.MARKER
     if not path.is_file():
         has_config = root and (Path(root) / FILENAME).is_file()
         return [check('repository', FAIL,
                       'not enrolled (no %s)%s; nothing routes here'
-                      % (path, '; it has a %s, so run `pandora enrol %s`' % (FILENAME, root)
+                      % (path, '; it has a %s, so run `pandora enroll %s`' % (FILENAME, root)
                          if has_config else ''))]
-    marker = enrolment.parse(path.read_text())
+    marker = enrollment.parse(path.read_text())
     out = [check('repository', OK, 'enrolled as %s: %d claimed form(s), marker %s'
                  % (marker.get('repo'), len(marker['claim']), path),
                  marker=str(path), claims=[' '.join(item) for item in marker['claim']])]
@@ -267,45 +267,45 @@ def check_repository(cwd, config, sock_path):
         out.append(check('marker home', FAIL,
                          'the marker says the client lives in %s, which has no pandora '
                          'package (a removed checkout?). Claimed commands cannot start the '
-                         'client; re-run `pandora enrol`' % home, home=home))
+                         'client; re-run `pandora enroll`' % home, home=home))
     if marker.get('sock') and os.path.realpath(marker['sock']) != os.path.realpath(sock_path):
         out.append(check('marker socket', WARN,
                          'the marker routes to %s but this doctor looked at %s; the shim '
                          'uses the marker' % (marker['sock'], sock_path)))
     if config is not None:
-        known = settings.enrolment_for(config, cwd)
+        known = settings.enrollment_for(config, cwd)
         if known is None:
             for repo in config['repos']:
                 try:
-                    if enrolment.common_dir(repo['root']) == common:
+                    if enrollment.common_dir(repo['root']) == common:
                         known = repo
                         break
                 except OSError:
                     continue
         if known is None:
-            out.append(check('daemon enrolment', FAIL,
+            out.append(check('daemon enrollment', FAIL,
                              'the marker claims commands but %s has no [[repos]] entry for '
                              'this repository, so the daemon passes every one of them through'
                              % (config.get('source') or settings.DEFAULT_PATH)))
         else:
-            out.append(check('daemon enrolment', OK, '[[repos]] %s at %s'
+            out.append(check('daemon enrollment', OK, '[[repos]] %s at %s'
                              % (known['name'], known['root'])))
     return out
 
 
 def check_cwd(cwd):
     """Commands are typed from the worktree root, where they mean what they say."""
-    root = enrolment.worktree_root(cwd)
+    root = enrollment.worktree_root(cwd)
     if root is None:
         return check('working directory', WARN, 'not inside a worktree')
     here = Path(cwd).resolve()
     if here == Path(root).resolve():
         return check('working directory', OK, 'the worktree root, %s' % root)
     try:
-        _common, marker = enrolment.marker_for(cwd)
+        _common, marker = enrollment.marker_for(cwd)
     except OSError:
         marker = None
-    if enrolment.claims_nothing_here(cwd, marker):
+    if enrollment.claims_nothing_here(cwd, marker):
         return check('working directory', WARN,
                      'you are in %s, below the worktree root %s. This repository claims '
                      'commands only at the root, so every command typed here runs as if '
@@ -434,7 +434,7 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
                       or (loaded or {}).get('client', {}).get('state')
                       or settings.DEFAULT_STATE).expanduser()
     try:
-        _common, marker = enrolment.marker_for(cwd)
+        _common, marker = enrollment.marker_for(cwd)
     except OSError:
         marker = None
     sock_path = Path((marker or {}).get('sock') or state_path / 'client.sock')

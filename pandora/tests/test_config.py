@@ -159,7 +159,7 @@ run = { argv = ["node", "other.mjs"] }
 
 
 class ResolveTest(unittest.TestCase):
-    def test_the_repo_root_wins_over_the_enrolment(self):
+    def test_the_repo_root_wins_over_the_enrollment(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'repo'
             root.mkdir()
@@ -170,7 +170,7 @@ class ResolveTest(unittest.TestCase):
             self.assertEqual(path, root / 'pandora.toml')
             self.assertEqual(origin, 'repo-root')
 
-    def test_the_enrolment_is_used_when_the_repo_has_none(self):
+    def test_the_enrollment_is_used_when_the_repo_has_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'repo'
             root.mkdir()
@@ -178,7 +178,7 @@ class ResolveTest(unittest.TestCase):
             other.write_text(MINIMAL)
             path, origin = loader.resolve(root, other)
             self.assertEqual(path, other)
-            self.assertEqual(origin, 'enrolment')
+            self.assertEqual(origin, 'enrollment')
 
     def test_a_named_configuration_that_is_absent_is_an_error_not_a_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

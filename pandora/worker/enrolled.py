@@ -3,7 +3,7 @@
 The worker knows goldens by fingerprint and nothing else; which of them a
 repository still *means* is written in that repository's `pandora.toml`, which
 lives here. So `pandora worker gc` and `pandora worker canary` both start on
-the client: read every `[[repos]]` enrolment through the loader the daemon
+the client: read every `[[repos]]` enrollment through the loader the daemon
 uses, and hand the worker the answer -- fingerprints to protect, or targets to
 prove.
 
@@ -20,7 +20,7 @@ PLAN_PATH = '/tmp/pandora-canary-plan.json'
 
 
 def configs(settings_config, load=loader.load_for):
-    """[(enrolment name, loaded config)] for every enrolled repository.
+    """[(enrollment name, loaded config)] for every enrolled repository.
 
     One unreadable configuration fails the whole call rather than being
     skipped: a `gc` that silently forgot one repository is issue #81 again,

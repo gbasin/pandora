@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from pandora import cli
-from pandora.client import enrolment, placement, shim, stats as statistics
+from pandora.client import enrollment, placement, shim, stats as statistics
 from pandora.client.protocol import Reader, VERSION, dump
 from pandora.errors import Refused, WorkerUnreachable
 from pandora.exits import INFRA
@@ -360,7 +360,7 @@ class WithoutADaemon(unittest.TestCase):
             root = Path(home)
             git = root / 'repo' / '.git'
             git.mkdir(parents=True)
-            (git / 'pandora-enrolled').write_text(enrolment.render(
+            (git / 'pandora-enrolled').write_text(enrollment.render(
                 socket_path=str(root / 'nothing.sock'), repo='demo', claims=[['unit']],
                 policies=[{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                            'writeback': False}]))
@@ -394,9 +394,9 @@ class ThroughThePosixShim(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
         (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\n')
         (fake / 'pnpm').chmod(0o755)
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[['journey']], heavy=enrolment.heavy_forms([['journey']]),
+            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]),
             home=str(HERE)))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_WHERE'):

@@ -85,7 +85,7 @@ build those goldens from. Choose one:
   from an enrolled worktree, then run the canary (step 4).
 * Pass `--journey` with a toolchain JSON file that holds the `[worker]` keys of
   the repository, and `--source` with a tree on the worker. This proves that
-  toolchain before any enrolment.
+  toolchain before any enrollment.
 
 `provision` installs the declared packages, disables unattended upgrades,
 creates the pool on the device, creates the bridge and its forwarding rules,

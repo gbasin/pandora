@@ -1,4 +1,4 @@
-"""Per-user client daemon: owns the config, the enrolments, the runs and the socket.
+"""Per-user client daemon: owns the config, the enrollments, the runs and the socket.
 
 Three invariants the rest of the design leans on, unchanged from the POC:
 
@@ -36,7 +36,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
                       WorkerUnreachable)
 from ..engine import retry as retries
 from ..exits import INFRA, STALE
-from . import enrolment, envfilter, fallback as policy, hints, placement, progress, settings
+from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
 from .health import Monitor
@@ -402,7 +402,7 @@ class Daemon:
 
         The enrolled root identifies a repository, not the checkout that will
         execute this command. Cache by path so sibling worktrees cannot share a
-        config merely because their enrolment name is the same.
+        config merely because their enrollment name is the same.
         """
         path, origin = loader.resolve(root, repo.get('config') or None)
         stamp = (str(path), path.stat().st_mtime_ns)
@@ -642,18 +642,18 @@ class Daemon:
     def plan_for(self, request):
         """Classify one request. Raises the pre-accept refusals; returns a plan.
 
-        The worktree, not the enrolment's root: one enrolment covers every
+        The worktree, not the enrollment's root: one enrollment covers every
         worktree of a repository, and the command was typed in exactly one of
         them. The *invocation* directory inside that worktree is what decides
         whether the job can be re-rooted -- see `classify.path_like`.
         """
         cwd = request.get('cwd') or ''
-        repo = settings.enrolment_for(self.config, cwd)
+        repo = settings.enrollment_for(self.config, cwd)
         if repo is None:
-            repo = self.enrolment_by_git(cwd)
+            repo = self.enrollment_by_git(cwd)
         if repo is None:
             raise NotClaimed('cwd is not inside an enrolled repository')
-        root = Path(enrolment.worktree_root(cwd) or repo['root'])
+        root = Path(enrollment.worktree_root(cwd) or repo['root'])
         try:
             config = self.repo_config(repo, root)
         except ConfigError as error:
@@ -670,7 +670,7 @@ class Daemon:
         if verdict['decision'] == 'local':
             raise NotClaimed(verdict['reason'])
         job = config['jobs'][verdict['job']]
-        if (config['origin'] == 'enrolment'
+        if (config['origin'] == 'enrollment'
                 and root.resolve() == Path(repo['root']).resolve()):
             # The explicit external config was enrolled for this checkout.
             # Still avoid a known missing direct script before preflight.
@@ -692,7 +692,7 @@ class Daemon:
         verdict['worktree'] = str(root)
         return repo, config, verdict
 
-    def enrolment_by_git(self, cwd):
+    def enrollment_by_git(self, cwd):
         """A worktree of an enrolled repository is enrolled.
 
         Matching on path prefix misses the common case on this machine, where
@@ -700,12 +700,12 @@ class Daemon:
         back to the git common directory -- the same identity the shim's marker
         uses.
         """
-        common = enrolment.common_dir(cwd) if cwd else None
+        common = enrollment.common_dir(cwd) if cwd else None
         if common is None:
             return None
         for repo in self.config['repos']:
             try:
-                enrolled_common = enrolment.common_dir(repo['root'])
+                enrolled_common = enrollment.common_dir(repo['root'])
                 if enrolled_common and Path(enrolled_common).resolve() == Path(common).resolve():
                     return repo
             except OSError:
@@ -1152,7 +1152,7 @@ class Daemon:
         repo = next((item for item in self.config['repos']
                      if item['name'] == (run.request.get('repo') or '')), None)
         if repo is None:
-            run.note('this daemon no longer has an enrolment for run %s' % run.id)
+            run.note('this daemon no longer has an enrollment for run %s' % run.id)
             run.finish(70, state='infra_failed')
             return
         collected = None

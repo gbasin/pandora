@@ -716,7 +716,7 @@ def resolve(repo_root, fallback_path=None):
     """Where this repository's configuration lives.
 
     Repo root first: that is where v0.2 expects it, and where the combined
-    Eichler PR will put it. The enrolment-referenced path second, so a repository
+    Eichler PR will put it. The enrollment-referenced path second, so a repository
     can be routed before its own PR lands -- which is exactly the slice's
     position. Returning the path rather than the configuration keeps the
     precedence rule testable without a filesystem full of valid TOML.
@@ -727,9 +727,9 @@ def resolve(repo_root, fallback_path=None):
     if fallback_path:
         candidate = Path(fallback_path).expanduser()
         if candidate.is_file():
-            return candidate, 'enrolment'
-        raise ConfigError('the enrolment names a configuration that is not there: %s' % candidate)
-    raise ConfigError('no %s at %s, and the enrolment names no other path' % (FILENAME, repo_root))
+            return candidate, 'enrollment'
+        raise ConfigError('the enrollment names a configuration that is not there: %s' % candidate)
+    raise ConfigError('no %s at %s, and the enrollment names no other path' % (FILENAME, repo_root))
 
 
 def load_for(repo_root, fallback_path=None):

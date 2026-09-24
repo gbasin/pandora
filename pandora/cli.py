@@ -39,7 +39,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
-  pandora doctor [--json] (read-only) | enrol <repo> | unenrol <repo> | worker <verb>
+  pandora doctor [--json] (read-only) | enroll <repo> | unenroll <repo> | worker <verb>
   pandora daemon [--install | --restart (after a checkout update) | --uninstall | --stop]
 """
 import argparse
@@ -50,7 +50,7 @@ import sys
 import time
 from pathlib import Path
 
-from .client import enrolment, settings
+from .client import enrollment, settings
 from .client.protocol import Reader, VERSION, dump
 from .config import classify as classifier
 from .config import loader
@@ -129,14 +129,14 @@ def cmd_daemon_supervision(args):
     return 0
 
 
-def cmd_enrol(args):
+def cmd_enroll(args):
     """Write the marker into the repository's git common directory.
 
-    One file enrols every worktree of the repository at once, including ones
+    One file enrolls every worktree of the repository at once, including ones
     created tomorrow, because every worktree shares one common directory.
     """
     state, config = state_of(args)
-    common = enrolment.common_dir(args.repo)
+    common = enrollment.common_dir(args.repo)
     if common is None:
         notice('not a git repository: %s' % args.repo)
         return 1
@@ -147,16 +147,16 @@ def cmd_enrol(args):
         notice(str(error))
         return 1
     claims = classifier.claim_index(repo_config)
-    text = enrolment.render(socket_path=str(state / 'client.sock'),
+    text = enrollment.render(socket_path=str(state / 'client.sock'),
                             repo=args.name or repo_config['repo']['name'],
                             claims=claims,
-                            heavy=enrolment.heavy_forms(claims),
+                            heavy=enrollment.heavy_forms(claims),
                             policies=classifier.policy_index(repo_config),
                             strip_prefixes=repo_config['matching']['strip_prefixes'],
                             subdirectory=repo_config['matching']['subdirectory'],
                             origin=str(path),
                             home=str(Path(__file__).resolve().parents[1]))
-    marker = enrolment.write(common, text)
+    marker = enrollment.write(common, text)
     notice('enrolled %s from %s (%s): %d claimed form%s, marker %s'
            % (repo_config['repo']['name'], path, origin, len(claims),
               '' if len(claims) == 1 else 's', marker))
@@ -168,9 +168,9 @@ def cmd_enrol(args):
     return 0
 
 
-def cmd_unenrol(args):
-    common = enrolment.common_dir(args.repo)
-    marker = Path(common or '.') / enrolment.MARKER
+def cmd_unenroll(args):
+    common = enrollment.common_dir(args.repo)
+    marker = Path(common or '.') / enrollment.MARKER
     if marker.is_file():
         marker.unlink()
         notice('removed ' + str(marker))
@@ -513,6 +513,10 @@ def cmd_stats(args):
     return 0
 
 
+# Old command spellings the parser still accepts, and what each one now is.
+DEPRECATED = {'enrol': 'enroll', 'unenrol': 'unenroll'}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='pandora', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -539,16 +543,19 @@ def main(argv=None):
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
 
-    enrol = sub.add_parser('enrol', help='mark a repository routable, all worktrees at once')
-    enrol.add_argument('repo')
-    enrol.add_argument('--name', default=None)
-    enrol.add_argument('--config', dest='config_toml', default=None,
+    # `enrol` and `unenrol` are the old British spellings, kept as hidden aliases
+    # for one release so scripts and muscle memory keep working.
+    enroll = sub.add_parser('enroll', aliases=['enrol'],
+                            help='mark a repository routable, all worktrees at once')
+    enroll.add_argument('repo')
+    enroll.add_argument('--name', default=None)
+    enroll.add_argument('--config', dest='config_toml', default=None,
                        help='a pandora.toml to use when the repository has none')
-    enrol.set_defaults(func=cmd_enrol)
+    enroll.set_defaults(func=cmd_enroll)
 
-    unenrol = sub.add_parser('unenrol')
-    unenrol.add_argument('repo')
-    unenrol.set_defaults(func=cmd_unenrol)
+    unenroll = sub.add_parser('unenroll', aliases=['unenrol'])
+    unenroll.add_argument('repo')
+    unenroll.set_defaults(func=cmd_unenroll)
 
     run = sub.add_parser('run', help='what the shim calls')
     run.add_argument('--real', default=None)
@@ -607,6 +614,8 @@ def main(argv=None):
     worker_cli.add_cache_parser(sub)
 
     args = parser.parse_args(argv)
+    if args.which in DEPRECATED:
+        notice('`pandora %s` is deprecated; use `pandora %s`' % (args.which, DEPRECATED[args.which]))
     try:
         return args.func(args)
     except PandoraError as error:

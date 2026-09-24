@@ -327,7 +327,7 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
 def claim_index(config):
     """Every claimed argv prefix the configuration declares, shortest first.
 
-    This is what the shim reads out of the enrolment marker. It is an
+    This is what the shim reads out of the enrollment marker. It is an
     optimisation -- "could this be claimed?" answered in microseconds without
     loading 300 lines of TOML -- and never the decision: the daemon
     re-classifies every request it receives and may still refuse.
@@ -345,7 +345,7 @@ def claim_index(config):
 def policy_index(config):
     """Each claimed form's size class and fallback verdict, for the marker.
 
-    Written into the enrolment so the client can answer "may this run on this
+    Written into the enrollment so the client can answer "may this run on this
     Mac" without the daemon -- which matters precisely because the commonest
     reason to ask is that the daemon is not there to be asked.
     """

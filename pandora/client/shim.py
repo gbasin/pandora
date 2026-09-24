@@ -18,7 +18,7 @@ which arrives as an ordinary `accepted` frame carrying `lane: local`.
 
 That leaves exactly one decision here: what to do when the daemon cannot be
 reached at all. There is no local lane to admit into, so the client applies the
-same policy from the enrolment marker -- a `refuse` verdict exits 70 with one
+same policy from the enrollment marker -- a `refuse` verdict exits 70 with one
 line, and a `local` verdict runs under the file-lock slot budget and says that
 is what it did.
 """
@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 from ..exits import CANCELLED, INFRA, STALE, USAGE
-from . import enrolment, envfilter, fallback as fallback_module, placement
+from . import enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
 HANDSHAKE_SECONDS = 20.0     # freeze + ship + submit happen before `accepted`
@@ -125,7 +125,7 @@ def handshake(sock, request):
 
 
 def marker_policy(command):
-    """What the enrolment marker says about this argv: size, fallback, writeback.
+    """What the enrollment marker says about this argv: size, fallback, writeback.
 
     Only ever consulted when the daemon is unreachable. A marker written before
     this rule existed has no `policy` lines, and the caller treats that as
@@ -133,12 +133,12 @@ def marker_policy(command):
     big a job is has not earned the right to start it here.
     """
     try:
-        _common, marker = enrolment.marker_for(os.getcwd())
+        _common, marker = enrollment.marker_for(os.getcwd())
     except OSError:
         marker = None
     if not marker:
         return None
-    return enrolment.policy_for(command, marker)
+    return enrollment.policy_for(command, marker)
 
 
 def subdirectory_offender(command):
@@ -149,18 +149,18 @@ def subdirectory_offender(command):
     offending token, or None.
     """
     here = os.getcwd()
-    root = enrolment.worktree_root(here)
+    root = enrollment.worktree_root(here)
     if root is None or Path(here).resolve() == Path(root).resolve():
         return None
     try:
-        _common, marker = enrolment.marker_for(here)
+        _common, marker = enrollment.marker_for(here)
     except OSError:
         marker = None
     if not marker:
         return None
     from ..config.classify import path_like
-    declared = enrolment.policy_for(command, marker)
-    rest = enrolment.key_of(command, marker.get('strip') or [])
+    declared = enrollment.policy_for(command, marker)
+    rest = enrollment.key_of(command, marker.get('strip') or [])
     rest = rest[len(declared['prefix']) if declared else 1:]
     return path_like(rest, exists=lambda token: Path(here, token).exists())
 
@@ -356,10 +356,10 @@ def main(argv=None):
     # so no socket. The POSIX shim decides this itself; `pandora run` lands here.
     here = os.getcwd()
     try:
-        _common, marker = enrolment.marker_for(here)
+        _common, marker = enrollment.marker_for(here)
     except OSError:
         marker = None
-    if enrolment.claims_nothing_here(here, marker):
+    if enrollment.claims_nothing_here(here, marker):
         return pass_through('claimed only at the worktree root; not routed')
 
     request = build_request(command, where=where)

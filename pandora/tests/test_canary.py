@@ -68,7 +68,7 @@ class CanaryTable(unittest.TestCase):
 
 
 class Derivation(unittest.TestCase):
-    def enrolments(self, *pairs):
+    def enrollments(self, *pairs):
         return {'repos': [{'name': name, 'root': '/code/' + name, 'config': str(path)}
                           for name, path in pairs]}
 
@@ -78,9 +78,9 @@ class Derivation(unittest.TestCase):
             return load(fallback)
         return load_for
 
-    def test_configs_go_through_the_daemon_loader_per_enrolment(self):
+    def test_configs_go_through_the_daemon_loader_per_enrollment(self):
         calls = []
-        entries = enrolled.configs(self.enrolments(('eichler', JOURNEYS)),
+        entries = enrolled.configs(self.enrollments(('eichler', JOURNEYS)),
                                    load=self.fake_loader(calls))
         self.assertEqual(calls, [('/code/eichler', str(JOURNEYS))])
         self.assertEqual(entries[0][0], 'eichler')
@@ -89,7 +89,7 @@ class Derivation(unittest.TestCase):
         def broken(root, fallback):
             raise ConfigError('no pandora.toml at ' + root)
         with self.assertRaisesRegex(ConfigError, 'enrolled repository eichler: no pandora'):
-            enrolled.configs(self.enrolments(('eichler', JOURNEYS)), load=broken)
+            enrolled.configs(self.enrollments(('eichler', JOURNEYS)), load=broken)
 
     def test_the_journey_check_is_the_journey_jobs_own_argv(self):
         config = load(JOURNEYS)

@@ -3,7 +3,9 @@ import contextlib
 import io
 import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from pandora import cli
@@ -32,6 +34,35 @@ class Help(unittest.TestCase):
                        'wait <id> <id>', 'PANDORA_SHARDS', 'result <id> --json',
                        'pandora: hint:', '--update', 'pandora resolve'):
             self.assertIn(needle, out)
+
+
+class OldSpellings(unittest.TestCase):
+    """`enrol` and `unenrol` still work for one release, and say what replaces them."""
+
+    def unenroll(self, verb):
+        with tempfile.TemporaryDirectory() as tmp:
+            common = Path(tmp) / '.git'
+            common.mkdir()
+            (common / 'pandora-enrolled').write_text('sock /s\n')
+            code, _, err = capture(cli.main, [verb, tmp])
+            return code, err, (common / 'pandora-enrolled').exists()
+
+    def test_the_old_spelling_runs_the_same_command_with_a_notice(self):
+        code, err, left = self.unenroll('unenrol')
+        self.assertEqual((code, left), (0, False))
+        self.assertIn('`pandora unenrol` is deprecated; use `pandora unenroll`', err)
+
+    def test_the_new_spelling_says_nothing_about_it(self):
+        code, err, left = self.unenroll('unenroll')
+        self.assertEqual((code, left), (0, False))
+        self.assertNotIn('deprecated', err)
+
+    def test_enrol_is_an_alias_of_enroll(self):
+        with mock.patch.object(cli, 'cmd_enroll', return_value=0) as command:
+            code, _, err = capture(cli.main, ['enrol', '/nowhere'])
+        self.assertEqual(code, 0)
+        command.assert_called_once()
+        self.assertIn('use `pandora enroll`', err)
 
 
 def _exit_code(function, argv):

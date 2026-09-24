@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pandora.client import doctor, enrolment
+from pandora.client import doctor, enrollment
 from pandora.tests.test_fallback import DaemonCase
 
 HERE = Path(__file__).resolve().parents[2]
@@ -179,9 +179,9 @@ class Launcher(Scratch):
         repo, state = self.root / 'repo', self.root / 'state'
         state.mkdir()
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
-        (repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(state / 'client.sock'), repo='demo', claims=[['journey']],
-            heavy=enrolment.heavy_forms([['journey']])))
+            heavy=enrollment.heavy_forms([['journey']])))
         env = self.env('%s:%s' % (shim, real))
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_WHERE'):
             env.pop(name, None)
@@ -200,37 +200,37 @@ class RepositoryAndCwd(Scratch):
         self.config = {'repos': [{'name': 'demo', 'root': str(self.repo), 'config': ''}],
                        'source': '/cfg.toml'}
 
-    def enrol(self, home=str(HERE), sock='/s/client.sock'):
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+    def enroll(self, home=str(HERE), sock='/s/client.sock'):
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=sock, repo='demo', claims=[['journey']], home=home))
 
     def statuses(self, items):
         return {item['name']: item['status'] for item in items}
 
-    def test_not_enrolled_with_a_config_says_how_to_enrol(self):
+    def test_not_enrolled_with_a_config_says_how_to_enroll(self):
         (self.repo / 'pandora.toml').write_text('')
         [item] = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
         self.assertEqual(item['status'], 'fail')
-        self.assertIn('pandora enrol %s' % self.repo, item['detail'])
+        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
 
     def test_enrolled_on_both_sides(self):
-        self.enrol()
+        self.enroll()
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items), {'repository': 'ok', 'daemon enrolment': 'ok'})
+        self.assertEqual(self.statuses(items), {'repository': 'ok', 'daemon enrollment': 'ok'})
 
     def test_a_marker_the_daemon_does_not_know_fails(self):
-        self.enrol()
+        self.enroll()
         items = doctor.check_repository(str(self.repo), {'repos': [], 'source': '/cfg.toml'},
                                         Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items)['daemon enrolment'], 'fail')
+        self.assertEqual(self.statuses(items)['daemon enrollment'], 'fail')
 
     def test_a_marker_naming_a_removed_checkout_fails(self):
-        self.enrol(home=str(self.root / 'gone'))
+        self.enroll(home=str(self.root / 'gone'))
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
         self.assertEqual(self.statuses(items)['marker home'], 'fail')
 
     def test_a_marker_routing_elsewhere_warns(self):
-        self.enrol(sock='/elsewhere/client.sock')
+        self.enroll(sock='/elsewhere/client.sock')
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
         self.assertEqual(self.statuses(items)['marker socket'], 'warn')
 
@@ -241,7 +241,7 @@ class RepositoryAndCwd(Scratch):
         self.assertIn('exit 64', item['detail'])
 
     def test_a_root_only_repository_says_a_subdirectory_is_unclaimed(self):
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path='/s/client.sock', repo='demo', claims=[['journey']],
             subdirectory='passthrough'))
         item = doctor.check_cwd(str(self.repo / 'apps'))
@@ -292,7 +292,7 @@ class AgainstARealDaemon(DaemonCase):
     def test_the_daemon_answers_with_its_package_and_the_worker_reading(self):
         self.daemon.health.poll()
         (self.repo / '.git').mkdir()
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.daemon.socket_path), repo='demo', claims=[['unit']],
             home=str(HERE)))
         report = doctor.run(state=str(self.state), config=str(self.root / 'config.toml'),
@@ -303,7 +303,7 @@ class AgainstARealDaemon(DaemonCase):
         self.assertEqual(names['worker']['status'], 'ok', names['worker'])
         self.assertIn('reachable', names['worker']['detail'])
         self.assertEqual(names['repository']['status'], 'ok')
-        self.assertEqual(names['daemon enrolment']['status'], 'ok')
+        self.assertEqual(names['daemon enrollment']['status'], 'ok')
         self.assertEqual(names['working directory']['status'], 'ok')
         # No pnpm on this PATH, so the report as a whole fails, and says so.
         self.assertEqual(names['pnpm on PATH']['status'], 'fail')
