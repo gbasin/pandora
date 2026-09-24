@@ -329,6 +329,13 @@ def cmd_health(args):
     a different fact and gets a different state.
     """
     paths, ledger = open_ledger(args.root)
+    try:
+        # The one recurring call the worker gets, so it is also where the src
+        # cache gets collected -- before the capacity probe, so a freed pool
+        # reports its freed space on the same poll.
+        collected = runner.maybe_gc_sources(paths, ledger)
+    except Exception:                               # noqa: BLE001 - a courtesy, never a verdict
+        collected = None
     from pandora.executor.incus import IncusDriver
     driver = IncusDriver(root=paths.root)
     capacity, goldens, reason = {}, [], []
@@ -363,7 +370,8 @@ def cmd_health(args):
               'canary': {'ok': canary.get('ok'), 'failures': canary.get('failures'),
                          'seconds': canary.get('seconds')} if canary else None,
               'kernel': kernel, 'canary_kernel': state.get('kernel'),
-              'kernel_drift': kernel_drift}
+              'kernel_drift': kernel_drift,
+              'src_removed': collected}
     store.close()
     ledger.close()
     return emit(answer)

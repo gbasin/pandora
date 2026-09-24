@@ -416,6 +416,67 @@ class RetentionTest(unittest.TestCase):
             self.assertTrue(paths.attempt('new').is_dir())
             self.assertFalse(paths.attempt('old').is_dir())
 
+    def snapshot(self, paths, repo, name, *, age):
+        import os
+        directory = paths.src / repo / name
+        directory.mkdir(parents=True)
+        (directory / 'file.txt').write_text(name)
+        past = self.now - age
+        os.utime(directory, (past, past))
+        return directory
+
+    def setUp(self):
+        import os
+        import time
+        self.os, self.time = os, time
+        self.now = time.time()
+
+    def test_source_gc_keeps_latest_live_and_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = runner.Paths(Path(tmp)).ensure()
+            ledger = Ledger(paths.ledger)
+            # all past the grace window; s6 is the oldest collectible
+            dirs = {name: self.snapshot(paths, 'repo', name, age=7200 + n * 60)
+                    for n, name in enumerate(('s0', 's1', 's2', 's3', 's4', 's5', 's6'))}
+            self.os.symlink(dirs['s0'], paths.src / 'repo' / 'latest')
+            claim(ledger, run_id='r1', input_id='s1', source_path=str(dirs['s1']))
+            fresh = self.snapshot(paths, 'repo', 'fresh', age=10)
+            removed = runner.gc_sources(paths, ledger, grace_seconds=3600, keep=2,
+                                        now=self.now)
+            ledger.close()
+            # s0 survives as latest, s1 as live, fresh by grace, s2+s3 by keep
+            self.assertEqual(removed, ['s4', 's5', 's6'])
+            for name in ('s0', 's1', 's2', 's3'):
+                self.assertTrue(dirs[name].is_dir(), name)
+            self.assertTrue(fresh.is_dir())
+            for name in ('s4', 's5', 's6'):
+                self.assertFalse(dirs[name].exists(), name)
+
+    def test_source_gc_reaps_orphaned_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = runner.Paths(Path(tmp)).ensure()
+            ledger = Ledger(paths.ledger)
+            old = self.snapshot(paths, 'repo', 'abc.partial.dead', age=4000)
+            new = self.snapshot(paths, 'repo', 'def.partial.live', age=10)
+            removed = runner.gc_sources(paths, ledger, now=self.now)
+            ledger.close()
+            self.assertEqual(removed, ['abc.partial.dead'])
+            self.assertFalse(old.exists())
+            self.assertTrue(new.is_dir())
+
+    def test_source_gc_throttle_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = runner.Paths(Path(tmp)).ensure()
+            ledger = Ledger(paths.ledger)
+            # one more than `keep` spares, so exactly the oldest is collected
+            for n in range(5):
+                self.snapshot(paths, 'repo', 'victim-%d' % n, age=7200 + n * 60)
+            first = runner.maybe_gc_sources(paths, ledger)
+            second = runner.maybe_gc_sources(paths, ledger)
+            ledger.close()
+            self.assertEqual(first, ['victim-4'])
+            self.assertIsNone(second)
+
 
 if __name__ == '__main__':
     unittest.main()

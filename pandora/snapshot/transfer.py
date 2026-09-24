@@ -207,17 +207,35 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
                              'test -e %s && echo present || echo absent' % shlex.quote(paths['final'])],
                             timeout=60)
     if out.strip() == 'present':
-        return {'path': paths['final'], 'reused': True, 'link_dest': None,
+        return {'path': paths['final'], 'reused': True, 'link_dests': [],
                 'seconds': 0.0, 'files': len(manifest)}
-    _, previous, _ = link.run(['sh', '-c', 'readlink %s 2>/dev/null || true'
-                               % shlex.quote(paths['latest'])], timeout=60)
-    link_dest = previous.strip() or None
+    # Dedup bases are the newest snapshots still on the worker, not only the
+    # one `latest` names: with several worktrees `latest` hops between
+    # unrelated trees, and a ship then pays a full copy -- measured 0% reuse
+    # against a divergent base, ~90% against the worktree's own previous tree.
+    # rsync tries each --link-dest in order, so four bases cost nothing when
+    # none of them matches.
+    _, listed, _ = link.feed('''
+import os, sys
+base, final = sys.argv[1:]
+os.makedirs(base, exist_ok=True)
+entries = []
+for name in os.listdir(base):
+    path = os.path.join(base, name)
+    if (os.path.isdir(path) and not os.path.islink(path)
+            and '.partial.' not in name and os.path.realpath(path) != final):
+        entries.append((os.path.getmtime(path), path))
+entries.sort(reverse=True)
+for _, path in entries[:4]:
+    print(path)
+''', (paths['base'], paths['final']), timeout=60)
+    link_dests = [line.strip() for line in listed.splitlines() if line.strip()]
     # Fresh worktrees have new mtimes for identical content. Match by checksum
     # and omit timestamp preservation so link-dest can reuse immutable files.
     # Checksums also catch equal-size edits whose mtime did not change.
     argv = ['rsync', '-a', '--no-times', '--checksum', '--delete',
             '--files-from=-', '--from0', '-e', link.rsh]
-    if link_dest and link_dest != paths['final']:
+    for link_dest in link_dests:
         argv += ['--link-dest=' + link_dest]
     names = b'\0'.join(record['path'].encode() for record in manifest) + b'\0'
     _, staged, _ = link.feed('''
@@ -286,7 +304,7 @@ shutil.rmtree(sys.argv[1], ignore_errors=True)
         except Exception as error:               # noqa: BLE001 - logged, never raised
             log('could not remove staging directory %s on %s: %s: %s'
                 % (stage, link.host, type(error).__name__, error))
-    return {'path': paths['final'], 'reused': False, 'link_dest': link_dest,
+    return {'path': paths['final'], 'reused': False, 'link_dests': link_dests,
             'seconds': round(time.monotonic() - started, 2), 'files': len(manifest)}
 
 

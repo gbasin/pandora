@@ -671,8 +671,82 @@ def retain(root, *, keep_seconds=86400, keep_failed_seconds=86400):
             removed.append(row['run_id'])
         else:
             kept.append(row['run_id'])
+    src_removed = gc_sources(paths, ledger)
     ledger.close()
-    return {'removed': removed, 'kept': len(kept)}
+    return {'removed': removed, 'kept': len(kept), 'src_removed': src_removed}
+
+
+def gc_sources(paths, ledger, *, grace_seconds=3600, keep=4,
+               ship_timeout=1800, now=None):
+    """Delete src snapshots nothing can still need. Returns what it removed.
+
+    A snapshot is collectible only when all three hold: it is not the
+    transfer's `latest` link-dest base, no live attempt's row names its input
+    (the row is claimed at submit, before the source is ever read), and its
+    directory mtime predates the grace window -- the ship-to-submit gap is
+    seconds, so a fresh mtime is the only sign of a snapshot published but not
+    yet claimed. A published snapshot's content is immutable: re-shipping the
+    same input keeps the existing tree, so deleting one can only cost a later
+    re-ship, never corrupt a run.
+
+    The newest `keep` collectible snapshots survive as the re-ship cache and
+    as extra link-dest bases. `.partial.` staging directories older than the
+    ship timeout are orphans: a live ship cannot outlive rsync's own timeout.
+    """
+    import shutil
+    now = time.time() if now is None else now
+    live_inputs, live_paths = set(), set()
+    for row in ledger.live():
+        live_inputs.add(row['input_id'])
+        live_paths.add(row['source_path'])
+    removed = []
+    if not paths.src.is_dir():
+        return removed
+    for repo in sorted(paths.src.iterdir()):
+        if not repo.is_dir():
+            continue
+        latest = os.path.realpath(repo / 'latest')
+        candidates = []
+        for entry in repo.iterdir():
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            if '.partial.' in entry.name:
+                if now - entry.stat().st_mtime > ship_timeout:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    removed.append(entry.name)
+                continue
+            if (entry.name in live_inputs or str(entry) in live_paths
+                    or os.path.realpath(entry) == latest
+                    or now - entry.stat().st_mtime < grace_seconds):
+                continue
+            candidates.append(entry)
+        candidates.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
+        for entry in candidates[keep:]:
+            shutil.rmtree(entry, ignore_errors=True)
+            removed.append(entry.name)
+    return removed
+
+
+def maybe_gc_sources(paths, ledger, *, interval_seconds=300):
+    """`gc_sources`, throttled by a stamp file for the per-minute health call.
+
+    Returns the removed list when a pass ran, else None. A pass that fails
+    touches the stamp anyway: a flapping collector must not turn the health
+    call slow every minute -- the next poll retries after the same interval.
+    """
+    stamp = paths.root / 'src-gc.stamp'
+    try:
+        if time.time() - stamp.stat().st_mtime < interval_seconds:
+            return None
+    except OSError:
+        pass
+    try:
+        return gc_sources(paths, ledger)
+    finally:
+        try:
+            stamp.touch()
+        except OSError:
+            pass
 
 
 def stop_group(pid):

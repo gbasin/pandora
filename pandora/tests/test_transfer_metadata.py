@@ -49,6 +49,15 @@ class WorktreeMetadata(unittest.TestCase):
         self.assertEqual(first.read_bytes(), self.file.read_bytes())
         self.assertEqual(first.stat().st_ino, second.stat().st_ino)
 
+    def test_a_divergent_latest_still_dedupes_against_an_older_base(self):
+        first = self.send('first')
+        self.file.write_text('divergent')
+        second = self.send('second')
+        self.file.write_text('original')
+        third = self.send('third')
+        self.assertEqual(first.stat().st_ino, third.stat().st_ino)
+        self.assertNotEqual(second.stat().st_ino, third.stat().st_ino)
+
     def test_same_size_and_timestamp_content_change_is_transferred(self):
         first = self.send('first')
         stamp = self.file.stat().st_mtime_ns
