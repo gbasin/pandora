@@ -39,7 +39,7 @@ from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
 from . import attribution
-from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
+from . import enrollment, envfilter, fallback as policy, hints, install, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
 from .health import Monitor
@@ -996,7 +996,10 @@ class Daemon:
         """
         text, sources = enrollment.derive(
             root, repo, socket_path=str(self.socket_path),
-            client=str(settings.path_of(self.config_path)), home=PACKAGE_HOME,
+            client=str(settings.path_of(self.config_path)),
+            # `current` once a version is installed, never the version it names
+            # today: prune removes that one, and every cache would name nothing.
+            home=install.package_home(running=PACKAGE_HOME),
             load=lambda where, entry: self.repo_config(entry, Path(where)))
         # Only where the shim already looks: `pandora unenroll` removed the
         # registration and the marker, and a `pandora run` afterward must not

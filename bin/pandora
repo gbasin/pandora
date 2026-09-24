@@ -21,6 +21,15 @@ while [ -L "$self" ] && [ "$hops" -lt 40 ]; do
 done
 selfdir=${self%/*}
 home=${PANDORA_HOME:-$selfdir/..}
+# The physical directory: after `pandora upgrade` the script sits under the
+# `current` symlink, which the next upgrade flips, and a daemon that imports a
+# module hours later must find it in the version it started from.
+if physical=$(CDPATH='' cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
 PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
 export PYTHONPATH
-exec "${PANDORA_PYTHON:-python3}" -B -m pandora.cli "$@"
+# `python -m` puts the cwd ahead of PYTHONPATH, so a `pandora` typed inside a
+# checkout ran that checkout's code. `boot` is `-m` without the cwd: `-c` puts
+# "" first, which it drops, then runs the module as `-m` would. Not `-P`: a
+# 3.9 `python3` rejects the flag, and the shim's logger must run on one.
+boot='import runpy, sys; sys.path[:1] == [""] and sys.path.pop(0); del sys.argv[0]; runpy._run_module_as_main(sys.argv[0])'
+exec "${PANDORA_PYTHON:-python3}" -B -c "$boot" pandora.cli "$@"

@@ -22,17 +22,23 @@ Three things launchd does differently from a shell, each handled here:
   import `tomllib`, so launchd restarted a daemon that died at import every ten
   seconds. So the plist also sets `PANDORA_PYTHON` to the interpreter running
   `--install`, which the launcher uses before anything on PATH.
-* **The program is the checkout, not the symlink.** `ProgramArguments` names
-  `<checkout>/bin/pandora` as the running client resolved it, so the agent runs
-  the package this command came from. `~/.local/bin/pandora` may be re-pointed
-  later; the agent should not silently follow.
+* **The program is `current`, or the checkout, never the PATH symlink.** Once
+  `pandora upgrade` has run, `ProgramArguments` names `<data>/current/bin/pandora`
+  (`install.py`): a path through the symlink, so the plist never goes stale,
+  and the launcher resolves it to one version directory as it starts, so the
+  agent runs the version `current` named at its last start. Before that it
+  names `<checkout>/bin/pandora` as the running client resolved it.
+  `~/.local/bin/pandora` may be re-pointed later; the agent should not
+  silently follow.
 * **One daemon per state directory is a lock, and launchd does not know it.** A
   `KeepAlive` agent whose daemon exits at once because a hand-started one holds
   `daemon.lock` is restarted every ten seconds for ever. So `--install` refuses
   while a daemon launchd does not own holds the lock, and says how to stop it.
 
-The checkout moves often. A daemon keeps running the code it imported at start,
-so after updating the checkout run `pandora daemon --restart`, which is
+A daemon keeps running the code it imported at start. With a snapshot
+installed, pulling the checkout changes nothing live, and `pandora upgrade`
+installs the new commit and restarts the daemon at a safe moment. Without one,
+run `pandora daemon --restart` after updating the checkout. Both restart with
 `launchctl kickstart -k`: launchd stops the daemon with SIGTERM and starts it
 again from the same plist. Runs on the worker survive that; the daemon
 re-attaches to them on start (`Daemon.resume_interrupted`).
@@ -62,6 +68,8 @@ BASE_PATH = ('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sb
 STOP_SECONDS = 10.0
 RESTART_NOTE = ('after updating the checkout, run `pandora daemon --restart` '
                 '(launchctl kickstart -k): the daemon runs the code it started with')
+UPGRADE_NOTE = ('pulling the checkout changes nothing live; `pandora upgrade` installs '
+                'the new commit and restarts the daemon when no run would be lost')
 PACKAGE_HOME = Path(__file__).resolve().parents[2]
 
 
@@ -81,9 +89,31 @@ def plist_path(label, home=None):
     return Path(home or Path.home()) / 'Library' / 'LaunchAgents' / (label + '.plist')
 
 
-def launcher():
-    """`bin/pandora` in the checkout this code was imported from, links resolved."""
-    return (PACKAGE_HOME / 'bin' / 'pandora').resolve()
+def launcher(env=None, home=None):
+    """`<data>/current/bin/pandora` once a snapshot is installed, as spelled.
+
+    Otherwise `bin/pandora` in the checkout this code was imported from, links
+    resolved. `install.package_home` is the one rule for both.
+    """
+    from . import install
+    package = install.package_home(env, home, running=PACKAGE_HOME)
+    program = Path(package) / 'bin' / 'pandora'
+    # Through `current`, as spelled, whether or not this process can see the
+    # data root: a version directory names its own `current`.
+    return program if Path(package).name == install.CURRENT else program.resolve()
+
+
+def recorded_label(state):
+    """The label `--install` recorded for this state directory, or None.
+
+    Unlike `label_for`, never the default: a verb that would act on an agent
+    it was not told about (`upgrade --state /tmp/x` with nothing listening)
+    must not reach the machine's real daemon by default.
+    """
+    try:
+        return json.loads((Path(state) / RECORD).read_text())['label']
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def label_for(state, given=None):
@@ -212,7 +242,7 @@ def service_path(env, *, python=None):
 
 
 def render(label, *, program, config_path, state, path, state_arg=False, lang=None,
-           python=None):
+           python=None, data_home=None):
     """The agent's plist, as a dictionary `plistlib` writes."""
     arguments = [str(program), '--config', str(config_path)]
     if state_arg:
@@ -224,6 +254,10 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
         environment['PANDORA_PYTHON'] = str(python)
     if lang:
         environment['LANG'] = lang
+    if data_home:
+        # Where `current` is: the daemon writes paths through it, and without
+        # this a launchd daemon looks under ~/.local/share instead.
+        environment['XDG_DATA_HOME'] = data_home
     return {
         'Label': label,
         'ProgramArguments': arguments,
@@ -241,6 +275,15 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
         'StandardErrorPath': log,
         'WorkingDirectory': str(Path.home()),
     }
+
+
+def agent_program(label, home=None):
+    """The program the installed plist runs, as written, or None. Read-only."""
+    try:
+        with open(plist_path(label, home), 'rb') as handle:
+            return (plistlib.load(handle).get('ProgramArguments') or [None])[0]
+    except (OSError, ValueError, plistlib.InvalidFileException, AttributeError, IndexError):
+        return None
 
 
 def agent_python(label, home=None):
@@ -278,9 +321,11 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     # The interpreter running this install, by the stable name `this_python`
     # finds for it: proven able to import Pandora, since it is doing so now.
     interpreter = python or this_python(env)
-    body = render(label, program=launcher(), config_path=config_path, state=state,
+    program = launcher(env, home)
+    body = render(label, program=program, config_path=config_path, state=state,
                   path=service_path(env, python=interpreter),
-                  state_arg=state_arg, lang=env.get('LANG'), python=interpreter)
+                  state_arg=state_arg, lang=env.get('LANG'), python=interpreter,
+                  data_home=env.get('XDG_DATA_HOME'))
     Path(state).mkdir(parents=True, exist_ok=True)
     (Path(state) / 'logs').mkdir(exist_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -308,7 +353,8 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     say('  PANDORA_PYTHON %s' % body['EnvironmentVariables']['PANDORA_PYTHON'])
     say('  log      %s' % body['StandardOutPath'])
     say('launchd  %s: %s' % (label, after['line']))
-    say(RESTART_NOTE)
+    from . import install
+    say(UPGRADE_NOTE if install.installed(install.data_root(env, home)) else RESTART_NOTE)
     return body
 
 

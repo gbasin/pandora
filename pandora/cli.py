@@ -40,7 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] (read-only) | enroll <repo> | unenroll <repo> | worker <verb>
-  pandora daemon [--install | --restart (after a checkout update) | --uninstall | --stop]
+  pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...]
 """
 import argparse
 import json
@@ -84,9 +84,10 @@ def state_of(args):
 def cmd_daemon(args):
     """Run the daemon in the foreground, or manage the launchd agent that runs it.
 
-    `--install` writes a user agent that keeps the daemon running from this
-    checkout; after updating the checkout, `--restart` makes it load the new
-    code. See `client/launchd.py` for what the plist carries and why.
+    `--install` writes a user agent that keeps the daemon running from
+    `<data>/current` once `pandora upgrade` has run, else from this checkout;
+    `--restart` makes it load the code its plist names. See `client/launchd.py`
+    for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
     if verb:
@@ -128,6 +129,29 @@ def cmd_daemon_supervision(args):
     return 0
 
 
+def cmd_upgrade(args):
+    """Snapshot the checkout into `<data>/versions`, flip `current`, restart at a safe moment.
+
+    See `client/install.py` for the layout and why nothing runs from the checkout.
+    """
+    from .client import install
+    state, _config = state_of(args)
+    if args.keep < 2:
+        notice('--keep must be at least 2: current, and the version to go back to')
+        return 64
+    if args.version and (args.source or args.dirty):
+        notice('--version installs a version already built; it takes no --from or --dirty')
+        return 64
+    try:
+        return install.upgrade(state=state, source=args.source, version=args.version,
+                               dirty_ok=args.dirty, now=args.now, no_restart=args.no_restart,
+                               relink=True if args.relink else None, wait=args.wait,
+                               keep=args.keep, say=notice)
+    except (install.Refused, OSError) as error:
+        notice(str(error))
+        return 1
+
+
 def cmd_enroll(args):
     """Register a repository once: `[[repos]]`, registration, and this worktree's cache.
 
@@ -143,6 +167,7 @@ def cmd_enroll(args):
 
     It removes the v0.2 `pandora-enrolled` marker, which the new files replace.
     """
+    from .client import install
     state, config = state_of(args)
     common = enrollment.common_dir(args.repo)
     root = enrollment.worktree_root(args.repo)
@@ -185,7 +210,7 @@ def cmd_enroll(args):
                'if it is not what you meant, change it to:\n%s'
                % (config_path, known['name'], known['root'],
                   settings.repo_block(name, Path(root).resolve(), external)))
-    home = str(Path(__file__).resolve().parents[1])
+    home = install.package_home()
     socket_path = str(state / 'client.sock')
     enrollment.write(common, enrollment.registration_text(
         socket_path=socket_path, repo=known['name'], home=home), enrollment.REGISTRATION)
@@ -677,16 +702,41 @@ def main(argv=None):
     verbs = daemon.add_mutually_exclusive_group()
     verbs.add_argument('--install', action='store_true',
                        help='write a launchd user agent that keeps the daemon running from '
-                            'this checkout, and load it')
+                            '<data>/current (after `pandora upgrade`) or else this checkout, '
+                            'and load it')
     verbs.add_argument('--uninstall', action='store_true',
                        help='unload the agent and delete its plist')
     verbs.add_argument('--restart', action='store_true',
-                       help='launchctl kickstart -k: run after updating the checkout')
+                       help='launchctl kickstart -k; `pandora upgrade` does it at a safe '
+                            'moment')
     verbs.add_argument('--stop', action='store_true',
                        help='SIGTERM a hand-started daemon and wait up to 10 s')
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
+
+    upgrade = sub.add_parser('upgrade', help="install the checkout's HEAD as the version "
+                             'everything runs, and restart the daemon at a safe moment')
+    upgrade.add_argument('--from', dest='source', default=None, metavar='CHECKOUT',
+                         help='the checkout to snapshot (default: the one current came from)')
+    upgrade.add_argument('--dirty', action='store_true',
+                         help='snapshot uncommitted edits to tracked files instead of refusing')
+    upgrade.add_argument('--version', default=None, metavar='NAME',
+                         help='install a version already under versions/ (to go back to one)')
+    upgrade.add_argument('--now', action='store_true',
+                         help='restart the daemon at once: local runs and remote runs not yet '
+                              'accepted end (a submitting one is looked up on the worker)')
+    upgrade.add_argument('--no-restart', action='store_true',
+                         help='move current even though the daemon keeps its version until it '
+                              'restarts')
+    upgrade.add_argument('--relink', action='store_true',
+                         help='re-point the launchers on PATH even with a non-default data '
+                              'directory')
+    upgrade.add_argument('--wait', type=float, default=600, metavar='SECONDS',
+                         help='how long to wait for a safe moment to restart (default 600)')
+    upgrade.add_argument('--keep', type=int, default=3,
+                         help='versions to keep, current included (default 3, at least 2)')
+    upgrade.set_defaults(func=cmd_upgrade)
 
     # `enrol` and `unenrol` are the old British spellings, kept as hidden aliases
     # for one release so scripts and muscle memory keep working.

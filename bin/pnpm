@@ -239,6 +239,12 @@ PANDORA_REAL_PNPM=$real
 PANDORA_ROUTE_DEPTH=1
 export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
 python=${PANDORA_PYTHON:-python3}
+# Every Python start below is `-B -c "$boot" <module>`: no bytecode written
+# into a version directory, and `-m` without the cwd on sys.path (`bin/pandora`
+# says why), so a command typed inside a Pandora checkout still runs the
+# package `home` names. Not `-P`, which a 3.9 `python3` rejects: the kill
+# switch's logger has always run on one, and must not start failing.
+boot='import runpy, sys; sys.path[:1] == [""] and sys.path.pop(0); del sys.argv[0]; runpy._run_module_as_main(sys.argv[0])'
 # The package lives beside the *file* this shim is, which is not beside the
 # symlink on PATH that reached it. The daemon and `pandora enroll` write the
 # answer into every file above as `home`, so this walk -- one `readlink` fork
@@ -259,6 +265,16 @@ if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
     home=${target%/*}/..
 fi
 home=${PANDORA_HOME:-$home}
+# Pinned to the physical directory when Python will start, so a client that
+# outlives a `pandora upgrade` keeps importing from the version it began with
+# (`home` is usually `<data>/current`, which the upgrade flips). One subshell,
+# only on the paths that already start Python: the kill switch (with or
+# without `--decide`), a missing or stale cache's `--refresh`, a claim, and
+# the two loggers.
+if [ -n "$PANDORA_OFF" ] || { [ -n "$sock" ] && { [ "$fresh" = 0 ] || [ "$claimed" = 1 ] \
+        || [ "$heavy" = 1 ] || [ -n "$PANDORA_WHERE" ]; }; }; then
+    if physical=$(CDPATH='' cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
+fi
 
 if [ -n "$PANDORA_OFF" ]; then
     # The kill switch must never fail: without the logger or an interpreter to
@@ -268,11 +284,20 @@ if [ -n "$PANDORA_OFF" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
     if [ "$fresh" = 0 ]; then
-        exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        exec "$python" -B -c "$boot" pandora.client.passthrough --real "$real" --repo "$common" \
             --state "${sock%/*}" --sock "$sock" --reason off --decide -- "$@"
     fi
-    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+    exec "$python" -B -c "$boot" pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" --reason off -- "$@"
+fi
+
+# A `home` that no longer holds the client -- a removed checkout, a pruned
+# version -- must never block pnpm: the command runs here, unrouted, with one
+# line saying why. A builtin test, on the paths that start the client.
+if [ -n "$sock" ] && { [ "$fresh" = 0 ] || [ "$claimed" = 1 ]; } \
+        && [ ! -f "$home/pandora/client/shim.py" ]; then
+    echo "pandora: no client in $home; running here unrouted. \`pandora doctor\` says what to fix" >&2
+    exec "$real" "$@"
 fi
 
 # Missing or stale: the daemon decides, rewrites the cache as it does, and the
@@ -280,14 +305,14 @@ fi
 if [ "$fresh" = 0 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" --refresh \
+    exec "$python" -B -c "$boot" pandora.client.shim --sock "$sock" --real "$real" --refresh \
         --repo "$common" -- "$@"
 fi
 
 if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.shim --sock "$sock" --real "$real" -- "$@"
+    exec "$python" -B -c "$boot" pandora.client.shim --sock "$sock" --real "$real" -- "$@"
 fi
 # Unclaimed but heavy-looking: run it here, unchanged, and write down that it
 # happened, so `pandora stats` can say what routing did not take.  One Python
@@ -295,7 +320,7 @@ fi
 if [ "$heavy" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+    exec "$python" -B -c "$boot" pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" -- "$@"
 fi
 # A placement override on a command nobody claims has nowhere to go, so it is
@@ -304,7 +329,7 @@ fi
 if [ -n "$PANDORA_WHERE" ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
     export PYTHONPATH
-    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+    exec "$python" -B -c "$boot" pandora.client.passthrough --real "$real" --repo "$common" \
         --state "${sock%/*}" --reason override-ignored -- "$@"
 fi
 exec "$real" "$@"

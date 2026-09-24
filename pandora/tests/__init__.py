@@ -20,3 +20,17 @@ for _name in ('PANDORA_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CODEX_COMPANION_SESS
 # Nothing in the suite reads the person's own client configuration: a test that
 # wants one passes `--config` or sets this to a file it wrote.
 os.environ['PANDORA_CONFIG'] = os.path.join(os.sep, 'nonexistent', 'pandora-test-config.toml')
+
+# The same belt for Pandora's own data directory: `current` and its versions
+# live under XDG_DATA_HOME, and no test may read the real one or write there.
+import atexit as _atexit
+import shutil as _shutil
+import tempfile as _tempfile
+
+_scratch = _tempfile.mkdtemp(prefix='pandora-test-home-')
+os.environ['XDG_DATA_HOME'] = os.path.join(_scratch, 'data')
+# HOME too: `Path.home()` is where the default data root, `~/.local/bin` and
+# `~/Library/LaunchAgents` are found, and none of them may be the real ones.
+os.environ['HOME'] = os.path.join(_scratch, 'home')
+os.makedirs(os.environ['HOME'])
+_atexit.register(_shutil.rmtree, _scratch, True)
