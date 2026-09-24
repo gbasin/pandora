@@ -17,8 +17,7 @@ than taking the rest down with it.
 Read-only, all the way down: nothing here writes a file, starts a process that
 writes one, or asks the daemon anything but `ping` -- whose answer carries the
 worker-health reading the daemon already has cached, so not even a health poll
-is triggered. `ps` is deliberately not used: it samples the pause gate, which
-can move its counters. The other processes asked anything are `launchctl
+is triggered. The other processes asked anything are `launchctl
 print`, for whether launchd supervises the daemon that answered, and `git
 rev-parse HEAD` in the checkout `current` was built from, for whether it has
 moved on since.

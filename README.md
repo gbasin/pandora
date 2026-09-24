@@ -911,7 +911,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line, which ends `as <client name>` and counts other clients' live runs on a shared worker. While a restart drains, `daemon: draining` comes before it. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter` and `client`; the table has no room for them. |
+| `pandora ps [--json] [--limit N]` | Every active run and the latest 20 completed runs. `--limit` selects 0–200 completed runs, for both text and JSON. Worker health includes the client name and other clients' live counts; pressure includes the sample age. While a restart drains, `daemon: draining` comes first. A remote run not yet accepted shows `freezing`, `shipping` or `submitting`. JSON includes each run's `submitter` and `client`. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
@@ -920,6 +920,15 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return. For orchestrators. `--local` and `--remote` place the run. |
+
+`ps` reads the daemon's published status without probing the host or worker.
+Pressure is sampled when local admission needs it. Its age can therefore grow
+while the local lane is idle. The daemon retains up to 200 completed rows for
+status and rebuilds that view at startup; older results remain available by
+run ID. `ps` allows two seconds for a daemon response. An unavailable or
+unresponsive daemon returns exit 70 and reports run status as unknown. JSON
+sets `daemon.responding` to false; its empty `runs` list does not mean idle.
+No historical files are read as a fallback.
 
 Ctrl-C on a routed command cancels it. Killing the shim (for example, when an
 agent's tool call times out) does not; the run continues, and `pandora wait

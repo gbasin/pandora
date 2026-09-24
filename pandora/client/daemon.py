@@ -48,6 +48,7 @@ from . import local as local_module
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
 from .protocol import Reader, VERSION, dump, log_frame
+from .status import RunStatus
 from .worker import Worker
 
 
@@ -142,8 +143,9 @@ class Heartbeat:
 class Run:
     """One routed attempt. Its log file is the single source of truth."""
 
-    def __init__(self, state, run_id, request):
+    def __init__(self, state, run_id, request, *, on_save=None):
         self.id = run_id
+        self.on_save = on_save
         self.request = request
         self.dir = Path(state) / 'runs' / run_id
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -245,6 +247,8 @@ class Run:
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
+        if self.on_save is not None:
+            self.on_save(payload)
 
     def worktree(self):
         """Where the run's paths are rooted: the worktree, not where it was typed.
@@ -475,6 +479,7 @@ class Daemon:
         os.chmod(self.state, 0o700)
         self.socket_path = self.state / 'client.sock'
         self.runs = {}
+        self.status = RunStatus()
         self.runs_lock = threading.Lock()
         self.stopping = stopping if stopping is not None else threading.Event()
         # {'since', 'pid', 'daemon'} while a restart drains this daemon, else
@@ -694,6 +699,7 @@ class Daemon:
                 payload = json.loads(meta.read_text())
             except (OSError, ValueError):
                 continue
+            self.status.update(dict(payload, id=meta.parent.name))
             if payload.get('state') not in ('queued', 'running'):
                 continue
             run = self.resume_row(payload)
@@ -736,7 +742,7 @@ class Daemon:
         explicit `pandora cancel` of the row: a local one ends `cancelled`, a
         remote one is followed with its cancel already asked for.
         """
-        run = Run(self.state, payload['id'], payload)
+        run = Run(self.state, payload['id'], payload, on_save=self.status.update)
         run.lane = payload.get('lane') or 'remote'
         run.remote = payload.get('remote')
         run.accepted = payload.get('accepted')
@@ -968,7 +974,6 @@ class Daemon:
                            'exit': exit if exit is not None else self.EXITS.get(code, 1)}))
 
     def dispatch(self, conn):
-        self.refresh()
         uid = peer_uid(conn)
         if uid is not None and uid != os.getuid():
             self.deny(conn, 'unauthorized', 'socket serves uid %d only' % os.getuid())
@@ -986,6 +991,8 @@ class Daemon:
                       '(`pandora doctor` says where they point)' % install.update_fix(PACKAGE_HOME))
             return
         op = first.get('op')
+        if op != 'ps':
+            self.refresh()
         if op == 'ping':
             conn.sendall(dump({'v': VERSION, 't': 'pong', 'pid': os.getpid(),
                                # What `doctor` reports as the daemon's interpreter.
@@ -1001,8 +1008,8 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'stats',
                                'data': self.stats(first.get('since'))}))
         elif op == 'ps':
-            self.gate.sample()          # a person asked; answer about now, not about then
-            conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
+            conn.sendall(dump({'v': VERSION, 't': 'ps',
+                               'data': self.ps(int(first.get('limit', 20))),
                                'pause': self.gate.state(),
                                'worker': self.health.state(), 'client': self.client_name(),
                                'draining': self.draining}))
@@ -1412,7 +1419,7 @@ class Daemon:
                 return
             run = Run(self.state, uuid.uuid4().hex[:12],
                       dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
-                           writeback=bool(plan.get('writeback'))))
+                           writeback=bool(plan.get('writeback'))), on_save=self.status.update)
             run.state = 'queued'
             self.hold(run)
             run.save()
@@ -1678,7 +1685,8 @@ class Daemon:
                                    'msg': str(error), 'exit': STALE}))
                 return
             run = Run(self.state, run_id,
-                      dict(request, repo=repo['name'], job=job['id'], reason=reason))
+                      dict(request, repo=repo['name'], job=job['id'], reason=reason),
+                      on_save=self.status.update)
             run.lane = 'local'
             self.hold(run)
             run.save()
@@ -2099,7 +2107,7 @@ class Daemon:
                 return driven
             if self.orphaned(dict(payload, id=run_id)):
                 return self.resume_row(dict(payload, id=run_id), cancel=cancel)
-        run = Run(self.state, run_id, payload)
+        run = Run(self.state, run_id, payload, on_save=self.status.update)
         run.state = payload.get('state', 'done')
         run.exit_code = payload.get('exit_code')
         run.remote = payload.get('remote')
@@ -2159,15 +2167,8 @@ class Daemon:
 
     # -- reporting ---------------------------------------------------------
 
-    def ps(self):
-        rows = []
-        for meta in sorted((self.state / 'runs').glob('*/meta.json')):
-            try:
-                rows.append(json.loads(meta.read_text()))
-            except (OSError, ValueError):
-                continue
-        rows.sort(key=lambda row: row.get('started', 0), reverse=True)
-        return rows
+    def ps(self, limit=20):
+        return self.status.rows(limit)
 
     def stats(self, window=None):
         """The report, from disk plus at most one engine call.

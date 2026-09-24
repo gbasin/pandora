@@ -191,12 +191,12 @@ class Verbs(DaemonCase):
         self.assertEqual(self.pandora('result', 'f1')[0], 3)
 
     def test_ps_names_the_pre_accept_step_of_a_queued_remote_row(self):
+        from pandora.client.daemon import Run
         for run_id, phase in (('p1', 'ship'), ('p2', 'submit'), ('p3', None)):
-            directory = self.state / 'runs' / run_id
-            directory.mkdir(parents=True)
-            (directory / 'meta.json').write_text(json.dumps(
-                {'id': run_id, 'state': 'queued', 'lane': 'remote', 'phase': phase,
-                 'argv': ['pnpm', 'check']}))
+            run = Run(self.state, run_id, {'argv': ['pnpm', 'check']},
+                      on_save=self.daemon.status.update)
+            run.phase = phase
+            run.save()
         code, out, _ = self.pandora('ps')
         self.assertEqual(code, 0)
         words = {line.split()[0]: line.split()[1:3] for line in out.splitlines()
