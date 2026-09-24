@@ -197,5 +197,52 @@ class TransferConcurrencyTest(unittest.TestCase):
         self.assertEqual(list(Path(paths['base']).glob('failed.partial*')), [])
 
 
+    def test_an_rsync_timeout_is_a_transfer_error_and_the_stage_is_cleaned(self):
+        source = self.source('first', 'first')
+
+        def slow_rsync(argv, **kwargs):
+            if argv[0] == 'rsync':
+                raise subprocess.TimeoutExpired(argv, kwargs.get('timeout'))
+            return self.fake_rsync(argv, **kwargs)
+
+        with mock.patch.object(transfer.subprocess, 'run', side_effect=slow_rsync):
+            with self.assertRaisesRegex(TransferError, 'rsync to local timed out after 7 s'):
+                transfer.send(self.link, [{'path': 'file.txt'}], worktree=source,
+                              root=str(self.root / 'worker'), repo='repo', input_id='slow',
+                              timeout=7)
+        paths = transfer.cache_paths(str(self.root / 'worker'), 'repo', 'slow')
+        self.assertEqual(list(Path(paths['base']).glob('slow.partial*')), [])
+
+    def test_a_failing_cleanup_is_logged_and_never_replaces_the_cause(self):
+        source = self.source('first', 'first')
+        logged = []
+
+        class CleanupFails(LocalLink):
+            def feed(self, script, args=(), **kwargs):
+                if 'rmtree' in script:
+                    raise TransferError('ssh died during cleanup')
+                return super().feed(script, args, **kwargs)
+
+        def failed_rsync(argv, **kwargs):
+            if argv[0] == 'rsync':
+                return subprocess.CompletedProcess(argv, 255, b'', b'unexpected end of file')
+            return _REAL_RUN(argv, **kwargs)
+
+        for rsync, expect in ((failed_rsync, 'unexpected end of file'), (self.fake_rsync, None)):
+            logged.clear()
+            with mock.patch.object(transfer.subprocess, 'run', side_effect=rsync):
+                call = lambda: transfer.send(  # noqa: E731
+                    CleanupFails(), [{'path': 'file.txt'}], worktree=source,
+                    root=str(self.root / 'worker'), repo='repo', input_id='c-%s' % bool(expect),
+                    log=logged.append)
+                if expect:
+                    with self.assertRaisesRegex(TransferError, expect):
+                        call()
+                else:
+                    self.assertFalse(call()['reused'])
+            self.assertEqual(len(logged), 1, logged)
+            self.assertIn('ssh died during cleanup', logged[0])
+
+
 if __name__ == '__main__':
     unittest.main()

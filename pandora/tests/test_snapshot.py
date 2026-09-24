@@ -251,6 +251,21 @@ class LinkOwnershipTest(unittest.TestCase):
             link.close()
             self.assertEqual(self.verbs(calls), ['check'])
 
+    def test_an_ssh_call_that_times_out_is_an_unreachable_worker(self):
+        from pandora.errors import WorkerUnreachable
+        from pandora.snapshot import transfer
+        with tempfile.TemporaryDirectory() as tmp:
+            link = transfer.Link('user@host', Path(tmp) / 'ssh')
+            link.owns_master = False
+
+            def hang(argv, **kwargs):
+                raise subprocess.TimeoutExpired(argv, kwargs.get('timeout'))
+            with mock.patch.object(transfer.subprocess, 'run', side_effect=hang):
+                with self.assertRaisesRegex(WorkerUnreachable, 'no answer within 60 s'):
+                    link.run(['true'], timeout=60)
+                with self.assertRaises(WorkerUnreachable):
+                    link.feed('pass', timeout=5)
+
     def test_a_link_that_never_called_exits_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             link, calls = self.link(tmp, master_running=False)
