@@ -482,6 +482,10 @@ class Daemon:
         # so a drain's count of what is in flight misses nothing.
         self.draining = None
         self.admitting = threading.Lock()
+        # When the last `drain` arrived (monotonic). A drain is a lease: a
+        # restarter that dies (SIGKILL, a tool timeout) stops renewing it, and
+        # the daemon admits runs again rather than answer `draining` for nobody.
+        self.drain_renewed = None
         self.handlers = set()             # live connection threads, drained at stop
         self.server = None
         self.lock_handle = None
@@ -633,7 +637,12 @@ class Daemon:
                 break
             except OSError:
                 pass
-            if time.monotonic() >= deadline or self.stopping.is_set():
+            if self.stopping.is_set():
+                # Told to stop before it ever ran: nothing to report.
+                handle.close()
+                log('stopped while waiting for %s' % (self.state / 'daemon.lock'))
+                raise SystemExit(0)
+            if time.monotonic() >= deadline:
                 handle.close()
                 raise SystemExit('pandora daemon already running for ' + str(self.state))
             if not said:
@@ -890,6 +899,7 @@ class Daemon:
     def serve(self):
         self.server.settimeout(0.25)
         while not self.stopping.is_set():
+            self.check_lease()
             try:
                 conn, _ = self.server.accept()
             except socket.timeout:
@@ -903,16 +913,19 @@ class Daemon:
 
     def stop(self):
         self.stopping.set()
+        # The listener first: a client that connects now finds no socket and
+        # waits on the draining marker, where one accepted and then dropped at
+        # exit would have read EOF and lost its command.
+        for closer in (lambda: self.server.close(), lambda: self.socket_path.unlink()):
+            try:
+                closer()
+            except (OSError, AttributeError):
+                pass
         self.close_local_runs()
         self.health.stop()
         for worker in self.workers.values():
             try:
                 worker.close()
-            except OSError:
-                pass
-        for closer in (lambda: self.server.close(), lambda: self.socket_path.unlink()):
-            try:
-                closer()
             except OSError:
                 pass
         if self.lock_handle:
@@ -1193,6 +1206,11 @@ class Daemon:
                     log('drain: could not write %s: %s'
                         % (draining.marker_path(self.state), error))
                 log('drain: requested by pid %s; admitting nothing new' % (pid or '?'))
+            else:
+                # Renewed: dated now, so a client in the gap and `doctor` both
+                # see a drain someone is still driving.
+                draining.touch_marker(self.state)
+            self.drain_renewed = time.monotonic()
             with self.runs_lock:
                 live = [run for run in list(self.runs.values()) + list(self.pending.values())
                         if not run.done.is_set()]
@@ -1218,12 +1236,29 @@ class Daemon:
                 'local': sum(row['lane'] == 'local' for row in blocking),
                 'pre_accept': sum(row['lane'] != 'local' for row in blocking)}
 
-    def undrain(self):
+    def undrain(self, why='cancelled'):
         with self.admitting:
             was, self.draining = self.draining, None
             draining.clear_marker(self.state)
         if was is not None:
-            log('drain: cancelled; admitting runs again')
+            log('drain: %s; admitting runs again' % why)
+
+    def check_lease(self, clock=time.monotonic):
+        """End a drain nobody has renewed within `LEASE_SECONDS`. Not while stopping."""
+        renewed = self.drain_renewed
+        if (self.draining is not None and renewed is not None and not self.stopping.is_set()
+                and clock() - renewed > draining.LEASE_SECONDS):
+            self.undrain('no drain request for %ds, so whoever asked for it is gone'
+                         % draining.LEASE_SECONDS)
+
+    def withdraw_drained(self, conn, run):
+        """A queued local run a drain marked: release its slot, close it, tell the caller to ask again."""
+        self.budget.finish(run.id, 0, 'lost')
+        if not run.done.is_set():
+            run.note('the daemon began a restart while this run was queued; nothing ran, '
+                     'and the client submits it again')
+            run.finish(INFRA, state='withdrawn')
+        self.answer_draining(conn)
 
     def answer_draining(self, conn):
         """Nothing ran: ask again in a moment, of this daemon or the next."""
@@ -1680,14 +1715,12 @@ class Daemon:
             self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
             run.finish(STALE, state='refused')
             return
-        if admission is None and run.drained and not run.canceled.is_set():
+        if admission is None and run.drained and (not run.canceled.is_set()
+                                                  or self.stopping.is_set()):
             # A restart began while it queued: nothing started, and the next
-            # daemon queues it again when the caller asks.
-            self.budget.finish(run.id, 0, 'lost')
-            run.note('the daemon began a restart while this run was queued; nothing ran, '
-                     'and the client submits it again')
-            run.finish(INFRA, state='withdrawn')
-            self.answer_draining(conn)
+            # daemon queues it again when the caller asks. A stop (`--now`)
+            # that closed the row first does not change that answer.
+            self.withdraw_drained(conn, run)
             return
         if admission is None and run.canceled.is_set():
             # `pandora cancel` while it queued, or a stop: nothing started.
@@ -1710,7 +1743,13 @@ class Daemon:
             self.budget.finish(run.id, 0, 'lost')
             run.finish(INFRA, state='withdrawn')
             return
-        run.state = 'running'
+        with self.admitting:
+            # Under the drain's own lock: a drain either saw this run queued
+            # and marked it, or sees it running and waits for it.
+            if run.drained:
+                self.withdraw_drained(conn, run)
+                return
+            run.state = 'running'
         run.accepted = now()
         run.save()
         with self.runs_lock:

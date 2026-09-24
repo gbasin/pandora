@@ -66,6 +66,7 @@ class Startup(unittest.TestCase):
         config.write_text('[client]\nstate = "%s"\n[notify]\nenabled = false\n'
                           '[local.pause]\nenabled = false\n' % (Path(home.name) / 'state'))
         daemon = daemon_module.Daemon(config_path=str(config), stopping=stopping)
+        self.addCleanup(daemon.budget.admission.store.close)
         stopping.set()                     # what the handler does, mid-start
         daemon.start()
         self.addCleanup(daemon.stop)
@@ -136,6 +137,9 @@ class TheLock(unittest.TestCase):
                           '[local.pause]\nenabled = false\n' % self.state)
         self.daemon = daemon_module.Daemon(config_path=str(config))
         self.addCleanup(lambda: self.daemon.lock_handle and self.daemon.lock_handle.close())
+        # Its SQLite handle, closed here: collected later, its ResourceWarning
+        # landed in another test's captured stderr.
+        self.addCleanup(self.daemon.budget.admission.store.close)
 
     def hold(self, pid):
         """The predecessor: it holds the lock and has written its pid."""
@@ -165,13 +169,17 @@ class TheLock(unittest.TestCase):
             self.daemon.acquire_lock(wait=0.3, poll=0.05)
         self.assertIn('already running', str(stop.exception))
 
-    def test_a_stop_while_it_waits_ends_the_wait(self):
+    def test_a_stop_while_it_waits_ends_the_wait_quietly(self):
         self.hold(4321)
         threading.Timer(0.2, self.daemon.stopping.set).start()
         started = time.monotonic()
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
             self.daemon.acquire_lock(wait=30, poll=0.05)
         self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(stop.exception.code, 0)
+        self.assertNotIn('already running', err.getvalue())
+        self.assertIn('stopped while waiting', err.getvalue())
 
 
 if __name__ == '__main__':

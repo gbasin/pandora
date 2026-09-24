@@ -661,6 +661,8 @@ class Upgrade(Case):
 
     def ask(self, _sock, request, timeout=30.0):
         """The daemon's side of a drain: the marker, and the rows that still block."""
+        if request['op'] == 'ping':
+            return {'t': 'pong', 'pid': 4242}
         self.assertEqual(request['op'], 'drain')
         if request.get('cancel'):
             drain.clear_marker(self.state)
@@ -739,6 +741,35 @@ class Upgrade(Case):
         self.fake.successor_settles = False
         self.assertEqual(self.upgrade(), 1)
         self.assertIn('`pandora upgrade --version %s`' % Path(self.old).name, self.said[-1])
+
+    def test_a_drain_that_cannot_be_ended_does_not_claim_nothing_changed(self):
+        self.rows = [ROWS] * 1000
+        ask = self.ask
+
+        def silent_on_cancel(sock, request, timeout=30.0):
+            if request.get('cancel'):
+                raise TimeoutError('timed out')
+            return ask(sock, request, timeout)
+        self.ask = silent_on_cancel
+        self.assertEqual(self.upgrade(wait=30), 75)
+        self.assertEqual(self.current(), self.old)
+        text = '\n'.join(self.said)
+        self.assertIn('could not end the drain', text)
+        self.assertNotIn('Nothing changed', text)
+        self.assertIn('may hold new commands for up to 30s more', text)
+
+    def test_the_check_after_the_restart_is_ten_seconds_not_twenty_timeouts(self):
+        asked = []
+
+        def slow_after_restart():
+            if self.fake.loaded.get(self.LABEL) != 4242:
+                asked.append(1)
+                self.clock.now += 3            # a ping that times out costs its timeout
+                raise TimeoutError('timed out')
+            return self.pong
+        self.ping = slow_after_restart
+        self.assertEqual(self.upgrade(), 1)
+        self.assertLessEqual(len(asked), 4)
 
     def test_now_does_not_wait_and_says_what_ends(self):
         self.rows = [ROWS, ROWS]

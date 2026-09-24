@@ -92,10 +92,19 @@ def restart_drained(args, launchd, label, state):
     """`--restart`: drain, wait for what a restart would end, then kickstart."""
     from .client import drain
     # Before the drain, so a daemon launchd does not run is never left draining.
-    if not launchd.status(label)['loaded']:
+    agent = launchd.status(label)
+    if not agent['loaded']:
         raise launchd.Refused('%s is not loaded in launchd; `pandora daemon --install` first, '
                               'or restart a hand-started daemon by stopping it and starting '
                               'it' % label)
+    holder = launchd.lock_holder(state)
+    if holder and agent['pid'] != holder:
+        # A kickstart would restart launchd's agent, not the daemon that
+        # answers: that one would be drained and never restarted.
+        raise launchd.Refused('pid %s holds %s but launchd runs %s as pid %s, so a restart '
+                              'would not reach it. `pandora daemon --stop`, then `pandora '
+                              'daemon --restart`' % (holder, state / 'daemon.lock', label,
+                                                     agent['pid']))
     return drain.drain_and_restart(
         state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
         now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice))
@@ -268,6 +277,10 @@ def check_daemon_knows_claims(sock_path, root):
     except OSError as error:
         notice('no daemon answers on %s (%s). Claimed commands exit 70 until one does: '
                '`pandora daemon --install`' % (sock_path, error))
+        return
+    if (answer or {}).get('t') == 'draining':
+        notice('the daemon on %s is draining for a restart; the next claimed command in '
+               'this worktree writes its cache' % sock_path)
         return
     if (answer or {}).get('t') != 'claims':
         notice('the daemon on %s predates claim caches. Until it restarts, every command '

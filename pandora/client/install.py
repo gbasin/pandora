@@ -626,6 +626,9 @@ def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
     job = Job(state=Path(state), data=data, env=env, home=home, now=now, wait=wait,
               platform=platform or sys.platform, launchctl=launchctl, relink=relink,
               ping=ping or (lambda: doctor_ping(sock)), ask=ask or drain.ask,
+              # After the restart, one ask per half second against a 10 s
+              # deadline: a 30 s timeout each would make it ten minutes.
+              quick_ping=ping or (lambda: doctor_ping(sock, timeout=2.0)),
               clock=clock, sleep=sleep, say=say, before=installed(data), source=None)
     if version:
         job.target = pick(data, version)
@@ -779,16 +782,25 @@ class Job:
         it was.
         """
         from . import drain, launchd
-        kicked = []
+        kicked, report = [], {}
 
         def kickstart():
-            launchd.restart(self.label, run=self.launchctl, say=self.say)
-            kicked.append(True)
+            # `kicked` the moment launchd took it: a status line that fails
+            # afterwards must not move `current` back under a new daemon.
+            launchd.restart(self.label, run=self.launchctl, say=self.say,
+                            kicked=lambda: kicked.append(True))
+
+        def undo():
+            if self.flipped:
+                self.undo()
+                self.say('current  back to %s' % (self.before['name'] if self.before
+                                                  else '(none)'))
         try:
             code = drain.drain_and_restart(
                 self.state, restart=kickstart, wait=0 if self.now else self.wait,
-                now=self.now, say=self.say, before_restart=self.install, ask=self.ask,
-                clock=self.clock, sleep=self.sleep, again='`pandora upgrade --now`')
+                now=self.now, say=self.say, before_restart=self.install,
+                undo_before_restart=undo, ask=self.ask, clock=self.clock, sleep=self.sleep,
+                again='`pandora upgrade --now`', report=report)
         except launchd.Refused as error:
             if self.flipped:
                 self.undo()
@@ -800,7 +812,17 @@ class Job:
                 self.undo()
             raise
         if code == 75:
-            self.say('%s. Run `pandora upgrade` again later, or with --now' % self.unchanged())
+            if report.get('undrained', True):
+                self.say('%s. Run `pandora upgrade` again later, or with --now'
+                         % self.unchanged())
+            else:
+                # Honest: `current` did not move, but the daemon may still
+                # answer `draining` until its lease runs out.
+                self.say('current is still %s and %s waits in versions/, but the daemon may '
+                         'hold new commands for up to %ds more. Run `pandora upgrade` again '
+                         'later, or with --now'
+                         % (self.before['name'] if self.before else '(none)',
+                            self.target['name'], drain.LEASE_SECONDS))
             return 75, old_home
         if code != 0:
             self.say(self.way_back())
@@ -821,10 +843,13 @@ class Job:
         return ('To go back: `pandora upgrade --version %s`' % self.before['name']
                 if self.before else '')
 
+    CONFIRM_SECONDS = 10.0
+
     def confirm(self, old_pid, old_home):
-        """A new daemon answers, and runs the target version."""
-        for _ in range(20):
-            kind, fresh = probe(self.ping)
+        """A new daemon answers within `CONFIRM_SECONDS`, and runs the target version."""
+        deadline = self.clock() + self.CONFIRM_SECONDS
+        while self.clock() < deadline:
+            kind, fresh = probe(self.quick_ping)
             if kind == 'pong' and fresh.get('pid') != old_pid:
                 runs = version_label(fresh.get('home'), self.data)
                 self.say('daemon   pid %s runs %s' % (fresh.get('pid'), runs))

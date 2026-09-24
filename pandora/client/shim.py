@@ -131,10 +131,10 @@ def connect(path, timeout=HANDSHAKE_SECONDS):
     return sock
 
 
-def handshake(sock, request):
+def handshake(sock, request, reader=None):
     """Send the request; return (reader, accepted-or-error frame, or None)."""
     sock.sendall(dump(request))
-    reader = Reader(sock)
+    reader = reader or Reader(sock)
     while True:
         frame = reader.line()
         if frame is None:
@@ -413,31 +413,38 @@ def claimed_here(sock_path, command, cwd=None):
 def refresh(args, command, state, waiter):
     """The slow path: None when the command is claimed, else the exit code it ran to.
 
-    A restart is waited for here as it is for a run, on the same budget.
+    A restart is waited for here as it is for a run, on the same budget, and
+    only by a claimed command: an unclaimed one is decided from this
+    worktree's own config and runs at once.
     """
+    decided = []
+
+    def here():
+        if not decided:
+            decided.append(claimed_here(args.sock, command))
+        return decided[0]
     while True:
         try:
             answer = ask_claims(args.sock, command)
         except (OSError, ValueError):
+            # No daemon: decide from this worktree's own config, as the daemon
+            # would have. A claimed command then waits for a restart, or meets
+            # the no-daemon passthrough below, with its notice and its row.
+            claimed, heavy = here()
+            if not claimed:
+                return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
             if waiter.absent():
                 continue
-            answer = None
-            gone = True
-        else:
-            gone = False
-            if answer is not None and answer.get('t') == 'draining':
-                if waiter.draining(answer.get('retry_after')):
-                    continue
-                gone = True           # the wait is spent: decide as with no daemon
-        break
-    if gone:
-        # No daemon: decide from this worktree's own config, as the daemon
-        # would have. A claimed command then meets the no-daemon passthrough
-        # below, with its notice and its row.
-        claimed, heavy = claimed_here(args.sock, command)
-        if claimed:
             return None
-        return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+        if answer is not None and answer.get('t') == 'draining':
+            claimed, heavy = here()
+            if not claimed:
+                return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+            if waiter.draining(answer.get('retry_after')):
+                continue
+            notice(waiter.still_draining())
+            return STALE
+        break
     if answer is not None and answer.get('refreshed'):
         # The daemon found this worktree's config changed and rewrote its
         # claims: said once, here, because the next command reads the new ones.
@@ -534,7 +541,7 @@ def main(argv=None):
         notice(str(error))
         return USAGE
 
-    def no_daemon(cause, message):
+    def no_daemon(cause, message, hint=None):
         """The daemon is not there: run the command as if Pandora were absent.
 
         Only two requests cannot be honored without a daemon and are refused:
@@ -576,8 +583,8 @@ def main(argv=None):
         # and an engineer whose daemon died must not lose `pnpm journey` (the
         # owner's rule for machines without Pandora: always run directly).
         notice('%s; running it here as if Pandora were not installed (exit codes '
-               'are the command\'s own; start the daemon with `pandora daemon '
-               '--install` to route again)' % message)
+               'are the command\'s own; %s)' % (message, hint or 'start the daemon with '
+                                                 '`pandora daemon --install` to route again'))
         return run_local(args.real, command, state=state, claimed=False,
                          reason=cause, where=where)
 
@@ -610,6 +617,8 @@ def main(argv=None):
         return pass_through('claimed only at the worktree root; not routed')
 
     request = build_request(command, where=where)
+    after_drain = ('a restart drained the daemon and no new one answered; `pandora doctor` '
+                   'and <state>/logs/daemon.log say why')
     while True:
         try:
             # A daemon installed here gets a short grace, for a restart in progress;
@@ -621,29 +630,37 @@ def main(argv=None):
                 continue
             if waiter.waited():
                 notice(waiter.gave_up())
-            return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
+            return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error),
+                             hint=after_drain if waiter.waited() else None)
         sock.settimeout(HANDSHAKE_SECONDS)
+        reader = Reader(sock)
+        sent = time.time()
         try:
-            reader, frame = handshake(sock, request)
+            reader, frame = handshake(sock, request, reader)
         except (OSError, socket.timeout, ValueError) as error:
             sock.close()
+            if reader.consumed == 0 and waiter.fresh_since(sent) and waiter.absent():
+                continue        # a stopping daemon dropped it unanswered: nothing ran
             notice('connection failed after submission (%s); execution is uncertain. '
                    'Check pandora ps before retrying. Nothing was replayed locally.'
                    % type(error).__name__)
             return INFRA
         if frame is None:
             sock.close()
+            if reader.consumed == 0 and waiter.fresh_since(sent) and waiter.absent():
+                continue        # a stopping daemon dropped it unanswered: nothing ran
             notice('daemon closed the connection after submission; execution is uncertain. '
                    'Check pandora ps before retrying. Nothing was replayed locally.')
             return INFRA
         if frame.get('t') != 'draining':
             break
-        # Nothing ran: the daemon is restarting and said so. Ask again.
+        # Nothing ran: the daemon is restarting and said so. Ask again. A live
+        # daemon that still says so when the wait runs out is not a missing
+        # one: running the command here unmanaged is the overload it prevents.
         sock.close()
         if not waiter.draining(frame.get('retry_after')):
-            if waiter.waited():
-                notice(waiter.gave_up())
-            return no_daemon('daemon-draining', 'the daemon is still restarting')
+            notice(waiter.still_draining())
+            return STALE
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')

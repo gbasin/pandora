@@ -299,6 +299,14 @@ class Verbs(Case):
         with self.assertRaises(launchd.Refused):
             launchd.restart('com.pandora.daemon', uid=501, run=FakeLaunchd())
 
+    def test_kicked_is_said_before_the_status_line_is_read(self):
+        fake = FakeLaunchd({'com.pandora.daemon': 100})
+        at = []
+        launchd.restart('com.pandora.daemon', uid=501, run=fake, say=self.said.append,
+                        kicked=lambda: at.append(list(fake.calls)))
+        self.assertEqual(at[0][-1][:2], ['kickstart', '-k'])
+        self.assertEqual(fake.calls[-1][0], 'print')
+
     def test_the_cli_parses_the_verbs(self):
         from pandora import cli
         with mock.patch.object(cli, 'cmd_daemon_supervision', return_value=0) as called:

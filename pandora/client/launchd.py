@@ -397,7 +397,8 @@ def uninstall(label, *, state, uid=None, home=None, run=subprocess.run, say=prin
         '`pandora daemon --install`')
 
 
-def restart(label, *, uid=None, run=subprocess.run, say=print):
+def restart(label, *, uid=None, run=subprocess.run, say=print, kicked=None):
+    """`kickstart -k`. `kicked()` runs the moment launchd has taken it, before anything else."""
     before = status(label, uid=uid, run=run)
     if not before['loaded']:
         raise Refused('%s is not loaded in launchd; `pandora daemon --install` first, or '
@@ -405,6 +406,8 @@ def restart(label, *, uid=None, run=subprocess.run, say=print):
     out = launchctl(['kickstart', '-k', '%s/%s' % (domain(uid), label)], run=run)
     if out.returncode != 0:
         raise Refused('launchctl kickstart failed: %s' % (out.stderr or out.stdout).strip())
+    if kicked is not None:
+        kicked()
     say('launchd  %s: %s' % (label, status(label, uid=uid, run=run)['line']))
 
 
