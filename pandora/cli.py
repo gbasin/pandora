@@ -372,8 +372,7 @@ def cmd_result(args):
     path = state / 'runs' / args.run / 'result.json'
     result = read_json(path)
     if result is None:
-        notice('no result for run %s (still running, or it never reached the worker)' % args.run)
-        return 1
+        return result_without_one(args, read_json(path.parent / 'meta.json'))
     if args.json:
         # A result from an engine before the rename has only the old key; both
         # are printed for one release, `same_input_as` as the alias.
@@ -383,6 +382,35 @@ def cmd_result(args):
         return 0
     print(render_result(args.run, result))
     return 0
+
+
+def result_without_one(args, meta):
+    """A run that wrote no `result.json`: say what its row does know.
+
+    A refusal before the worker leaves no result, and "no result" used to be
+    all `pandora result` said about the four refused runs of 2026-09-24.
+    """
+    state = (meta or {}).get('state')
+    if state is None or state in ('queued', 'running'):
+        notice('no result for run %s (still running, or it never reached the worker)' % args.run)
+        return 1
+    if args.json:
+        print(json.dumps(meta, indent=1, sort_keys=True))
+    elif state == 'refused' and meta.get('refusal'):
+        refusal = meta['refusal']
+        print('%s: refused before reaching the worker: %s: %s'
+              % (args.run, refusal.get('cause'), refusal.get('detail')))
+    elif meta.get('fell_back_to'):
+        print('%s: %s; see pandora result %s' % (args.run, state, meta['fell_back_to']))
+    else:
+        print('%s: %s, exit %s%s' % (args.run, state, meta.get('exit_code'),
+                                     ', ' + meta['reason'] if meta.get('reason') else ''))
+    if state == 'refused' and meta.get('refusal'):
+        return INFRA
+    if meta.get('fell_back_to'):
+        return 0
+    code = meta.get('exit_code')
+    return code if isinstance(code, int) and code else 1
 
 
 def render_result(run_id, result):

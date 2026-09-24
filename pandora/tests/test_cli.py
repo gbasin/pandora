@@ -10,6 +10,7 @@ from unittest import mock
 
 from pandora import cli
 from pandora.client import shim
+from pandora.errors import TransferError
 from pandora.tests.test_fallback import DaemonCase, FakeWorker
 
 
@@ -146,6 +147,40 @@ class Verbs(DaemonCase):
             _code, _out, err = self.detach('unit')
         self.assertIn('same tree as r0', err)
         self.assertNotIn('same input', err)
+
+    def test_a_refused_run_says_why_it_never_reached_the_worker(self):
+        FakeWorker.raises = TransferError('rsync to h failed (255): unexpected end of file')
+        code, out, err = self.detach('surface')           # large: refused, not local
+        self.assertEqual(code, 70, err)
+        [meta] = [json.loads(path.read_text())
+                  for path in (self.state / 'runs').glob('*/meta.json')]
+        self.assertEqual(meta['state'], 'refused')
+        self.assertEqual(meta['reason'], 'transfer-failed')
+        self.assertEqual(meta['refusal']['cause'], 'transfer-failed')
+        self.assertIn('unexpected end of file', meta['refusal']['detail'])
+        code, out, _ = self.pandora('result', meta['id'])
+        self.assertEqual(code, 70)
+        self.assertEqual(out.strip(), '%s: refused before reaching the worker: transfer-failed: '
+                         'rsync to h failed (255): unexpected end of file' % meta['id'])
+        code, out, _ = self.pandora('result', meta['id'], '--json')
+        self.assertEqual((code, json.loads(out)['refusal']['cause']), (70, 'transfer-failed'))
+
+    def test_a_queued_or_unknown_run_keeps_the_old_message(self):
+        directory = self.state / 'runs' / 'q1'
+        directory.mkdir(parents=True)
+        (directory / 'meta.json').write_text(json.dumps({'id': 'q1', 'state': 'queued'}))
+        for run_id in ('q1', 'nosuchrun000'):
+            code, _out, err = self.pandora('result', run_id)
+            self.assertEqual(code, 1)
+            self.assertIn('still running, or it never reached the worker', err)
+
+    def test_a_row_that_fell_back_points_at_the_local_run(self):
+        directory = self.state / 'runs' / 'f1'
+        directory.mkdir(parents=True)
+        (directory / 'meta.json').write_text(json.dumps(
+            {'id': 'f1', 'state': 'fell_back', 'exit_code': 70, 'fell_back_to': 'l1'}))
+        code, out, _ = self.pandora('result', 'f1')
+        self.assertEqual((code, out.strip()), (0, 'f1: fell_back; see pandora result l1'))
 
     def test_result_json_carries_same_tree_as_and_the_old_key(self):
         directory = self.state / 'runs' / 'old1'

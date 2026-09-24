@@ -163,6 +163,9 @@ class Run:
         self.phase = None
         # freeze / ship / submit, measured before `accepted`.
         self.pre_accept = request.get('pre_accept') or {}
+        # {cause, detail} when the request was refused before reaching the
+        # worker, so `pandora result` can say why a row with no result ended.
+        self.refusal = request.get('refusal')
         # Whether any of the command's own output has been streamed. Kept in a
         # file, because a daemon that restarts mid-run must not forget that the
         # caller has already seen half an answer.
@@ -184,6 +187,8 @@ class Run:
                    'placement': self.request.get('placement')}
         if self.fell_back_to:
             payload['fell_back_to'] = self.fell_back_to
+        if self.refusal:
+            payload['refusal'] = self.refusal
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -917,6 +922,8 @@ class Daemon:
         """
         def refuse(message, code):
             if origin is not None:
+                origin.refusal = {'cause': cause, 'detail': detail}
+                origin.reason = cause
                 origin.note(message)
                 origin.finish(INFRA, state='refused')
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code,
@@ -951,6 +958,9 @@ class Daemon:
             if origin is not None and not origin.done.is_set():
                 # The local lane turned it away before opening a row of its own
                 # (busy, or the caller left): nothing runs anywhere.
+                origin.refusal = {'cause': cause, 'detail': '%s; the local lane did not '
+                                                           'take it over' % detail}
+                origin.reason = cause
                 origin.note('%s; the local lane did not take it over' % cause)
                 origin.finish(INFRA, state='refused')
 
