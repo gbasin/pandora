@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from pandora.config import classify, loader
-from pandora.errors import ConfigError, NotClaimed, Refused
+from pandora.errors import ConfigError, NotClaimed
 
 EXAMPLE = Path(__file__).resolve().parents[1] / 'config/examples/eichler.pandora.toml'
 

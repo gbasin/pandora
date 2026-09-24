@@ -1,13 +1,12 @@
 """The worker half, with no worker: manifests, drift, pins, GC policy, parsing."""
 import json
-import sqlite3
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
 from pandora.errors import ConfigError
-from pandora.executor.interface import Instance, Receipt, Toolchain
+from pandora.executor.interface import Receipt, Toolchain
 from pandora.worker import gc, goldens, pins, provision, versions
 
 

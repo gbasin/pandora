@@ -16,7 +16,6 @@ worktree, shipping it, submitting -- is provably non-executing, so the client
 may still go local. Everything after it may not.
 """
 import argparse
-import errno
 import fcntl
 import json
 import os
@@ -31,8 +30,7 @@ from pathlib import Path
 
 from ..config import classify as classifier
 from ..config import loader
-from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, PandoraError,
-                      Refused, SnapshotError, TransferError, ValidationRejected,
+from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, Refused, SnapshotError, TransferError, ValidationRejected,
                       WorkerUnreachable)
 from ..engine import retry as retries
 from ..exits import INFRA, STALE

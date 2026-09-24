@@ -632,7 +632,7 @@ rm -rf "$2"
         cgroup. It is checked on the same schedule as the watchdog and for the
         same reason: nothing inside the run can delay it.
         """
-        name, t0, offset = instance.name, time.monotonic(), 0
+        t0, offset = time.monotonic(), 0
         samples, peak, evidence = [], 0, {}
         stall_since, outcome, code = None, None, None
         deadline = t0 + limits.wall_seconds

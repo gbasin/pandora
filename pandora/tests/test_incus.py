@@ -6,8 +6,8 @@ import unittest
 
 from pandora.executor import incus as incus_driver
 from pandora.executor.incus import IncusDriver, parse_cgroup
-from pandora.executor.interface import (Golden, Instance, Limits, Receipt, Toolchain,
-                                        CloneFailed, InstanceLost, PrepareFailed)
+from pandora.executor.interface import (Golden, Limits, Receipt, Toolchain,
+                                        CloneFailed, InstanceLost)
 
 SAMPLE = '''==memory.current
 312356864

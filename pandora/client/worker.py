@@ -35,8 +35,7 @@ from pathlib import Path
 from ..config import classify as classifier
 from ..engine import bundle
 from ..engine import writeback as engine_writeback
-from ..errors import (EngineError, ExecutionUncertain, PandoraError, TransferError,
-                      WorkerUnreachable)
+from ..errors import (EngineError, ExecutionUncertain, PandoraError, WorkerUnreachable)
 from ..snapshot import freeze as snapshot
 from ..snapshot import transfer
 from . import writeback as writebacks

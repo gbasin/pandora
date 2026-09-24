@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from pandora.engine import admission, runner
-from pandora.engine.ledger import Ledger, row_to_dict
+from pandora.engine.ledger import Ledger
 from pandora.engine.scheduler import Scheduler
 from pandora.errors import StaleRun
 from pandora.executor.interface import (DestroyIncomplete, Golden, Instance, Receipt,

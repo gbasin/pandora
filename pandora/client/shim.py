@@ -32,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..exits import CANCELED, INFRA, STALE, USAGE
+from ..exits import INFRA, STALE, USAGE
 from . import enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
