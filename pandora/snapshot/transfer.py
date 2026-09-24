@@ -199,13 +199,25 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
     among them. A TransferError from rsync carries `rsync_exit` (None on a
     timeout) and `stderr`.
 
-    Returns {'path', 'reused', 'link_dest', 'seconds', 'files'}.
+    Returns {'path', 'reused', 'link_dests', 'seconds', 'files'}.
     """
     log = log or log_stderr
     paths = cache_paths(root, repo, input_id)
-    code, out, _ = link.run(['sh', '-c',
-                             'test -e %s && echo present || echo absent' % shlex.quote(paths['final'])],
-                            timeout=60)
+    # The collector uses the engine's admission lock too. Refresh the grace
+    # period atomically with checking presence: a cache hit is a new use even
+    # though no file content changes.
+    _, out, _ = link.feed('''
+import fcntl, os, sys
+root, final = sys.argv[1:]
+os.makedirs(root, exist_ok=True)
+with open(os.path.join(root, 'admission.lock'), 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if os.path.isdir(final):
+        os.utime(final, None)
+        print('present')
+    else:
+        print('absent')
+''', (root, paths['final']), timeout=60)
     if out.strip() == 'present':
         return {'path': paths['final'], 'reused': True, 'link_dests': [],
                 'seconds': 0.0, 'files': len(manifest)}
@@ -222,9 +234,13 @@ os.makedirs(base, exist_ok=True)
 entries = []
 for name in os.listdir(base):
     path = os.path.join(base, name)
-    if (os.path.isdir(path) and not os.path.islink(path)
-            and '.partial.' not in name and os.path.realpath(path) != final):
-        entries.append((os.path.getmtime(path), path))
+    try:
+        if (os.path.isdir(path) and not os.path.islink(path)
+                and '.partial.' not in name and os.path.realpath(path) != final):
+            entries.append((os.path.getmtime(path), path))
+    except FileNotFoundError:
+        # GC can remove an entry between the directory check and the stat.
+        continue
 entries.sort(reverse=True)
 for _, path in entries[:4]:
     print(path)
@@ -274,16 +290,21 @@ print(stage)
         # completed tree, then atomically point latest at it. Each attempt uses
         # a separate temporary symlink, including across different inputs.
         link.feed('''
-import errno, os, sys, uuid
-stage, final, latest = sys.argv[1:]
-if not os.path.lexists(final):
-    try:
-        os.rename(stage, final)
-    except OSError as exc:
-        if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-            raise
-        if not os.path.isdir(final):
-            raise
+import errno, fcntl, os, sys, uuid
+stage, final, latest, root = sys.argv[1:]
+with open(os.path.join(root, 'admission.lock'), 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if not os.path.lexists(final):
+        try:
+            os.rename(stage, final)
+        except OSError as exc:
+            if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            if not os.path.isdir(final):
+                raise
+    # A concurrent publisher may have won with an old cached tree. Renew its
+    # grace too, before releasing the lock or acknowledging the shipment.
+    os.utime(final, None)
 temporary = latest + '.tmp.' + uuid.uuid4().hex
 try:
     os.symlink(final, temporary)
@@ -291,7 +312,7 @@ try:
 finally:
     if os.path.lexists(temporary):
         os.unlink(temporary)
-''', (stage, paths['final'], paths['latest']), timeout=120)
+''', (stage, paths['final'], paths['latest'], root), timeout=120)
     finally:
         # A cleanup that fails must not replace the error that brought us here:
         # the caller's fallback decision depends on which error that was. On

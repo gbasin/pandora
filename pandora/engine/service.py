@@ -79,6 +79,12 @@ def submit(args, paths, ledger, request):
     fanned = bool(plan.get('shards'))
     run_id = 'r' + uuid.uuid4().hex[:15]
     with gate(paths.root):
+        # A retry does not ship or renew the cache grace. Recheck under the
+        # collector's lock: resubmit's earlier existence check can go stale.
+        if request.get('retry_of') and not Path(request['source_path']).is_dir():
+            return emit({'ok': False, 'code': 'source-gone',
+                         'run_id': request['retry_of'],
+                         'source_path': request['source_path']})
         row, created = ledger.claim(
             request['request_id'], run_id,
             repo=plan['repo'], job=plan['job'], input_id=request['input_id'],
