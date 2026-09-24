@@ -111,8 +111,8 @@ def submit(args, paths, ledger, request):
             retry_of=request.get('retry_of'), client=client)
         if not created and foreign(row, client):
             # Another client's request under the same id: never attach to its
-            # run, never start a second one. Clients namespace their ids, so this
-            # is a bug or a collision, and the caller is told which run holds it.
+            # run, never start a second one. Ids are random per daemon, so this
+            # is a collision or a bug; the caller's fallback policy decides.
             return emit({'ok': False, 'code': 'request-collision',
                          'request_id': request['request_id'], 'engine': ENGINE_VERSION})
         if not created:
