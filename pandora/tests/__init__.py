@@ -27,6 +27,10 @@ import atexit as _atexit
 import shutil as _shutil
 import tempfile as _tempfile
 
-_data = _tempfile.mkdtemp(prefix='pandora-test-data-')
-os.environ['XDG_DATA_HOME'] = _data
-_atexit.register(_shutil.rmtree, _data, True)
+_scratch = _tempfile.mkdtemp(prefix='pandora-test-home-')
+os.environ['XDG_DATA_HOME'] = os.path.join(_scratch, 'data')
+# HOME too: `Path.home()` is where the default data root, `~/.local/bin` and
+# `~/Library/LaunchAgents` are found, and none of them may be the real ones.
+os.environ['HOME'] = os.path.join(_scratch, 'home')
+os.makedirs(os.environ['HOME'])
+_atexit.register(_shutil.rmtree, _scratch, True)
