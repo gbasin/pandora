@@ -70,6 +70,8 @@ class Submission:
 class Worker:
     """One worker, one SSH conversation, for the life of the daemon."""
 
+    client = None          # this daemon's name to a shared worker; set by the daemon
+
     def __init__(self, host, *, state, engine_root='pandora-engine', persist='10m',
                  source_root=None, client=None):
         if not host:
