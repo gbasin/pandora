@@ -202,6 +202,17 @@ failed transfer also leaves rsync's whole stderr in
 interpreter that ran the install. If a hand-started daemon already holds the
 lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 
+The plist sets `ProcessType` to `Interactive`. Every agent's command waits on
+the daemon, so it must be scheduled on a loaded Mac. `Background`, the earlier
+value, is Apple's class for batch work: low CPU, I/O and network priority, and
+the first target of memory pressure. At load 90 it left the daemon unanswered
+for 66 s. The daemon also runs its accept loop at user-interactive QoS; the
+threads that serve each connection run at the default. There is no `Nice` key,
+because a negative nice needs root. `pandora doctor` warns when the installed
+plist still says `Background` or sets no `ProcessType`. Run `pandora daemon
+--install` to rewrite it. That restarts the daemon without a drain, so check
+`pandora ps` first.
+
 The daemon runs the version it started with. `pandora upgrade` restarts it into
 a new version when no run would be lost; see [Upgrade](#upgrade). On an
 install that runs the checkout, restart it after you update the checkout.
@@ -209,22 +220,85 @@ install that runs the checkout, restart it after you update the checkout.
 same file in the checkout. A change to a module the daemon never loads, such
 as the worker half, is not a reason to restart.
 
-To restart by hand, check that a restart is safe first. Run `pandora ps`. No
-local run may show `running` or `queued`. No remote run may show `queued`,
-`freezing`, `shipping` or `submitting`. Then restart.
+You do not need a quiet moment. A restart drains the daemon first.
 
 ```sh
 pandora daemon --restart
 ```
+
+1. The daemon stops admitting runs. It writes `<state>/draining` with the
+   time and the pid that asked. `pandora ps` shows `daemon: draining` on its
+   first line.
+2. The restart waits for the runs a restart would end: a local run that is
+   executing, and a remote run not yet accepted (`queued`, `freezing`,
+   `shipping`, `submitting`). It prints the list each time the list changes.
+   An accepted remote run does not block it.
+3. When the list is empty, launchd restarts the daemon (`launchctl kickstart
+   -k`). The new daemon settles every row, then removes the marker.
+
+The wait is `--wait` seconds, 300 by default. When it runs out, the daemon
+admits runs again, nothing is restarted, and the command exits 75 with the
+runs that still block. Retry later, or add `--now`: with `--now` the restart
+goes ahead when the wait runs out, and the table below applies to what is
+still running. A kickstart that fails, Ctrl-C, SIGHUP or SIGTERM also ends
+the drain. Under steady traffic, a restart costs at most the drain wait. A
+daemon from before the drain is waited on through `pandora ps`, without
+holding new commands; if a run starts as the restart is prepared, it waits
+again.
+
+The drain is a lease. `--restart` renews it every second. A daemon that hears
+nothing for 30 s ends the drain itself and admits runs again, so a restart
+killed with SIGKILL, or by a tool timeout, holds commands for at most 30 s. If
+the drain cannot be ended at the end of a failed wait, `--restart` says so and
+the lease ends it.
+
+`--restart` refuses before it drains when launchd does not run the daemon that
+holds `daemon.lock`: a kickstart would not reach that daemon. A socket that
+refuses connections while a daemon holds the lock is a daemon that does not
+answer, not a missing one: `--restart` exits 75 without `--now`.
+
+What a client sees during the drain and the restart:
+
+* A new claimed command prints `pandora: daemon is restarting; waiting` once.
+  Nothing has run. It asks again every 2 seconds and is submitted as usual
+  when the new daemon answers.
+* A local run that was still queued is withdrawn and submitted again in the
+  same way. It loses its place in the queue.
+* A command the claim cache does not claim is not held: it runs at once.
+* While no daemon listens, the client keeps asking only while the marker is
+  younger than its wait. With no fresh marker, the rules in [When the daemon
+  is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
+  apply. A connection the stopping daemon closes before it answers is asked
+  again, when the drain began before the command was sent.
+* A client waits at most `PANDORA_DRAIN_WAIT` seconds, 660 by default: the
+  longest restart wait (`pandora upgrade`, 600 s) and a minute for the restart.
+  When the wait runs out, the command exits 75 and nothing ran: "still
+  draining" when the daemon still answers `draining`, "did not come back" when
+  no daemon listens. Retry. It never runs unmanaged during a drain.
+* `pandora wait`, `ps`, `logs`, `result` and `cancel` work during the drain.
+
+A marker older than 15 minutes is a restart that never finished. Clients
+ignore it and `pandora doctor` warns about it. Any daemon that starts removes
+it.
+
+The new daemon may start before the old one has let go of `daemon.lock`. It
+waits up to 120 s for the lock and logs `waiting for pid N to stop`.
+
+The client code that answers `draining` is new in this release. A client from
+before it reads the frame as a closed connection and exits 70, "execution is
+uncertain". So on an install that runs the checkout, update the checkout first
+and restart the daemon second: the shim runs the checkout's client code at
+once. `pandora upgrade` moves `current` before the restart for the same reason.
 
 What a restart does to each run:
 
 | Run | After the restart |
 |---|---|
 | Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
-| Remote, not yet accepted | Still freezing or shipping: ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
-| Local | Ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits; a local run still queued ends `withdrawn`. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
-| A claimed command typed while no daemon listens (1-2 s) | Waits up to 5 s for the new daemon, then routes. If none answers, exits 70 with the doctor hint. |
+| Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
+| Local, executing | The drain waits for it to finish. With `--now` after the wait: it ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
+| Local, queued | Ends `withdrawn` when the drain starts. Its client submits it again to the next daemon. |
+| A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait, then exit 70 (see [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)). |
 
 A client attached to a run that ends this way exits 70. It does not wait.
 `kill -USR1 <daemon pid>` writes every thread's stack to the daemon log, for a
@@ -315,8 +389,8 @@ from a cache; `pandora enroll <root>` drops it from the registration. A shim
 link that still points into a checkout runs that checkout's code; `pandora
 doctor` warns about it, and `pandora upgrade` prints the `ln -sf` that fixes it.
 
-To move from the old marker, update the checkout, restart the daemon (`pandora
-ps` first, then `pandora daemon --restart`), then run `pandora enroll <root>`
+To move from the old marker, update the checkout, restart the daemon (`pandora daemon
+--restart`), then run `pandora enroll <root>`
 once per repository. Restart first: a daemon from before claim caches answers
 the shim's question with "unknown op", so every command in a worktree without a
 cache pays a Python start and two daemon round trips. `enroll` asks the daemon
@@ -328,14 +402,21 @@ for one more release.
 
 ### When the daemon is installed but does not answer
 
-The client configuration, `~/.config/pandora/config.toml`, is how the shim
-knows the daemon was installed on this Mac. Where it exists, a claimed command
-that finds no daemon on the socket waits up to five seconds, which covers a
-restart. Then it exits 70 and prints ``pandora: hint: run `pandora doctor` ``.
-Nothing runs. Where the file does not exist, Pandora was never installed here.
-A claimed command in an enrolled clone then runs here as if Pandora were not
-installed, with one notice and a row in `<state>/passthrough.jsonl`.
-`PANDORA_OFF=1` bypasses both: the command runs here with no Pandora.
+A claimed command that finds no daemon on the socket, or a socket that
+refuses it, takes one of three paths, in this order:
+
+1. A fresh `<state>/draining` marker: a restart is in progress. The command
+   waits for the new daemon, up to `PANDORA_DRAIN_WAIT`, then exits 75 with
+   "did not come back". Nothing runs.
+2. No fresh marker, and the client configuration, `~/.config/pandora/config.toml`,
+   exists: the daemon was installed on this Mac. The command waits up to five
+   seconds, which covers a restart without a drain. Then it exits 70 and prints
+   ``pandora: hint: run `pandora doctor` ``. Nothing runs.
+3. No fresh marker and no client configuration: Pandora was never installed
+   here. A claimed command in an enrolled clone runs here as if Pandora were
+   not installed, with one notice and a row in `<state>/passthrough.jsonl`.
+
+`PANDORA_OFF=1` bypasses all three: the command runs here with no Pandora.
 
 To stop routing a repository, unenroll it.
 
@@ -385,8 +466,10 @@ all checks passed
 
 The first line is `ok` when the real pnpm is not a version manager's shim. A
 `warn` there is acceptable. `claim caches` is information. On an install that
-runs the checkout, the `install` line is `info` and says so. Every other line
-must be `ok`. `pandora doctor --json` prints the same checks with their facts.
+runs the checkout, the `install` line is `info` and says so. `restart drain`
+shows only while `<state>/draining` exists: `info` during a restart, `warn` for
+a marker older than 15 minutes. Every other line must be `ok`. `pandora doctor
+--json` prints the same checks with their facts.
 
 The repository rows:
 
@@ -405,7 +488,7 @@ The version lines warn in these cases:
 |---|---|---|
 | `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into the checkout it upgrades or into a version directory. Replace any other link with one through `current`. |
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
-| `daemon` | `daemon runs <old>, current is <new>; restart it` | Restart when `pandora ps` shows nothing a restart would end: `pandora daemon --restart` under launchd, else stop and start it. Or run `pandora upgrade`, which waits for that moment. |
+| `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first; else stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
 | `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
 | `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It restarts the daemon; check `pandora ps` first. |
 | `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
@@ -436,28 +519,28 @@ pandora upgrade
 3. It imports the new version's client and daemon with the interpreter the
    plist pins and the one the launchers find. A version that cannot import is
    refused, and nothing changes.
-4. It waits until a daemon restart would end nothing: no local run `running`
-   or `queued`, and no remote run `queued`, `freezing`, `shipping` or
-   `submitting`. It checks every 10 seconds for up to `--wait` seconds
-   (default 600) and prints the runs it waits for. A daemon that does not
-   answer `ps` is not idle; the wait goes on.
+4. It drains the daemon, as `pandora daemon --restart` does: new commands
+   wait, and a queued local run is submitted again later. It waits until no
+   local run is `running` and no remote run is `queued`, `freezing`,
+   `shipping` or `submitting`. It checks every second for up to `--wait`
+   seconds (default 600) and prints the runs it waits for.
 5. It points `current` at the new version with one rename. A reader sees the
-   old version or the new one, never neither.
-6. It checks `pandora ps` once more. If a run started meanwhile, it points
-   `current` back and waits again.
-7. It restarts the daemon with `launchctl kickstart -k`, and waits up to 10
-   seconds for the new daemon to answer from the new version.
-8. It re-points `pandora` and the shim on PATH through `current`, when they
+   old version or the new one, never neither. The daemon is still draining, so
+   no run can start before the restart.
+6. It restarts the daemon with `launchctl kickstart -k`. It waits up to 20
+   seconds for the new daemon to end the drain, then up to 10 seconds for it to
+   answer from the new version.
+7. It re-points `pandora` and the shim on PATH through `current`, when they
    are symlinks into the checkout it upgrades or into a version directory,
    and the data directory is the default `~/.local/share/pandora`. With
    another data directory it prints the `ln -sf` to run; `--relink` moves the
    links anyway. It reports a copy or a missing launcher and leaves it.
-9. It deletes old versions. It keeps the three most recently installed
+8. It deletes old versions. It keeps the three most recently installed
    (`--keep N`, at least 2), `current`, the version before it, and the
    version the daemon runs.
 
-`--now` skips the wait and restarts at once. A local run then ends with exit
-70. A remote run still `freezing` or `shipping` ends with exit 70. A remote run
+`--now` skips the wait and restarts at once. A queued local run is submitted
+again. A local run that is executing ends with exit 70. A remote run still `freezing` or `shipping` ends with exit 70. A remote run
 `submitting` is looked up on the worker: followed if it started, closed if
 not. Rerun what ended. Accepted remote runs continue on the worker.
 
@@ -472,8 +555,8 @@ from.
 | Exit | Meaning |
 |---|---|
 | 0 | The daemon runs the new version, or no daemon runs. |
-| 75 | Nothing changed. No safe moment came within `--wait`, or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
-| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not answer from the new version within 10 seconds. The last lines say what to run. |
+| 75 | `current` did not move. The drain ended without a restart: a run still blocked it after `--wait`, and the daemon admits runs again (if the drain could not be ended, upgrade says so and the daemon ends it within 30 s). Or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
+| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
 
 To go back, install a version that is still built:
 
@@ -808,7 +891,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | the command's own | The command's verdict. | As without Pandora. |
 | 64 | The command cannot run as typed: a path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
 | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry; do not bypass it. |
-| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. | Wait for the other run. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
+| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or a restart did not finish within `PANDORA_DRAIN_WAIT`; nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 | 130 | Canceled. | Nothing. |
 
@@ -819,6 +902,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
+| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 660. Then it exits 75; nothing ran. |
 | `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own; the client runs none. |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
@@ -827,7 +911,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line, which ends `as <client name>` and counts other clients' live runs on a shared worker. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter` and `client`; the table has no room for them. |
+| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line, which ends `as <client name>` and counts other clients' live runs on a shared worker. While a restart drains, `daemon: draining` comes before it. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter` and `client`; the table has no room for them. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |

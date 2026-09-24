@@ -39,6 +39,7 @@ from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
 from . import attribution
+from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
@@ -203,6 +204,9 @@ class Run:
         self.output_mark = self.dir / 'command-output'
         self.seen = self.output_mark.exists()
         self.carry = b''
+        # A local run still queued when a drain began: it never starts here,
+        # and its caller is told to submit it again to the next daemon.
+        self.drained = False
 
     def save(self):
         with self.close_lock:
@@ -463,7 +467,7 @@ def peer_uid(sock):
 
 
 class Daemon:
-    def __init__(self, state=None, config_path=None):
+    def __init__(self, state=None, config_path=None, stopping=None):
         self.config_path = config_path
         self.config = settings.load(config_path)
         self.state = Path(state or self.config['client']['state']).expanduser()
@@ -472,7 +476,16 @@ class Daemon:
         self.socket_path = self.state / 'client.sock'
         self.runs = {}
         self.runs_lock = threading.Lock()
-        self.stopping = threading.Event()
+        self.stopping = stopping if stopping is not None else threading.Event()
+        # {'since', 'pid', 'daemon'} while a restart drains this daemon, else
+        # None. Read and set under `admitting`, with every row a request opens,
+        # so a drain's count of what is in flight misses nothing.
+        self.draining = None
+        self.admitting = threading.Lock()
+        # When the last `drain` arrived (monotonic). A drain is a lease: a
+        # restarter that dies (SIGKILL, a tool timeout) stops renewing it, and
+        # the daemon admits runs again rather than answer `draining` for nobody.
+        self.drain_renewed = None
         self.handlers = set()             # live connection threads, drained at stop
         self.server = None
         self.lock_handle = None
@@ -605,13 +618,40 @@ class Daemon:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def acquire_lock(self):
+    # How long a starting daemon waits for its predecessor to let go of the lock.
+    LOCK_WAIT = 120.0
+
+    def acquire_lock(self, wait=None, poll=0.2):
+        """Take `daemon.lock`, waiting up to `LOCK_WAIT` for a predecessor still stopping.
+
+        `launchctl kickstart -k` starts the new daemon without waiting for the
+        old one to exit. Refusing at once made launchd relaunch it every
+        `ThrottleInterval`, and a restart took minutes (2026-09-24).
+        """
         handle = (self.state / 'daemon.lock').open('a+')
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            handle.close()
-            raise SystemExit('pandora daemon already running for ' + str(self.state))
+        deadline = time.monotonic() + (self.LOCK_WAIT if wait is None else wait)
+        said = False
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                pass
+            if self.stopping.is_set():
+                # Told to stop before it ever ran: nothing to report.
+                handle.close()
+                log('stopped while waiting for %s' % (self.state / 'daemon.lock'))
+                raise SystemExit(0)
+            if time.monotonic() >= deadline:
+                handle.close()
+                raise SystemExit('pandora daemon already running for ' + str(self.state))
+            if not said:
+                handle.seek(0)
+                holder = (handle.read().split() or ['?'])[0]
+                log('waiting for pid %s to stop: it holds %s' % (holder,
+                                                                 self.state / 'daemon.lock'))
+                said = True
+            time.sleep(poll)
         handle.seek(0)
         handle.truncate()
         handle.write(str(os.getpid()) + '\n')
@@ -844,6 +884,9 @@ class Daemon:
         os.chmod(self.socket_path, 0o600)
         self.server.listen(64)
         self.resume_interrupted()
+        # Every row the last daemon left is settled or followed: the restart it
+        # drained for is over, and a client in the gap may submit again.
+        draining.clear_marker(self.state)
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
              'worker': self.config['worker']['host'], 'started': now(),
@@ -856,6 +899,7 @@ class Daemon:
     def serve(self):
         self.server.settimeout(0.25)
         while not self.stopping.is_set():
+            self.check_lease()
             try:
                 conn, _ = self.server.accept()
             except socket.timeout:
@@ -869,16 +913,19 @@ class Daemon:
 
     def stop(self):
         self.stopping.set()
+        # The listener first: a client that connects now finds no socket and
+        # waits on the draining marker, where one accepted and then dropped at
+        # exit would have read EOF and lost its command.
+        for closer in (lambda: self.server.close(), lambda: self.socket_path.unlink()):
+            try:
+                closer()
+            except (OSError, AttributeError):
+                pass
         self.close_local_runs()
         self.health.stop()
         for worker in self.workers.values():
             try:
                 worker.close()
-            except OSError:
-                pass
-        for closer in (lambda: self.server.close(), lambda: self.socket_path.unlink()):
-            try:
-                closer()
             except OSError:
                 pass
         if self.lock_handle:
@@ -887,6 +934,8 @@ class Daemon:
     # -- connections -------------------------------------------------------
 
     def handle(self, conn):
+        if RAISED.is_set():
+            set_qos(QOS_CLASS_DEFAULT)
         try:
             self._handle(conn)
         finally:
@@ -955,8 +1004,20 @@ class Daemon:
             self.gate.sample()          # a person asked; answer about now, not about then
             conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
                                'pause': self.gate.state(),
-                               'worker': self.health.state(), 'client': self.client_name()}))
+                               'worker': self.health.state(), 'client': self.client_name(),
+                               'draining': self.draining}))
+        elif op == 'drain':
+            if first.get('cancel'):
+                self.undrain()
+                conn.sendall(dump({'v': VERSION, 't': 'drain', 'draining': False}))
+            else:
+                conn.sendall(dump(dict({'v': VERSION, 't': 'drain', 'draining': True},
+                                       **self.drain(first.get('pid')))))
         elif op == 'claims':
+            # The next daemon may derive caches differently; let it write this one.
+            if self.draining:
+                self.answer_draining(conn)
+                return
             conn.sendall(dump(dict({'v': VERSION, 't': 'claims'}, **self.claims(first))))
         elif op == 'run':
             self.serve_run(conn, reader, first)
@@ -1124,6 +1185,87 @@ class Daemon:
         except OSError:
             pass
 
+    # -- draining ----------------------------------------------------------
+
+    def drain(self, pid=None):
+        """Stop admitting runs for a restart; the rows a restart would still end.
+
+        Idempotent: asked again, it answers again, which is how `pandora daemon
+        --restart` polls. A local run still queued is withdrawn and its caller
+        told `draining`, so it submits again to the next daemon: nothing ran,
+        and a queue position is all it loses. A local run executing and a
+        remote row before `accepted` are waited for; an accepted remote run is
+        the successor's to follow and blocks nothing.
+        """
+        with self.admitting:
+            if self.draining is None:
+                self.draining = {'since': now(), 'pid': pid, 'daemon': os.getpid()}
+                try:
+                    draining.write_marker(self.state, self.draining)
+                except OSError as error:
+                    log('drain: could not write %s: %s'
+                        % (draining.marker_path(self.state), error))
+                log('drain: requested by pid %s; admitting nothing new' % (pid or '?'))
+            else:
+                # Renewed: dated now, so a client in the gap and `doctor` both
+                # see a drain someone is still driving.
+                draining.touch_marker(self.state)
+            self.drain_renewed = time.monotonic()
+            with self.runs_lock:
+                live = [run for run in list(self.runs.values()) + list(self.pending.values())
+                        if not run.done.is_set()]
+            withdrawn = []
+            for run in live:
+                if run.lane == 'local' and run.state == 'queued' and not run.drained:
+                    run.drained = True
+                    withdrawn.append(run.id)
+            if withdrawn:
+                log('drain: withdrew %d queued local run(s) for resubmission: %s'
+                    % (len(withdrawn), ' '.join(withdrawn)))
+            seen, blocking = set(), []
+            for run in live:
+                if run.id in seen:
+                    continue
+                seen.add(run.id)
+                if ((run.lane == 'local' and run.state == 'running')
+                        or (run.lane != 'local' and run.state == 'queued')):
+                    blocking.append({'id': run.id, 'lane': run.lane, 'state': run.state,
+                                     'phase': run.phase, 'argv': run.request.get('argv')})
+            since = self.draining['since']
+        return {'since': since, 'blockers': blocking,
+                'local': sum(row['lane'] == 'local' for row in blocking),
+                'pre_accept': sum(row['lane'] != 'local' for row in blocking)}
+
+    def undrain(self, why='cancelled'):
+        with self.admitting:
+            was, self.draining = self.draining, None
+            draining.clear_marker(self.state)
+        if was is not None:
+            log('drain: %s; admitting runs again' % why)
+
+    def check_lease(self, clock=time.monotonic):
+        """End a drain nobody has renewed within `LEASE_SECONDS`. Not while stopping."""
+        renewed = self.drain_renewed
+        if (self.draining is not None and renewed is not None and not self.stopping.is_set()
+                and clock() - renewed > draining.LEASE_SECONDS):
+            self.undrain('no drain request for %ds, so whoever asked for it is gone'
+                         % draining.LEASE_SECONDS)
+
+    def withdraw_drained(self, conn, run):
+        """A queued local run a drain marked: release its slot, close it, tell the caller to ask again."""
+        self.budget.finish(run.id, 0, 'lost')
+        if not run.done.is_set():
+            run.note('the daemon began a restart while this run was queued; nothing ran, '
+                     'and the client submits it again')
+            run.finish(INFRA, state='withdrawn')
+        self.answer_draining(conn)
+
+    def answer_draining(self, conn):
+        """Nothing ran: ask again in a moment, of this daemon or the next."""
+        conn.sendall(dump({'v': VERSION, 't': 'draining', 'retry_after': draining.RETRY_AFTER,
+                           'reason': 'restarting',
+                           'msg': 'the daemon is restarting; nothing ran. Ask again.'}))
+
     # -- stopping ----------------------------------------------------------
 
     def close_local_runs(self):
@@ -1195,6 +1337,11 @@ class Daemon:
                       'Re-run it.', exit=run.exit_code if run.exit_code is not None else INFRA)
 
     def serve_run(self, conn, reader, request):
+        if self.draining:
+            # Before the stop check: a daemon stopping for a drained restart
+            # has a successor coming, and the caller should wait for it.
+            self.answer_draining(conn)
+            return
         if self.stopping.is_set():
             self.deny(conn, 'daemon-stopping', 'the daemon is stopping; nothing ran. Re-run it.',
                       exit=INFRA)
@@ -1259,12 +1406,16 @@ class Daemon:
                                'msg': error.stderr or str(error), 'exit': error.code}))
             return
 
-        run = Run(self.state, uuid.uuid4().hex[:12],
-                  dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
-                       writeback=bool(plan.get('writeback'))))
-        run.state = 'queued'
-        self.hold(run)
-        run.save()
+        with self.admitting:
+            if self.draining:
+                self.answer_draining(conn)
+                return
+            run = Run(self.state, uuid.uuid4().hex[:12],
+                      dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
+                           writeback=bool(plan.get('writeback'))))
+            run.state = 'queued'
+            self.hold(run)
+            run.save()
         try:
             self.submit_remote(conn, reader, request, repo, job, plan, worktree, checked, run)
         finally:
@@ -1432,6 +1583,15 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code,
                                'msg': message, 'exit': INFRA}))
 
+        if self.draining:
+            # Nothing ran, and the local lane admits nothing new: the caller
+            # submits it again, to this daemon or the next.
+            if origin is not None:
+                origin.note('the daemon began a restart before this run was accepted; '
+                            'nothing ran, and the client submits it again')
+                origin.finish(INFRA, state='withdrawn')
+            self.answer_draining(conn)
+            return
         if self.stopping.is_set():
             # A worker that failed because this daemon is going down must not
             # hand the job to a local lane that is going down with it.
@@ -1499,21 +1659,29 @@ class Daemon:
         # row at all: a `queued` line in `pandora ps` for a job that was told to
         # go away would be a lie the next reader has to un-learn.
         run_id = uuid.uuid4().hex[:12]
-        try:
-            self.budget.reserve(run_id, repo=repo['name'], job=job['id'],
-                                worktree=worktree, singleton=job['singleton'],
-                                size=plan['size'])
-        except Busy as error:
-            # Not a pre-accept fallback: running it locally anyway is the exact
-            # thing the rule exists to prevent.
-            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
-                               'msg': str(error), 'exit': STALE}))
-            return
-        run = Run(self.state, run_id,
-                  dict(request, repo=repo['name'], job=job['id'], reason=reason))
-        run.lane = 'local'
-        self.hold(run)
-        run.save()
+        with self.admitting:
+            if self.draining:
+                if origin is not None:
+                    origin.note('the daemon began a restart before this run was accepted; '
+                                'nothing ran, and the client submits it again')
+                    origin.finish(INFRA, state='withdrawn')
+                self.answer_draining(conn)
+                return
+            try:
+                self.budget.reserve(run_id, repo=repo['name'], job=job['id'],
+                                    worktree=worktree, singleton=job['singleton'],
+                                    size=plan['size'])
+            except Busy as error:
+                # Not a pre-accept fallback: running it locally anyway is the exact
+                # thing the rule exists to prevent.
+                conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'busy',
+                                   'msg': str(error), 'exit': STALE}))
+                return
+            run = Run(self.state, run_id,
+                      dict(request, repo=repo['name'], job=job['id'], reason=reason))
+            run.lane = 'local'
+            self.hold(run)
+            run.save()
         if origin is not None:
             # Closed the moment its successor exists, not when that successor
             # ends: for the length of a local run there are otherwise two live
@@ -1524,7 +1692,8 @@ class Daemon:
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
-                                          canceled=run.canceled.is_set,
+                                          canceled=lambda: (run.canceled.is_set()
+                                                            or run.drained),
                                           timeout=self.local.queue_timeout,
                                           note=lambda text: self.tell(conn, text))
         except Busy as error:
@@ -1545,6 +1714,13 @@ class Daemon:
         except OSError:
             self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
             run.finish(STALE, state='refused')
+            return
+        if admission is None and run.drained and (not run.canceled.is_set()
+                                                  or self.stopping.is_set()):
+            # A restart began while it queued: nothing started, and the next
+            # daemon queues it again when the caller asks. A stop (`--now`)
+            # that closed the row first does not change that answer.
+            self.withdraw_drained(conn, run)
             return
         if admission is None and run.canceled.is_set():
             # `pandora cancel` while it queued, or a stop: nothing started.
@@ -1567,7 +1743,13 @@ class Daemon:
             self.budget.finish(run.id, 0, 'lost')
             run.finish(INFRA, state='withdrawn')
             return
-        run.state = 'running'
+        with self.admitting:
+            # Under the drain's own lock: a drain either saw this run queued
+            # and marked it, or sees it running and waits for it.
+            if run.drained:
+                self.withdraw_drained(conn, run)
+                return
+            run.state = 'running'
         run.accepted = now()
         run.save()
         with self.runs_lock:
@@ -2005,20 +2187,58 @@ class Daemon:
                                 window=window or 'all', client=self.client_name())
 
 
+# <pthread/qos.h>. The accept loop runs on the main thread: at user-interactive
+# QoS a Mac at load 90 still schedules it, so a client is answered. A thread
+# may start at its creator's class, so each handler thread puts itself back at
+# the default: the work a connection does is not what a person waits on first.
+QOS_CLASS_USER_INTERACTIVE = 0x21
+QOS_CLASS_DEFAULT = 0x15
+RAISED = threading.Event()
+
+
+def set_qos(qos_class, platform=None, cdll=None):
+    """Put the calling thread at `qos_class` on macOS. True when it took; never raises."""
+    if (platform or sys.platform) != 'darwin':
+        return False
+    try:
+        import ctypes
+        system = (cdll or ctypes.CDLL)('/usr/lib/libSystem.B.dylib')
+        call = system.pthread_set_qos_class_self_np
+        call.argtypes, call.restype = [ctypes.c_uint, ctypes.c_int], ctypes.c_int
+        return call(qos_class, 0) == 0
+    except Exception:                               # noqa: BLE001 - a priority, never a failure
+        return False
+
+
+def raise_accept_qos(platform=None, cdll=None):
+    """The accept thread at user-interactive QoS; remembered so handlers step back down."""
+    raised = set_qos(QOS_CLASS_USER_INTERACTIVE, platform=platform, cdll=cdll)
+    if raised:
+        RAISED.set()
+    return raised
+
+
 def main(argv=None):
+    # Before anything else: a daemon still starting had no handlers, and
+    # SIGUSR1's default action ends a process, which killed one on 2026-09-24.
+    # A SIGTERM that lands while it starts is kept and acted on once it serves.
+    stopping = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stopping.set())
+    # `kill -USR1 <pid>` writes every thread's stack to the daemon log: the
+    # one question a stuck run raises that `ps` cannot answer.
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
+    raised = raise_accept_qos()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', default=None)
     parser.add_argument('--config', default=None)
     parser.add_argument('--ready-fd', type=int, default=None,
                         help='write one byte here once the socket is listening')
     args = parser.parse_args(argv)
-    daemon = Daemon(args.state, config_path=args.config).start()
-    signal.signal(signal.SIGTERM, lambda *_: daemon.stopping.set())
-    # `kill -USR1 <pid>` writes every thread's stack to the daemon log: the
-    # one question a stuck run raises that `ps` cannot answer.
-    faulthandler.register(signal.SIGUSR1, all_threads=True)
+    daemon = Daemon(args.state, config_path=args.config, stopping=stopping).start()
     if args.ready_fd is not None:
         os.write(args.ready_fd, b'1')
+    if raised:
+        log('accept thread QoS user-interactive')
     log('daemon on %s, worker %s, pid %d, code %s'
         % (daemon.socket_path, daemon.config['worker']['host'] or '(none)', os.getpid(),
            daemon.code[:12]))

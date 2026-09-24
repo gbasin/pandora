@@ -34,7 +34,7 @@ from pathlib import Path
 from ..engine import bundle
 from ..config.loader import FILENAME
 from ..errors import ConfigError
-from . import enrollment, install, placement, settings
+from . import drain, enrollment, install, placement, settings
 from .health import DEFAULT_INTERVAL, STALE_FACTOR
 from .protocol import Reader, VERSION, dump
 
@@ -176,8 +176,12 @@ def check_launcher(env, *, run=subprocess.run):
                  launcher=launcher, home=home), home
 
 
-def ping(sock_path, timeout=2.0):
-    """The daemon's answer to `ping`, or raises OSError with the reason."""
+def ping(sock_path, timeout=30.0):
+    """The daemon's answer to `ping`, or raises OSError with the reason.
+
+    30 s, as for every operator verb: a starved daemon answered in 66 s on
+    2026-09-24, and a doctor that gives up after 2 s reports it as not running.
+    """
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
@@ -205,14 +209,18 @@ def source_head(now, runner=subprocess.run):
 
 
 def restart_advice(supervised, pid):
-    """How to restart this daemon: `--restart` refuses one launchd does not run."""
+    """How to restart this daemon: `--restart` drains it, and refuses one launchd does not run.
+
+    A stop does not drain: it ends local runs, so that advice says to look first.
+    """
     answer = supervised(pid) if supervised else None
     if answer is True:
         return '`pandora daemon --restart`'
     if answer is False:
         return ('`pandora daemon --stop`, then start it again (launchd does not run it, so '
-                '`--restart` cannot)')
-    return '`pandora daemon --restart` if launchd runs it, else stop it and start it again'
+                '`--restart` cannot; a stop ends local runs, so check `pandora ps` first)')
+    return ('`pandora daemon --restart` if launchd runs it, else check `pandora ps`, stop it '
+            'and start it again')
 
 
 def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, supervised=None):
@@ -262,8 +270,7 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
                          'since; run `pandora upgrade`' % (detail, old, now['name'],
                                                           now['meta'].get('source'), head[:12]),
                          **facts), answer
-        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it once '
-                     '`pandora ps` shows no local run and no remote run before accepted: %s'
+        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it: %s'
                      % (detail, old, now['name'], restart_advice(supervised, answer.get('pid'))),
                      **facts), answer
     if not now and os.path.realpath(home) != os.path.realpath(expected):
@@ -283,13 +290,12 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
     if code and mine and code != mine and now:
         return check('daemon', WARN, '%s; daemon code differs from %s on disk: something '
                      'edited the version directory. `pandora upgrade` builds the commit '
-                     'again under a new name and restarts the daemon at a safe moment'
+                     'again under a new name and restarts the daemon after a drain'
                      % (detail, now['path']), **facts), answer
     if code and mine and code != mine:
         # Same checkout, different bytes: it was updated after the daemon started.
-        return check('daemon', WARN, '%s; daemon code differs from the checkout. '
-                     'Restarting ends running local runs; check `pandora ps` first, then '
-                     'restart it: %s' % (detail, restart_advice(supervised, answer.get('pid'))),
+        return check('daemon', WARN, '%s; daemon code differs from the checkout; restart '
+                     'it: %s' % (detail, restart_advice(supervised, answer.get('pid'))),
                      **facts), answer
     if now:
         return check('daemon', OK, '%s, runs current (%s)' % (detail, now['name']),
@@ -546,6 +552,24 @@ def check_shim_markers(env, shim):
     return check('shim markers', OK, '%s beside the shim only' % SHIM_MARKER)
 
 
+def check_drain(state, *, clock=time.time):
+    """A `draining` marker: a restart in progress, or one that never finished. None when absent."""
+    marker = drain.read_marker(state, clock=clock)
+    if marker is None:
+        return None
+    path = drain.marker_path(state)
+    if marker['age'] >= drain.STALE_SECONDS:
+        return check('restart drain', WARN,
+                     '%s is %d min old: a restart that never finished. Clients ignore it. '
+                     'Unless `pandora ps` says draining, remove it; `pandora daemon '
+                     '--restart` also clears it' % (path, marker['age'] // 60),
+                     marker=str(path), age_seconds=int(marker['age']), pid=marker.get('pid'))
+    return check('restart drain', INFO,
+                 'a restart is draining the daemon (asked by pid %s, %ds ago); commands wait '
+                 'for it' % (marker.get('pid') or '?', marker['age']),
+                 marker=str(path), age_seconds=int(marker['age']), pid=marker.get('pid'))
+
+
 def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
                       upgraded=False):
     """Whether launchd supervises the daemon that answered, or nothing does.
@@ -593,6 +617,15 @@ def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
                      'launchd has %s loaded (%s) but the daemon answering is pid %s, which '
                      'it did not start. `pandora daemon --stop`, then `pandora daemon '
                      '--restart`; %s' % (label, agent['line'], pid, starts), **facts)
+    kind = launchd.agent_process_type(label, home)
+    facts['process_type'] = kind
+    if kind is not None and kind != launchd.PROCESS_TYPE:
+        return check('daemon supervision', WARN,
+                     'launchd runs pid %s as %s at ProcessType %s, the class macOS starves '
+                     'first under load; run `pandora daemon --install` to rewrite it as %s '
+                     '(that restarts the daemon without a drain: check `pandora ps` first)'
+                     % (pid, label, kind or '(unset, which launchd treats as Standard)',
+                        launchd.PROCESS_TYPE), **facts)
     return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; %s after '
                  'updating the checkout' % (pid, label, runs, starts,
                                             '`pandora upgrade`' if upgraded
@@ -647,6 +680,10 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
     checks.append(check_cwd(cwd))
     checks.append(check_variables(env))
     checks.append(check_shim_markers(env, pnpm['facts'].get('shim')))
+    # Last: shown only while a marker exists, after every row that is always there.
+    drained = check_drain(sock_path.parent)
+    if drained is not None:
+        checks.append(drained)
     return {'ok': not any(item['status'] == FAIL for item in checks),
             'cwd': cwd, 'state': str(state_path), 'socket': str(sock_path),
             'package': PACKAGE_HOME, 'checks': checks}

@@ -12,7 +12,7 @@ INVARIANTS
   * Exit codes that are not the command's own:
       70  infrastructure failure, never a test verdict (also: daemon installed
           here but not answering after 5 s; nothing ran; run `pandora doctor`)
-      75  busy or stale: a validation already active here, or the tree changed
+      75  busy or stale: validation active here, tree changed, or restart ran long
      124  `--max-wait` elapsed; the run was NOT stopped
      130  canceled
   * `--update` runs on the worker, never here; its files come back only from a
@@ -62,7 +62,14 @@ def notice(text):
     sys.stderr.flush()
 
 
-def ask(sock_path, request, timeout=30.0):
+# How long an operator verb (`ps`, `cancel`, `wait`, `doctor`) waits for the
+# daemon. A starved daemon at load 90 answered in 66 s on 2026-09-24, and a
+# 2-5 s client called it "not running". The shim keeps its 2 s connect: a slow
+# daemon must not delay every pnpm call.
+OPERATOR_SECONDS = 30.0
+
+
+def ask(sock_path, request, timeout=OPERATOR_SECONDS):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     sock.connect(str(sock_path))
@@ -81,6 +88,28 @@ def state_of(args):
 
 # -- commands ---------------------------------------------------------------
 
+def restart_drained(args, launchd, label, state):
+    """`--restart`: drain, wait for what a restart would end, then kickstart."""
+    from .client import drain
+    # Before the drain, so a daemon launchd does not run is never left draining.
+    agent = launchd.status(label)
+    if not agent['loaded']:
+        raise launchd.Refused('%s is not loaded in launchd; `pandora daemon --install` first, '
+                              'or restart a hand-started daemon by stopping it and starting '
+                              'it' % label)
+    holder = launchd.lock_holder(state)
+    if holder and agent['pid'] != holder:
+        # A kickstart would restart launchd's agent, not the daemon that
+        # answers: that one would be drained and never restarted.
+        raise launchd.Refused('pid %s holds %s but launchd runs %s as pid %s, so a restart '
+                              'would not reach it. `pandora daemon --stop`, then `pandora '
+                              'daemon --restart`' % (holder, state / 'daemon.lock', label,
+                                                     agent['pid']))
+    return drain.drain_and_restart(
+        state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
+        now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice))
+
+
 def cmd_daemon(args):
     """Run the daemon in the foreground, or manage the launchd agent that runs it.
 
@@ -90,6 +119,9 @@ def cmd_daemon(args):
     for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
+    if (args.wait is not None or args.now) and not args.restart:
+        notice('--wait and --now go with --restart')
+        return 64
     if verb:
         return cmd_daemon_supervision(args)
     if args.label:
@@ -120,7 +152,7 @@ def cmd_daemon_supervision(args):
         elif args.uninstall:
             launchd.uninstall(label, state=state, say=notice)
         elif args.restart:
-            launchd.restart(label, say=notice)
+            return restart_drained(args, launchd, label, state)
         else:
             launchd.stop(label, state=state, say=notice)
     except launchd.Refused as error:
@@ -130,7 +162,7 @@ def cmd_daemon_supervision(args):
 
 
 def cmd_upgrade(args):
-    """Snapshot the checkout into `<data>/versions`, flip `current`, restart at a safe moment.
+    """Snapshot the checkout into `<data>/versions`, drain the daemon, flip `current`, restart.
 
     See `client/install.py` for the layout and why nothing runs from the checkout.
     """
@@ -246,6 +278,10 @@ def check_daemon_knows_claims(sock_path, root):
         notice('no daemon answers on %s (%s). Claimed commands exit 70 until one does: '
                '`pandora daemon --install`' % (sock_path, error))
         return
+    if (answer or {}).get('t') == 'draining':
+        notice('the daemon on %s is draining for a restart; the next claimed command in '
+               'this worktree writes its cache' % sock_path)
+        return
     if (answer or {}).get('t') != 'claims':
         notice('the daemon on %s predates claim caches. Until it restarts, every command '
                'in a worktree without a cache costs a Python start and two daemon round '
@@ -300,7 +336,7 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
     """Follow one run to its exit. Returns its code, or None if cut off."""
     from .client import shim
     try:
-        sock = shim.connect(str(sock_path), timeout=5.0)
+        sock = shim.connect(str(sock_path), timeout=OPERATOR_SECONDS)
     except OSError as error:
         notice('daemon unreachable: %s' % error)
         return INFRA
@@ -399,14 +435,20 @@ def read_json(path):
 
 
 def cmd_ps(args):
+    from .client import drain
     state, _ = state_of(args)
-    pause, worker, me = {}, {}, None
+    pause, worker, me, draining = {}, {}, None, None
     try:
         answer = ask(state / 'client.sock', {'op': 'ps'})
         rows = answer['data']
         pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
         me = answer.get('client')
-    except OSError:
+        draining = answer.get('draining')
+    except OSError as error:
+        marker = drain.read_marker(state)
+        if marker is not None and marker['age'] < drain.STALE_SECONDS:
+            # The restart gap: the old daemon has gone and the new one is not up.
+            draining = dict(marker, gap=True)
         rows = []
         for meta in sorted((state / 'runs').glob('*/meta.json')):
             try:
@@ -414,11 +456,17 @@ def cmd_ps(args):
             except (OSError, ValueError):
                 continue
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
-        worker = {'worker': 'unknown', 'reason': 'the daemon is not running'}
+        worker = {'worker': 'unknown', 'reason': (
+            'the daemon did not answer within %ds' % OPERATOR_SECONDS
+            if isinstance(error, TimeoutError) else 'the daemon is not running')}
     if args.json:
-        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me}
+        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me,
+                          'draining': draining}
                          if pause or worker else rows, indent=1, sort_keys=True))
         return 0
+    if draining:
+        # First: every command typed now waits for the restart, and says so.
+        print(draining_line(draining))
     print(worker_line(worker, me))
     if pause.get('paused'):
         # First line, not a footnote: a queue that is not admitting is the most
@@ -434,6 +482,16 @@ def cmd_ps(args):
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
+
+
+def draining_line(draining):
+    since = draining.get('since')
+    ago = ' for %ds' % max(0, time.time() - since) if isinstance(since, (int, float)) else ''
+    if draining.get('gap'):
+        return ('daemon: draining%s; restarting, no daemon answers yet. New commands wait '
+                'for the next one' % ago)
+    return ('daemon: draining%s for a restart (asked by pid %s); new commands wait, running '
+            'ones finish' % (ago, draining.get('pid') or '?'))
 
 
 # A queued remote row's pre-accept step, as `ps` shows it: `remote shipping`.
@@ -729,16 +787,21 @@ def main(argv=None):
     verbs.add_argument('--uninstall', action='store_true',
                        help='unload the agent and delete its plist')
     verbs.add_argument('--restart', action='store_true',
-                       help='launchctl kickstart -k; `pandora upgrade` does it at a safe '
-                            'moment')
+                       help='drain, then launchctl kickstart -k; `pandora upgrade` does it '
+                            'too')
     verbs.add_argument('--stop', action='store_true',
                        help='SIGTERM a hand-started daemon and wait up to 10 s')
+    daemon.add_argument('--wait', type=float, default=None, metavar='SECONDS',
+                        help='--restart: how long to wait for the runs a restart would end '
+                             '(default 300)')
+    daemon.add_argument('--now', action='store_true',
+                        help='--restart: restart when the wait runs out, ending those runs')
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
 
     upgrade = sub.add_parser('upgrade', help="install the checkout's HEAD as the version "
-                             'everything runs, and restart the daemon at a safe moment')
+                             'everything runs, and restart the daemon after a drain')
     upgrade.add_argument('--from', dest='source', default=None, metavar='CHECKOUT',
                          help='the checkout to snapshot (default: the one current came from)')
     upgrade.add_argument('--dirty', action='store_true',
@@ -746,8 +809,9 @@ def main(argv=None):
     upgrade.add_argument('--version', default=None, metavar='NAME',
                          help='install a version already under versions/ (to go back to one)')
     upgrade.add_argument('--now', action='store_true',
-                         help='restart the daemon at once: local runs and remote runs not yet '
-                              'accepted end (a submitting one is looked up on the worker)')
+                         help='restart the daemon at once: local runs executing and remote runs '
+                              'not yet accepted end (a submitting one is looked up on the '
+                              'worker); queued local runs are submitted again')
     upgrade.add_argument('--no-restart', action='store_true',
                          help='move current even though the daemon keeps its version until it '
                               'restarts')
@@ -755,7 +819,8 @@ def main(argv=None):
                          help='re-point the launchers on PATH even with a non-default data '
                               'directory')
     upgrade.add_argument('--wait', type=float, default=600, metavar='SECONDS',
-                         help='how long to wait for a safe moment to restart (default 600)')
+                         help='how long the drain waits for the runs a restart would end '
+                              '(default 600)')
     upgrade.add_argument('--keep', type=int, default=3,
                          help='versions to keep, current included (default 3, at least 2)')
     upgrade.set_defaults(func=cmd_upgrade)
