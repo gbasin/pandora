@@ -277,7 +277,13 @@ class Run:
             return 0
 
     def stream_local(self, which, chunk):
-        """One chunk from a local child. No offset: there is no remote to resume."""
+        """One chunk from a local child. No offset: there is no remote to resume.
+
+        Output is progress, dated here rather than at the next once-a-second
+        sample, so a drain's idle check never misses it.
+        """
+        if self.active_at is not None:
+            self.active_at = now()
         self.append(log_frame(which, chunk))
 
     def stream_in(self, chunk):

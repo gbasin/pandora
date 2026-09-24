@@ -303,21 +303,36 @@ def shape(rows):
              else int(idle_of(row) // 300)) for row in rows]
 
 
-def cancel_idle(sock_path, row, limit, *, ask=ask, say=notice):
-    """Ask the daemon to cancel one blocker idle for `limit` seconds. True when it did."""
-    say('canceling %s: no CPU progress and no output for %s (--idle-cancel %gs): %s'
-        % (row.get('id'), fmt_idle(idle_of(row) or 0), limit,
-           ' '.join(row.get('argv') or [])[:60]))
+# How long a drain waits before asking again to cancel a blocker the daemon
+# would not cancel (it had progressed, or the daemon did not answer).
+CANCEL_RETRY = 30.0
+
+
+def cancel_idle(sock_path, row, limit, *, ask=ask, say=notice, quiet=False):
+    """Ask the daemon to cancel one blocker idle for `limit` seconds. True when it did.
+
+    `quiet` for a second ask about the same run: its lines were said once.
+    """
+    if not quiet:
+        say('canceling %s: no CPU progress and no output for %s (--idle-cancel %gs): %s'
+            % (row.get('id'), fmt_idle(idle_of(row) or 0), limit,
+               ' '.join(row.get('argv') or [])[:60]))
     try:
         answer = ask(sock_path, {'op': 'cancel', 'run': row.get('id'), 'if_idle': limit,
                                  'pid': os.getpid(), 'by': 'pid %d' % os.getpid()})
     except (OSError, ValueError) as error:
-        say('  the daemon did not answer the cancel (%s); still waiting for it' % error)
+        if not quiet:
+            say('  the daemon did not answer the cancel (%s); still waiting for it, and '
+                'asking again in %ds' % (error, CANCEL_RETRY))
         return False
     if isinstance(answer, dict) and answer.get('t') == 'ok':
+        if quiet:
+            say('canceled %s: still no CPU progress' % row.get('id'))
         return True
-    say('  not canceled: %s' % ((answer or {}).get('msg') if isinstance(answer, dict)
-                                 else answer))
+    if not quiet:
+        say('  not canceled: %s; asking again in %ds if it stays idle'
+            % ((answer or {}).get('msg') if isinstance(answer, dict) else answer,
+               CANCEL_RETRY))
     return False
 
 
@@ -513,17 +528,22 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                 return []
 
         try:
-            canceled = set()
+            canceled, retry_at = set(), {}
             while True:
                 said = None
                 while blocking:
                     if held and idle_cancel and idle_cancel > 0:
                         for row in blocking:
-                            idle = idle_of(row)
-                            if (row.get('id') not in canceled and row.get('lane') == 'local'
-                                    and idle is not None and idle >= idle_cancel
-                                    and cancel_idle(sock, row, idle_cancel, ask=ask, say=say)):
-                                canceled.add(row.get('id'))
+                            idle, run_id = idle_of(row), row.get('id')
+                            if (run_id in canceled or row.get('lane') != 'local'
+                                    or idle is None or idle < idle_cancel
+                                    or clock() < retry_at.get(run_id, float('-inf'))):
+                                continue
+                            if cancel_idle(sock, row, idle_cancel, ask=ask, say=say,
+                                           quiet=run_id in retry_at):
+                                canceled.add(run_id)
+                            else:
+                                retry_at[run_id] = clock() + CANCEL_RETRY
                     lines = [blocker_line(row) for row in blocking]
                     if shape(blocking) != said:
                         say('draining: waiting up to %ds for %d run%s a restart would end:'

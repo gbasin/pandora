@@ -170,11 +170,19 @@ class TheRestarter(unittest.TestCase):
                                       idle_cancel=0), 75)
         self.assertEqual(self.cancels(), [])
 
-    def test_the_daemon_refusing_because_it_woke_up_is_said(self):
+    def test_a_refused_cancel_is_said_once_and_asked_again_every_30_s(self):
         refusal = {'t': 'error', 'code': 'not-idle', 'msg': 'run a is not an idle local run'}
-        self.assertEqual(self.restart([[blocker('a', 900.0)]] * 50, cancel_answer=refusal,
-                                      wait=0.02), 75)
-        self.assertIn('  not canceled: run a is not an idle local run', self.said)
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += 1.0                   # one poll a second
+        self.assertEqual(self.restart([[blocker('a', 900.0)]] * 200, cancel_answer=refusal,
+                                      wait=95, clock=lambda: clock[0], sleep=sleep), 75)
+        self.assertEqual(len(self.cancels()), 4, 'at 0, 30, 60 and 90 s')
+        refused = [line for line in self.said if 'not canceled' in line]
+        self.assertEqual(len(refused), 1, self.said)
+        self.assertIn('run a is not an idle local run; asking again in 30s', refused[0])
+        self.assertEqual(sum('canceling a' in line for line in self.said), 1)
 
     def test_the_blocker_list_is_said_again_only_when_it_changes_in_five_minute_steps(self):
         rows = [[blocker('a', 70.0 + step)] for step in range(40)] + [[]]
@@ -236,6 +244,16 @@ class TheDaemon(DrainCase):
         self.ask({'op': 'cancel', 'run': run_id})
         thread.join(timeout=30)
         self.assertEqual(answer['value'].exit, CANCELED)
+
+    def test_output_dates_the_run_at_once(self):
+        run = Run(self.state, 'talker', {'argv': ['pnpm', 'x']})
+        run.activity(3.0, 100.0)
+        run.stream_local('out', b'hello\n')
+        self.assertGreater(run.active_at, time.time() - 5)
+        self.assertLess(run.idle_seconds(), 5)
+        quiet = Run(self.state, 'unmeasured-talker', {'argv': ['pnpm', 'x']})
+        quiet.stream_local('out', b'hello\n')
+        self.assertIsNone(quiet.active_at, 'output alone does not make a run measured')
 
     def test_an_unmeasured_run_is_never_idle(self):
         run = Run(self.state, 'unmeasured', {'argv': ['pnpm', 'x']})
