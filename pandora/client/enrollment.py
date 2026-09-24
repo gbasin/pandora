@@ -153,7 +153,9 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     comparing `$PWD` with the root it already walked to, so no fork.
 
     Every `strip` line is written before any `claim` or `heavy` line. The shim
-    strips as it reads, in one pass, so this order is part of the format.
+    strips as it reads, in one pass, so this order is part of the format. It
+    stops reading at `end`, which saves about 1 ms an invocation on a cache
+    with 34 `policy` lines; a v0.2 marker has none and is read to its last line.
 
     A claim cache adds the lines its freshness is judged by, all read by the
     shim with builtins. `derived` says which file the claims came from: `own`,
@@ -186,11 +188,14 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
         lines.append('subdirectory ' + subdirectory)
     lines += ['strip ' + ' '.join(prefix) for prefix in strip_prefixes]
     lines += ['claim ' + ' '.join(claim) for claim in claims]
+    lines += ['heavy ' + ' '.join(item) for item in heavy]
+    # Everything the shim reads is above `end`, and it stops there: the policy
+    # lines (one per claimed form, 34 for eichler) are the Python client's.
+    lines.append('end')
     lines += ['policy %s %s %d %s' % (item['size'], item['fallback'],
                                       1 if item.get('writeback') else 0,
                                       ' '.join(item['prefix']))
               for item in policies]
-    lines += ['heavy ' + ' '.join(item) for item in heavy]
     return '\n'.join(lines) + '\n'
 
 

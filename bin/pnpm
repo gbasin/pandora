@@ -91,6 +91,10 @@ while :; do
     if [ -f "$dir/.git" ]; then
         # A linked worktree: ".git" holds "gitdir: <path>/.git/worktrees/<name>",
         # which is this worktree's own git dir; the common dir is above it.
+        # Known limitation: a submodule checked out inside a linked worktree
+        # points at <common>/worktrees/<name>/modules/<sub>, and the strip below
+        # takes the superproject's common dir for the submodule's. Its commands
+        # then read the superproject's files; `enrollment.common_dir` agrees.
         IFS= read -r pointer < "$dir/.git" || pointer=
         case $pointer in
             "gitdir: "*)
@@ -166,6 +170,7 @@ while IFS=' ' read -r key rest; do
         config) config=$rest ;;
         client) client=$rest ;;
         noclient) noclient=$rest ;;
+        end) break ;;
         strip)
             case $keyed in
                 "$rest") keyed= ;;

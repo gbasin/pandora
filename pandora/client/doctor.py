@@ -292,11 +292,15 @@ def check_repository(cwd, config, sock_path):
     out += check_caches(cwd, root, common, kind)
     home = parsed.get('home')
     if home and not (Path(home) / 'pandora' / 'client' / 'shim.py').is_file():
+        # A cache is safe to delete: the next command writes it again. The
+        # registration and the marker are not: deleting either unenrolls.
+        fix = ('restart the daemon from the checkout you mean, then delete %s; the next '
+               'command writes it again' % source if kind == 'cache' else
+               'run `pandora enroll %s` from the checkout you mean' % (root or cwd))
         out.append(check('client home', FAIL,
                          '%s says the client lives in %s, which has no pandora package (a '
-                         'removed checkout?). Claimed commands cannot start the client; '
-                         'restart the daemon from the checkout you mean, then delete %s'
-                         % (source, home, source), home=home))
+                         'removed checkout?). Claimed commands cannot start the client; %s'
+                         % (source, home, fix), home=home))
     elif home and os.path.realpath(home) != os.path.realpath(PACKAGE_HOME):
         # Claimed commands start the client from the file's `home`, whatever
         # checkout this doctor runs from; three code versions were live at once
@@ -348,8 +352,11 @@ def check_caches(cwd, root, common, kind):
                      % (len(parsed['claim']), why, cache), cache=str(cache),
                      claims=[' '.join(item) for item in parsed['claim']])
     elif state == 'stale':
-        here = check('claim cache', WARN, 'cache stale for this worktree (%s); the next '
-                     'claimed command refreshes it' % why, cache=str(cache))
+        # The shim sees a date, and then any command refreshes the cache; it
+        # cannot see a digest, and then only a claimed command reaches the daemon.
+        here = check('claim cache', WARN, 'cache stale for this worktree (%s); the next %s '
+                     'refreshes it' % (why, 'command here' if seen else 'claimed command'),
+                     cache=str(cache))
     elif kind == 'marker':
         here = check('claim cache', INFO, 'none yet; this worktree routes by the v0.2 marker '
                      'until the next claimed command writes %s' % cache, cache=str(cache))
@@ -367,7 +374,7 @@ def check_caches(cwd, root, common, kind):
             stale.append(other)
     total = sum(counts.values())
     every = check('claim caches', INFO, '%d worktree(s): %d fresh, %d stale, %d without a '
-                  'cache; each refreshes on its next claimed command'
+                  'cache; each refreshes on its next command'
                   % (total, counts['fresh'], counts['stale'], counts['missing']),
                   stale_worktrees=stale, **counts)
     return [here, every]

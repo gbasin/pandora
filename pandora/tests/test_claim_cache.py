@@ -252,6 +252,13 @@ class ThroughTheShim(unittest.TestCase):
         self.cache(derived='')
         self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
 
+    def test_the_shim_stops_reading_at_end(self):
+        path = self.cache()
+        path.write_text(path.read_text() + 'claim late\n')
+        age(path, 30)
+        self.assertEqual(self.pnpm('late', PANDORA_PYTHON=NO_PYTHON), 'real late')
+        self.assertIn(['late'], enrollment.parse(path.read_text())['claim'])  # Python reads on
+
     def test_registration_without_a_cache_takes_the_slow_path(self):
         self.write(self.repo / '.git' / 'pandora-repo', [])
         self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
@@ -509,6 +516,18 @@ class EnrollOnce(unittest.TestCase):
         _code, _out, err = self.pandora('enroll', str(self.repo))
         self.assertIn('predates claim caches', err)
         self.assertIn('pandora daemon --restart', err)
+
+    def test_a_block_that_would_not_load_is_never_written(self):
+        from pandora.client import settings
+        from pandora.errors import ConfigError
+        before = self.config.read_text()
+        with self.assertRaises(ConfigError):
+            settings.append_repo(self.config, 'demo', self.repo, '')
+            settings.append_repo(self.config, 'demo', self.root / 'x', '')   # duplicate name
+        self.assertEqual(self.config.read_text().count('[[repos]]'), 1)
+        self.assertTrue(self.config.read_text().startswith(before))
+        self.assertEqual(sorted(path.name for path in self.config.parent.iterdir()),
+                         ['config.toml'])
 
     def test_unenroll_removes_registration_marker_and_every_cache(self):
         self.pandora('enroll', str(self.repo))

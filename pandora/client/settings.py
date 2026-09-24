@@ -181,7 +181,7 @@ def append_repo(path, name, root, config=''):
     """Append one `[[repos]]` table to the client config, and prove it still loads.
 
     Append-only: nothing a person wrote is rewritten, reordered or dropped, and a
-    file that no longer loads afterward is put back as it was.
+    file that would no longer load is never written.
     """
     path = Path(path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,15 +190,18 @@ def append_repo(path, name, root, config=''):
     if text and not text.endswith('\n'):
         text += '\n'
     text += ('\n' if text else '') + repo_block(name, root, config)
-    path.write_text(text)
+    # Proved before it replaces anything, and replaced by a rename, so a
+    # daemon reading the file on its next connection never sees half of it.
+    temp = path.with_name('%s.%d.tmp' % (path.name, os.getpid()))
+    temp.write_text(text)
     try:
-        load(path)
+        load(temp)
     except ConfigError:
-        if before is None:
-            path.unlink()
-        else:
-            path.write_text(before)
+        temp.unlink()
         raise
+    if before is not None:
+        os.chmod(temp, path.stat().st_mode & 0o7777)
+    temp.replace(path)
     return path
 
 

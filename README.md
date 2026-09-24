@@ -321,7 +321,7 @@ ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
 ok    repository         enrolled as eichler, registration ~/Code/eichler/.git/pandora-repo
 ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/eichler/pandora.toml; cache ~/Code/eichler/.git/pandora-claims
-info  claim caches       57 worktree(s): 41 fresh, 2 stale, 14 without a cache; each refreshes on its next claimed command
+info  claim caches       57 worktree(s): 41 fresh, 2 stale, 14 without a cache; each refreshes on its next command
 ok    daemon enrollment  [[repos]] eichler at ~/Code/eichler
 ok    working directory  the worktree root, ~/Code/eichler
 ok    variables          none of PANDORA_OFF, PANDORA_WHERE, PANDORA_SHARDS set
@@ -339,9 +339,9 @@ The repository rows:
 | Row | `ok` | Otherwise |
 |---|---|---|
 | `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the v0.2 marker enrolls it; run `pandora enroll <root>` once. |
-| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next claimed command refreshes it; or there is no cache yet, and the next command writes it. `info`: no cache yet, and the v0.2 marker routes this worktree until then. Never `fail`. |
+| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next command here refreshes it (the next claimed command, when only its digest shows it); or there is no cache yet, and the next command writes it. `info`: no cache yet, and the v0.2 marker routes this worktree until then. Never `fail`. |
 | `claim caches` | Always `info`: every worktree of the repository, counted as fresh, stale or without a cache. | |
-| `client home` | Not shown. | `fail`: the cache names a checkout with no `pandora` package. `warn`: it names a checkout other than the doctor's. |
+| `client home` | Not shown. | `fail`: the file the shim reads names a checkout with no `pandora` package; the row says whether to delete the cache or enroll again. Never delete `pandora-repo` for this: that unenrolls. `warn`: it names a checkout other than the doctor's. |
 | `client socket` | Not shown. | `warn`: the cache routes to another socket than the one the doctor checked. |
 | `daemon enrollment` | The client configuration has a `[[repos]]` entry for the repository. | `fail`: it has none, so the daemon passes every command through. |
 

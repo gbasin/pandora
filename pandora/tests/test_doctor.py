@@ -261,7 +261,7 @@ class RepositoryAndCwd(Scratch):
         item = self.row('claim cache')
         self.assertEqual(item['status'], 'warn')
         self.assertIn('cache stale for this worktree', item['detail'])
-        self.assertIn('the next claimed command refreshes it', item['detail'])
+        self.assertIn('the next command here refreshes it', item['detail'])
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
         self.assertNotIn('fail', self.statuses(items).values())
 
@@ -275,6 +275,7 @@ class RepositoryAndCwd(Scratch):
         item = self.row('claim cache')
         self.assertEqual(item['status'], 'warn')
         self.assertIn('other content', item['detail'])
+        self.assertIn('the next claimed command refreshes it', item['detail'])
 
     def test_a_worktree_without_a_cache_warns_that_its_next_command_writes_one(self):
         self.configure('journey')
@@ -350,6 +351,20 @@ class RepositoryAndCwd(Scratch):
         self.cache(home=str(self.root / 'gone'))
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
         self.assertEqual(self.statuses(items)['client home'], 'fail')
+
+    def test_a_removed_checkout_in_the_registration_never_says_delete_it(self):
+        self.configure('journey')
+        self.register(home=str(self.root / 'gone'))
+        item = self.row('client home')
+        self.assertEqual(item['status'], 'fail')
+        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
+        self.assertNotIn('delete', item['detail'])
+
+    def test_a_removed_checkout_in_a_cache_says_to_delete_the_cache(self):
+        self.configure('journey')
+        self.register()
+        cache = self.cache(home=str(self.root / 'gone'))
+        self.assertIn('then delete %s' % cache, self.row('client home')['detail'])
 
     def test_a_cache_routing_elsewhere_warns(self):
         self.configure('journey')
