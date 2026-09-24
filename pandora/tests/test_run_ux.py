@@ -205,6 +205,28 @@ class Resubmit(unittest.TestCase):
         answer = self.call('resubmit', '--run', 'r1', '--request-id', 'c1:suite:retry')
         self.assertEqual((answer['ok'], answer['code']), (False, 'source-gone'))
 
+    def test_gc_between_retry_check_and_admission_is_refused(self):
+        from contextlib import contextmanager
+        from unittest import mock
+        original_gate = service.gate
+
+        @contextmanager
+        def collect_before_admission(root):
+            # resubmit has checked the source, but has not claimed the retry.
+            with original_gate(root):
+                self.source.rmdir()
+            with original_gate(root):
+                yield
+
+        with mock.patch.object(service, 'gate', collect_before_admission):
+            answer = self.call('resubmit', '--run', 'r1', '--request-id', 'c1:suite:retry')
+        self.assertEqual((answer['ok'], answer['code']), (False, 'source-gone'))
+        ledger = Ledger(self.paths.ledger)
+        try:
+            self.assertIsNone(ledger.by_request('c1:suite:retry'))
+        finally:
+            ledger.close()
+
     def test_only_an_infra_failure_can_be_resubmitted(self):
         ledger = Ledger(self.paths.ledger)
         ledger.update('r1', outcome='command_failed')

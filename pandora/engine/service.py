@@ -102,6 +102,12 @@ def submit(args, paths, ledger, request):
     run_id = 'r' + uuid.uuid4().hex[:15]
     client = client_of(request.get('client'))
     with gate(paths.root):
+        # A retry does not ship or renew the cache grace. Recheck under the
+        # collector's lock: resubmit's earlier existence check can go stale.
+        if request.get('retry_of') and not Path(request['source_path']).is_dir():
+            return emit({'ok': False, 'code': 'source-gone',
+                         'run_id': request['retry_of'],
+                         'source_path': request['source_path']})
         row, created = ledger.claim(
             request['request_id'], run_id,
             repo=plan['repo'], job=plan['job'], input_id=request['input_id'],
@@ -381,6 +387,13 @@ def cmd_health(args):
     a different fact and gets a different state.
     """
     paths, ledger = open_ledger(args.root)
+    try:
+        # The one recurring call the worker gets, so it is also where the src
+        # cache gets collected -- before the capacity probe, so a freed pool
+        # reports its freed space on the same poll.
+        collected = runner.maybe_gc_sources(paths, ledger)
+    except Exception:                               # noqa: BLE001 - a courtesy, never a verdict
+        collected = None
     from pandora.executor.incus import IncusDriver
     driver = IncusDriver(root=paths.root)
     capacity, goldens, reason = {}, [], []
@@ -417,7 +430,8 @@ def cmd_health(args):
               'canary': {'ok': canary.get('ok'), 'failures': canary.get('failures'),
                          'seconds': canary.get('seconds')} if canary else None,
               'kernel': kernel, 'canary_kernel': state.get('kernel'),
-              'kernel_drift': kernel_drift}
+              'kernel_drift': kernel_drift,
+              'src_removed': collected}
     store.close()
     ledger.close()
     return emit(answer)
