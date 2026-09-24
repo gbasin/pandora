@@ -232,6 +232,9 @@ class Run:
             payload['refusal'] = self.refusal
         if self.pgid:
             payload['pgid'], payload['pgid_started'] = self.pgid, self.pgid_started
+        submitter = submitted_by(self.request)
+        if submitter:
+            payload['submitter'] = submitter
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -395,6 +398,21 @@ class Run:
             return self.log.stat().st_size
         except OSError:
             return 0
+
+
+def submitted_by(request):
+    """The request's `submitter`, as stored: {'via', 'id'} of short strings, or None.
+
+    Whatever the client sent, bounded: it is a label for `pandora ps --json`,
+    never an identity anything is decided by.
+    """
+    given = request.get('submitter')
+    if not isinstance(given, dict):
+        return None
+    via, ident = given.get('via'), given.get('id')
+    if not isinstance(via, str) or not isinstance(ident, str) or not ident:
+        return None
+    return {'via': via[:40], 'id': ident[:200]}
 
 
 def peer_uid(sock):

@@ -330,6 +330,67 @@ def refresh(args, command, state):
                      heavy=bool(answer.get('heavy')))
 
 
+# Who submitted a run, in order of preference. `PANDORA_SESSION` is Pandora's
+# own and an orchestrator may set it; the other two are what Claude Code and the
+# Codex companion export into the shells they start.
+SESSION_VARIABLES = ('PANDORA_SESSION', 'CLAUDE_SESSION_ID', 'CODEX_COMPANION_SESSION_ID')
+# A parent past which a process chain stops being one person's or one agent's
+# session: a terminal's `login`, a remote login, a multiplexer's server.
+SESSION_BOUNDARIES = ('login', 'sshd', 'tmux', 'screen', 'launchd', 'init', 'systemd')
+
+
+def top_interactive(processes, start):
+    """The outermost ancestor of `start` still inside one interactive session.
+
+    `processes` maps pid -> (ppid, tty, name). Walks up while the parent has a
+    terminal and is not a session boundary, so every command typed under one
+    terminal tab, or by one agent in it, names the same process.
+    """
+    current = start
+    for _ in range(64):
+        if current not in processes:
+            return None
+        parent = processes[current][0]
+        row = processes.get(parent)
+        if (parent <= 1 or row is None or row[1] in ('', '?', '??')
+                or row[2] in SESSION_BOUNDARIES):
+            break
+        current = parent
+    name = processes[current][2]
+    return '%s:%d' % (name, current)
+
+
+def process_table(run=subprocess.run):
+    """pid -> (ppid, tty, name), from one `ps`; empty when it cannot be read."""
+    try:
+        out = run(['ps', '-A', '-o', 'pid=,ppid=,tty=,comm='], capture_output=True,
+                  text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    table = {}
+    for line in out.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
+            table[int(parts[0])] = (int(parts[1]), parts[2],
+                                    os.path.basename(parts[3].strip()).lstrip('-'))
+    return table
+
+
+def submitter(environ=None, *, table=process_table):
+    """{'via', 'id'}: which session submitted this run, or None.
+
+    A session variable when one is set. Otherwise the top interactive process
+    above this one, which costs one `ps` on a claimed command only.
+    """
+    environ = os.environ if environ is None else environ
+    for name in SESSION_VARIABLES:
+        value = (environ.get(name) or '').strip()
+        if value:
+            return {'via': name, 'id': value[:200]}
+    found = top_interactive(table(), os.getppid())
+    return {'via': 'process', 'id': found} if found else None
+
+
 def build_request(command, *, cwd=None, where=None):
     """The request, with the caller's environment filtered (`envfilter`, step 1).
 
@@ -357,6 +418,9 @@ def build_request(command, *, cwd=None, where=None):
         request['keep_going'] = True
     if where:
         request['where'] = where
+    who = submitter()
+    if who:
+        request['submitter'] = who
     return request
 
 

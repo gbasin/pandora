@@ -431,6 +431,10 @@ def cmd_logs(args):
         notice('no log for run ' + args.run)
         return 1
     import base64
+    who = submitted(read_json(path.parent / 'meta.json'))
+    if who:
+        # stderr: stdout is the run's own output, replayed byte for byte.
+        notice('run %s was submitted by %s' % (args.run, who))
     with path.open('rb') as handle:
         for line in handle:
             try:
@@ -444,13 +448,25 @@ def cmd_logs(args):
     return 0
 
 
+def submitted(meta):
+    """`id (via)` for a row that records who submitted it, else None."""
+    who = (meta or {}).get('submitter') or {}
+    if not who.get('id'):
+        return None
+    return '%s (%s)' % (who['id'], who.get('via') or '?')
+
+
 def cmd_result(args):
     state, _ = state_of(args)
     path = state / 'runs' / args.run / 'result.json'
     result = read_json(path)
+    meta = read_json(path.parent / 'meta.json')
     if result is None:
         args.state_dir = state
-        return result_without_one(args, read_json(path.parent / 'meta.json'))
+        return result_without_one(args, meta)
+    if (meta or {}).get('submitter'):
+        # The engine never sees who submitted a run; the row does.
+        result.setdefault('submitter', meta['submitter'])
     if args.json:
         # A result from an engine before the rename has only the old key; both
         # are printed for one release, `same_input_as` as the alias.
@@ -483,6 +499,8 @@ def result_without_one(args, meta):
     else:
         print('%s: %s, exit %s%s' % (args.run, state, meta.get('exit_code'),
                                      ', ' + meta['reason'] if meta.get('reason') else ''))
+    if not args.json and submitted(meta):
+        print('  submitted by ' + submitted(meta))
     if meta.get('fell_back_to'):
         # The request's verdict is its successor's, not this row's.
         successor = read_json(Path(args.state_dir) / 'runs' / meta['fell_back_to']
@@ -501,6 +519,9 @@ def render_result(run_id, result):
         run_id, result.get('outcome'), result.get('cli_exit'),
         float(result.get('wall_seconds') or 0), result.get('lane') or 'remote',
         ', peak %s MiB' % result['peak_mib'] if result.get('peak_mib') is not None else '')]
+    who = submitted(result)
+    if who:
+        lines.append('  submitted by ' + who)
     placed = result.get('placement') or {}
     if placed.get('overridden'):
         lines.append('  placed %s by override; the job says %s'

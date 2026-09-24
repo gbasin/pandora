@@ -585,6 +585,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
+| `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_SESSION_ID` or `CODEX_COMPANION_SESSION_ID` is used. Without any of them, the run records the top interactive process above the command, as `name:pid` (one `ps` on a claimed command). |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
 
@@ -592,10 +593,10 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. |
+| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter`; the table has no room for it. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
-| `pandora logs <id>` | Replay a run's output. |
-| `pandora result <id> [--json]` | Outcome, exit, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
+| `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
+| `pandora result <id> [--json]` | Outcome, exit, submitter, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
 | `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
 | `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens and ready state. |
