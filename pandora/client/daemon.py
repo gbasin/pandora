@@ -467,7 +467,7 @@ def peer_uid(sock):
 
 
 class Daemon:
-    def __init__(self, state=None, config_path=None):
+    def __init__(self, state=None, config_path=None, stopping=None):
         self.config_path = config_path
         self.config = settings.load(config_path)
         self.state = Path(state or self.config['client']['state']).expanduser()
@@ -476,7 +476,7 @@ class Daemon:
         self.socket_path = self.state / 'client.sock'
         self.runs = {}
         self.runs_lock = threading.Lock()
-        self.stopping = threading.Event()
+        self.stopping = stopping if stopping is not None else threading.Event()
         # {'since', 'pid', 'daemon'} while a restart drains this daemon, else
         # None. Read and set under `admitting`, with every row a request opens,
         # so a drain's count of what is in flight misses nothing.
@@ -2124,17 +2124,21 @@ class Daemon:
 
 
 def main(argv=None):
+    # Before anything else: a daemon still starting had no handlers, and
+    # SIGUSR1's default action ends a process, which killed one on 2026-09-24.
+    # A SIGTERM that lands while it starts is kept and acted on once it serves.
+    stopping = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stopping.set())
+    # `kill -USR1 <pid>` writes every thread's stack to the daemon log: the
+    # one question a stuck run raises that `ps` cannot answer.
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state', default=None)
     parser.add_argument('--config', default=None)
     parser.add_argument('--ready-fd', type=int, default=None,
                         help='write one byte here once the socket is listening')
     args = parser.parse_args(argv)
-    daemon = Daemon(args.state, config_path=args.config).start()
-    signal.signal(signal.SIGTERM, lambda *_: daemon.stopping.set())
-    # `kill -USR1 <pid>` writes every thread's stack to the daemon log: the
-    # one question a stuck run raises that `ps` cannot answer.
-    faulthandler.register(signal.SIGUSR1, all_threads=True)
+    daemon = Daemon(args.state, config_path=args.config, stopping=stopping).start()
     if args.ready_fd is not None:
         os.write(args.ready_fd, b'1')
     log('daemon on %s, worker %s, pid %d, code %s'
