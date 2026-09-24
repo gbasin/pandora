@@ -17,6 +17,7 @@ may still go local. Everything after it may not.
 """
 import argparse
 import base64
+import faulthandler
 import fcntl
 import json
 import os
@@ -188,6 +189,13 @@ class Run:
         # restarts can stop a tree whose supervisor was the process that died.
         self.pgid = request.get('pgid')
         self.pgid_started = request.get('pgid_started')
+        # Held across the supervisor's check-then-spawn and across a stop's
+        # read-then-kill, so a stop either prevents the spawn or sees the
+        # group it produced -- never neither.
+        self.spawn_lock = threading.Lock()
+        # Around `finish`: two threads closing one row at the same instant --
+        # a child exiting as a stop lands -- must produce one exit frame.
+        self.close_lock = threading.RLock()
         # Whether any of the command's own output has been streamed. Kept in a
         # file, because a daemon that restarts mid-run must not forget that the
         # caller has already seen half an answer.
@@ -196,6 +204,14 @@ class Run:
         self.carry = b''
 
     def save(self):
+        with self.close_lock:
+            if self.done.is_set():
+                # Closed. A thread still mid-flight when a stop closed the row
+                # must not write `running` over the daemon's last word.
+                return
+            self._save()
+
+    def _save(self):
         payload = {'id': self.id, 'state': self.state, 'exit_code': self.exit_code,
                    'argv': self.request.get('argv'), 'cwd': self.request.get('cwd'),
                    'worktree': self.worktree(),
@@ -351,6 +367,14 @@ class Run:
         self.note('hint: ' + text)
 
     def finish(self, code, *, state='done', result=None):
+        with self.close_lock:
+            if self.done.is_set():
+                # Already closed -- by a stop, while the executor that would
+                # have finished it was still on its way. The first word stands.
+                return
+            self._finish(code, state, result)
+
+    def _finish(self, code, state, result):
         self.exit_code = code
         self.state = state
         self.result = result
@@ -402,6 +426,7 @@ class Daemon:
         self.runs = {}
         self.runs_lock = threading.Lock()
         self.stopping = threading.Event()
+        self.handlers = set()             # live connection threads, drained at stop
         self.server = None
         self.lock_handle = None
         self.repo_configs = {}
@@ -781,10 +806,14 @@ class Daemon:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
+            thread = threading.Thread(target=self.handle, args=(conn,), daemon=True)
+            with self.runs_lock:
+                self.handlers.add(thread)
+            thread.start()
 
     def stop(self):
         self.stopping.set()
+        self.close_local_runs()
         self.health.stop()
         for worker in self.workers.values():
             try:
@@ -802,6 +831,13 @@ class Daemon:
     # -- connections -------------------------------------------------------
 
     def handle(self, conn):
+        try:
+            self._handle(conn)
+        finally:
+            with self.runs_lock:
+                self.handlers.discard(threading.current_thread())
+
+    def _handle(self, conn):
         try:
             self.dispatch(conn)
         except (OSError, ValueError, json.JSONDecodeError):
@@ -991,7 +1027,81 @@ class Daemon:
         except OSError:
             pass
 
+    # -- stopping ----------------------------------------------------------
+
+    def close_local_runs(self):
+        """A stopping daemon ends the local runs it drives, and says so to each caller.
+
+        Their pipes are this process's and no successor can read a verdict from
+        them, so they are not left for the next daemon's sweep to find: the row
+        is closed first, as `infra_failed` for one that was running and
+        `withdrawn` for one still queued, then the tree is killed, then the
+        connection threads get a moment to deliver the exit frame. A remote
+        run is left alone: the worker still has it, and the successor settles
+        it from the engine's own record.
+        """
+        with self.runs_lock:
+            candidates = list(self.runs.values()) + list(self.pending.values())
+        closed = []
+        for run in candidates:
+            if run.lane != 'local' or run.id in closed:
+                continue
+            run.canceled.set()
+            with run.close_lock:
+                # The note and the close under one lock: a run whose child
+                # finished at this same instant keeps its verdict and never
+                # hears "re-run it".
+                if run.done.is_set():
+                    continue
+                if run.state == 'running':
+                    run.note('the daemon stopped while this run was executing here, so its '
+                             'verdict is lost. Re-run it.')
+                    run._finish(INFRA, 'infra_failed', None)
+                else:
+                    run.note('the daemon stopped before this run was accepted; nothing ran. '
+                             'Re-run it.')
+                    run._finish(INFRA, 'withdrawn', None)
+            with run.spawn_lock:
+                pgid = run.pgid
+            if pgid:
+                # The leader is this process's own child, not yet reaped, so
+                # its group id is nobody else's: no proof needed, and none
+                # of the reasons `kill_recorded` may decline apply. The
+                # sweep's helper follows, for descendants that left the group.
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+                local_module.kill_recorded(pgid, run.pgid_started)
+                log('stop: killed the process group of run %s' % run.id)
+            closed.append(run.id)
+        if not closed:
+            return closed
+        log('stop: closed %d local run(s): %s' % (len(closed), ' '.join(closed)))
+        # The exit frames reach their callers through the connection threads,
+        # which die with this process. Give them the moment they need.
+        deadline = time.monotonic() + 2.0
+        with self.runs_lock:
+            handlers = list(self.handlers)
+        for thread in handlers:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        return closed
+
+    def answer_closed(self, conn, run):
+        """The row closed while its caller still waited for `accepted`: say so, in the row's words."""
+        if run.state == 'cancelled':
+            self.deny(conn, 'canceled', 'run %s was canceled while queued; nothing ran'
+                      % run.id, exit=CANCELED)
+        else:
+            self.deny(conn, 'daemon-stopping',
+                      'the daemon stopped before this run was accepted; nothing ran. '
+                      'Re-run it.', exit=run.exit_code if run.exit_code is not None else INFRA)
+
     def serve_run(self, conn, reader, request):
+        if self.stopping.is_set():
+            self.deny(conn, 'daemon-stopping', 'the daemon is stopping; nothing ran. Re-run it.',
+                      exit=INFRA)
+            return
         try:
             repo, config, verdict = self.plan_for(request)
         except NotClaimed as error:
@@ -1220,6 +1330,11 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code,
                                'msg': message, 'exit': INFRA}))
 
+        if self.stopping.is_set():
+            # A worker that failed because this daemon is going down must not
+            # hand the job to a local lane that is going down with it.
+            refuse('the daemon is stopping; nothing ran. Re-run it.', 'daemon-stopping')
+            return
         # Whether an explicit PANDORA_WHERE=local could take this job: what the
         # refusal steers to instead of an unmanaged PANDORA_OFF run.
         local_lane = placement.why_not_local(job) is None
@@ -1330,12 +1445,12 @@ class Daemon:
             run.finish(STALE, state='refused')
             return
         if admission is None and run.canceled.is_set():
-            # `pandora cancel` while it queued: nothing started.
+            # `pandora cancel` while it queued, or a stop: nothing started.
             self.budget.finish(run.id, 0, 'lost')
-            run.note('canceled while queued; nothing ran')
-            run.finish(CANCELED, state='cancelled')
-            self.deny(conn, 'canceled', 'run %s was canceled while queued; nothing ran'
-                      % run.id, exit=CANCELED)
+            if not run.done.is_set():
+                run.note('canceled while queued; nothing ran')
+                run.finish(CANCELED, state='cancelled')
+            self.answer_closed(conn, run)
             return
         if admission is None:
             self.budget.finish(run.id, 0, 'lost')
@@ -1797,6 +1912,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     daemon = Daemon(args.state, config_path=args.config).start()
     signal.signal(signal.SIGTERM, lambda *_: daemon.stopping.set())
+    # `kill -USR1 <pid>` writes every thread's stack to the daemon log: the
+    # one question a stuck run raises that `ps` cannot answer.
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     if args.ready_fd is not None:
         os.write(args.ready_fd, b'1')
     log('daemon on %s, worker %s, pid %d, code %s'
