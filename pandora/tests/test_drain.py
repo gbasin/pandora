@@ -597,6 +597,14 @@ class ARestart(DrainCase):
         self.assertTrue(any('gave up' in line for line in self.said), self.said)
         self.assertTrue(any('pnpm slow' in line for line in self.said), self.said)
         self.assertEqual(self.call(['pnpm', 'unit']).exit, 0, 'still refusing after undrain')
+        # The slow run is still executing; stop it and let its executor finish
+        # writing before the temporary directory goes (a full-suite flake).
+        for row in self.rows('slow'):
+            self.ask({'op': 'cancel', 'run': row['id']})
+        thread.join(timeout=30)
+        self.assertTrue(wait_until(lambda: not any(
+            'execute_local' in thread.name and thread.is_alive()
+            for thread in threading.enumerate()), 10))
 
     def test_now_restarts_when_the_wait_runs_out_and_the_run_ends_70(self):
         thread, answer = self.in_background(['pnpm', 'slow'])
@@ -774,8 +782,9 @@ class TheCommand(DrainCase):
         return capture(cli.main, ['--state', str(self.state),
                                   '--config', str(self.root / 'config.toml'), *argv])
 
-    def test_wait_and_now_go_with_restart_only(self):
-        self.assertEqual(self.pandora('daemon', '--install', '--now')[0], 64)
+    def test_wait_and_now_go_with_restart_or_install_only(self):
+        self.assertEqual(self.pandora('daemon', '--uninstall', '--now')[0], 64)
+        self.assertEqual(self.pandora('daemon', '--stop', '--wait', '5')[0], 64)
         self.assertEqual(self.pandora('daemon', '--wait', '5')[0], 64)
 
     def launchd(self, loaded):
@@ -830,6 +839,82 @@ class TheCommand(DrainCase):
         self.assertIn(['kickstart', '-k', 'gui/%d/com.pandora.daemon' % os.getuid()],
                       fake.calls)
         self.assertIn('drained', err)
+
+    def test_install_over_a_loaded_agent_drains_before_the_bootout(self):
+        fake = self.launchd({'com.pandora.daemon': os.getpid()})
+        original = fake.__call__
+        order = []
+
+        def call(argv, **kwargs):
+            if argv[1] in ('bootout', 'bootstrap'):
+                order.append((argv[1], self.daemon.draining is not None))
+            if argv[1] == 'bootout':
+                drain.clear_marker(self.state)            # the successor, in one line
+            return original(argv, **kwargs)
+        patch = mock.patch.object(type(fake), '__call__', lambda self_, argv, **kw: call(argv, **kw))
+        patch.start()
+        self.addCleanup(patch.stop)
+        code, _, err = self.pandora('daemon', '--install', '--wait', '5')
+        self.assertEqual(code, 0, err)
+        self.assertEqual(order, [('bootout', True), ('bootstrap', True)])
+        self.assertIn('drained', err)
+        self.assertIn('the new daemon is up', err)
+
+    def test_install_waits_for_an_executing_run_and_gives_up_without_a_bootout(self):
+        fake = self.launchd({'com.pandora.daemon': os.getpid()})
+        thread, _answer = self.in_background(['pnpm', 'slow'])
+        self.assertTrue(wait_until(lambda: any(row['state'] == 'running'
+                                               for row in self.rows('slow')), 15))
+        code, _, err = self.pandora('daemon', '--install', '--wait', '0.5')
+        self.assertEqual(code, 75, err)
+        self.assertIn('pandora daemon --install --now', err)
+        self.assertNotIn('bootout', fake.verbs())
+        self.assertIsNone(self.daemon.draining)
+        for row in self.rows('slow'):
+            self.ask({'op': 'cancel', 'run': row['id']})
+        thread.join(timeout=30)
+
+    def test_a_failed_load_after_the_bootout_does_not_ask_the_gone_daemon_to_undrain(self):
+        from pandora.client import launchd
+        fake = self.launchd({'com.pandora.daemon': os.getpid()})
+        fake.bootstrap_fails = True
+        with mock.patch.object(launchd, 'REPLACE_SECONDS', 0.0), \
+                mock.patch.object(cli, 'OLD_PID_SECONDS', 0.0):
+            code, _, err = self.pandora('daemon', '--install', '--wait', '5')
+        self.assertEqual(code, 1, err)
+        self.assertIn('launchctl bootstrap', err)
+        self.assertNotIn('could not end the drain', err)
+        # The in-process daemon stands in for one launchd stopped: nobody undrained it.
+        self.assertIsNotNone(self.daemon.draining)
+        # Its pid is alive and it holds the lock, so the marker stays for it.
+        self.assertTrue(drain.marker_path(self.state).exists())
+
+    def test_the_marker_is_cleared_only_once_the_old_pid_is_gone_and_nobody_is_coming(self):
+        from pandora.client import launchd
+        from types import SimpleNamespace
+        drain.write_marker(self.state, {'since': 0})
+        alive = {4242}
+        fake = SimpleNamespace(
+            wait_pid_gone=lambda pid, seconds: pid not in alive,
+            status=lambda label: {'loaded': False, 'pid': None},
+            lock_holder=lambda state: None)
+        self.assertFalse(cli.settle_marker(fake, drain, 'x', self.state, 4242))
+        self.assertTrue(drain.marker_path(self.state).exists())
+        fake.status = lambda label: {'loaded': True, 'pid': 9001}
+        alive.clear()
+        self.assertFalse(cli.settle_marker(fake, drain, 'x', self.state, 4242))
+        fake.status = lambda label: {'loaded': False, 'pid': None}
+        self.assertTrue(cli.settle_marker(fake, drain, 'x', self.state, 4242))
+        self.assertFalse(drain.marker_path(self.state).exists())
+        self.assertTrue(callable(launchd.wait_pid_gone))
+
+    def test_install_with_nothing_loaded_and_no_daemon_loads_at_once(self):
+        self.daemon.stop()
+        fake = self.launchd({})
+        code, _, err = self.pandora('daemon', '--install')
+        self.assertEqual(code, 0, err)
+        self.assertNotIn('drain', err)
+        self.assertEqual(fake.verbs()[:4], ['print', 'print', 'enable', 'bootstrap'])
 
 
 class Doctor(unittest.TestCase):

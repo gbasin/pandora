@@ -22,6 +22,7 @@ too high a price for changing a hostname.
     name = "gary@studio"                # who this Mac is to a shared worker; default user@host
     fallback_slots = 2
     fallback_wait_seconds = 0
+    keep_runs_days = 7                  # finished runs older than this are removed; 0 keeps all
 
     [local]
     budget_mib = 0                      # 0: this machine's RAM minus the reserve
@@ -72,7 +73,10 @@ DEFAULTS = {
     # so everywhere else this is a no-op and the transition is a log line.
     'notify': {'enabled': True},
     'client': {'state': str(DEFAULT_STATE), 'fallback_slots': 2,
-               'fallback_wait_seconds': 0.0, 'max_wait_seconds': 0, 'name': ''},
+               'fallback_wait_seconds': 0.0, 'max_wait_seconds': 0, 'name': '',
+               # Finished run directories older than this are removed by the
+               # daemon (`runindex.prune`); 0 keeps every run.
+               'keep_runs_days': 7},
     'repos': [],
     # The fake backend stays available, because a test that needs a worker is a
     # test that does not run. `mode` is only consulted when it is not "worker".
@@ -119,6 +123,10 @@ def normalize(raw):
     pause.update(given)
     config['local']['pause'] = pause
     config['client']['state'] = _expand(config['client']['state'])
+    keep = config['client']['keep_runs_days']
+    if isinstance(keep, bool) or not isinstance(keep, (int, float)) or keep < 0:
+        raise ConfigError('[client] keep_runs_days must be a number of days, 0 or more '
+                          '(0 keeps every run), not %r' % (keep,))
     name = config['client']['name']
     if name and (not isinstance(name, str) or not CLIENT_NAME.fullmatch(name)):
         raise ConfigError('[client] name must be 1 to 64 letters, digits and . _ @ + -, '

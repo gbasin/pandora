@@ -38,7 +38,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
 from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
-from . import attribution
+from . import attribution, runindex
 from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
@@ -209,6 +209,12 @@ class Run:
         # A local run still queued when a drain began: it never starts here,
         # and its caller is told to submit it again to the next daemon.
         self.drained = False
+        # A local run's CPU time so far, summed over its process tree, and
+        # when (wall clock) it last progressed, from the supervisor's
+        # once-a-second sample. None until measured, and None when `ps`
+        # cannot measure it: such a run is never called idle.
+        self.cpu_seconds = None
+        self.active_at = None
 
     def save(self):
         with self.close_lock:
@@ -271,7 +277,13 @@ class Run:
             return 0
 
     def stream_local(self, which, chunk):
-        """One chunk from a local child. No offset: there is no remote to resume."""
+        """One chunk from a local child. No offset: there is no remote to resume.
+
+        Output is progress, dated here rather than at the next once-a-second
+        sample, so a drain's idle check never misses it.
+        """
+        if self.active_at is not None:
+            self.active_at = now()
         self.append(log_frame(which, chunk))
 
     def stream_in(self, chunk):
@@ -350,6 +362,24 @@ class Run:
             with self.log.open('ab') as handle:
                 handle.write(frame)
             self.wake.notify_all()
+
+    def activity(self, cpu_seconds, active_at):
+        """The supervisor's latest reading. Memory only: `ps` asks the Run, not the file."""
+        self.cpu_seconds, self.active_at = cpu_seconds, active_at
+
+    def idle_seconds(self, at=None):
+        """Seconds since the run last progressed, or None when nobody measured it."""
+        if self.active_at is None:
+            return None
+        return max(0.0, (now() if at is None else at) - self.active_at)
+
+    def activity_fields(self):
+        """What `ps --json` and a drain's blockers say about a local run's progress."""
+        if self.lane != 'local' or self.state != 'running':
+            return {}
+        idle = self.idle_seconds()
+        return {'cpu_seconds': self.cpu_seconds, 'last_active': self.active_at,
+                'idle_seconds': None if idle is None else round(idle, 1)}
 
     def spawned(self, pid):
         """The local supervisor started the child, as the leader of its own group."""
@@ -480,6 +510,9 @@ class Daemon:
         self.socket_path = self.state / 'client.sock'
         self.runs = {}
         self.status = RunStatus()
+        # Run ids by date, and every finished row once read: `stats` reads only
+        # its window, and pruning keeps history bounded (`runindex`).
+        self.index = runindex.RunIndex(self.state / 'runs')
         self.runs_lock = threading.Lock()
         self.stopping = stopping if stopping is not None else threading.Event()
         # {'since', 'pid', 'daemon'} while a restart drains this daemon, else
@@ -700,6 +733,9 @@ class Daemon:
             except (OSError, ValueError):
                 continue
             self.status.update(dict(payload, id=meta.parent.name))
+            if isinstance(payload, dict) and payload.get('id') == meta.parent.name:
+                # Read anyway: `stats` then reads nothing it has seen here.
+                self.index.learn(payload)
             if payload.get('state') not in ('queued', 'running'):
                 continue
             run = self.resume_row(payload)
@@ -742,7 +778,7 @@ class Daemon:
         explicit `pandora cancel` of the row: a local one ends `cancelled`, a
         remote one is followed with its cancel already asked for.
         """
-        run = Run(self.state, payload['id'], payload, on_save=self.status.update)
+        run = Run(self.state, payload['id'], payload, on_save=self.saved)
         run.lane = payload.get('lane') or 'remote'
         run.remote = payload.get('remote')
         run.accepted = payload.get('accepted')
@@ -900,7 +936,37 @@ class Daemon:
              'code_modules': self.code_modules}) + '\n')
         if self.config['worker']['host']:
             self.health.start()
+        threading.Thread(target=self.prune_loop, name='prune', daemon=True).start()
         return self
+
+    def prune_loop(self, every=runindex.PRUNE_EVERY):
+        """At start, then hourly: remove finished runs older than `[client] keep_runs_days`."""
+        keep = runindex.keep_seconds(self.config)
+        log('prune: %s' % ('on: finished runs older than %g day(s) are removed at start and '
+                           'every %ds ([client] keep_runs_days)' % (keep / 86400.0, every)
+                           if keep > 0 else 'off: [client] keep_runs_days = 0 keeps every run'))
+        while True:
+            self.prune()
+            if self.stopping.wait(every):
+                return
+
+    def prune(self, now=None):
+        keep = runindex.keep_seconds(self.config)
+        with self.runs_lock:
+            live = {run_id for run_id, run in list(self.runs.items()) + list(self.pending.items())
+                    if not run.done.is_set()}
+        try:
+            removed = runindex.prune(self.state, keep, live=live, now=now, index=self.index)
+        except OSError as error:
+            log('prune: %s' % error)
+            return []
+        for run_id in removed:
+            self.status.forget(run_id)
+        if removed:
+            log('prune: removed %d finished run(s) older than %g day(s): %s'
+                % (len(removed), keep / 86400.0, ' '.join(removed[:20])
+                   + (' ...' if len(removed) > 20 else '')))
+        return removed
 
     def serve(self):
         self.server.settimeout(0.25)
@@ -1030,6 +1096,8 @@ class Daemon:
             self.serve_run(conn, reader, first)
         elif op == 'attach':
             self.serve_attach(conn, reader, first)
+        elif op == 'cancel' and first.get('if_idle') is not None:
+            self.cancel_idle(conn, first)
         elif op == 'cancel':
             # A row no thread here drives is taken over with its cancel asked
             # for; answering `ok` and changing nothing left clients hung.
@@ -1236,12 +1304,44 @@ class Daemon:
                 seen.add(run.id)
                 if ((run.lane == 'local' and run.state == 'running')
                         or (run.lane != 'local' and run.state == 'queued')):
-                    blocking.append({'id': run.id, 'lane': run.lane, 'state': run.state,
-                                     'phase': run.phase, 'argv': run.request.get('argv')})
+                    blocking.append(dict({'id': run.id, 'lane': run.lane, 'state': run.state,
+                                          'phase': run.phase, 'argv': run.request.get('argv')},
+                                         **run.activity_fields()))
             since = self.draining['since']
         return {'since': since, 'blockers': blocking,
                 'local': sum(row['lane'] == 'local' for row in blocking),
                 'pre_accept': sum(row['lane'] != 'local' for row in blocking)}
+
+    def cancel_idle(self, conn, request):
+        """A drain's cancel of a local run with no CPU progress: only if it is still idle.
+
+        The restarter saw the run idle one poll ago; this daemon's own reading
+        decides, so a run that woke up in between is never cancelled. The
+        reason goes into the run's log, where its caller and `pandora logs`
+        see it.
+        """
+        run = self.live(request.get('run'))
+        try:
+            limit = float(request['if_idle'])
+        except (TypeError, ValueError):
+            limit = None
+        idle = run.idle_seconds() if run is not None else None
+        if (run is None or limit is None or limit <= 0 or run.lane != 'local'
+                or run.state != 'running' or idle is None or idle < limit):
+            conn.sendall(dump({'v': VERSION, 't': 'error', 'code': 'not-idle', 'exit': 1,
+                               'run': request.get('run'),
+                               'msg': 'run %s is not an idle local run here (idle %s)'
+                                      % (request.get('run'), 'unmeasured' if idle is None
+                                         else '%ds' % idle)}))
+            return
+        why = ('canceled by a restart drain (%s): no CPU progress in its process tree, and '
+               'no output, for %s. Rerun it'
+               % (request.get('by') or 'pid %s' % (request.get('pid') or '?'),
+                  draining.fmt_idle(idle)))
+        run.note(why)
+        log('drain: cancel run %s: idle for %ds (limit %ds)' % (run.id, idle, limit))
+        run.canceled.set()
+        conn.sendall(dump({'v': VERSION, 't': 'ok', 'run': run.id, 'idle_seconds': idle}))
 
     def undrain(self, why='cancelled'):
         with self.admitting:
@@ -1419,7 +1519,7 @@ class Daemon:
                 return
             run = Run(self.state, uuid.uuid4().hex[:12],
                       dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
-                           writeback=bool(plan.get('writeback'))), on_save=self.status.update)
+                           writeback=bool(plan.get('writeback'))), on_save=self.saved)
             run.state = 'queued'
             self.hold(run)
             run.save()
@@ -1686,7 +1786,7 @@ class Daemon:
                 return
             run = Run(self.state, run_id,
                       dict(request, repo=repo['name'], job=job['id'], reason=reason),
-                      on_save=self.status.update)
+                      on_save=self.saved)
             run.lane = 'local'
             self.hold(run)
             run.save()
@@ -2107,7 +2207,7 @@ class Daemon:
                 return driven
             if self.orphaned(dict(payload, id=run_id)):
                 return self.resume_row(dict(payload, id=run_id), cancel=cancel)
-        run = Run(self.state, run_id, payload, on_save=self.status.update)
+        run = Run(self.state, run_id, payload, on_save=self.saved)
         run.state = payload.get('state', 'done')
         run.exit_code = payload.get('exit_code')
         run.remote = payload.get('remote')
@@ -2167,8 +2267,29 @@ class Daemon:
 
     # -- reporting ---------------------------------------------------------
 
+    def saved(self, payload):
+        """Every save of a row: the published status (`ps`) and the index (`stats`)."""
+        self.status.update(payload)
+        self.index.learn(payload)
+
     def ps(self, limit=20):
-        return self.status.rows(limit)
+        """The published status (#110), with each executing local run's CPU progress.
+
+        The progress is the supervisor's in-memory reading, the same one the
+        drain's blockers carry (`Run.activity_fields`); it changes every second
+        and is never saved, so it is added here, to a copy, rather than
+        published.
+        """
+        rows = self.status.rows(limit)
+        with self.runs_lock:
+            driven = {run.id: run for run in list(self.runs.values())
+                      + list(self.pending.values()) if not run.done.is_set()}
+        out = []
+        for row in rows:
+            run = driven.get(row.get('id'))
+            fields = run.activity_fields() if run is not None else {}
+            out.append(dict(row, **fields) if fields else row)
+        return out
 
     def stats(self, window=None):
         """The report, from disk plus at most one engine call.
@@ -2182,10 +2303,14 @@ class Daemon:
         worker = self.health.state()
         if self.config['worker']['host'] and worker.get('worker') == 'unknown':
             worker = self.health.poll()
-        return statistics.build(self.state, since=statistics.parse_since(window),
+        since = statistics.parse_since(window)
+        return statistics.build(self.state, since=since,
                                 worker=worker, pause=self.gate.state(),
                                 local=self.budget.snapshot(sample=True),
-                                window=window or 'all', client=self.client_name())
+                                window=window or 'all', client=self.client_name(),
+                                runs=self.index.history(since),
+                                retention={'keep_days': runindex.keep_seconds(self.config)
+                                           / 86400.0, 'oldest': self.index.oldest()})
 
 
 # <pthread/qos.h>. The accept loop runs on the main thread: at user-interactive

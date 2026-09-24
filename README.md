@@ -170,6 +170,7 @@ The optional keys and their defaults:
 | `[client]` | `name` | `user@host` | Who this Mac is to a shared worker: your login name and the short host name. 1 to 64 letters, digits and `. _ @ + -`. See [Sharing a worker](#sharing-a-worker). |
 | | `fallback_slots` | `2` | Local runs allowed at once when the daemon itself is gone. |
 | | `fallback_wait_seconds` | `0` | How long such a run waits for a slot. 0 refuses at once. |
+| | `keep_runs_days` | `7` | The daemon removes a finished run's directory once all its dates are older than this, at start and every hour, and logs the setting at start. It never removes a live run, a conflicted write-back that waits for `pandora resolve`, or a run whose `meta.json` it cannot parse. A run directory with no `meta.json` goes once the directory is older than this. 0 keeps every run. `pandora stats` sees only what is kept. |
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |
 | | `max_running` | `4` | Local-lane jobs at once. |
@@ -193,8 +194,20 @@ pandora daemon --install
 ```
 
 The command writes `~/Library/LaunchAgents/com.pandora.daemon.plist`, loads it,
-and prints the launchd state line. Every line in `daemon.log` starts with a UTC
-time. The log records worker health changes, each transfer's start, end or
+and prints the launchd state line. When launchd already runs the daemon, the
+command drains it first, the same way `pandora daemon --restart` does (see
+below; `--wait`, `--now` and `--idle-cancel` work the same). It then boots
+the old job out, waits until `launchctl print` says "Could not find service",
+runs `launchctl enable` and bootstraps the new plist, and waits until launchd
+lists the new job with a new pid. The wait for the old job and the bootstrap
+retries share 300 s, with a progress line every 15 s; the new pid has 30 s
+of its own. When a step fails, the command says what to run, and exits 1:
+the `launchctl bootstrap` command once `launchctl print` says "Could not find
+service", or `launchctl kickstart` and the log when the job is loaded but
+its daemon does not start. Ctrl-C, SIGHUP or SIGTERM after the bootout still
+bootstraps the new plist before the command exits.
+
+Every line in `daemon.log` starts with a UTC time. The log records worker health changes, each transfer's start, end or
 failure (run, worktree, input id, files, MiB, rsync exit, elapsed), each
 refusal with its cause, and what a restart decided about each live run. A
 failed transfer also leaves rsync's whole stderr in
@@ -210,8 +223,7 @@ for 66 s. The daemon also runs its accept loop at user-interactive QoS; the
 threads that serve each connection run at the default. There is no `Nice` key,
 because a negative nice needs root. `pandora doctor` warns when the installed
 plist still says `Background` or sets no `ProcessType`. Run `pandora daemon
---install` to rewrite it. That restarts the daemon without a drain, so check
-`pandora ps` first.
+--install` to rewrite it. It drains the daemon before it restarts it.
 
 The daemon runs the version it started with. `pandora upgrade` restarts it into
 a new version when no run would be lost; see [Upgrade](#upgrade). On an
@@ -245,6 +257,22 @@ the drain. Under steady traffic, a restart costs at most the drain wait. A
 daemon from before the drain is waited on through `pandora ps`, without
 holding new commands; if a run starts as the restart is prepared, it waits
 again.
+
+A local run that does nothing does not hold the drain. The daemon samples
+each local run's process tree every second. A run whose processes together
+use less than 1 s of CPU, start or end no process, and write no output for
+`--idle-cancel` seconds (600 by default; 0 turns it off) is canceled. The
+restart prints `canceling <id>: no CPU progress and no output for <time>`,
+the run's log and its caller get the same reason, and the run ends with exit
+130. The daemon checks the run again before it cancels it, so a run that
+started to progress since the last poll keeps running. A run that `ps` cannot
+measure is never idle. While the restart waits, each blocker line shows
+`idle <time>` once a run has not progressed for a minute, and `pandora ps
+--json` shows `cpu_seconds`, `last_active` and `idle_seconds` for each local
+run that is executing. A run whose work is done by processes outside its
+tree, for example in a Docker container, with no output, looks idle. Use
+`--idle-cancel 0` when such a run must not be canceled. `pandora upgrade` and
+`pandora daemon --install` apply the same rule and take the same option.
 
 The drain is a lease. `--restart` renews it every second. A daemon that hears
 nothing for 30 s ends the drain itself and admits runs again, so a restart
@@ -490,9 +518,8 @@ The version lines warn in these cases:
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
 | `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first; else stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
 | `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
-| `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It restarts the daemon; check `pandora ps` first. |
+| `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It drains the daemon, then restarts it. |
 | `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
-| `client home` | the registration or the claim cache pins the client to a path other than `current` | Registration: `pandora enroll <repo>`. Cache: once the daemon runs `current`, delete the cache; the next command writes it again. |
 
 A checkout that has moved on since the last upgrade is not a warning. The
 `install` line notes its commit.
@@ -590,15 +617,14 @@ and runs the daemon from it. It keeps working. To move it to `current`:
    points `current` at it, and re-points `~/.local/bin/pandora` and
    `~/.local/bin/pnpm`. Without `--no-restart` it refuses, because it cannot
    restart a daemon whose plist runs the checkout.
-2. Run `pandora ps`. Wait until no local run is `running` or `queued` and no
-   remote run is `queued`, `freezing`, `shipping` or `submitting`.
-3. Run `pandora daemon --install`. The plist then runs `current`, and the
-   daemon restarts.
-4. Run `pandora enroll <repo>` for each enrolled repository. The
-   registration's `home` becomes `current`, and the daemon writes `current`
-   into each claim cache it refreshes.
-5. Run `pandora doctor`. The `install`, `daemon` and `client home` lines must
-   not warn.
+2. Run `pandora daemon --install`. It drains the daemon, then loads the new
+   plist. The plist then runs `current`.
+3. Run `pandora doctor`. The `install` and `daemon` lines must not warn. No
+   file names a client home: the shim runs the client it is installed with.
+   A `client home` `info` line means that an older registration or claim
+   cache still has a `home` line, which nothing reads. `pandora enroll <repo>`
+   rewrites the registration without the line. The next claimed command in a
+   worktree rewrites that worktree's cache without it.
 
 ## The worker
 
@@ -917,7 +943,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
 | `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
-| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. |
+| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return. For orchestrators. `--local` and `--remote` place the run. |
 

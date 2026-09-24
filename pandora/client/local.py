@@ -48,6 +48,11 @@ from .pressure import Gate, Paused
 
 RESULT_VERSION = 1
 SAMPLE_SECONDS = 1.0
+# How much CPU the run's tree must use, summed over its processes, before a
+# sample calls it progress. An idle node process still wakes for its timers;
+# a second of CPU is more than those use in ten minutes, and less than any
+# test, build or install uses in one.
+ACTIVE_CPU_SECONDS = 1.0
 # What a job gets when its configuration says nothing. The signal is the one
 # every supervisor understands; the grace is the v0.1 constant, now a default
 # rather than a law.
@@ -91,23 +96,49 @@ def budget_from(config):
 # of both; nothing short of an OS container sees it.
 
 
-def process_table(run=subprocess.run):
-    """[(pid, ppid, pgid, rss_kib)] from one `ps`, or [] when it cannot be read."""
+def process_table(run=subprocess.run, cpu=None):
+    """[(pid, ppid, pgid, rss_kib)] from one `ps`, or [] when it cannot be read.
+
+    With `cpu`, a dict, the same `ps` also reports each process's CPU time
+    (user plus system), which is filled in as {pid: seconds}. `time` is the
+    column both macOS and Linux `ps` know by that name.
+    """
+    columns = 'pid=,ppid=,pgid=,rss=' + (',time=' if cpu is not None else '')
     try:
-        proc = run(['ps', '-Ao', 'pid=,ppid=,pgid=,rss='], capture_output=True, text=True,
-                   timeout=10)
+        proc = run(['ps', '-Ao', columns], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return []
     rows = []
     for line in (proc.stdout or '').splitlines():
         parts = line.split()
-        if len(parts) != 4:
+        if len(parts) not in (4, 5):
             continue
         try:
-            rows.append(tuple(int(part) for part in parts))
+            row = tuple(int(part) for part in parts[:4])
         except ValueError:
             continue
+        rows.append(row)
+        if cpu is not None and len(parts) == 5:
+            seconds = cpu_seconds(parts[4])
+            if seconds is not None:
+                cpu[row[0]] = seconds
     return rows
+
+
+def cpu_seconds(text):
+    """`ps -o time=` in seconds, or None.
+
+    macOS writes `mmm:ss.cc` (minutes unbounded), Linux `[dd-]hh:mm:ss`.
+    """
+    text = (text or '').strip()
+    days, _, clock = text.rpartition('-')
+    try:
+        seconds = 0.0
+        for part in clock.split(':'):
+            seconds = seconds * 60 + float(part)
+        return seconds + (int(days) * 86400 if days else 0)
+    except ValueError:
+        return None
 
 
 def tree_of(table, root, pgid=None):
@@ -415,7 +446,7 @@ class Supervisor:
     """One local command, its process group, its peak and its verdict."""
 
     def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None,
-                 on_start=None, spawn_lock=None):
+                 on_start=None, spawn_lock=None, on_activity=None, clock=time.time):
         self.argv = list(argv)
         self.on_start = on_start
         self.spawn_lock = spawn_lock
@@ -434,6 +465,19 @@ class Supervisor:
         self.killed_at = None
         self.seen = {}                   # pid -> monotonic time a sample first saw it
         self.ps = subprocess.run
+        # Whether the run is doing anything. `cpu` is the most CPU time each
+        # process of the tree was seen with, so one that exits keeps what it
+        # used and the sum only grows. `active_at` (wall clock) moves when the
+        # sum has grown by ACTIVE_CPU_SECONDS since it last moved, when a
+        # process joins or leaves the tree, or when the command writes output.
+        # `on_activity(cpu_seconds, active_at)` hears every sample.
+        self.clock = clock
+        self.on_activity = on_activity
+        self.cpu = {}
+        self.cpu_seconds = 0.0
+        self.progress_from = 0.0
+        self.members = frozenset()
+        self.active_at = None
 
     def outside_group(self, table, *, orphans):
         """The pids to signal one by one: those `killpg` on the child's group misses.
@@ -487,6 +531,7 @@ class Supervisor:
                 chunk = stream.read1(65536) if hasattr(stream, 'read1') else stream.read(65536)
                 if not chunk:
                     return
+                self.active_at = self.clock()
                 self.on_log(which, chunk)
         except (OSError, ValueError):
             return
@@ -500,10 +545,11 @@ class Supervisor:
         while not stop.wait(SAMPLE_SECONDS):
             if self.proc is None or self.proc.returncode is not None:
                 continue
-            self.sample(process_table(self.ps))
+            cpu = {}
+            self.sample(process_table(self.ps, cpu=cpu), cpu)
 
-    def sample(self, table):
-        """One reading: the tree's resident memory, and who is in it now."""
+    def sample(self, table, cpu=None):
+        """One reading: the tree's resident memory, who is in it now, and its CPU."""
         root = self.proc.pid
         members = set(tree_of(table, root, root))
         now = time.monotonic()
@@ -511,6 +557,30 @@ class Supervisor:
             self.seen.setdefault(pid, now)
         self.peak_mib = max(self.peak_mib, sum(rss for pid, _ppid, _group, rss in table
                                                if pid in members) // 1024)
+        if cpu is not None:
+            self.track(members, cpu)
+
+    def track(self, members, cpu):
+        """Fold one sample's CPU times in, and move `active_at` when the tree progressed."""
+        now = self.clock()
+        if not any(pid in cpu for pid in members):
+            # `ps` failed, or said nothing about the tree: no evidence either
+            # way, and a run nobody can measure is never called idle.
+            self.active_at, self.members = None, frozenset()
+            if self.on_activity is not None:
+                self.on_activity(None, None)
+            return
+        for pid in members:
+            if pid in cpu:
+                self.cpu[pid] = max(self.cpu.get(pid, 0.0), cpu[pid])
+        total = sum(self.cpu.values())
+        members = frozenset(members)
+        if (self.active_at is None or members != self.members
+                or total - self.progress_from >= ACTIVE_CPU_SECONDS):
+            self.active_at, self.progress_from = now, total
+        self.members, self.cpu_seconds = members, total
+        if self.on_activity is not None:
+            self.on_activity(round(total, 2), self.active_at)
 
     def run(self, canceled):
         """Returns (outcome, exit_code). `outcome` is the engine's vocabulary."""
@@ -680,7 +750,8 @@ class LocalExecutor:
             cancel=plan.get('cancel'),
             on_log=lambda which, chunk: run.stream_local(which, chunk),
             on_start=getattr(run, 'spawned', None),
-            spawn_lock=getattr(run, 'spawn_lock', None))
+            spawn_lock=getattr(run, 'spawn_lock', None),
+            on_activity=getattr(run, 'activity', None))
         outcome, code = supervisor.run(run.canceled.is_set)
         after, after_files = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after
