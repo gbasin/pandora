@@ -43,10 +43,16 @@ PRINT = '''gui/501/%(label)s = {
 class FakeLaunchd:
     """One user domain holding at most one agent per label."""
 
-    def __init__(self, loaded=None, *, bootstrap_fails=False):
+    def __init__(self, loaded=None, *, bootstrap_fails=False, linger=0, no_pid=False):
         self.loaded = dict(loaded or {})          # label -> pid or None
         self.calls = []
         self.bootstrap_fails = bootstrap_fails
+        # How many `print`s still list a booted-out job, `state = SIGTERMed`,
+        # the way launchd does while the old daemon is still exiting.
+        self.linger = linger
+        self.exiting = {}                         # label -> prints left
+        # A job launchd loads but cannot keep running: no pid, ever.
+        self.no_pid = no_pid
         self.next_pid = 9000
 
     def __call__(self, argv, **_kwargs):
@@ -54,6 +60,10 @@ class FakeLaunchd:
         verb, rest = argv[1], argv[2:]
         if verb == 'print':
             label = rest[0].split('/', 2)[2]
+            if self.exiting.get(label):
+                self.exiting[label] -= 1
+                return self.done(0, out=PRINT % {'label': label, 'state': 'SIGTERMed',
+                                                 'pid': '\tpid = 4242\n'})
             if label not in self.loaded:
                 return self.done(113, err='Bad request.\nCould not find service "%s" in '
                                           'domain for user gui: 501' % label)
@@ -62,21 +72,24 @@ class FakeLaunchd:
                 'label': label, 'state': 'running' if pid else 'not running',
                 'pid': '\tpid = %d\n' % pid if pid else ''})
         if verb == 'bootstrap':
-            if self.bootstrap_fails:
+            label = plistlib.loads(Path(rest[1]).read_bytes())['Label']
+            if self.bootstrap_fails or self.exiting.get(label):
                 return self.done(5, err='Bootstrap failed: 5: Input/output error')
-            self.loaded[plistlib.loads(Path(rest[1]).read_bytes())['Label']] = self.spawn()
+            self.loaded[label] = None if self.no_pid else self.spawn()
             return self.done(0)
         if verb == 'load':
             self.loaded[plistlib.loads(Path(rest[-1]).read_bytes())['Label']] = self.spawn()
             return self.done(0)
         if verb == 'bootout':
             label = rest[0].split('/', 2)[2]
+            if label in self.loaded and self.linger:
+                self.exiting[label] = self.linger
             return self.done(0 if self.loaded.pop(label, 'gone') != 'gone' else 3)
         if verb == 'kickstart':
             label = rest[-1].split('/', 2)[2]
             if label not in self.loaded:
                 return self.done(113)
-            if '-k' in rest or not self.loaded[label]:
+            if ('-k' in rest or not self.loaded[label]) and not self.no_pid:
                 self.loaded[label] = self.spawn()
             return self.done(0)
         raise AssertionError('unexpected launchctl call %r' % argv)
@@ -127,10 +140,15 @@ class Case(unittest.TestCase):
         return proc
 
     def install(self, fake, label='com.pandora.daemon', env=None):
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
         return launchd.install(label, config_path=self.root / 'config.toml', state=self.state,
                                env=env if env is not None else {'PATH': '/usr/bin:/bin'},
                                uid=501, home=self.home, python='/opt/homebrew/bin/python3',
-                               run=fake, say=self.said.append)
+                               run=fake, say=self.said.append, clock=lambda: clock[0],
+                               sleep=sleep)
 
 
 class Plist(Case):
@@ -212,18 +230,83 @@ class Plist(Case):
         self.assertEqual(body['EnvironmentVariables']['PANDORA_PYTHON'],
                          '/opt/homebrew/bin/python3')
 
-    def test_a_label_and_a_bootstrap_fallback(self):
-        fake = FakeLaunchd(bootstrap_fails=True)
+    def test_a_label_is_recorded(self):
+        fake = FakeLaunchd()
         self.install(fake, label='me.example.pandora')
         self.assertTrue((self.home / 'Library' / 'LaunchAgents' / 'me.example.pandora.plist')
                         .is_file())
-        self.assertIn('load', fake.verbs())
         self.assertEqual(launchd.label_for(self.state), 'me.example.pandora')
 
     def test_reinstall_boots_the_old_agent_out_first(self):
         fake = FakeLaunchd({'com.pandora.daemon': 4242})
         self.install(fake)
-        self.assertEqual(fake.verbs(), ['print', 'bootout', 'bootstrap', 'kickstart', 'print'])
+        self.assertEqual(fake.verbs(), ['print', 'bootout', 'print', 'bootstrap', 'kickstart',
+                                        'print'])
+        self.assertEqual(fake.loaded['com.pandora.daemon'], 9001)
+
+
+class TheLoad(Case):
+    """2026-09-24: bootout returned while the old job was SIGTERMed, and nothing was loaded."""
+
+    def test_the_bootstrap_waits_until_the_old_job_is_gone(self):
+        fake = FakeLaunchd({'com.pandora.daemon': 4242}, linger=3)
+        self.install(fake)
+        verbs = fake.verbs()
+        self.assertEqual(verbs[:2], ['print', 'bootout'])
+        # Every print until the old job left, then one bootstrap that worked.
+        self.assertEqual(verbs[2:6], ['print'] * 4)
+        self.assertEqual(verbs[6:], ['bootstrap', 'kickstart', 'print'])
+        self.assertEqual(fake.loaded['com.pandora.daemon'], 9001)
+        self.assertIn('launchd  com.pandora.daemon: state = running, pid = 9001',
+                      '\n'.join(self.said))
+
+    def test_an_old_job_that_never_leaves_is_refused_with_the_bootstrap_command(self):
+        fake = FakeLaunchd({'com.pandora.daemon': 4242}, linger=10 ** 6)
+        with self.assertRaises(launchd.Refused) as caught:
+            self.install(fake)
+        path = launchd.plist_path('com.pandora.daemon', self.home)
+        self.assertIn('`launchctl bootstrap gui/501 %s`' % path, str(caught.exception))
+        self.assertIn('still listed', str(caught.exception))
+        self.assertNotIn('bootstrap', fake.verbs())
+        # The plist and the record are written, so --uninstall still finds it.
+        self.assertTrue(path.is_file())
+        self.assertEqual(launchd.recorded_label(self.state), 'com.pandora.daemon')
+
+    def test_a_failed_bootstrap_is_retried_then_refused_with_the_command(self):
+        fake = FakeLaunchd(bootstrap_fails=True)
+        with self.assertRaises(launchd.Refused) as caught:
+            self.install(fake)
+        text = str(caught.exception)
+        self.assertIn('Bootstrap failed: 5', text)
+        self.assertIn('launchctl bootstrap gui/501 %s'
+                      % launchd.plist_path('com.pandora.daemon', self.home), text)
+        self.assertGreater(fake.verbs().count('bootstrap'), 1)
+        # `launchctl load` exits 0 when it fails; it is never the fallback.
+        self.assertNotIn('load', fake.verbs())
+        self.assertNotIn('kickstart', fake.verbs())
+
+    def test_a_loaded_job_with_no_pid_is_refused(self):
+        fake = FakeLaunchd(no_pid=True)
+        with self.assertRaises(launchd.Refused) as caught:
+            self.install(fake)
+        self.assertIn('no daemon is running', str(caught.exception))
+        self.assertIn('launchctl bootstrap', str(caught.exception))
+
+    def test_the_cli_exits_nonzero_and_prints_the_command(self):
+        from pandora import cli
+        from pandora.tests.test_cli import capture
+        fake = FakeLaunchd(bootstrap_fails=True)
+        with mock.patch.object(cli.sys, 'platform', 'darwin'), \
+                mock.patch.object(launchd, 'launchctl',
+                                  lambda args, run=None: fake([launchd.LAUNCHCTL, *args])), \
+                mock.patch.object(launchd, 'LOADED_SECONDS', 0.0):
+            code, _out, err = capture(cli.main, ['--state', str(self.state), '--config',
+                                                 str(self.root / 'config.toml'), 'daemon',
+                                                 '--install'])
+        self.assertEqual(code, 1, err)
+        self.assertIn('`launchctl bootstrap gui/%d ' % os.getuid(), err)
+        # Nothing was loaded before, so there was nothing to drain.
+        self.assertNotIn('drain', err)
 
     def test_the_plist_lints(self):
         if sys.platform != 'darwin':

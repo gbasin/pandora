@@ -44,6 +44,10 @@ launchd stops the daemon with SIGTERM and starts it again from the same plist.
 Runs on the worker survive that; the daemon re-attaches to them on start
 (`Daemon.resume_interrupted`).
 
+`--install` over an agent launchd already runs drains that daemon first, as
+`--restart` does, then replaces the job and checks with `launchctl print` that
+the old one is gone and the new one runs (`install`).
+
 `status` and `lock_holder` are read-only and are what `pandora doctor` uses.
 Everything that talks to launchd goes through one `run` callable so the tests
 never touch the real `launchctl`.
@@ -67,6 +71,12 @@ RECORD = 'launchd.json'
 # `/usr/sbin` for `sysctl`, which the pause gate samples.
 BASE_PATH = ('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin')
 STOP_SECONDS = 10.0
+# How long --install waits for `bootout` to take the old job out of launchd's
+# list, and then for the new one to be loaded with a pid. launchd gives a job
+# 20 s (`ExitTimeOut`) between SIGTERM and SIGKILL.
+GONE_SECONDS = 30.0
+LOADED_SECONDS = 30.0
+POLL_SECONDS = 0.25
 # launchd's class for the agent. `Background` is Apple's class for batch work:
 # low CPU, I/O and network priority, and the first target of memory pressure.
 # At load 90 on 2026-09-24 it starved the daemon for 66 s while every agent
@@ -321,9 +331,12 @@ class Refused(Exception):
     """A verb that would leave two daemons, or none, when the caller meant one."""
 
 
-def install(label, *, config_path, state, state_arg=False, env=None, uid=None, home=None,
-            python=None, run=subprocess.run, say=print):
-    env = dict(os.environ if env is None else env)
+def check_install(label, *, state, uid=None, run=subprocess.run):
+    """What launchd says about the agent now; Refused when --install would leave two daemons.
+
+    Separate from `install` so `pandora daemon --install` can refuse before it
+    drains a daemon it would then not restart.
+    """
     before = status(label, uid=uid, run=run)
     holder = lock_holder(state)
     if holder and not (before['loaded'] and before['pid'] == holder):
@@ -333,6 +346,33 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
             'let go), then run --install again. Runs on the worker keep going; the '
             'launchd daemon re-attaches to them'
             % (holder if holder > 0 else '?', Path(state) / 'daemon.lock', STOP_SECONDS))
+    return before
+
+
+def bootstrap_command(label, target, uid=None):
+    """The command a person runs to load the plist by hand, exactly."""
+    return 'launchctl bootstrap %s %s' % (domain(uid), target)
+
+
+def install(label, *, config_path, state, state_arg=False, env=None, uid=None, home=None,
+            python=None, run=subprocess.run, say=print, clock=time.monotonic,
+            sleep=time.sleep, gone_seconds=None, loaded_seconds=None):
+    """Write the plist, replace a loaded agent with it, and prove launchd runs it.
+
+    A loaded agent keeps the plist it was loaded with, so a rewritten one takes
+    effect through `bootout`, then `bootstrap`. `bootout` returns while the old
+    job is still exiting (`state = SIGTERMed`), and a `bootstrap` of a label
+    launchd still lists fails with error 5. On 2026-09-24 that failure fell
+    through to `launchctl load`, which exits 0 when it fails, and --install
+    reported success with no agent loaded. So each step is checked against
+    `launchctl print`: the old job gone, then the new one loaded with a pid.
+    Any step that does not happen within its bound is Refused with the
+    `launchctl bootstrap` command that finishes the job by hand.
+    """
+    env = dict(os.environ if env is None else env)
+    gone_seconds = GONE_SECONDS if gone_seconds is None else gone_seconds
+    loaded_seconds = LOADED_SECONDS if loaded_seconds is None else loaded_seconds
+    before = check_install(label, state=state, uid=uid, run=run)
     target = plist_path(label, home)
     # The interpreter running this install, by the stable name `this_python`
     # finds for it: proven able to import Pandora, since it is doing so now.
@@ -347,31 +387,64 @@ def install(label, *, config_path, state, state_arg=False, env=None, uid=None, h
     target.parent.mkdir(parents=True, exist_ok=True)
     with open(target, 'wb') as handle:
         plistlib.dump(body, handle)
-    if before['loaded']:
-        # A loaded agent keeps the plist it was loaded with; bootout, then
-        # bootstrap, is how a rewritten one takes effect.
-        launchctl(['bootout', '%s/%s' % (domain(uid), label)], run=run)
-    loaded = launchctl(['bootstrap', domain(uid), str(target)], run=run)
-    if loaded.returncode != 0:
-        loaded = launchctl(['load', '-w', str(target)], run=run)
-    if loaded.returncode != 0:
-        raise Refused('launchctl could not load %s: %s'
-                      % (target, (loaded.stderr or loaded.stdout).strip()))
-    # Without `-k`: `RunAtLoad` has usually started it already, and `-k` would
-    # SIGTERM a daemon that may not have installed its handler yet. This only
-    # starts one when the bootstrap did not.
-    launchctl(['kickstart', '%s/%s' % (domain(uid), label)], run=run)
+    # Recorded before loading, so `--uninstall` and `doctor` find a label that
+    # was not the default even when the load below fails.
     (Path(state) / RECORD).write_text(json.dumps({'label': label, 'plist': str(target)}) + '\n')
-    after = status(label, uid=uid, run=run)
     say('wrote %s' % target)
     say('  runs     %s' % ' '.join(body['ProgramArguments']))
     say('  PATH     %s' % body['EnvironmentVariables']['PATH'])
     say('  PANDORA_PYTHON %s' % body['EnvironmentVariables']['PANDORA_PYTHON'])
     say('  log      %s' % body['StandardOutPath'])
+    by_hand = bootstrap_command(label, target, uid)
+    service = '%s/%s' % (domain(uid), label)
+
+    def refuse(why):
+        raise Refused('launchd did not load %s: %s. The plist is written; load it with `%s`, '
+                      'then check `launchctl print %s` and %s'
+                      % (label, why, by_hand, service, body['StandardOutPath']))
+
+    def poll(done, seconds):
+        deadline = clock() + seconds
+        while True:
+            now = status(label, uid=uid, run=run)
+            if done(now) or clock() >= deadline:
+                return now
+            sleep(POLL_SECONDS)
+
+    if before['loaded']:
+        out = launchctl(['bootout', service], run=run)
+        gone = poll(lambda now: not now['loaded'], gone_seconds)
+        if gone['loaded']:
+            refuse('the old job was still listed %ds after `launchctl bootout` (%s; bootout '
+                   'said %s)' % (gone_seconds, gone['line'], said_by(out)))
+    deadline = clock() + loaded_seconds
+    while True:
+        loaded = launchctl(['bootstrap', domain(uid), str(target)], run=run)
+        if loaded.returncode == 0 or status(label, uid=uid, run=run)['loaded']:
+            break
+        if clock() >= deadline:
+            refuse('`launchctl bootstrap` failed (%s)' % said_by(loaded))
+        sleep(1.0)
+    # Without `-k`: `RunAtLoad` has usually started it already, and `-k` would
+    # SIGTERM a daemon that may not have installed its handler yet. This only
+    # starts one when the bootstrap did not.
+    launchctl(['kickstart', service], run=run)
+    after = poll(lambda now: now['loaded'] and now['pid'], max(0.0, deadline - clock()))
+    if not after['loaded']:
+        refuse('`launchctl print` does not list it after the bootstrap (%s)' % after['line'])
+    if not after['pid']:
+        refuse('it is loaded but no daemon is running (%s); the daemon may be failing at '
+               'start' % after['line'])
     say('launchd  %s: %s' % (label, after['line']))
     from . import install
     say(UPGRADE_NOTE if install.installed(install.data_root(env, home)) else RESTART_NOTE)
     return body
+
+
+def said_by(proc):
+    """What a launchctl call said, in one line, for a refusal."""
+    text = ((proc.stderr or '') + ' ' + (proc.stdout or '')).strip()
+    return 'exit %d%s' % (proc.returncode, ': ' + ' '.join(text.split()) if text else '')
 
 
 def uninstall(label, *, state, uid=None, home=None, run=subprocess.run, say=print):

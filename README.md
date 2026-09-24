@@ -193,8 +193,15 @@ pandora daemon --install
 ```
 
 The command writes `~/Library/LaunchAgents/com.pandora.daemon.plist`, loads it,
-and prints the launchd state line. Every line in `daemon.log` starts with a UTC
-time. The log records worker health changes, each transfer's start, end or
+and prints the launchd state line. When launchd already runs the daemon, the
+command drains it first, the same way `pandora daemon --restart` does (see
+below; `--wait` and `--now` work the same). It then boots the old job out,
+waits until `launchctl print` no longer lists it, bootstraps the new plist,
+and waits until launchd lists the new job with a pid. If a step does not
+happen within 30 s, the command prints the `launchctl bootstrap` command that
+loads the plist by hand, and exits 1.
+
+Every line in `daemon.log` starts with a UTC time. The log records worker health changes, each transfer's start, end or
 failure (run, worktree, input id, files, MiB, rsync exit, elapsed), each
 refusal with its cause, and what a restart decided about each live run. A
 failed transfer also leaves rsync's whole stderr in
@@ -210,8 +217,7 @@ for 66 s. The daemon also runs its accept loop at user-interactive QoS; the
 threads that serve each connection run at the default. There is no `Nice` key,
 because a negative nice needs root. `pandora doctor` warns when the installed
 plist still says `Background` or sets no `ProcessType`. Run `pandora daemon
---install` to rewrite it. That restarts the daemon without a drain, so check
-`pandora ps` first.
+--install` to rewrite it. It drains the daemon before it restarts it.
 
 The daemon runs the version it started with. `pandora upgrade` restarts it into
 a new version when no run would be lost; see [Upgrade](#upgrade). On an
@@ -490,9 +496,8 @@ The version lines warn in these cases:
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
 | `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first; else stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
 | `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
-| `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It restarts the daemon; check `pandora ps` first. |
+| `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It drains the daemon, then restarts it. |
 | `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
-| `client home` | the registration or the claim cache pins the client to a path other than `current` | Registration: `pandora enroll <repo>`. Cache: once the daemon runs `current`, delete the cache; the next command writes it again. |
 
 A checkout that has moved on since the last upgrade is not a warning. The
 `install` line notes its commit.
@@ -590,15 +595,14 @@ and runs the daemon from it. It keeps working. To move it to `current`:
    points `current` at it, and re-points `~/.local/bin/pandora` and
    `~/.local/bin/pnpm`. Without `--no-restart` it refuses, because it cannot
    restart a daemon whose plist runs the checkout.
-2. Run `pandora ps`. Wait until no local run is `running` or `queued` and no
-   remote run is `queued`, `freezing`, `shipping` or `submitting`.
-3. Run `pandora daemon --install`. The plist then runs `current`, and the
-   daemon restarts.
-4. Run `pandora enroll <repo>` for each enrolled repository. The
-   registration's `home` becomes `current`, and the daemon writes `current`
-   into each claim cache it refreshes.
-5. Run `pandora doctor`. The `install`, `daemon` and `client home` lines must
-   not warn.
+2. Run `pandora daemon --install`. It drains the daemon, then loads the new
+   plist. The plist then runs `current`.
+3. Run `pandora doctor`. The `install` and `daemon` lines must not warn. No
+   file names a client home: the shim runs the client it is installed with.
+   A `client home` `info` line means that an older registration or claim
+   cache still has a `home` line, which nothing reads. `pandora enroll <repo>`
+   rewrites the registration without the line. The next claimed command in a
+   worktree rewrites that worktree's cache without it.
 
 ## The worker
 

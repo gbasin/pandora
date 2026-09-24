@@ -121,17 +121,48 @@ def restart_drained(args, launchd, label, state):
         now=args.now, say=notice, restart=lambda: launchd.restart(label, say=notice))
 
 
+def install_drained(args, launchd, label, state, config_path):
+    """`--install`: drain the daemon it replaces, as `--restart` does, then load the new plist.
+
+    Nothing to drain when launchd runs no agent and no daemon holds the lock:
+    the plist is loaded at once. A daemon launchd did not start is refused
+    before any drain, so it is never left draining for a restart that will not
+    come. A load that fails after the old daemon has gone clears the draining
+    marker: no successor is coming to clear it, and a client should hear "not
+    answering" in seconds rather than wait for a restart for eleven minutes.
+    """
+    from .client import drain
+
+    def load():
+        try:
+            launchd.install(label, config_path=config_path, state=state,
+                            state_arg=bool(args.state), say=notice)
+        except launchd.Refused:
+            if not launchd.lock_holder(state):
+                drain.clear_marker(state)
+            raise
+
+    before = launchd.check_install(label, state=state)
+    if not before['loaded'] and not launchd.lock_holder(state):
+        load()
+        return 0
+    return drain.drain_and_restart(
+        state, wait=drain.DEFAULT_RESTART_WAIT if args.wait is None else args.wait,
+        now=args.now, say=notice, restart=load, again='`pandora daemon --install --now`')
+
+
 def cmd_daemon(args):
     """Run the daemon in the foreground, or manage the launchd agent that runs it.
 
     `--install` writes a user agent that keeps the daemon running from
-    `<data>/current` once `pandora upgrade` has run, else from this checkout;
-    `--restart` makes it load the code its plist names. See `client/launchd.py`
+    `<data>/current` once `pandora upgrade` has run, else from this checkout,
+    and replaces a loaded one after a drain; `--restart` drains and makes it
+    load the code its plist names. See `client/launchd.py`
     for what the plist carries and why.
     """
     verb = args.install or args.uninstall or args.restart or args.stop
-    if (args.wait is not None or args.now) and not args.restart:
-        notice('--wait and --now go with --restart')
+    if (args.wait is not None or args.now) and not (args.restart or args.install):
+        notice('--wait and --now go with --restart or --install')
         return 64
     if verb:
         return cmd_daemon_supervision(args)
@@ -158,8 +189,7 @@ def cmd_daemon_supervision(args):
     label = launchd.label_for(state, args.label)
     try:
         if args.install:
-            launchd.install(label, config_path=config_path, state=state,
-                            state_arg=bool(args.state), say=notice)
+            return install_drained(args, launchd, label, state, config_path)
         elif args.uninstall:
             launchd.uninstall(label, state=state, say=notice)
         elif args.restart:
@@ -818,7 +848,7 @@ def main(argv=None):
     verbs.add_argument('--install', action='store_true',
                        help='write a launchd user agent that keeps the daemon running from '
                             '<data>/current (after `pandora upgrade`) or else this checkout, '
-                            'and load it')
+                            'and load it; a running daemon is drained first, as --restart does')
     verbs.add_argument('--uninstall', action='store_true',
                        help='unload the agent and delete its plist')
     verbs.add_argument('--restart', action='store_true',
@@ -827,10 +857,11 @@ def main(argv=None):
     verbs.add_argument('--stop', action='store_true',
                        help='SIGTERM a hand-started daemon and wait up to 10 s')
     daemon.add_argument('--wait', type=float, default=None, metavar='SECONDS',
-                        help='--restart: how long to wait for the runs a restart would end '
-                             '(default 300)')
+                        help='--restart, --install: how long to wait for the runs a restart '
+                             'would end (default 300)')
     daemon.add_argument('--now', action='store_true',
-                        help='--restart: restart when the wait runs out, ending those runs')
+                        help='--restart, --install: restart when the wait runs out, ending '
+                             'those runs')
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
