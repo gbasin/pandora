@@ -243,6 +243,15 @@ def render(label, *, program, config_path, state, path, state_arg=False, lang=No
     }
 
 
+def agent_program(label, home=None):
+    """The program the installed plist runs, as written, or None. Read-only."""
+    try:
+        with open(plist_path(label, home), 'rb') as handle:
+            return (plistlib.load(handle).get('ProgramArguments') or [None])[0]
+    except (OSError, ValueError, plistlib.InvalidFileException, AttributeError, IndexError):
+        return None
+
+
 def agent_python(label, home=None):
     """The `PANDORA_PYTHON` the installed plist pins, or None. Read-only.
 

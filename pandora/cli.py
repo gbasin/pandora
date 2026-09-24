@@ -40,7 +40,8 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] (read-only) | enroll <repo> | unenroll <repo> | worker <verb>
-  pandora daemon [--install | --restart (after a checkout update) | --uninstall | --stop]
+  pandora upgrade [--from <checkout>] [--now] [--wait S]   install the checkout's HEAD
+  pandora daemon [--install | --restart | --uninstall | --stop]
 """
 import argparse
 import json
@@ -126,6 +127,24 @@ def cmd_daemon_supervision(args):
         notice(str(error))
         return 1
     return 0
+
+
+def cmd_upgrade(args):
+    """Snapshot the checkout into `<data>/versions`, flip `current`, restart at a safe moment.
+
+    See `client/install.py` for the layout and why nothing runs from the checkout.
+    """
+    from .client import install
+    state, _config = state_of(args)
+    if args.keep < 1:
+        notice('--keep must be at least 1: the current version is always kept')
+        return 64
+    try:
+        return install.upgrade(state=state, source=args.source, dirty_ok=args.dirty,
+                               now=args.now, wait=args.wait, keep=args.keep, say=notice)
+    except (install.Refused, OSError) as error:
+        notice(str(error))
+        return 1
 
 
 def cmd_enroll(args):
@@ -687,6 +706,20 @@ def main(argv=None):
     daemon.add_argument('--label', default=None,
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
+
+    upgrade = sub.add_parser('upgrade', help="install the checkout's HEAD as the version "
+                             'everything runs, and restart the daemon at a safe moment')
+    upgrade.add_argument('--from', dest='source', default=None, metavar='CHECKOUT',
+                         help='the checkout to snapshot (default: the one current came from)')
+    upgrade.add_argument('--dirty', action='store_true',
+                         help='snapshot uncommitted edits to tracked files instead of refusing')
+    upgrade.add_argument('--now', action='store_true',
+                         help='restart the daemon at once; its local runs end with exit 70')
+    upgrade.add_argument('--wait', type=float, default=600, metavar='SECONDS',
+                         help='how long to wait for a safe moment to restart (default 600)')
+    upgrade.add_argument('--keep', type=int, default=3,
+                         help='versions to keep, current included (default 3)')
+    upgrade.set_defaults(func=cmd_upgrade)
 
     # `enrol` and `unenrol` are the old British spellings, kept as hidden aliases
     # for one release so scripts and muscle memory keep working.
