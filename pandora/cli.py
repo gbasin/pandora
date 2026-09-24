@@ -21,6 +21,7 @@ INVARIANTS
     queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
     `pandora: hint: ...`: the next action, derived from evidence.
+  * Each worktree routes by its own pandora.toml; an edit applies on the next command.
 
 RUNS
   pandora ps [--json]              what is running and what just ran
@@ -51,7 +52,6 @@ from pathlib import Path
 
 from .client import enrollment, settings
 from .client.protocol import Reader, VERSION, dump
-from .config import classify as classifier
 from .config import loader
 from .errors import ConfigError, PandoraError
 from .exits import INFRA, STILL_RUNNING
@@ -129,52 +129,126 @@ def cmd_daemon_supervision(args):
 
 
 def cmd_enroll(args):
-    """Write the marker into the repository's git common directory.
+    """Register a repository once: `[[repos]]`, registration, and this worktree's cache.
 
-    One file enrolls every worktree of the repository at once, including ones
-    created tomorrow, because every worktree shares one common directory.
+    Nothing here has to be run again after `pandora.toml` changes: the daemon
+    derives each worktree's claim cache from that worktree's own file, and the
+    shim notices a file newer than its cache. What enrolling writes:
+
+    * a `[[repos]]` table appended to the client config, when the repository
+      has none (an existing one is left exactly as it is);
+    * `<common>/pandora-repo`, which sends every worktree without a cache yet,
+      including ones created tomorrow, to the daemon once;
+    * this worktree's claim cache, so its first command is fork-free.
+
+    It removes the v0.2 `pandora-enrolled` marker, which the new files replace.
     """
     state, config = state_of(args)
     common = enrollment.common_dir(args.repo)
-    if common is None:
+    root = enrollment.worktree_root(args.repo)
+    if common is None or root is None:
         notice('not a git repository: %s' % args.repo)
         return 1
     try:
-        path, origin = loader.resolve(args.repo, args.config_toml)
+        path, origin = loader.resolve(root, args.config_toml)
         repo_config = loader.load(path)
     except ConfigError as error:
         notice(str(error))
         return 1
-    claims = classifier.claim_index(repo_config)
-    text = enrollment.render(socket_path=str(state / 'client.sock'),
-                            repo=args.name or repo_config['repo']['name'],
-                            claims=claims,
-                            heavy=enrollment.heavy_forms(claims),
-                            policies=classifier.policy_index(repo_config),
-                            strip_prefixes=repo_config['matching']['strip_prefixes'],
-                            subdirectory=repo_config['matching']['subdirectory'],
-                            origin=str(path),
-                            home=str(Path(__file__).resolve().parents[1]))
-    marker = enrollment.write(common, text)
-    notice('enrolled %s from %s (%s): %d claimed form%s, marker %s'
-           % (repo_config['repo']['name'], path, origin, len(claims),
-              '' if len(claims) == 1 else 's', marker))
-    notice('add this to %s if it is not there yet:\n'
-           '  [[repos]]\n  name = "%s"\n  root = "%s"\n  config = "%s"'
-           % (config.get('source') or settings.DEFAULT_PATH,
-              repo_config['repo']['name'], Path(args.repo).resolve(),
-              '' if origin == 'repo-root' else path))
+    name = args.name or repo_config['repo']['name']
+    external = '' if origin == 'repo-root' else str(path)
+    config_path = settings.path_of(args.config)
+    known = enrollment.repo_entry(config, root)
+    clash = next((repo for repo in config['repos']
+                  if repo['name'] == name and repo is not known), None)
+    if clash is not None:
+        # Another repository's entry under this name: taking it over would
+        # route this repository by that entry's root and config.
+        notice('%s already has [[repos]] %s for another repository, at %s. Enroll this '
+               'one under another name with `--name`, or fix that entry first'
+               % (config_path, name, clash['root']))
+        return 1
+    if known is None:
+        known = {'name': name, 'root': str(Path(root).resolve()), 'config': external}
+        try:
+            settings.append_repo(config_path, name, known['root'], external)
+        except (ConfigError, OSError) as error:
+            notice('could not add [[repos]] %s to %s (%s); add it by hand:\n%s'
+                   % (name, config_path, error,
+                      settings.repo_block(name, known['root'], external)))
+            return 1
+        notice('added [[repos]] %s to %s' % (name, config_path))
+    elif known['name'] != name or (external and known.get('config') != external):
+        # The entry is what the daemon routes by, so it is also what the cache
+        # is derived from: never the --config typed here.
+        notice('%s already has [[repos]] %s at %s, left as it is, and routing follows it; '
+               'if it is not what you meant, change it to:\n%s'
+               % (config_path, known['name'], known['root'],
+                  settings.repo_block(name, Path(root).resolve(), external)))
+    home = str(Path(__file__).resolve().parents[1])
+    socket_path = str(state / 'client.sock')
+    enrollment.write(common, enrollment.registration_text(
+        socket_path=socket_path, repo=known['name'], home=home), enrollment.REGISTRATION)
+    cache = enrollment.cache_path(root)
+    text, sources = enrollment.derive(root, known, socket_path=socket_path,
+                                      client=str(config_path), home=home)
+    enrollment.write_cache(cache, text, sources)
+    claims = enrollment.parse(text)['claim']
+    legacy = Path(common) / enrollment.MARKER
+    if legacy.is_file():
+        legacy.unlink()
+        notice('removed the v0.2 marker %s; the files below replace it' % legacy)
+    notice('enrolled %s: %d claimed form%s here; registration %s, claim cache %s. Other '
+           'worktrees derive theirs from their own %s on their first command; after a '
+           'change to it, the next command takes effect with no enroll'
+           % (known['name'], len(claims), '' if len(claims) == 1 else 's',
+              Path(common) / enrollment.REGISTRATION, cache, loader.FILENAME))
+    check_daemon_knows_claims(state / 'client.sock', root)
     return 0
 
 
+def check_daemon_knows_claims(sock_path, root):
+    """Say so when the daemon cannot refresh caches: every uncached command would pay for it."""
+    try:
+        answer = ask(sock_path, {'op': 'claims', 'cwd': str(root), 'argv': []}, timeout=5.0)
+    except OSError as error:
+        notice('no daemon answers on %s (%s). Claimed commands run here unmanaged until '
+               'one does: `pandora daemon --install`' % (sock_path, error))
+        return
+    if (answer or {}).get('t') != 'claims':
+        notice('the daemon on %s predates claim caches. Until it restarts, every command '
+               'in a worktree without a cache costs a Python start and two daemon round '
+               'trips. Check `pandora ps`, then run `pandora daemon --restart`' % sock_path)
+
+
 def cmd_unenroll(args):
+    """Remove the registration, the v0.2 marker and every claim cache under the common dir."""
     common = enrollment.common_dir(args.repo)
-    marker = Path(common or '.') / enrollment.MARKER
-    if marker.is_file():
-        marker.unlink()
-        notice('removed ' + str(marker))
-    else:
-        notice('no marker at ' + str(marker))
+    if common is None:
+        notice('not a git repository: %s' % args.repo)
+        return 1
+    removed = []
+    paths = [Path(common) / enrollment.REGISTRATION, Path(common) / enrollment.MARKER]
+    paths += [cache for _root, cache in enrollment.caches_of(common)]
+    for path in paths:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        removed.append(path)
+        notice('removed ' + str(path))
+    if not removed:
+        notice('nothing to remove under ' + str(common))
+    try:
+        config = settings.load(args.config)
+    except ConfigError:
+        return 0                          # the files are gone; the entry is not ours to judge
+    known = next((repo for repo in config['repos']
+                  if enrollment.common_dir(repo['root']) == common), None)
+    if known is not None:
+        notice('[[repos]] %s is still in %s; the shim routes nothing here now, and '
+               '`pandora run` still does until you remove it'
+               % (known['name'], config.get('source') or settings.DEFAULT_PATH))
     return 0
 
 
@@ -372,6 +446,10 @@ def cmd_logs(args):
         notice('no log for run ' + args.run)
         return 1
     import base64
+    who = submitted(read_json(path.parent / 'meta.json'))
+    if who:
+        # stderr: stdout is the run's own output, replayed byte for byte.
+        notice('run %s was submitted by %s' % (args.run, who))
     with path.open('rb') as handle:
         for line in handle:
             try:
@@ -385,13 +463,25 @@ def cmd_logs(args):
     return 0
 
 
+def submitted(meta):
+    """`id (via)` for a row that records who submitted it, else None."""
+    who = (meta or {}).get('submitter') or {}
+    if not who.get('id'):
+        return None
+    return '%s (%s)' % (who['id'], who.get('via') or '?')
+
+
 def cmd_result(args):
     state, _ = state_of(args)
     path = state / 'runs' / args.run / 'result.json'
     result = read_json(path)
+    meta = read_json(path.parent / 'meta.json')
     if result is None:
         args.state_dir = state
-        return result_without_one(args, read_json(path.parent / 'meta.json'))
+        return result_without_one(args, meta)
+    if (meta or {}).get('submitter'):
+        # The engine never sees who submitted a run; the row does.
+        result.setdefault('submitter', meta['submitter'])
     if args.json:
         # A result from an engine before the rename has only the old key; both
         # are printed for one release, `same_input_as` as the alias.
@@ -424,6 +514,8 @@ def result_without_one(args, meta):
     else:
         print('%s: %s, exit %s%s' % (args.run, state, meta.get('exit_code'),
                                      ', ' + meta['reason'] if meta.get('reason') else ''))
+    if not args.json and submitted(meta):
+        print('  submitted by ' + submitted(meta))
     if meta.get('fell_back_to'):
         # The request's verdict is its successor's, not this row's.
         successor = read_json(Path(args.state_dir) / 'runs' / meta['fell_back_to']
@@ -442,6 +534,9 @@ def render_result(run_id, result):
         run_id, result.get('outcome'), result.get('cli_exit'),
         float(result.get('wall_seconds') or 0), result.get('lane') or 'remote',
         ', peak %s MiB' % result['peak_mib'] if result.get('peak_mib') is not None else '')]
+    who = submitted(result)
+    if who:
+        lines.append('  submitted by ' + who)
     placed = result.get('placement') or {}
     if placed.get('overridden'):
         lines.append('  placed %s by override; the job says %s'
@@ -596,7 +691,7 @@ def main(argv=None):
     # `enrol` and `unenrol` are the old British spellings, kept as hidden aliases
     # for one release so scripts and muscle memory keep working.
     enroll = sub.add_parser('enroll', aliases=['enrol'],
-                            help='mark a repository routable, all worktrees at once')
+                            help='register a repository once, all worktrees at once')
     enroll.add_argument('repo')
     enroll.add_argument('--name', default=None)
     enroll.add_argument('--config', dest='config_toml', default=None,

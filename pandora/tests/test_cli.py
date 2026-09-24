@@ -160,8 +160,9 @@ class Verbs(DaemonCase):
         self.assertIn('unexpected end of file', meta['refusal']['detail'])
         code, out, _ = self.pandora('result', meta['id'])
         self.assertEqual(code, 70)
-        self.assertEqual(out.strip(), '%s: refused before reaching the worker: transfer-failed: '
-                         'rsync to h failed (255): unexpected end of file' % meta['id'])
+        self.assertEqual(out.splitlines()[0], '%s: refused before reaching the worker: '
+                         'transfer-failed: rsync to h failed (255): unexpected end of file'
+                         % meta['id'])
         code, out, _ = self.pandora('result', meta['id'], '--json')
         self.assertEqual((code, json.loads(out)['refusal']['cause']), (70, 'transfer-failed'))
 

@@ -38,6 +38,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
 from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
+from . import attribution
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
@@ -232,6 +233,9 @@ class Run:
             payload['refusal'] = self.refusal
         if self.pgid:
             payload['pgid'], payload['pgid_started'] = self.pgid, self.pgid_started
+        submitter = submitted_by(self.request)
+        if submitter:
+            payload['submitter'] = submitter
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -397,6 +401,21 @@ class Run:
             return 0
 
 
+def submitted_by(request):
+    """The request's `submitter`, as stored: {'via', 'id'} of short strings, or None.
+
+    Whatever the client sent, bounded: it is a label for `pandora ps --json`,
+    never an identity anything is decided by.
+    """
+    given = request.get('submitter')
+    if not isinstance(given, dict):
+        return None
+    via, ident = given.get('via'), given.get('id')
+    if not isinstance(via, str) or not isinstance(ident, str) or not ident:
+        return None
+    return {'via': via[:40], 'id': ident[:200]}
+
+
 def peer_uid(sock):
     """The connecting process's uid, or None when the platform will not say.
 
@@ -431,7 +450,6 @@ class Daemon:
         self.lock_handle = None
         self.repo_configs = {}
         self.repo_stamps = {}
-        self.markers = {}                  # marker path -> (mtime_ns, parsed)
         self.adopting = threading.Lock()   # one takeover per orphaned row
         self.workers = {}
         self.workers_lock = threading.Lock()
@@ -895,6 +913,8 @@ class Daemon:
             conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
                                'pause': self.gate.state(),
                                'worker': self.health.state()}))
+        elif op == 'claims':
+            conn.sendall(dump(dict({'v': VERSION, 't': 'claims'}, **self.claims(first))))
         elif op == 'run':
             self.serve_run(conn, reader, first)
         elif op == 'attach':
@@ -926,6 +946,7 @@ class Daemon:
         if repo is None:
             raise NotClaimed('cwd is not inside an enrolled repository')
         root = Path(enrollment.worktree_root(cwd) or repo['root'])
+        self.write_claims(root, repo)
         try:
             config = self.repo_config(repo, root)
         except ConfigError as error:
@@ -964,36 +985,53 @@ class Daemon:
         verdict['worktree'] = str(root)
         return repo, config, verdict
 
-    def stale_marker(self, worktree, repo):
-        """How many routing forms the marker and the enrolled root's config disagree on.
+    def write_claims(self, root, repo):
+        """Derive this worktree's claim cache from the config it routes by.
 
-        The shim routes from the marker alone, so a `pandora.toml` edited since
-        the last enrollment routes the old claim set without a word. The
-        enrolled root's configuration, not this worktree's: a branch whose
-        `pandora.toml` differs is normal and says nothing about the marker.
-        Read once per marker change: one stat per claimed run otherwise. Never a
-        verdict: 0 when the marker or that configuration cannot be read.
+        Called for every classification, so a changed `pandora.toml` reaches the
+        shim at the next claimed command, or at the first command the shim
+        finds stale. Rewritten only when the text or its date differs. Never a
+        verdict: a cache that cannot be written leaves the shim on the slow
+        path, which costs a Python start and routes correctly. Returns the text.
         """
-        try:
-            config = self.repo_config(repo, Path(repo['root']))
-        except (ConfigError, OSError, KeyError):
-            return 0
-        try:
-            common = enrollment.common_dir(worktree)
-            path = Path(common) / enrollment.MARKER if common else None
-            stamp = path.stat().st_mtime_ns if path else None
-        except OSError:
-            return 0
-        if path is None:
-            return 0
-        cached = self.markers.get(str(path))
-        if cached is None or cached[0] != stamp:
-            try:
-                cached = (stamp, enrollment.parse(path.read_text()))
-            except OSError:
-                return 0
-            self.markers[str(path)] = cached
-        return len(enrollment.stale_forms(cached[1], config))
+        text, sources = enrollment.derive(
+            root, repo, socket_path=str(self.socket_path),
+            client=str(settings.path_of(self.config_path)), home=PACKAGE_HOME,
+            load=lambda where, entry: self.repo_config(entry, Path(where)))
+        # Only where the shim already looks: `pandora unenroll` removed the
+        # registration and the marker, and a `pandora run` afterward must not
+        # leave a cache that makes the shim route this worktree again. And only
+        # for the daemon enrollment named: a second daemon (another `--state`)
+        # asked about this worktree must not point its cache at itself.
+        written, why = enrollment.write_owned(root, text, sources, self.socket_path)
+        if written:
+            log('claims: wrote %s' % enrollment.cache_path(root))
+        elif why and why != 'not enrolled' and why != 'not inside a repository':
+            log('claims: not writing %s: %s' % (enrollment.cache_path(root), why))
+        return text
+
+    def claims(self, request):
+        """The shim's slow path: refresh this worktree's cache, then classify as the shim would.
+
+        The shim found the cache missing or older than its config and does not
+        know whether the command is claimed. The answer is the shim's own rule
+        applied to the cache just written, so a command decided here is decided
+        exactly as the next, fork-free, invocation will decide it.
+        """
+        cwd = request.get('cwd') or ''
+        argv = list(request.get('argv') or [])
+        root = enrollment.worktree_root(cwd) if cwd else None
+        if root is None:
+            return {'claimed': False, 'heavy': False, 'why': 'not inside a worktree'}
+        repo = settings.enrollment_for(self.config, cwd) or self.enrollment_by_git(cwd)
+        text = self.write_claims(Path(root), repo)
+        parsed = enrollment.parse(text)
+        claimed = enrollment.claimed(argv, parsed)
+        if claimed and enrollment.claims_nothing_here(cwd, parsed):
+            claimed = False
+        return {'claimed': claimed,
+                'heavy': not claimed and enrollment.heavy(argv, parsed),
+                'cache': str(enrollment.cache_path(root))}
 
     def enrollment_by_git(self, cwd):
         """A worktree of an enrolled repository is enrolled.
@@ -1121,11 +1159,12 @@ class Daemon:
         plan = verdict['plan']
         job = config['jobs'][verdict['job']]
         worktree = verdict.get('worktree') or request['cwd']
-        stale = self.stale_marker(worktree, repo)
-        if stale:
-            self.tell(conn, 'enrollment marker is stale (%d form%s differ%s); run pandora '
-                            'enroll %s' % (stale, '' if stale == 1 else 's',
-                                          's' if stale == 1 else '', repo['root']))
+        if not submitted_by(request):
+            # No session variable came with it: name the caller's session here,
+            # on this thread, rather than make every client run `ps`.
+            who = attribution.of_peer(conn)
+            if who:
+                request = dict(request, submitter=who)
         # Only names the repository asked for: an undeclared variable the shim
         # filtered was never going to travel, so saying so would be noise.
         for line in envfilter.notices(plan['env_passthrough'], request.get('env_dropped')):

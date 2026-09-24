@@ -16,9 +16,16 @@ local queue and the host's own pressure; its answer is final, whatever it is. It
 falls back by admitting the job into its local lane and streaming it back here,
 which arrives as an ordinary `accepted` frame carrying `lane: local`.
 
+The shim also lands here, with `--refresh`, when this worktree's claim cache is
+missing or older than the config it was derived from, and so does not know
+whether the command is claimed. The daemon rewrites the cache and answers with
+the shim's own rule; an unclaimed command then runs exactly as the shim would
+have run it (exec, or the passthrough logger for a heavy one), and a claimed
+one continues below as if the shim had claimed it.
+
 That leaves exactly one decision here: what to do when the daemon cannot be
 reached at all. There is no local lane to admit into, so the client applies the
-same policy from the enrollment marker -- a `refuse` verdict exits 70 with one
+same policy from the claim cache -- a `refuse` verdict exits 70 with one
 line, and a `local` verdict runs under the file-lock slot budget and says that
 is what it did.
 """
@@ -36,11 +43,14 @@ from ..exits import INFRA, STALE, USAGE
 from . import enrollment, envfilter, fallback as fallback_module, placement
 from .protocol import Reader, VERSION, dump
 
+PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
+
 # Silence tolerated before `accepted`, while freeze, ship and submit run. A
 # dead daemon is EOF, not silence, so this guards only a hung one; the daemon
 # beats every 5 s, but on 2026-09-24 a Mac at load 25 with 5.6 GiB swapped
 # stalled that thread past 20 s and a live 364 MiB upload was withdrawn.
 HANDSHAKE_SECONDS = 120.0
+CLAIMS_SECONDS = 20.0         # the slow path's question is local: no freeze, no worker
 REATTACH_ATTEMPTS = 20
 REATTACH_PAUSE = 0.25
 
@@ -130,12 +140,13 @@ def handshake(sock, request):
 
 
 def marker_policy(command):
-    """What the enrollment marker says about this argv: size, fallback, writeback.
+    """What this worktree's claim cache, or the v0.2 marker, says about this argv.
 
-    Only ever consulted when the daemon is unreachable. A marker written before
-    this rule existed has no `policy` lines, and the caller treats that as
-    unknown -- which is decided as `large`, because a client that cannot say how
-    big a job is has not earned the right to start it here.
+    Size, fallback, writeback. Only ever consulted when the daemon is
+    unreachable. A file written before this rule existed has no `policy` lines,
+    and the caller treats that as unknown -- which is decided as `large`,
+    because a client that cannot say how big a job is has not earned the right
+    to start it here.
     """
     try:
         _common, marker = enrollment.marker_for(os.getcwd())
@@ -259,6 +270,129 @@ class Stream:
         return False
 
 
+def ask_claims(sock_path, command):
+    """The daemon's verdict on a command the shim could not decide: {claimed, heavy}.
+
+    Raises OSError when there is no daemon to ask, and returns None when the
+    daemon predates claim caches, which leaves the decision to its `run`.
+    """
+    sock = connect(sock_path, timeout=2.0)
+    try:
+        sock.settimeout(CLAIMS_SECONDS)
+        sock.sendall(dump({'v': VERSION, 'op': 'claims', 'cwd': os.getcwd(),
+                           'argv': list(command)}))
+        frame = Reader(sock).line()
+    finally:
+        sock.close()
+    if frame is None:
+        raise OSError('the daemon closed the connection without answering')
+    if frame.get('t') != 'claims':
+        return None
+    return frame
+
+
+def unclaimed(real, command, *, state, repo, heavy):
+    """What the POSIX shim does with an unclaimed command, from Python.
+
+    A heavy one, or one with `PANDORA_WHERE` set, goes through the passthrough
+    logger so `pandora stats` sees it; anything else is exec'd. Neither says a
+    word on stderr: the shim would not have.
+    """
+    os.environ['PANDORA_ROUTE_DEPTH'] = '1'
+    reason = None
+    if heavy:
+        reason = 'unclaimed'
+    elif os.environ.get(placement.ENV):
+        reason = 'override-ignored'
+    if reason is None:
+        os.execv(real, [real, *command])
+    from . import passthrough
+    return passthrough.main(['--real', real, '--repo', repo or '', '--state', state,
+                             '--reason', reason, '--', *command])
+
+
+def local_claims(sock_path, cwd=None):
+    """This worktree's claims, derived here from its own config, with no daemon.
+
+    The same derivation the daemon makes, from the same files, and written as
+    the cache when the repository is enrolled with `sock_path`, so the next
+    command is fork-free even while the daemon is down. None outside a
+    worktree or when the client configuration cannot be read.
+    """
+    cwd = cwd or os.getcwd()
+    root = enrollment.worktree_root(cwd)
+    if root is None:
+        return None
+    from . import settings
+    from ..errors import ConfigError
+    try:
+        config = settings.load()
+    except ConfigError:
+        return None
+    text, sources = enrollment.derive(root, enrollment.repo_entry(config, cwd),
+                                      socket_path=str(sock_path),
+                                      client=str(settings.path_of()), home=PACKAGE_HOME)
+    enrollment.write_owned(root, text, sources, sock_path)
+    return enrollment.parse(text)
+
+
+def claimed_here(sock_path, command, cwd=None):
+    """(claimed, heavy) by the shim's rule, from `local_claims`, else the file as it stands."""
+    cwd = cwd or os.getcwd()
+    try:
+        marker = local_claims(sock_path, cwd)
+    except (OSError, ImportError, ValueError):
+        # ImportError: an interpreter without `tomllib` (3.10 and older) runs
+        # the client fine and cannot read TOML. Then the file as it stands.
+        marker = None
+    if marker is None:
+        try:
+            _common, marker = enrollment.marker_for(cwd)
+        except OSError:
+            marker = None
+    if not marker:
+        return False, False
+    claimed = (enrollment.claimed(command, marker)
+               and not enrollment.claims_nothing_here(cwd, marker))
+    return claimed, not claimed and enrollment.heavy(command, marker)
+
+
+def refresh(args, command, state):
+    """The slow path: None when the command is claimed, else the exit code it ran to."""
+    try:
+        answer = ask_claims(args.sock, command)
+    except (OSError, ValueError):
+        # No daemon: decide from this worktree's own config, as the daemon
+        # would have. A claimed command then meets the no-daemon passthrough
+        # below, with its notice and its row.
+        claimed, heavy = claimed_here(args.sock, command)
+        if claimed:
+            return None
+        return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+    if answer is None or answer.get('claimed'):
+        return None
+    return unclaimed(args.real, command, state=state, repo=args.repo,
+                     heavy=bool(answer.get('heavy')))
+
+
+# Who submitted a run, in order of preference. `PANDORA_SESSION` is Pandora's
+# own, for an orchestrator to set; Claude Code exports `CLAUDE_CODE_SESSION_ID`
+# into the shells it starts, and the Codex plugin `CODEX_COMPANION_SESSION_ID`.
+# Without any of them the daemon names the caller's session from its process
+# tree (`attribution`), so no `ps` runs here.
+SESSION_VARIABLES = ('PANDORA_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CODEX_COMPANION_SESSION_ID')
+
+
+def submitter(environ=None):
+    """{'via', 'id'} from the first session variable set, or None."""
+    environ = os.environ if environ is None else environ
+    for name in SESSION_VARIABLES:
+        value = (environ.get(name) or '').strip()
+        if value:
+            return {'via': name, 'id': value[:200]}
+    return None
+
+
 def build_request(command, *, cwd=None, where=None):
     """The request, with the caller's environment filtered (`envfilter`, step 1).
 
@@ -286,6 +420,9 @@ def build_request(command, *, cwd=None, where=None):
         request['keep_going'] = True
     if where:
         request['where'] = where
+    who = submitter()
+    if who:
+        request['submitter'] = who
     return request
 
 
@@ -298,10 +435,17 @@ def main(argv=None):
                         help='print the run id once accepted and return; the run keeps going')
     parser.add_argument('--where', default=None,
                         help='`pandora run --local/--remote`; outranks PANDORA_WHERE')
+    parser.add_argument('--refresh', action='store_true',
+                        help='the claim cache is missing or stale: ask the daemon first')
+    parser.add_argument('--repo', default='', help='the git common dir, for the passthrough log')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     state = args.state or str(Path(args.sock).parent)
+    if args.refresh:
+        code = refresh(args, command, state)
+        if code is not None:
+            return code
     updating = '--update' in command
     # The flag wins over the variable, and a variable that names neither side is
     # refused before anything is asked of anyone: a typo in a placement is not a

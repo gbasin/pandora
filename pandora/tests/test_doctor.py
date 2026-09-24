@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -221,35 +222,82 @@ class RepositoryAndCwd(Scratch):
                 'run = { argv = ["true"] }\n' % (number, form)
                 for number, form in enumerate(forms)))
 
-    def test_enrolled_on_both_sides(self):
+    def register(self, home=str(HERE), sock='/s/client.sock'):
+        (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
+            socket_path=sock, repo='demo', home=home))
+
+    def cache(self, worktree=None, home=str(HERE), sock='/s/client.sock'):
+        """The cache the daemon would write for this worktree, dated as it would date it."""
+        from pandora.config import loader
+        worktree = worktree or self.repo
+        path = worktree / 'pandora.toml'
+        text = enrollment.cache_text(loader.load(path), socket_path=sock, repo='demo',
+                                     derived='own', digest_path=path, home=home)
+        stamp = time.time_ns() - 60 * 10**9
+        os.utime(path, ns=(stamp, stamp))
+        enrollment.write_cache(enrollment.cache_path(worktree), text, [path])
+        return enrollment.cache_path(worktree)
+
+    def row(self, name, cwd=None, config=None):
+        return next(item for item in doctor.check_repository(
+            str(cwd or self.repo), config or self.config, Path('/s/client.sock'))
+            if item['name'] == name)
+
+    def test_registered_with_a_fresh_cache_on_both_sides(self):
         self.configure('journey')
-        self.enroll()
+        self.register()
+        self.cache()
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items), {'repository': 'ok', 'marker forms': 'ok',
+        self.assertEqual(self.statuses(items), {'repository': 'ok', 'claim cache': 'ok',
+                                                'claim caches': 'info',
                                                 'daemon enrollment': 'ok'})
+        self.assertIn('1 claimed form(s)', self.row('claim cache')['detail'])
 
-    def test_a_marker_missing_a_claimed_form_fails_and_names_it(self):
-        self.configure('journey', 'check')
-        self.enroll()
-        item = next(item for item in doctor.check_repository(
-            str(self.repo), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
-        self.assertEqual(item['status'], 'fail')
-        self.assertIn('claim check missing from the marker', item['detail'])
-        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
-
-    def test_a_marker_with_an_extra_form_warns(self):
+    def test_a_stale_cache_is_a_warning_that_the_next_claimed_command_refreshes_it(self):
         self.configure('journey')
-        self.enroll(claims=(('journey',), ('old',)))
-        item = next(item for item in doctor.check_repository(
-            str(self.repo), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
+        self.register()
+        self.cache()
+        self.configure('journey', 'check')          # edited now, after the cache
+        item = self.row('claim cache')
         self.assertEqual(item['status'], 'warn')
-        self.assertIn('claim old in the marker but not in pandora.toml', item['detail'])
+        self.assertIn('cache stale for this worktree', item['detail'])
+        self.assertIn('the next command here refreshes it', item['detail'])
+        items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
+        self.assertNotIn('fail', self.statuses(items).values())
+
+    def test_a_config_replaced_behind_an_older_mtime_is_stale_by_its_digest(self):
+        self.configure('journey')
+        self.register()
+        cache = self.cache()
+        self.configure('journey', 'check')
+        stamp = cache.stat().st_mtime_ns - 10**9
+        os.utime(self.repo / 'pandora.toml', ns=(stamp, stamp))
+        item = self.row('claim cache')
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('other content', item['detail'])
+        self.assertIn('the next claimed command refreshes it', item['detail'])
+
+    def test_a_worktree_without_a_cache_warns_that_its_next_command_writes_one(self):
+        self.configure('journey')
+        self.register()
+        item = self.row('claim cache')
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('the next command here asks the daemon', item['detail'])
+
+    def test_the_v02_marker_alone_warns_to_enroll_once(self):
+        self.configure('journey')
+        self.enroll()
+        self.assertEqual(self.row('repository')['status'], 'warn')
+        self.assertIn('pandora enroll %s' % self.repo, self.row('repository')['detail'])
+        self.assertEqual(self.row('claim cache')['status'], 'info')
 
     def branch(self, *forms):
         """A sibling worktree of the enrolled repository with its own pandora.toml."""
         branch = self.root / 'branch'
         branch.mkdir()
         (self.repo / '.git' / 'worktrees' / 'branch').mkdir(parents=True)
+        (self.repo / '.git' / 'worktrees' / 'branch' / 'gitdir').write_text(
+            str(branch / '.git') + '\n')
         (branch / '.git').write_text('gitdir: %s\n' % (self.repo / '.git' / 'worktrees'
                                                          / 'branch'))
         saved = (self.repo / 'pandora.toml').read_text()
@@ -258,57 +306,72 @@ class RepositoryAndCwd(Scratch):
         (self.repo / 'pandora.toml').write_text(saved)
         return branch
 
-    def test_a_branch_with_its_own_pandora_toml_only_warns_and_names_no_enroll(self):
+    def test_a_branch_with_its_own_pandora_toml_is_fresh_by_its_own_file(self):
         self.configure('journey')
-        self.enroll()
+        self.register()
         branch = self.branch('journey', 'check')
-        item = next(item for item in doctor.check_repository(
-            str(branch), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
-        self.assertEqual(item['status'], 'warn')
-        self.assertIn('differs from the enrolled one (expected on a branch that changes it)',
-                      item['detail'])
-        self.assertNotIn('pandora enroll', item['detail'])
+        self.cache()
+        self.cache(branch)
+        item = self.row('claim cache', cwd=branch)
+        self.assertEqual(item['status'], 'ok', item)
+        self.assertCountEqual(item['facts']['claims'], ['journey', 'check'])
+        self.assertEqual(self.row('claim cache')['facts']['claims'], ['journey'])
+        self.assertEqual(
+            (self.repo / '.git' / 'worktrees' / 'branch' / 'pandora-claims').is_file(), True)
 
-    def test_from_a_branch_the_enrolled_roots_staleness_still_fails(self):
-        self.configure('journey', 'check')
-        self.enroll()
-        branch = self.branch('journey')
-        item = next(item for item in doctor.check_repository(
-            str(branch), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
-        self.assertEqual(item['status'], 'fail')
-        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
-
-    def test_a_form_named_missing_is_classified_by_kind_not_by_text(self):
+    def test_every_worktree_is_counted_by_freshness(self):
         self.configure('journey')
-        self.enroll(claims=(('journey',), ('missing',)))
-        item = next(item for item in doctor.check_repository(
-            str(self.repo), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
-        self.assertEqual(item['status'], 'warn')
+        self.register()
+        self.branch('journey', 'check')             # no cache yet
+        self.cache()
+        item = self.row('claim caches')
+        self.assertEqual(item['status'], 'info')
+        self.assertEqual((item['facts']['fresh'], item['facts']['stale'],
+                          item['facts']['missing']), (1, 0, 1))
 
-    def test_a_marker_pinning_another_checkout_warns(self):
+    def test_a_cache_pinning_another_checkout_warns(self):
         other = self.root / 'other'
         (other / 'pandora' / 'client').mkdir(parents=True)
         (other / 'pandora' / 'client' / 'shim.py').write_text('')
         self.configure('journey')
-        self.enroll(home=str(other))
+        self.register()
+        self.cache(home=str(other))
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items)['marker home'], 'warn')
+        self.assertEqual(self.statuses(items)['client home'], 'warn')
 
-    def test_a_marker_the_daemon_does_not_know_fails(self):
-        self.enroll()
+    def test_an_enrollment_the_daemon_does_not_know_fails(self):
+        self.register()
         items = doctor.check_repository(str(self.repo), {'repos': [], 'source': '/cfg.toml'},
                                         Path('/s/client.sock'))
         self.assertEqual(self.statuses(items)['daemon enrollment'], 'fail')
 
-    def test_a_marker_naming_a_removed_checkout_fails(self):
-        self.enroll(home=str(self.root / 'gone'))
+    def test_a_cache_naming_a_removed_checkout_fails(self):
+        self.configure('journey')
+        self.register()
+        self.cache(home=str(self.root / 'gone'))
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items)['marker home'], 'fail')
+        self.assertEqual(self.statuses(items)['client home'], 'fail')
 
-    def test_a_marker_routing_elsewhere_warns(self):
-        self.enroll(sock='/elsewhere/client.sock')
+    def test_a_removed_checkout_in_the_registration_never_says_delete_it(self):
+        self.configure('journey')
+        self.register(home=str(self.root / 'gone'))
+        item = self.row('client home')
+        self.assertEqual(item['status'], 'fail')
+        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
+        self.assertNotIn('delete', item['detail'])
+
+    def test_a_removed_checkout_in_a_cache_says_to_delete_the_cache(self):
+        self.configure('journey')
+        self.register()
+        cache = self.cache(home=str(self.root / 'gone'))
+        self.assertIn('then delete %s' % cache, self.row('client home')['detail'])
+
+    def test_a_cache_routing_elsewhere_warns(self):
+        self.configure('journey')
+        self.register()
+        self.cache(sock='/elsewhere/client.sock')
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items)['marker socket'], 'warn')
+        self.assertEqual(self.statuses(items)['client socket'], 'warn')
 
     def test_a_subdirectory_warns_and_cites_64(self):
         self.assertEqual(doctor.check_cwd(str(self.repo))['status'], 'ok')
@@ -371,9 +434,8 @@ class AgainstARealDaemon(DaemonCase):
     def test_the_daemon_answers_with_its_package_and_the_worker_reading(self):
         self.daemon.health.poll()
         (self.repo / '.git').mkdir()
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
-            socket_path=str(self.daemon.socket_path), repo='demo', claims=[['unit']],
-            home=str(HERE)))
+        (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
+            socket_path=str(self.daemon.socket_path), repo='demo', home=str(HERE)))
         report = doctor.run(state=str(self.state), config=str(self.root / 'config.toml'),
                             env={'PATH': '/usr/bin:/bin'}, cwd=str(self.repo))
         names = {item['name']: item for item in report['checks']}

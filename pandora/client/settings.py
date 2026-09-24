@@ -47,6 +47,7 @@ too high a price for changing a hostname.
     root = "/Users/me/Code/eichler"     # the git common dir's worktree, or any worktree
     config = "~/.config/pandora/repos/eichler.pandora.toml"   # used only if the repo has none
 """
+import json
 import os
 import tomllib
 from pathlib import Path
@@ -129,8 +130,13 @@ def normalize(raw):
     return config
 
 
+def path_of(path=None):
+    """The client config file `load(path)` reads, whether or not it exists."""
+    return Path(path or os.environ.get('PANDORA_CONFIG') or DEFAULT_PATH).expanduser()
+
+
 def load(path=None):
-    path = Path(path or os.environ.get('PANDORA_CONFIG') or DEFAULT_PATH).expanduser()
+    path = path_of(path)
     if not path.is_file():
         config = normalize({})
         config['source'] = None
@@ -161,6 +167,42 @@ def enrollment_for(config, cwd):
             if best is None or len(root) > len(str(Path(best['root']).resolve())):
                 best = repo
     return best
+
+
+def repo_block(name, root, config=''):
+    """One `[[repos]]` table as TOML text. JSON strings are valid TOML basic strings."""
+    lines = ['[[repos]]', 'name = %s' % json.dumps(name), 'root = %s' % json.dumps(str(root))]
+    if config:
+        lines.append('config = %s' % json.dumps(str(config)))
+    return '\n'.join(lines) + '\n'
+
+
+def append_repo(path, name, root, config=''):
+    """Append one `[[repos]]` table to the client config, and prove it still loads.
+
+    Append-only: nothing a person wrote is rewritten, reordered or dropped, and a
+    file that would no longer load is never written.
+    """
+    path = Path(path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    before = path.read_text() if path.is_file() else None
+    text = before or ''
+    if text and not text.endswith('\n'):
+        text += '\n'
+    text += ('\n' if text else '') + repo_block(name, root, config)
+    # Proved before it replaces anything, and replaced by a rename, so a
+    # daemon reading the file on its next connection never sees half of it.
+    temp = path.with_name('%s.%d.tmp' % (path.name, os.getpid()))
+    temp.write_text(text)
+    try:
+        load(temp)
+    except ConfigError:
+        temp.unlink()
+        raise
+    if before is not None:
+        os.chmod(temp, path.stat().st_mode & 0o7777)
+    temp.replace(path)
+    return path
 
 
 def state_dir(config):
