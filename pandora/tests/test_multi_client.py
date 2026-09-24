@@ -212,6 +212,20 @@ class TwoClientsOneEngine(unittest.TestCase):
         retried = self.bob.resubmit(run, request_id='b1:suite:retry')
         self.assertEqual(self.rows()[retried.run_id]['client'], BOB)
 
+    def test_a_retry_of_a_legacy_run_belongs_to_whoever_retried_it(self):
+        ledger = Ledger(runner.Paths(self.root).ensure().ledger)
+        claim(ledger, request_id='old:suite', run_id='rold', source_path=str(self.tree))
+        ledger.finish('rold', outcome='infra_failed', exit_code=None)
+        ledger.close()
+        paths = runner.Paths(self.root)
+        paths.attempt('rold').mkdir(parents=True, exist_ok=True)
+        (paths.attempt('rold') / 'request.json').write_text(json.dumps({
+            'request_id': 'old:suite', 'input_id': 'input-a', 'source_path': str(self.tree),
+            'plan': SUBMIT_PLAN}))
+        retried = self.alice.resubmit('rold', request_id='old:suite:retry')
+        self.assertEqual(self.rows()[retried.run_id]['client'], ALICE)
+        self.assertEqual(self.bob.cancel(retried.run_id)['code'], 'not-yours')
+
     def test_the_engine_counts_runs_by_client(self):
         self.submit(self.alice, 'a1:suite', self.small())
         self.submit(self.bob, 'b1:suite', self.small())
@@ -222,6 +236,26 @@ class TwoClientsOneEngine(unittest.TestCase):
         stats = json.loads(out.getvalue())
         self.assertEqual(stats['by_client'], {ALICE: 1, BOB: 2})
         self.assertEqual(stats['engine'], 3)
+
+
+class OpeningOneLedgerAtOnce(unittest.TestCase):
+    def test_two_processes_opening_a_fresh_ledger_both_succeed(self):
+        import subprocess
+        import sys
+        import time
+        code = ('import sys, time\n'
+                'from pandora.engine.ledger import Ledger\n'
+                'while time.time() < float(sys.argv[2]): pass\n'
+                'Ledger(sys.argv[1]).close()\n')
+        here = str(Path(__file__).resolve().parents[2])
+        for _ in range(5):
+            with tempfile.TemporaryDirectory() as tmp:
+                start = str(time.time() + 0.3)
+                procs = [subprocess.Popen([sys.executable, '-c', code, str(Path(tmp) / 'l.db'),
+                                           start], cwd=here, stderr=subprocess.PIPE, text=True)
+                         for _ in range(3)]
+                errors = [proc.communicate(timeout=60)[1] for proc in procs]
+                self.assertEqual([proc.returncode for proc in procs], [0, 0, 0], errors)
 
 
 class ReceiptsAndChildren(unittest.TestCase):

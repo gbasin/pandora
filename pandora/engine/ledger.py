@@ -20,7 +20,9 @@ finished. Only `finished` carries an outcome, and the outcome vocabulary is
 closed, because "some other string" is how a system ends up reporting a pass it
 did not observe.
 """
+import fcntl
 import json
+import os
 import sqlite3
 import time
 
@@ -105,10 +107,19 @@ class Ledger:
         self.path = str(path)
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)
         self.db.row_factory = sqlite3.Row
-        self.db.execute('PRAGMA journal_mode=WAL')
-        self.db.execute('PRAGMA busy_timeout=30000')
-        self.db.executescript(SCHEMA)
-        self.migrate()
+        # One opener at a time sets the journal mode, creates the schema and
+        # migrates it: two engine processes (two clients' calls, or one
+        # client's concurrent runs) opening a fresh or older ledger at once got
+        # `database is locked` from the WAL switch, or `duplicate column name`.
+        fd = os.open(self.path + '.init.lock', os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            self.db.execute('PRAGMA busy_timeout=30000')
+            self.db.execute('PRAGMA journal_mode=WAL')
+            self.db.executescript(SCHEMA)
+            self.migrate()
+        finally:
+            os.close(fd)
 
     def migrate(self):
         have = {row['name'] for row in self.db.execute('PRAGMA table_info(attempts)')}

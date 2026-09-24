@@ -216,7 +216,11 @@ def resubmit(args, paths, ledger):
     if foreign(row, client_of(getattr(args, 'client', None))):
         return emit({'ok': False, 'code': 'not-yours', 'run_id': args.run,
                      'client': row['client']})
-    request = dict(request, request_id=args.request_id, retry_of=args.run)
+    # The retry is the caller's, even of a run from before attribution: an
+    # unowned retry would be anyone's to attach to or cancel.
+    caller = client_of(getattr(args, 'client', None))
+    request = dict(request, request_id=args.request_id, retry_of=args.run,
+                   client=caller or request.get('client'))
     return submit(args, paths, ledger, request)
 
 
