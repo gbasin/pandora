@@ -385,7 +385,9 @@ class SupervisorBehavior(unittest.TestCase):
         return subprocess.CompletedProcess(args, 0, stdout=self.TABLE, stderr='')
 
     def test_tree_rss_follows_descendants_that_left_the_group(self):
-        self.assertEqual(local.tree_rss_mib(100, run=self.fake_ps), 10)
+        supervisor = self.supervised(None)
+        supervisor.sample(local.process_table(self.fake_ps))
+        self.assertEqual(supervisor.peak_mib, 10)
 
     def test_the_tree_is_listed_deepest_first(self):
         order = local.tree_of(local.process_table(self.fake_ps), 100, 100)

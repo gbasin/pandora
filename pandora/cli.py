@@ -390,6 +390,7 @@ def cmd_result(args):
     path = state / 'runs' / args.run / 'result.json'
     result = read_json(path)
     if result is None:
+        args.state_dir = state
         return result_without_one(args, read_json(path.parent / 'meta.json'))
     if args.json:
         # A result from an engine before the rename has only the old key; both
@@ -423,10 +424,14 @@ def result_without_one(args, meta):
     else:
         print('%s: %s, exit %s%s' % (args.run, state, meta.get('exit_code'),
                                      ', ' + meta['reason'] if meta.get('reason') else ''))
+    if meta.get('fell_back_to'):
+        # The request's verdict is its successor's, not this row's.
+        successor = read_json(Path(args.state_dir) / 'runs' / meta['fell_back_to']
+                              / 'meta.json') or {}
+        code = successor.get('exit_code')
+        return code if isinstance(code, int) else 1
     if state == 'refused' and meta.get('refusal'):
         return INFRA
-    if meta.get('fell_back_to'):
-        return 0
     code = meta.get('exit_code')
     return code if isinstance(code, int) and code else 1
 

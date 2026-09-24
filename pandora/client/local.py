@@ -145,13 +145,6 @@ def process_ages(pids, run=subprocess.run):
     return ages
 
 
-def tree_rss_mib(root, pgid=None, run=subprocess.run):
-    """Resident memory of `root`, every descendant and its group, in MiB. One `ps`."""
-    table = process_table(run)
-    members = set(tree_of(table, root, root if pgid is None else pgid))
-    return sum(rss for pid, _ppid, _group, rss in table if pid in members) // 1024
-
-
 def elapsed_seconds(text):
     """`ps -o etime=`: `[[dd-]hh:]mm:ss`, in seconds, or None."""
     text = (text or '').strip()

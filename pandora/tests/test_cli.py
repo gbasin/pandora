@@ -180,7 +180,13 @@ class Verbs(DaemonCase):
         (directory / 'meta.json').write_text(json.dumps(
             {'id': 'f1', 'state': 'fell_back', 'exit_code': 70, 'fell_back_to': 'l1'}))
         code, out, _ = self.pandora('result', 'f1')
-        self.assertEqual((code, out.strip()), (0, 'f1: fell_back; see pandora result l1'))
+        self.assertEqual(out.strip(), 'f1: fell_back; see pandora result l1')
+        self.assertEqual(code, 1)                     # the successor has no verdict yet
+        successor = self.state / 'runs' / 'l1'
+        successor.mkdir()
+        (successor / 'meta.json').write_text(json.dumps({'id': 'l1', 'state': 'command_failed',
+                                                         'exit_code': 3}))
+        self.assertEqual(self.pandora('result', 'f1')[0], 3)
 
     def test_ps_names_the_pre_accept_step_of_a_queued_remote_row(self):
         for run_id, phase in (('p1', 'ship'), ('p2', 'submit'), ('p3', None)):
