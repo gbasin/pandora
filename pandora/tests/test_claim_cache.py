@@ -459,6 +459,57 @@ class EnrollOnce(unittest.TestCase):
         self.assertIn('left as it is', err)
         self.assertIn('name = "demo"', err)
 
+    def test_a_same_name_entry_for_another_repository_is_refused(self):
+        other = self.root / 'other'
+        (other / '.git').mkdir(parents=True)
+        with self.config.open('a') as handle:
+            handle.write('[[repos]]\nname = "demo"\nroot = "%s"\n' % other)
+        before = self.config.read_text()
+        code, _out, err = self.pandora('enroll', str(self.repo))
+        self.assertEqual((code, self.config.read_text()), (1, before))
+        self.assertIn('for another repository', err)
+        self.assertFalse((self.repo / '.git' / 'pandora-repo').exists())
+
+    def test_the_cache_follows_the_existing_entry_not_the_config_typed(self):
+        (self.repo / 'pandora.toml').unlink()
+        mine, typed = self.root / 'mine.toml', self.root / 'typed.toml'
+        mine.write_text(self.TOML.replace('journey', 'check'))
+        typed.write_text(self.TOML)
+        with self.config.open('a') as handle:
+            handle.write('[[repos]]\nname = "demo"\nroot = "%s"\nconfig = "%s"\n'
+                         % (self.repo, mine))
+        code, _out, err = self.pandora('enroll', str(self.repo), '--config', str(typed))
+        self.assertEqual(code, 0, err)
+        self.assertIn('routing follows it', err)
+        cache = enrollment.parse((self.repo / '.git' / 'pandora-claims').read_text())
+        self.assertEqual((cache['claim'], cache['config'], cache['derived']),
+                         ([['check']], str(mine), 'external'))
+
+    def test_enroll_says_when_no_daemon_answers(self):
+        _code, _out, err = self.pandora('enroll', str(self.repo))
+        self.assertIn('no daemon answers', err)
+
+    def test_enroll_says_when_the_daemon_predates_claim_caches(self):
+        import socket
+        import threading
+        from pandora.client.protocol import Reader, dump
+        state = self.root / 'state'
+        state.mkdir()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(state / 'client.sock'))
+        server.listen(1)
+        self.addCleanup(server.close)
+
+        def old_daemon():
+            conn, _ = server.accept()
+            Reader(conn).line()
+            conn.sendall(dump({'t': 'error', 'code': 'rejected', 'msg': "unknown op 'claims'"}))
+            conn.close()
+        threading.Thread(target=old_daemon, daemon=True).start()
+        _code, _out, err = self.pandora('enroll', str(self.repo))
+        self.assertIn('predates claim caches', err)
+        self.assertIn('pandora daemon --restart', err)
+
     def test_unenroll_removes_registration_marker_and_every_cache(self):
         self.pandora('enroll', str(self.repo))
         (self.repo / '.git' / 'worktrees' / 'b' / 'pandora-claims').write_text('sock /s\n')

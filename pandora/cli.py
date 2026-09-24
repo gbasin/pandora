@@ -52,7 +52,6 @@ from pathlib import Path
 
 from .client import enrollment, settings
 from .client.protocol import Reader, VERSION, dump
-from .config import classify as classifier
 from .config import loader
 from .errors import ConfigError, PandoraError
 from .exits import INFRA, STILL_RUNNING
@@ -158,52 +157,68 @@ def cmd_enroll(args):
         return 1
     name = args.name or repo_config['repo']['name']
     external = '' if origin == 'repo-root' else str(path)
-    config_path = Path(args.config or os.environ.get('PANDORA_CONFIG')
-                       or settings.DEFAULT_PATH).expanduser()
-    known = settings.enrollment_for(config, root)
+    config_path = settings.path_of(args.config)
+    known = enrollment.repo_entry(config, root)
+    clash = next((repo for repo in config['repos']
+                  if repo['name'] == name and repo is not known), None)
+    if clash is not None:
+        # Another repository's entry under this name: taking it over would
+        # route this repository by that entry's root and config.
+        notice('%s already has [[repos]] %s for another repository, at %s. Enroll this '
+               'one under another name with `--name`, or fix that entry first'
+               % (config_path, name, clash['root']))
+        return 1
     if known is None:
-        for repo in config['repos']:
-            try:
-                if repo['name'] == name or enrollment.common_dir(repo['root']) == common:
-                    known = repo
-                    break
-            except OSError:
-                continue
-    if known is None:
+        known = {'name': name, 'root': str(Path(root).resolve()), 'config': external}
         try:
-            settings.append_repo(config_path, name, Path(root).resolve(), external)
+            settings.append_repo(config_path, name, known['root'], external)
         except (ConfigError, OSError) as error:
             notice('could not add [[repos]] %s to %s (%s); add it by hand:\n%s'
                    % (name, config_path, error,
-                      settings.repo_block(name, Path(root).resolve(), external)))
+                      settings.repo_block(name, known['root'], external)))
             return 1
         notice('added [[repos]] %s to %s' % (name, config_path))
     elif known['name'] != name or (external and known.get('config') != external):
-        notice('%s already has [[repos]] %s at %s, left as it is; if it is not what you '
-               'meant, change it to:\n%s'
+        # The entry is what the daemon routes by, so it is also what the cache
+        # is derived from: never the --config typed here.
+        notice('%s already has [[repos]] %s at %s, left as it is, and routing follows it; '
+               'if it is not what you meant, change it to:\n%s'
                % (config_path, known['name'], known['root'],
                   settings.repo_block(name, Path(root).resolve(), external)))
     home = str(Path(__file__).resolve().parents[1])
     socket_path = str(state / 'client.sock')
-    enrollment.write(common, enrollment.registration_text(socket_path=socket_path, repo=name,
-                                                          home=home),
-                     enrollment.REGISTRATION)
-    claims = classifier.claim_index(repo_config)
+    enrollment.write(common, enrollment.registration_text(
+        socket_path=socket_path, repo=known['name'], home=home), enrollment.REGISTRATION)
     cache = enrollment.cache_path(root)
-    text, sources = enrollment.derive(
-        root, {'name': name, 'root': str(Path(root).resolve()), 'config': external},
-        socket_path=socket_path, client=str(config_path), home=home)
+    text, sources = enrollment.derive(root, known, socket_path=socket_path,
+                                      client=str(config_path), home=home)
     enrollment.write_cache(cache, text, sources)
+    claims = enrollment.parse(text)['claim']
     legacy = Path(common) / enrollment.MARKER
     if legacy.is_file():
         legacy.unlink()
         notice('removed the v0.2 marker %s; the files below replace it' % legacy)
-    notice('enrolled %s from %s (%s): %d claimed form%s here; registration %s, claim '
-           'cache %s. Other worktrees derive theirs from their own %s on their first '
-           'command; after a change to it, the next command takes effect with no enroll'
-           % (name, path, origin, len(claims), '' if len(claims) == 1 else 's',
+    notice('enrolled %s: %d claimed form%s here; registration %s, claim cache %s. Other '
+           'worktrees derive theirs from their own %s on their first command; after a '
+           'change to it, the next command takes effect with no enroll'
+           % (known['name'], len(claims), '' if len(claims) == 1 else 's',
               Path(common) / enrollment.REGISTRATION, cache, loader.FILENAME))
+    check_daemon_knows_claims(state / 'client.sock', root)
     return 0
+
+
+def check_daemon_knows_claims(sock_path, root):
+    """Say so when the daemon cannot refresh caches: every uncached command would pay for it."""
+    try:
+        answer = ask(sock_path, {'op': 'claims', 'cwd': str(root), 'argv': []}, timeout=5.0)
+    except OSError as error:
+        notice('no daemon answers on %s (%s). Claimed commands run here unmanaged until '
+               'one does: `pandora daemon --install`' % (sock_path, error))
+        return
+    if (answer or {}).get('t') != 'claims':
+        notice('the daemon on %s predates claim caches. Until it restarts, every command '
+               'in a worktree without a cache costs a Python start and two daemon round '
+               'trips. Check `pandora ps`, then run `pandora daemon --restart`' % sock_path)
 
 
 def cmd_unenroll(args):

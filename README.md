@@ -239,10 +239,13 @@ three things:
 1. It appends a `[[repos]]` table to `~/.config/pandora/config.toml` if the
    repository has none. It only appends, and it puts the file back if the
    result does not load. It leaves an existing entry as it is and prints the
-   block it would have written, if that differs.
+   block it would have written, if that differs. It refuses (exit 1) when an
+   entry with the same name belongs to another repository; use `--name`.
 2. It writes `pandora-repo` into the Git common directory. This registration
    covers every worktree of the repository, including worktrees created later.
-3. It writes the claim cache of the worktree you enrolled from.
+3. It writes the claim cache of the worktree you enrolled from, derived from
+   the `[[repos]]` entry the daemon routes by, and asks the daemon to do the
+   same.
 
 It also removes the v0.2 marker, `<common>/pandora-enrolled`, if there is one.
 
@@ -272,7 +275,12 @@ claimed command. The daemon writes its own checkout there. After you update
 that checkout, restart the daemon. The shim starts the new client code at once;
 the daemon does not.
 
-To move from v0.2, run `pandora enroll <root>` once per repository. Until then
+To move from v0.2, update the checkout, restart the daemon (`pandora ps` first,
+then `pandora daemon --restart`), then run `pandora enroll <root>` once per
+repository. Restart first: a daemon from before claim caches answers the
+shim's question with "unknown op", so every command in a worktree without a
+cache pays a Python start and two daemon round trips. `enroll` asks the daemon
+and warns when it does not know the question. Until you enroll again
 the shim reads the v0.2 marker in each worktree that has no cache, and the
 marker can be stale. The daemon writes a worktree's cache on its first claimed
 command; from then on that worktree routes by its own `pandora.toml`. The v0.2
