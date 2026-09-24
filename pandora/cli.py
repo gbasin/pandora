@@ -10,13 +10,13 @@ INVARIANTS
   * Run from the repository root. Below it, `[matching] subdirectory` re-roots
     a command (64 if an argument names a path), refuses it, or leaves it alone.
   * Exit codes that are not the command's own:
-      70  infrastructure failure, never a test verdict
+      70  infrastructure failure, never a test verdict (also: daemon installed
+          here but not answering after 5 s; nothing ran; run `pandora doctor`)
       75  busy or stale: a validation already active here, or the tree changed
      124  `--max-wait` elapsed; the run was NOT stopped
      130  canceled
-  * `--update` runs on the worker, never here. Its files come back only from
-    a passing run (every shard) over a tree you did not edit meanwhile;
-    otherwise exit 75, your files untouched, and the next step printed.
+  * `--update` runs on the worker, never here; its files come back only from a
+    passing run (every shard) over a tree you did not edit, else 75 and a next step.
   * `PANDORA_WHERE=local|remote <command>` moves one run between lanes, in the
     queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
