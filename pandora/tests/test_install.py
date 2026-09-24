@@ -362,7 +362,8 @@ class PhysicalHome(Case):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         pythonpath, argv = proc.stdout.strip().split('|', 1)
         self.assertEqual(pythonpath, str(version))
-        self.assertTrue(argv.startswith('-B -P -m pandora.client.passthrough'), argv)
+        self.assertTrue(argv.startswith('-B -c '), argv)
+        self.assertIn(' pandora.client.passthrough --real ', argv)
 
 
 class WrittenHomes(Case):
