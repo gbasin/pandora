@@ -240,9 +240,22 @@ The wait is `--wait` seconds, 300 by default. When it runs out, the daemon
 admits runs again, nothing is restarted, and the command exits 75 with the
 runs that still block. Retry later, or add `--now`: with `--now` the restart
 goes ahead when the wait runs out, and the table below applies to what is
-still running. A kickstart that fails, or Ctrl-C, also ends the drain. Under
-steady traffic, a restart costs at most the drain wait. A daemon from before
-the drain is waited on through `pandora ps`, without holding new commands.
+still running. A kickstart that fails, Ctrl-C, SIGHUP or SIGTERM also ends
+the drain. Under steady traffic, a restart costs at most the drain wait. A
+daemon from before the drain is waited on through `pandora ps`, without
+holding new commands; if a run starts as the restart is prepared, it waits
+again.
+
+The drain is a lease. `--restart` renews it every second. A daemon that hears
+nothing for 30 s ends the drain itself and admits runs again, so a restart
+killed with SIGKILL, or by a tool timeout, holds commands for at most 30 s. If
+the drain cannot be ended at the end of a failed wait, `--restart` says so and
+the lease ends it.
+
+`--restart` refuses before it drains when launchd does not run the daemon that
+holds `daemon.lock`: a kickstart would not reach that daemon. A socket that
+refuses connections while a daemon holds the lock is a daemon that does not
+answer, not a missing one: `--restart` exits 75 without `--now`.
 
 What a client sees during the drain and the restart:
 
@@ -251,11 +264,17 @@ What a client sees during the drain and the restart:
   when the new daemon answers.
 * A local run that was still queued is withdrawn and submitted again in the
   same way. It loses its place in the queue.
+* A command the claim cache does not claim is not held: it runs at once.
 * While no daemon listens, the client keeps asking only while the marker is
   younger than its wait. A daemon that is simply gone still gives the no-daemon
-  behavior at once.
-* A client waits at most `PANDORA_DRAIN_WAIT` seconds, 180 by default. Then it
-  runs the command as if no daemon were there, with one more line that says so.
+  behavior at once. A connection the stopping daemon closes before it answers
+  is asked again, when the drain began before the command was sent.
+* A client waits at most `PANDORA_DRAIN_WAIT` seconds, 660 by default: the
+  longest restart wait (`pandora upgrade`, 600 s) and a minute for the restart.
+  When the wait runs out on a daemon that still answers `draining`, the command
+  exits 75 and nothing ran; retry. It never runs unmanaged beside a live
+  daemon. When it runs out with no daemon listening, the command runs as if no
+  daemon were there, with one more line that says a restart did not finish.
 * `pandora wait`, `ps`, `logs`, `result` and `cancel` work during the drain.
 
 A marker older than 15 minutes is a restart that never finished. Clients
@@ -264,6 +283,12 @@ it.
 
 The new daemon may start before the old one has let go of `daemon.lock`. It
 waits up to 120 s for the lock and logs `waiting for pid N to stop`.
+
+The client code that answers `draining` is new in this release. A client from
+before it reads the frame as a closed connection and exits 70, "execution is
+uncertain". So on an install that runs the checkout, update the checkout first
+and restart the daemon second: the shim runs the checkout's client code at
+once. `pandora upgrade` moves `current` before the restart for the same reason.
 
 What a restart does to each run:
 
@@ -523,7 +548,7 @@ from.
 | Exit | Meaning |
 |---|---|
 | 0 | The daemon runs the new version, or no daemon runs. |
-| 75 | Nothing changed. The drain ended without a restart: a run still blocked it after `--wait`, and the daemon admits runs again. Or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
+| 75 | `current` did not move. The drain ended without a restart: a run still blocked it after `--wait`, and the daemon admits runs again (if the drain could not be ended, upgrade says so and the daemon ends it within 30 s). Or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
 | 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
 
 To go back, install a version that is still built:
@@ -859,7 +884,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | the command's own | The command's verdict. | As without Pandora. |
 | 64 | The command cannot run as typed: a path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
 | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry; do not bypass it. |
-| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. | Wait for the other run. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
+| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or the daemon still answered `draining` when `PANDORA_DRAIN_WAIT` ran out; nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 | 130 | Canceled. | Nothing. |
 
@@ -870,7 +895,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
-| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 180. Then it runs as if no daemon were there. |
+| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 660. Then it exits 75 if the daemon still answers `draining`, or runs as if no daemon were there if none listens. |
 | `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own; the client runs none. |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
