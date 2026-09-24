@@ -209,22 +209,60 @@ install that runs the checkout, restart it after you update the checkout.
 same file in the checkout. A change to a module the daemon never loads, such
 as the worker half, is not a reason to restart.
 
-To restart by hand, check that a restart is safe first. Run `pandora ps`. No
-local run may show `running` or `queued`. No remote run may show `queued`,
-`freezing`, `shipping` or `submitting`. Then restart.
+You do not need a quiet moment. A restart drains the daemon first.
 
 ```sh
 pandora daemon --restart
 ```
+
+1. The daemon stops admitting runs. It writes `<state>/draining` with the
+   time and the pid that asked. `pandora ps` shows `daemon: draining` on its
+   first line.
+2. The restart waits for the runs a restart would end: a local run that is
+   executing, and a remote run not yet accepted (`queued`, `freezing`,
+   `shipping`, `submitting`). It prints the list each time the list changes.
+   An accepted remote run does not block it.
+3. When the list is empty, launchd restarts the daemon (`launchctl kickstart
+   -k`). The new daemon settles every row, then removes the marker.
+
+The wait is `--wait` seconds, 300 by default. When it runs out, the daemon
+admits runs again, nothing is restarted, and the command exits 75 with the
+runs that still block. Retry later, or add `--now`: with `--now` the restart
+goes ahead when the wait runs out, and the table below applies to what is
+still running. A kickstart that fails, or Ctrl-C, also ends the drain. Under
+steady traffic, a restart costs at most the drain wait. A daemon from before
+the drain is waited on through `pandora ps`, without holding new commands.
+
+What a client sees during the drain and the restart:
+
+* A new claimed command prints `pandora: daemon is restarting; waiting` once.
+  Nothing has run. It asks again every 2 seconds and is submitted as usual
+  when the new daemon answers.
+* A local run that was still queued is withdrawn and submitted again in the
+  same way. It loses its place in the queue.
+* While no daemon listens, the client keeps asking only while the marker is
+  younger than its wait. A daemon that is simply gone still gives the no-daemon
+  behavior at once.
+* A client waits at most `PANDORA_DRAIN_WAIT` seconds, 180 by default. Then it
+  runs the command as if no daemon were there, with one more line that says so.
+* `pandora wait`, `ps`, `logs`, `result` and `cancel` work during the drain.
+
+A marker older than 15 minutes is a restart that never finished. Clients
+ignore it and `pandora doctor` warns about it. Any daemon that starts removes
+it.
+
+The new daemon may start before the old one has let go of `daemon.lock`. It
+waits up to 120 s for the lock and logs `waiting for pid N to stop`.
 
 What a restart does to each run:
 
 | Run | After the restart |
 |---|---|
 | Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
-| Remote, not yet accepted | Still freezing or shipping: ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
-| Local | Ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits; a local run still queued ends `withdrawn`. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
-| A claimed command typed while no daemon listens (1-2 s) | Waits up to 5 s for the new daemon, then routes. If none answers, exits 70 with the doctor hint. |
+| Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
+| Local, executing | The drain waits for it to finish. With `--now` after the wait: it ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
+| Local, queued | Ends `withdrawn` when the drain starts. Its client submits it again to the next daemon. |
+| A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait below, then exit 70. |
 
 A client attached to a run that ends this way exits 70. It does not wait.
 `kill -USR1 <daemon pid>` writes every thread's stack to the daemon log, for a
@@ -315,8 +353,8 @@ from a cache; `pandora enroll <root>` drops it from the registration. A shim
 link that still points into a checkout runs that checkout's code; `pandora
 doctor` warns about it, and `pandora upgrade` prints the `ln -sf` that fixes it.
 
-To move from the old marker, update the checkout, restart the daemon (`pandora
-ps` first, then `pandora daemon --restart`), then run `pandora enroll <root>`
+To move from the old marker, update the checkout, restart the daemon (`pandora daemon
+--restart`), then run `pandora enroll <root>`
 once per repository. Restart first: a daemon from before claim caches answers
 the shim's question with "unknown op", so every command in a worktree without a
 cache pays a Python start and two daemon round trips. `enroll` asks the daemon
@@ -385,8 +423,10 @@ all checks passed
 
 The first line is `ok` when the real pnpm is not a version manager's shim. A
 `warn` there is acceptable. `claim caches` is information. On an install that
-runs the checkout, the `install` line is `info` and says so. Every other line
-must be `ok`. `pandora doctor --json` prints the same checks with their facts.
+runs the checkout, the `install` line is `info` and says so. `restart drain`
+shows only while `<state>/draining` exists: `info` during a restart, `warn` for
+a marker older than 15 minutes. Every other line must be `ok`. `pandora doctor
+--json` prints the same checks with their facts.
 
 The repository rows:
 
@@ -819,6 +859,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
 | `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
+| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 180. Then it runs as if no daemon were there. |
 | `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own; the client runs none. |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
@@ -827,7 +868,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line, which ends `as <client name>` and counts other clients' live runs on a shared worker. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter` and `client`; the table has no room for them. |
+| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line, which ends `as <client name>` and counts other clients' live runs on a shared worker. While a restart drains, `daemon: draining` comes before it. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. `--json` also shows each run's `submitter` and `client`; the table has no room for them. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |

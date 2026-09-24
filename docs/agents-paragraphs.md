@@ -69,7 +69,8 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > Pandora's own lines go to stderr and start with `pandora:`. The last one can
 > be `pandora: hint: ...`. A hint comes from measured evidence, such as a memory
-> peak or a report that is absent. Act on it.
+> peak or a report that is absent. Act on it. `pandora: daemon is restarting;
+> waiting` is normal and needs no action: the command runs when the restart ends.
 >
 > Each worktree routes by its own `pandora.toml`. If you change it, the change
 > applies from the next command in that worktree. That one command starts a
