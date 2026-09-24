@@ -195,8 +195,9 @@ def check_daemon(sock_path, launcher_home):
     try:
         answer = ping(sock_path)
     except FileNotFoundError:
-        return check('daemon', FAIL, 'nothing at %s; start it with `pandora daemon` (claimed '
-                     'commands fall back by size class until then)' % sock_path), None
+        return check('daemon', FAIL, 'nothing at %s; start it with `pandora daemon` (until '
+                     'then claimed commands run here unmanaged, as if Pandora were not '
+                     'installed)' % sock_path), None
     except ConnectionRefusedError:
         return check('daemon', FAIL, '%s exists but nobody listens: a daemon that died. '
                      'Start it with `pandora daemon`' % sock_path), None

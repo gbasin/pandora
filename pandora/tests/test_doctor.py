@@ -318,6 +318,9 @@ class NoDaemon(Scratch):
         self.assertFalse(report['ok'])
         self.assertEqual(names['daemon']['status'], 'fail')
         self.assertIn('pandora daemon', names['daemon']['detail'])
+        # Since #91 a claimed command with no daemon passes through; nothing falls back.
+        self.assertIn('run here unmanaged', names['daemon']['detail'])
+        self.assertNotIn('fall back', names['daemon']['detail'])
         self.assertEqual(names['worker']['status'], 'fail')
         self.assertIn('recursion guard', names)
         self.assertIn('variables', names)

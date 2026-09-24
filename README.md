@@ -178,15 +178,29 @@ interpreter that ran the install. If a hand-started daemon already holds the
 lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 
 After you update the checkout, restart the daemon. It runs the code it started
-with.
+with. `pandora doctor` warns when the daemon's code differs from the checkout.
+
+Check that a restart is safe first. Run `pandora ps`. No local run may show
+`running`. No remote run may show `queued`, `freezing`, `shipping` or
+`submitting`. Then restart.
 
 ```sh
 pandora daemon --restart
 ```
 
+What a restart does to each run:
+
+| Run | After the restart |
+|---|---|
+| Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
+| Remote, not yet accepted | The next daemon asks the worker for it by request id. A run the worker started is followed. Any other ends `infra_failed`, exit 70. Rerun it. |
+| Local | Ends `infra_failed`, exit 70. Its process tree is stopped. Rerun it. |
+| A claimed command typed while no daemon listens (1-2 s) | Runs here unmanaged, as if Pandora were not installed. |
+
+A client attached to a run that ends this way exits 70. It does not wait.
+
 `pandora daemon --uninstall` unloads the agent and deletes the plist. A remote
-run continues on the worker while no daemon runs. The next daemon adopts it from
-its recorded log offset, and `pandora wait <id>` re-attaches.
+run continues on the worker while no daemon runs, as after a restart.
 
 To run the daemon by hand instead, for example on a machine where launchd is not
 wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
@@ -215,15 +229,27 @@ prints the `[[repos]]` block the client configuration needs. Add that block if
 it is not there.
 
 Enrollment is manual. Run it once per repository, not once per worktree: the
-marker is in the Git common directory, so every worktree shares it.
+marker is in the Git common directory, so every worktree shares it. It holds
+the claim list of the `pandora.toml` in the worktree you enroll from. Enroll
+from a worktree whose `pandora.toml` is the one you want every worktree to
+route by.
+
+The marker also records `home`, the checkout whose client code the shim runs
+for a claimed command. Enroll with the `pandora` of the checkout the daemon
+runs from. Otherwise the shim and the daemon run different code. After you
+update that checkout, restart the daemon. The shim starts the new client code
+at once; the daemon does not.
 
 Enroll again after any change to the claimed forms or to `[matching]
 subdirectory` in `pandora.toml`. The shim reads the claim list and the
 subdirectory mode from the marker, not from `pandora.toml`, so until you enroll
-again the shim acts on the old values. `pandora doctor` does not compare the
-marker with `pandora.toml` and does not report a stale claim list or mode. It
-reports only a marker whose `home` names a removed checkout, or whose socket is
-not the one the doctor checked.
+again the shim acts on the old values. `pandora doctor` reports a marker whose
+claim list, strip prefixes or subdirectory mode differ from this worktree's
+`pandora.toml`, a marker whose `home` names a removed checkout or a checkout
+other than the one the doctor runs from, and a marker whose socket is not the
+one the doctor checked. A claimed command routed through a stale marker prints
+one line: `pandora: enrollment marker is stale (N forms differ); run pandora
+enroll <root>`.
 
 To stop routing a repository, remove the marker.
 
