@@ -11,7 +11,7 @@ spec=(p/'docker-spec.json').read_text()
 for index, mode in enumerate(['manifest','copy','copy','manifest','manifest','copy']):
     output=p/f'final-{index}-{mode}'
     start=time.monotonic()
-    result=subprocess.run(['python3','-B',str(p/'warm_probe.py') if mode == 'manifest' else str(root/'experiments/warm/warm.py'),'--host','ubuntu@40.160.93.34','--repo','/Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build','--output',str(output),'--workflow','docker','--docker-request',spec],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+    result=subprocess.run(['python3','-B',str(p/'warm_probe.py') if mode == 'manifest' else str(root/'experiments/warm/warm.py'),'--host','ubuntu@WORKER','--repo','/Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build','--output',str(output),'--workflow','docker','--docker-request',spec],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
     (p/f'final-{index}-{mode}.log').write_text(result.stdout)
     print(result.stdout[-1000:],flush=True)
     assert result.returncode==0,result.returncode
@@ -19,6 +19,6 @@ for index, mode in enumerate(['manifest','copy','copy','manifest','manifest','co
     metadata['mode']=mode
     metadata['direct_cli_seconds']=time.monotonic()-start
     (output/'measurement.json').write_text(json.dumps(metadata,indent=2)+'\n')
-    receipt=query('ubuntu@40.160.93.34',metadata['attempt'],'release')
+    receipt=query('ubuntu@WORKER',metadata['attempt'],'release')
     assert receipt['cleanup_verified'] and receipt['exit_code']==0, receipt
     print(json.dumps(metadata),flush=True)

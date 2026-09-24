@@ -48,7 +48,7 @@ else:
     request = {'id': run, **inputs}
     print('[pandora] Running remotely; run ' + run, flush=True)
     r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-                        'ubuntu@40.160.93.34', 'python3 /home/ubuntu/pandora-output-ux/remote.py'],
+                        'ubuntu@WORKER', 'python3 /home/ubuntu/pandora-output-ux/remote.py'],
                        input=json.dumps(request), capture_output=True, text=True, timeout=90)
     (directory / 'transport.stderr').write_text(r.stderr)
     if r.returncode:

@@ -8,7 +8,7 @@ approval: never
 sandbox: read-only
 reasoning effort: none
 reasoning summaries: none
-session id: 01a0c46d-9c21-7123-84cf-107ef3dac8a2
+session id: <redacted>
 --------
 user
 Reply with the single word OK. Run no commands.

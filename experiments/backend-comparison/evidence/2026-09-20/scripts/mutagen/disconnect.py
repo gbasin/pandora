@@ -2,9 +2,9 @@ import json,os,subprocess,time
 from pathlib import Path
 poc=Path(__file__).resolve().parent;env=dict(os.environ,MUTAGEN_DATA_DIRECTORY=str(poc/'state'));name='pandora-allowlist-probe'
 def sync(*args):return subprocess.run([str(poc/'mutagen'),'sync',*args],env=env,check=True,capture_output=True,text=True,timeout=60)
-def remote(code):return subprocess.check_output(['ssh','-o','BatchMode=yes','ubuntu@40.160.93.34','python3 -'],input=code,text=True)
+def remote(code):return subprocess.check_output(['ssh','-o','BatchMode=yes','ubuntu@WORKER','python3 -'],input=code,text=True)
 def pids():
- text=subprocess.check_output(['ssh','-o','BatchMode=yes','ubuntu@40.160.93.34','ps -eo pid,args'],text=True)
+ text=subprocess.check_output(['ssh','-o','BatchMode=yes','ubuntu@WORKER','ps -eo pid,args'],text=True)
  return {int(line.split()[0]) for line in text.splitlines() if '.mutagen/agents/0.18.1/mutagen-agent synchronizer' in line}
 sync('pause',name);before=pids();sync('resume',name)
 for _ in range(20):

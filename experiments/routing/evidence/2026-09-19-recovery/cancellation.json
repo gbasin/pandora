@@ -9,7 +9,7 @@
           "borrower-web",
           "smoke.spec.ts"
         ],
-        "host": "ubuntu@40.160.93.34",
+        "host": "ubuntu@WORKER",
         "session": "cancel-regression",
         "attempt": "dbe09b1ed0384527aecc725604e392a7",
         "terminal": {
@@ -49,7 +49,7 @@
           "borrower-web",
           "smoke.spec.ts"
         ],
-        "host": "ubuntu@40.160.93.34",
+        "host": "ubuntu@WORKER",
         "session": "cancel-regression",
         "attempt": "bc35cb32352e47258e5c54c186c0438b",
         "terminal": {

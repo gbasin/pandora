@@ -23,7 +23,7 @@ Results and the go/no-go are in `notes/client-daemon-poc-2026-09-21.md`.
 | `cli.py` | `pandora enrol / ping / wait / stats`. |
 | `harness.py` | Temporary sandbox: state dir, fake repo, fake real pnpm. |
 | `bench.py` | Shim latency, ≥200 invocations per case. |
-| `repo_config/` | Copied verbatim from `poc/ci-import` (`classify.py`, `config.py`, `ci_import.py`, the eichler example config and the ci.yml fixture). |
+| `repo_config/` | Copied verbatim from `poc/ci-import` (`classify.py`, `config.py`, `ci_import.py`, the eichler example config). The ci.yml fixture, a copy of a private repository's workflow, was removed before this repository went public, so `test_claims.py` here and `test_ci_import.py`, `test_classify.py`, `test_config.py` and `test_parity.py` in `experiments/repo-config/` no longer run. |
 | `launchd/` | A sample plist. Never loaded by this POC. |
 | `install.md` | The install procedure. Never executed by this POC. |
 

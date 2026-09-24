@@ -8,7 +8,7 @@ approval: never
 sandbox: danger-full-access
 reasoning effort: low
 reasoning summaries: none
-session id: 01a0c46c-270a-75b2-80a6-3830ffda0d54
+session id: <redacted>
 --------
 user
 Run exactly this command once, with no edits and no retries, then print its complete stdout verbatim in your final message:
@@ -32,7 +32,8 @@ RESULT TMPDIR_VALUE           /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T/
 RESULT NET_TCP_LOCALHOST      PASS rc=0 PANDORA_SERVER_OK|
 RESULT NET_DNS_EXAMPLE        PASS rc=0 2606:4700:10::ac42:93f3|
 RESULT NET_HTTPS_EXAMPLE      PASS rc=0 200|
-RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.|host localhost|
+RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.
+|host localhost|
 RESULT SSH_LOCALHOST_EXEC     PASS rc=0 SSH_EXEC_OK|
 RESULT SSH_CM_WORKTREE        PASS rc=0 CM_OK|
 RESULT SSH_CM_ADDDIR          PASS rc=0 CM_OK|
@@ -85,7 +86,8 @@ RESULT TMPDIR_VALUE           /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T/
 RESULT NET_TCP_LOCALHOST      PASS rc=0 PANDORA_SERVER_OK|
 RESULT NET_DNS_EXAMPLE        PASS rc=0 2606:4700:10::ac42:93f3|
 RESULT NET_HTTPS_EXAMPLE      PASS rc=0 200|
-RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.|host localhost|
+RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.
+|host localhost|
 RESULT SSH_LOCALHOST_EXEC     PASS rc=0 SSH_EXEC_OK|
 RESULT SSH_CM_WORKTREE        PASS rc=0 CM_OK|
 RESULT SSH_CM_ADDDIR          PASS rc=0 CM_OK|
@@ -139,7 +141,8 @@ RESULT TMPDIR_VALUE           /var/folders/m5/hxbs3fgx21d5_g2ms5yhq2nc0000gn/T/
 RESULT NET_TCP_LOCALHOST      PASS rc=0 PANDORA_SERVER_OK|
 RESULT NET_DNS_EXAMPLE        PASS rc=0 2606:4700:10::ac42:93f3|
 RESULT NET_HTTPS_EXAMPLE      PASS rc=0 200|
-RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.|host localhost|
+RESULT SSH_CONFIG_PARSE       PASS rc=0 Pseudo-terminal will not be allocated because stdin is not a terminal.
+|host localhost|
 RESULT SSH_LOCALHOST_EXEC     PASS rc=0 SSH_EXEC_OK|
 RESULT SSH_CM_WORKTREE        PASS rc=0 CM_OK|
 RESULT SSH_CM_ADDDIR          PASS rc=0 CM_OK|

@@ -5,7 +5,7 @@ status: log
 # Browser-surface sharding evidence
 
 Gary required internal browser-surface sharding for v0.1. The SSH worker at
-`40.160.93.34` ran native Playwright shards under its existing two-slot resource
+`ubuntu@WORKER` ran native Playwright shards under its existing two-slot resource
 configuration. The ordinary surface command stayed unchanged.
 
 One admitted planner built production and fixture assets once, then froze the

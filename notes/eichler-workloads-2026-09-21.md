@@ -14,7 +14,8 @@ families below remain local unless a separate supported workflow invokes them.
 
 ## Evidence and limits
 
-The [command catalog](eichler-command-catalog-2026-09-21.json) contains every script
+The command catalog (removed before this repository went public: it copied a
+private repository's package.json scripts) contained every script
 from 19 tracked active package manifests: 139 script entries, including aliases
 and hooks. The scan also covered the validation planner, CI workflows, native
 runners, stack lifecycle, and representative capture/render tools. Legacy package
