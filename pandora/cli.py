@@ -179,10 +179,10 @@ def cmd_enroll(args):
         path, origin = loader.resolve(root, args.config_toml)
         repo_config = loader.load(path)
     except UnknownSchema as error:
-        notice('%s. If the file is right, this checkout runs older code than the file needs: '
-               '`git -C %s pull`, then, when `pandora ps` shows nothing running, `pandora '
-               'daemon --restart`. If it is a mistake, fix the file'
-               % (error, Path(__file__).resolve().parents[1]))
+        from .client import install
+        notice('%s. If the file is right, this Pandora is older than the file needs: %s. If '
+               'it is a mistake, fix the file'
+               % (error, install.update_fix(str(Path(__file__).resolve().parents[1]))))
         return 1
     except ConfigError as error:
         notice(str(error))

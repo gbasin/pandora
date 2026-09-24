@@ -419,11 +419,12 @@ def not_understood(error, home):
     what = error.key or 'a key'
     if error.value is not None:
         what = '%s = %s' % (what, shown(error.value))
+    from . import install
     return ('%s sets %s, which this daemon does not understand (%s). If the file is right, '
-            'the daemon runs older code than the file needs: when `pandora ps` shows nothing '
-            'running, run `git -C %s pull && pandora daemon --restart`. If it is a mistake, '
-            'fix the file. Nothing ran.'
-            % (error.path or 'pandora.toml', what, str(error).split(': ', 1)[-1], home))
+            'the daemon runs older code than the file needs: %s. If it is a mistake, fix '
+            'the file. Nothing ran.'
+            % (error.path or 'pandora.toml', what, str(error).split(': ', 1)[-1],
+               install.update_fix(home)))
 
 
 def submitted_by(request):
@@ -918,10 +919,10 @@ class Daemon:
         if first.get('v') != VERSION:
             # No version numbers: what the caller can do about it is the same
             # whichever side is older, and it is this.
+            from . import install
             self.deny(conn, 'version', 'this client and the daemon run different Pandora '
-                      'code. When `pandora ps` shows nothing running: `git -C %s pull && '
-                      'pandora daemon --restart`, and update the checkout the client runs '
-                      'from if it is another' % PACKAGE_HOME)
+                      'code: %s, and point the shim and `pandora` on PATH at the same one '
+                      '(`pandora doctor` says where they point)' % install.update_fix(PACKAGE_HOME))
             return
         op = first.get('op')
         if op == 'ping':

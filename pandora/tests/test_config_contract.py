@@ -16,6 +16,7 @@ Four rulings (2026-09-24):
 """
 import contextlib
 import io
+import json
 import os
 import re
 import subprocess
@@ -26,7 +27,7 @@ from unittest import mock
 
 from pandora import cli
 from pandora.client import daemon as daemon_module
-from pandora.client import enrollment, shim
+from pandora.client import enrollment, install, shim
 from pandora.client.protocol import Reader, dump
 from pandora.config import loader
 from pandora.errors import ConfigError, UnknownSchema
@@ -226,6 +227,23 @@ class DaemonRefusesWhatItCannotRead(DaemonCase):
         self.assertEqual(frame['code'], 'version')
         self.assertIn('pandora daemon --restart', frame['msg'])
         self.assertIsNone(re.search(r'\bv\d|999', frame['msg']), frame['msg'])
+
+
+class TheFixFollowsHowPandoraIsInstalled(unittest.TestCase):
+    def test_a_checkout_is_pulled_and_the_daemon_restarted_when_idle(self):
+        fix = install.update_fix('/src/pandora', data='/nonexistent-data')
+        self.assertIn('pandora ps', fix)
+        self.assertIn('git -C /src/pandora pull && pandora daemon --restart', fix)
+
+    def test_an_installed_version_is_upgraded_from_its_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            version = data / 'versions' / 'abc123'
+            version.mkdir(parents=True)
+            (version / install.META).write_text(json.dumps({'source': '/src/pandora'}))
+            self.assertEqual(install.update_fix(str(version), data=data),
+                             '`git -C /src/pandora pull && pandora upgrade`')
+            self.assertNotRegex(install.update_fix(str(version), data=data), r'\bv\d')
 
 
 class InstalledButNotAnswering(unittest.TestCase):
