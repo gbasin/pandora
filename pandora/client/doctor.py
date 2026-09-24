@@ -176,8 +176,12 @@ def check_launcher(env, *, run=subprocess.run):
                  launcher=launcher, home=home), home
 
 
-def ping(sock_path, timeout=2.0):
-    """The daemon's answer to `ping`, or raises OSError with the reason."""
+def ping(sock_path, timeout=30.0):
+    """The daemon's answer to `ping`, or raises OSError with the reason.
+
+    30 s, as for every operator verb: a starved daemon answered in 66 s on
+    2026-09-24, and a doctor that gives up after 2 s reports it as not running.
+    """
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:

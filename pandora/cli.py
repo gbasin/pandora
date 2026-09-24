@@ -62,7 +62,14 @@ def notice(text):
     sys.stderr.flush()
 
 
-def ask(sock_path, request, timeout=30.0):
+# How long an operator verb (`ps`, `cancel`, `wait`, `doctor`) waits for the
+# daemon. A starved daemon at load 90 answered in 66 s on 2026-09-24, and a
+# 2-5 s client called it "not running". The shim keeps its 2 s connect: a slow
+# daemon must not delay every pnpm call.
+OPERATOR_SECONDS = 30.0
+
+
+def ask(sock_path, request, timeout=OPERATOR_SECONDS):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     sock.connect(str(sock_path))
@@ -316,7 +323,7 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
     """Follow one run to its exit. Returns its code, or None if cut off."""
     from .client import shim
     try:
-        sock = shim.connect(str(sock_path), timeout=5.0)
+        sock = shim.connect(str(sock_path), timeout=OPERATOR_SECONDS)
     except OSError as error:
         notice('daemon unreachable: %s' % error)
         return INFRA
@@ -424,7 +431,7 @@ def cmd_ps(args):
         pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
         me = answer.get('client')
         draining = answer.get('draining')
-    except OSError:
+    except OSError as error:
         marker = drain.read_marker(state)
         if marker is not None and marker['age'] < drain.STALE_SECONDS:
             # The restart gap: the old daemon has gone and the new one is not up.
@@ -436,7 +443,9 @@ def cmd_ps(args):
             except (OSError, ValueError):
                 continue
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
-        worker = {'worker': 'unknown', 'reason': 'the daemon is not running'}
+        worker = {'worker': 'unknown', 'reason': (
+            'the daemon did not answer within %ds' % OPERATOR_SECONDS
+            if isinstance(error, TimeoutError) else 'the daemon is not running')}
     if args.json:
         print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me,
                           'draining': draining}
