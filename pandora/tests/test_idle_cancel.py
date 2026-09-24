@@ -227,8 +227,20 @@ class TheDaemon(DrainCase):
         self.assertIsInstance(row['cpu_seconds'], float)
         self.assertIsInstance(row['idle_seconds'], float)
         self.assertIsInstance(row['last_active'], float)
+        # Through the command too: #110's published row, plus the reading.
+        from pandora import cli
+        from pandora.tests.test_cli import capture
+        code, out, _ = capture(cli.main, ['--state', str(self.state), '--config',
+                                          str(self.root / 'config.toml'), 'ps', '--json'])
+        self.assertEqual(code, 0)
+        shown = {row['id']: row for row in json.loads(out)['runs']}
+        self.assertIsInstance(shown[run_id]['idle_seconds'], float)
         blockers = self.ask({'op': 'drain'})['blockers']
         self.assertIn('idle_seconds', blockers[0])
+        # The drain waits on exactly the executing local runs `ps` shows.
+        self.assertEqual({row['id'] for row in blockers},
+                         {row['id'] for row in shown.values()
+                          if row.get('lane') == 'local' and row.get('state') == 'running'})
         self.ask({'op': 'drain', 'cancel': True})
         self.ask({'op': 'cancel', 'run': run_id})
         thread.join(timeout=30)
