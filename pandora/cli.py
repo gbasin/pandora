@@ -12,7 +12,7 @@ INVARIANTS
   * Exit codes that are not the command's own:
       70  infrastructure failure, never a test verdict (also: daemon installed
           here but not answering after 5 s; nothing ran; run `pandora doctor`)
-      75  busy or stale: a validation already active here, or the tree changed
+      75  busy or stale: validation active here, tree changed, or restart ran long
      124  `--max-wait` elapsed; the run was NOT stopped
      130  canceled
   * `--update` runs on the worker, never here; its files come back only from a
