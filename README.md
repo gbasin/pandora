@@ -102,8 +102,8 @@ ln -s ~/.local/share/pandora/current/bin/pnpm ~/.local/bin/pnpm
 
 Do not link into the checkout or into a `versions/` directory. A link into the
 checkout runs whatever the checkout holds now. A link into a version directory
-stops at that version. `pandora upgrade` re-points a link into a checkout, and
-`pandora doctor` warns about either.
+stops at that version. `pandora upgrade` re-points a link into the checkout it
+upgrades or into a version directory, and `pandora doctor` warns about either.
 
 Create the shim marker beside them.
 
@@ -378,11 +378,12 @@ The version lines warn in these cases:
 
 | Line | Warning | Do this |
 |---|---|---|
-| `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into a checkout. Replace any other link with one through `current`. |
+| `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into the checkout it upgrades or into a version directory. Replace any other link with one through `current`. |
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
-| `daemon` | `daemon runs <old>, current is <new>; restart it` | Restart when `pandora ps` shows nothing a restart would end, or run `pandora upgrade`, which waits for that. |
+| `daemon` | `daemon runs <old>, current is <new>; restart it` | Restart when `pandora ps` shows nothing a restart would end: `pandora daemon --restart` under launchd, else stop and start it. Or run `pandora upgrade`, which waits for that moment. |
 | `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
 | `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It restarts the daemon; check `pandora ps` first. |
+| `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
 | `client home` | the registration or the claim cache pins the client to a path other than `current` | Registration: `pandora enroll <repo>`. Cache: once the daemon runs `current`, delete the cache; the next command writes it again. |
 
 A checkout that has moved on since the last upgrade is not a warning. The
@@ -404,48 +405,83 @@ pandora upgrade
    `--dirty` snapshots the working tree instead, as
    `<commit>-dirty-<digest>`. Untracked files are never copied.
 2. It copies the committed tree at HEAD into `versions/<commit>/`, named by the
-   first 12 hex digits of the commit. A commit already installed is reused.
-3. It points `current` at that version with one rename. A reader sees the old
-   version or the new one, never neither.
-4. It re-points `pandora` and the shim on PATH through `current` when they are
-   symlinks into a checkout. It reports a copy or a missing launcher and
-   leaves it alone.
-5. It restarts the daemon when no run would be lost: no local run `running` or
-   `queued`, and no remote run `queued`, `freezing`, `shipping` or
+   first 12 hex digits of the commit. A version already built is reused while
+   its files still match the digest written when it was built. An edited one
+   is left alone and the commit is built again as `<commit>-<digest>`.
+3. It imports the new version's client and daemon with the interpreter the
+   plist pins and the one the launchers find. A version that cannot import is
+   refused, and nothing changes.
+4. It waits until a daemon restart would end nothing: no local run `running`
+   or `queued`, and no remote run `queued`, `freezing`, `shipping` or
    `submitting`. It checks every 10 seconds for up to `--wait` seconds
-   (default 600) and prints the runs it waits for. `--now` restarts at once;
-   local runs then end with exit 70.
-6. It deletes old versions. It keeps the three most recently installed
-   (`--keep N`), `current`, and the version the daemon runs.
+   (default 600) and prints the runs it waits for. A daemon that does not
+   answer `ps` is not idle; the wait goes on.
+5. It points `current` at the new version with one rename. A reader sees the
+   old version or the new one, never neither.
+6. It checks `pandora ps` once more. If a run started meanwhile, it points
+   `current` back and waits again.
+7. It restarts the daemon with `launchctl kickstart -k`, and waits up to 10
+   seconds for the new daemon to answer from the new version.
+8. It re-points `pandora` and the shim on PATH through `current`, when they
+   are symlinks into the checkout it upgrades or into a version directory,
+   and the data directory is the default `~/.local/share/pandora`. With
+   another data directory it prints the `ln -sf` to run; `--relink` moves the
+   links anyway. It reports a copy or a missing launcher and leaves it.
+9. It deletes old versions. It keeps the three most recently installed
+   (`--keep N`, at least 2), `current`, the version before it, and the
+   version the daemon runs.
 
-It prints the old and new version with their code digests, and the daemon's
-version before and after the restart. `--from <checkout>` names the checkout;
-the default is the checkout the current version came from.
+`--now` skips the wait and restarts at once. A local run then ends with exit
+70. A remote run still `freezing` or `shipping` ends with exit 70. A remote run
+`submitting` is looked up on the worker: followed if it started, closed if
+not. Rerun what ended. Accepted remote runs continue on the worker.
+
+`--no-restart` moves `current` without restarting the daemon. The daemon runs
+its version until it restarts, and `pandora doctor` warns meanwhile.
+
+It prints the new version with its tree digest, `current` before and after,
+and the daemon's version before and after the restart. `--from <checkout>`
+names the checkout; the default is the checkout the current version came
+from.
 
 | Exit | Meaning |
 |---|---|
 | 0 | The daemon runs the new version, or no daemon runs. |
-| 75 | The wait ran out. `current` is the new version, and the daemon still runs the old one. Run `pandora upgrade` again later, or `pandora upgrade --now`. |
-| 1 | Refused: uncommitted changes, or not a Pandora checkout. Or `upgrade` cannot restart the daemon: it was started by hand, or its plist runs a checkout. The last line says what to run. |
+| 75 | Nothing changed. No safe moment came within `--wait`, or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
+| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not answer from the new version within 10 seconds. The last lines say what to run. |
+
+To go back, install a version that is still built:
+
+```sh
+ls ~/.local/share/pandora/versions
+pandora upgrade --version <name>
+```
+
+`--version` takes the same wait, checks and restart as a new version. An
+older commit that was pruned is built again with `pandora upgrade --from
+<checkout at that commit>`.
 
 The directories, under `$XDG_DATA_HOME/pandora`, else `~/.local/share/pandora`:
 
 | Path | What it is |
 |---|---|
-| `versions/<commit>/` | One installed tree. Written once, then never changed. `.pandora-version` in it records the commit, the source checkout and the code digest. |
+| `versions/<commit>/` | One installed tree. Written once, then never changed. `.pandora-version` in it records the commit, the source checkout and the tree digest. |
 | `current` | A relative symlink to one version. The plist, the launchers on PATH, the registration and the claim caches name paths through it, so none of them goes stale. |
 
-The launchers resolve `current` when they start. A daemon or a claimed command
-keeps importing from the version it started with, even after `current` moves.
+The launchers resolve `current` when they start, and start Python without the
+working directory on its path. A daemon or a claimed command keeps importing
+from the version it started with, even after `current` moves, and a command
+typed inside a Pandora checkout still runs the installed version.
 
 ### Move an install that runs the checkout
 
 An install from before `pandora upgrade` links the launchers into the checkout
 and runs the daemon from it. It keeps working. To move it to `current`:
 
-1. Run `~/Code/pandora/bin/pandora upgrade`. It installs HEAD and re-points
-   `~/.local/bin/pandora` and `~/.local/bin/pnpm`. It does not restart a
-   daemon whose plist runs the checkout; it says so and exits 1.
+1. Run `~/Code/pandora/bin/pandora upgrade --no-restart`. It installs HEAD,
+   points `current` at it, and re-points `~/.local/bin/pandora` and
+   `~/.local/bin/pnpm`. Without `--no-restart` it refuses, because it cannot
+   restart a daemon whose plist runs the checkout.
 2. Run `pandora ps`. Wait until no local run is `running` or `queued` and no
    remote run is `queued`, `freezing`, `shipping` or `submitting`.
 3. Run `pandora daemon --install`. The plist then runs `current`, and the
