@@ -333,6 +333,112 @@ class WrittenHomes(Case):
         self.assertEqual(marker['home'], str(data / 'current'))
 
 
+class Doctor(Case):
+    """Each way the snapshot layout can disagree with itself, as `doctor` reports it."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.checkout()
+        self.version = self.build(self.repo)
+        install.flip(self.data, self.version['name'])
+        self.bindir = self.root / 'bin'
+        self.bindir.mkdir()
+
+    def link(self, name, target):
+        (self.bindir / name).symlink_to(target)
+        return str(self.bindir / name)
+
+    def test_no_snapshot_is_information_and_a_dangling_current_fails(self):
+        from pandora.client import doctor
+        empty = self.root / 'empty'
+        self.assertEqual(doctor.check_install(empty, None, None)['status'], 'info')
+        empty.mkdir()
+        (empty / 'current').symlink_to('versions/gone')
+        item = doctor.check_install(empty, None, None)
+        self.assertEqual(item['status'], 'fail')
+        self.assertIn('holds no pandora package', item['detail'])
+
+    def test_launchers_through_current_are_ok_and_a_moved_checkout_is_noted(self):
+        from pandora.client import doctor
+        launcher = self.link('pandora', self.data / 'current' / 'bin' / 'pandora')
+        shim = self.link('pnpm', self.data / 'current' / 'bin' / 'pnpm')
+        item = doctor.check_install(self.data, launcher, shim)
+        self.assertEqual(item['status'], 'ok', item)
+        self.assertIn('current is %s, from %s' % (self.version['name'], self.repo), item['detail'])
+        head = self.commit(self.repo, 'VERSION = 2\n')
+        item = doctor.check_install(self.data, launcher, shim)
+        self.assertEqual(item['status'], 'ok', 'pulling changes nothing live')
+        self.assertIn('the checkout is at %s since' % head[:12], item['detail'])
+
+    def test_a_launcher_or_shim_into_the_checkout_warns(self):
+        from pandora.client import doctor
+        launcher = self.link('pandora', self.repo / 'bin' / 'pandora')
+        shim = self.link('pnpm', self.data / 'current' / 'bin' / 'pnpm')
+        item = doctor.check_install(self.data, launcher, shim)
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('`pandora` on PATH (%s) runs %s, not current' % (launcher, self.repo),
+                      item['detail'])
+        item = doctor.check_install(self.data, self.link('x', self.data / 'current' / 'bin' /
+                                                         'pandora'),
+                                    self.link('pnpm2', self.repo / 'bin' / 'pnpm'))
+        self.assertIn('the pnpm shim', item['detail'])
+        self.assertEqual(item['status'], 'warn')
+
+    def daemon(self, home):
+        from pandora.client import doctor
+        pong = {'t': 'pong', 'pid': 7, 'v': 2, 'home': str(home), 'code': None}
+        with mock.patch.object(doctor, 'ping', return_value=pong):
+            item, _ = doctor.check_daemon(self.state / 'client.sock', None, self.data)
+        return item
+
+    def test_a_daemon_on_current_is_ok(self):
+        item = self.daemon(self.version['path'])
+        self.assertEqual(item['status'], 'ok', item)
+        self.assertIn('runs current (%s)' % self.version['name'], item['detail'])
+
+    def test_a_daemon_behind_current_is_told_to_restart_or_upgrade(self):
+        old = self.version
+        self.commit(self.repo, 'VERSION = 2\n')
+        new = self.build(self.repo)
+        install.flip(self.data, new['name'])
+        item = self.daemon(old['path'])
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('daemon runs %s, current is %s; restart it' % (old['name'], new['name']),
+                      item['detail'])
+        # The checkout moved on too: an upgrade, not just a restart.
+        head = self.commit(self.repo, 'VERSION = 3\n')
+        item = self.daemon(old['path'])
+        self.assertIn('and %s is at %s since; run `pandora upgrade`' % (self.repo, head[:12]),
+                      item['detail'])
+
+    def test_a_daemon_on_a_checkout_is_told_to_install_from_current(self):
+        item = self.daemon(self.repo)
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('daemon runs the checkout %s, current is %s. `pandora daemon --install`'
+                      % (self.repo, self.version['name']), item['detail'])
+
+    def test_a_marker_home_outside_current_warns(self):
+        from pandora.client import doctor, enrollment
+        target = self.root / 'target'
+        target.mkdir()
+        git(target, 'init', '-q')
+        for home, warned in ((self.repo, True), (self.version['path'], True),
+                             (self.data / 'current', False)):
+            (target / '.git' / 'pandora-enrolled').write_text(enrollment.render(
+                socket_path=str(self.state / 'client.sock'), repo='demo', claims=[['unit']],
+                home=str(home)))
+            items = {item['name']: item for item in
+                     doctor.check_repository(str(target), None, self.state / 'client.sock',
+                                             self.data)}
+            if warned:
+                self.assertEqual(items['marker home']['status'], 'warn', home)
+                self.assertIn('not %s, so claimed commands do not follow an upgrade'
+                              % (self.data / 'current'), items['marker home']['detail'])
+            else:
+                self.assertNotIn('marker home', {k for k, v in items.items()
+                                                 if 'not follow an upgrade' in v['detail']})
+
+
 ROWS = [
     {'id': 'r-local-run', 'lane': 'local', 'state': 'running', 'argv': ['check']},
     {'id': 'r-local-q', 'lane': 'local', 'state': 'queued', 'argv': ['test']},

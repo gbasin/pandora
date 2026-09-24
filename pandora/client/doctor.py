@@ -18,8 +18,10 @@ Read-only, all the way down: nothing here writes a file, starts a process that
 writes one, or asks the daemon anything but `ping` -- whose answer carries the
 worker-health reading the daemon already has cached, so not even a health poll
 is triggered. `ps` is deliberately not used: it samples the pause gate, which
-can move its counters. The one other process asked anything is `launchctl
-print`, for whether launchd supervises the daemon that answered.
+can move its counters. The other processes asked anything are `launchctl
+print`, for whether launchd supervises the daemon that answered, and `git
+rev-parse HEAD` in the checkout `current` was built from, for whether it has
+moved on since.
 """
 import json
 import os
@@ -32,7 +34,7 @@ from pathlib import Path
 from ..engine import bundle
 from ..config.loader import FILENAME
 from ..errors import ConfigError
-from . import enrollment, placement, settings
+from . import enrollment, install, placement, settings
 from .health import DEFAULT_INTERVAL, STALE_FACTOR
 from .protocol import Reader, VERSION, dump
 
@@ -189,8 +191,25 @@ def ping(sock_path, timeout=2.0):
     return answer
 
 
-def check_daemon(sock_path, launcher_home):
-    """A daemon answers on the socket the shim will use, speaking this client's protocol."""
+def source_head(now, runner=subprocess.run):
+    """The commit the checkout `current` came from is at now, or None if unknown."""
+    source = (now or {}).get('meta', {}).get('source')
+    if not source:
+        return None
+    try:
+        proc = runner(['git', '-C', source, 'rev-parse', 'HEAD'], capture_output=True,
+                      text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+
+def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run):
+    """A daemon answers on the socket the shim will use, speaking this client's protocol.
+
+    With a snapshot installed, the daemon should run the version `current`
+    names; without one, the package the launcher runs, as before `upgrade`.
+    """
     try:
         answer = ping(sock_path)
     except FileNotFoundError:
@@ -213,24 +232,87 @@ def check_daemon(sock_path, launcher_home):
     if not home:
         return check('daemon', WARN, detail + '; it predates `doctor` and does not say which '
                      'package it runs, so it cannot be compared with this client', **facts), answer
-    if os.path.realpath(home) != os.path.realpath(expected):
+    now = install.installed(data) if data is not None else None
+    if now and os.path.realpath(home) != now['path']:
+        old = install.version_label(home, data)
+        facts.update(current=now['name'], daemon_version=old)
+        if not install.is_version(home, data):
+            return check('daemon', WARN, '%s; daemon runs the checkout %s, current is %s. '
+                         '`pandora daemon --install` runs it from current (that restarts '
+                         'it: check `pandora ps` first)' % (detail, old, now['name']),
+                         **facts), answer
+        head = source_head(now, runner)
+        if head and head != now['meta'].get('commit'):
+            return check('daemon', WARN, '%s; daemon runs %s, current is %s, and %s is at %s '
+                         'since; run `pandora upgrade`' % (detail, old, now['name'],
+                                                          now['meta'].get('source'), head[:12]),
+                         **facts), answer
+        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it: `pandora '
+                     'daemon --restart` once `pandora ps` shows no local run and no remote run '
+                     'before accepted' % (detail, old, now['name']), **facts), answer
+    if not now and os.path.realpath(home) != os.path.realpath(expected):
         return check('daemon', WARN, '%s; it runs the package in %s and the client is %s. '
                      'Restart it from the checkout you mean' % (detail, home, expected),
                      **facts), answer
     code = answer.get('code')
     try:
-        # The files the daemon says it loaded, as they are in the checkout now.
-        mine = (bundle.code_digest(Path(expected) / 'pandora', names=answer['code_modules'])
+        # The files the daemon says it loaded, as they are in its home now: a
+        # checkout that moved on, or a version directory, which never should.
+        mine = (bundle.code_digest(Path(os.path.realpath(home)) / 'pandora',
+                                   names=answer['code_modules'])
                 if answer.get('code_modules') else None)
     except OSError:
         mine = None
     facts.update(code=code, client_code=mine)
+    if code and mine and code != mine and now:
+        return check('daemon', WARN, '%s; daemon code differs from %s on disk, which no '
+                     'upgrade changes. Something edited it; run `pandora upgrade --now`'
+                     % (detail, now['path']), **facts), answer
     if code and mine and code != mine:
         # Same checkout, different bytes: it was updated after the daemon started.
         return check('daemon', WARN, '%s; daemon code differs from the checkout. '
                      'Restarting ends running local runs; check `pandora ps` first, then '
                      'run `pandora daemon --restart`' % detail, **facts), answer
+    if now:
+        return check('daemon', OK, '%s, runs current (%s)' % (detail, now['name']),
+                     **facts), answer
     return check('daemon', OK, detail + ', same package as the client', **facts), answer
+
+
+def check_install(data, launcher, shim, runner=subprocess.run):
+    """The launchers run through `<data>/current`, which names a whole version.
+
+    Information when there is no snapshot: an install that runs its checkout
+    still works, it just changes live code whenever the checkout moves.
+    """
+    link = install.current_link(data)
+    now = install.installed(data)
+    if now is None:
+        if os.path.lexists(link):
+            return check('install', FAIL, '%s names %s, which holds no pandora package; run '
+                         '`pandora upgrade --from <checkout>`'
+                         % (link, os.path.realpath(link)))
+        return check('install', INFO, 'no snapshot in %s: the launchers run their checkout, '
+                     'so pulling it changes live code. `pandora upgrade` installs a version'
+                     % data)
+    meta = now['meta']
+    facts = {'current': now['name'], 'path': now['path'], 'source': meta.get('source'),
+             'commit': meta.get('commit')}
+    stray = []
+    for label, path in (('`pandora` on PATH', launcher), ('the pnpm shim', shim)):
+        if path and not install.through_current(path, data):
+            runs = os.path.dirname(os.path.dirname(install.chain_end(path)))
+            stray.append('%s (%s) runs %s' % (label, path, install.version_label(runs, data)))
+    if stray:
+        return check('install', WARN, '%s, not current (%s); `pandora upgrade` re-points a '
+                     'link into a checkout' % ('; '.join(stray), now['name']),
+                     stray=stray, **facts)
+    detail = 'current is %s, from %s' % (now['name'], meta.get('source') or '(unrecorded)')
+    head = source_head(now, runner)
+    if head and head != meta.get('commit'):
+        # Not a warning: a checkout that moves on changes nothing live.
+        detail += '; the checkout is at %s since, which `pandora upgrade` installs' % head[:12]
+    return check('install', OK, detail + '; `pandora` and the shim run through it', **facts)
 
 
 def check_worker(pong, state):
@@ -260,7 +342,7 @@ def check_worker(pong, state):
     return check('worker', status, line, worker=health.get('worker'))
 
 
-def check_repository(cwd, config, sock_path):
+def check_repository(cwd, config, sock_path, data=None):
     """This repository is enrolled on both sides, and this worktree's claim cache is fresh."""
     common = enrollment.common_dir(cwd)
     root = enrollment.worktree_root(cwd)
@@ -291,6 +373,7 @@ def check_repository(cwd, config, sock_path):
                      'not route. Run `pandora enroll %s`' % (registration, root or cwd))]
     out += check_caches(cwd, root, common, kind)
     home = parsed.get('home')
+    now = install.installed(data) if data is not None else None
     if home and not (Path(home) / 'pandora' / 'client' / 'shim.py').is_file():
         # A cache is safe to delete: the next command writes it again. The
         # registration and the marker are not: deleting either unenrolls.
@@ -301,6 +384,15 @@ def check_repository(cwd, config, sock_path):
                          '%s says the client lives in %s, which has no pandora package (a '
                          'removed checkout?). Claimed commands cannot start the client; %s'
                          % (source, home, fix), home=home))
+    elif home and now and not install.through_current(home, data):
+        # A checkout, or a version directory by its own name: either way the
+        # next upgrade leaves claimed commands behind.
+        fix = ('the daemon writes it; once the daemon runs current, delete %s and the next '
+               'command writes it again' % source if kind == 'cache' else
+               'run `pandora enroll %s`' % (root or cwd))
+        out.append(check('client home', WARN,
+                         '%s pins the client to %s, not %s, so claimed commands do not follow '
+                         'an upgrade; %s' % (source, home, now['link'], fix), home=home))
     elif home and os.path.realpath(home) != os.path.realpath(PACKAGE_HOME):
         # Claimed commands start the client from the file's `home`, whatever
         # checkout this doctor runs from; three code versions were live at once
@@ -454,7 +546,8 @@ def check_shim_markers(env, shim):
     return check('shim markers', OK, '%s beside the shim only' % SHIM_MARKER)
 
 
-def check_supervision(pong, state, *, platform=None, launchctl=None, home=None):
+def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
+                      upgraded=False):
     """Whether launchd supervises the daemon that answered, or nothing does.
 
     ok: the agent is loaded and its pid is the daemon's. warn: a daemon runs and
@@ -500,16 +593,20 @@ def check_supervision(pong, state, *, platform=None, launchctl=None, home=None):
                      'launchd has %s loaded (%s) but the daemon answering is pid %s, which '
                      'it did not start. `pandora daemon --stop`, then `pandora daemon '
                      '--restart`; %s' % (label, agent['line'], pid, starts), **facts)
-    return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; `pandora '
-                 'daemon --restart` after updating the checkout' % (pid, label, runs, starts),
-                 **facts)
+    return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; %s after '
+                 'updating the checkout' % (pid, label, runs, starts,
+                                            '`pandora upgrade`' if upgraded
+                                            else '`pandora daemon --restart`'), **facts)
 
 
 # -- the whole report ------------------------------------------------------------
 
 def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
-        launchctl=subprocess.run):
+        launchctl=subprocess.run, data=None):
     env = dict(os.environ if env is None else env)
+    # Where this user's versions live: a fact about the user, not the shell
+    # being checked, so it comes from this process's own environment.
+    data = Path(data) if data else install.data_root()
     cwd = cwd or os.getcwd()
     checks = []
     try:
@@ -532,11 +629,14 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
     checks.append(check_recursion(env))
     launched, launcher_home = check_launcher(env, run=runner)
     checks.append(launched)
-    daemon, pong = check_daemon(sock_path, launcher_home)
+    checks.append(check_install(data, launched['facts'].get('launcher'),
+                                pnpm['facts'].get('shim'), runner=runner))
+    daemon, pong = check_daemon(sock_path, launcher_home, data, runner=runner)
     checks.append(daemon)
     checks.append(check_worker(pong, sock_path.parent))
-    checks.append(check_supervision(pong, sock_path.parent, launchctl=launchctl))
-    checks.extend(check_repository(cwd, loaded, state_path / 'client.sock'))
+    checks.append(check_supervision(pong, sock_path.parent, launchctl=launchctl,
+                                    upgraded=install.installed(data) is not None))
+    checks.extend(check_repository(cwd, loaded, state_path / 'client.sock', data))
     checks.append(check_cwd(cwd))
     checks.append(check_variables(env))
     checks.append(check_shim_markers(env, pnpm['facts'].get('shim')))
