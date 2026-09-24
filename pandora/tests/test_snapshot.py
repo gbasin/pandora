@@ -266,6 +266,17 @@ class LinkOwnershipTest(unittest.TestCase):
                 with self.assertRaises(WorkerUnreachable):
                     link.feed('pass', timeout=5)
 
+    def test_the_operator_cli_never_exits_a_master(self):
+        # Concurrent `pandora worker` verbs share `ssh-cli`; ControlPersist reaps it.
+        from pandora.worker.remote import Remote
+        with tempfile.TemporaryDirectory() as tmp:
+            link, calls = self.link(tmp, master_running=False)
+            remote = Remote('user@host', control_dir=Path(tmp) / 'ssh-cli')
+            remote.link = link
+            remote.link.run(['true'])
+            remote.close()
+            self.assertEqual(self.verbs(calls), ['check'])
+
     def test_a_link_that_never_called_exits_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             link, calls = self.link(tmp, master_running=False)

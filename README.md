@@ -56,7 +56,8 @@ one enrollment per repository, and `pandora doctor` to prove the result.
 * The real `pnpm` on PATH. The shim finds it by walking PATH past itself.
 * An SSH key that logs in to the worker without a prompt. Pandora uses your SSH
   configuration. The daemon keeps one control master per worker; `pandora
-  worker` verbs keep their own, so they never close the daemon's.
+  worker` verbs share another, never close it, and leave it to expire after ten
+  idle minutes, so no verb cuts off the daemon's or another verb's transfers.
 * A provisioned worker. See [The worker](#the-worker).
 
 ### 1. Clone the checkout
