@@ -410,6 +410,9 @@ class Daemon:
         self.adopting = threading.Lock()   # one takeover per orphaned row
         self.workers = {}
         self.workers_lock = threading.Lock()
+        # This daemon's own rows before `accepted`, so a cancel or an attach
+        # reaches the Run its connection thread drives rather than a stand-in.
+        self.pending = {}
         self.code, self.code_modules = None, []
         self.worker_factory = Worker
         # One local queue per daemon, built once: its learned peaks live in a
@@ -576,6 +579,23 @@ class Daemon:
             if run is not None and run.remote and not run.done.is_set():
                 resumed.append(run.id)
         return resumed
+
+    def hold(self, run):
+        """Register a pre-accept row this daemon drives, before its first save."""
+        with self.runs_lock:
+            for run_id in [key for key, item in self.pending.items()
+                           if item.done.is_set() or key in self.runs]:
+                del self.pending[run_id]
+            self.pending[run.id] = run
+
+    def live(self, run_id):
+        """The Run a thread of this daemon drives for `run_id`, accepted or not."""
+        with self.runs_lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                held = self.pending.get(run_id)
+                run = held if held is not None and not held.done.is_set() else None
+            return run
 
     def orphaned(self, payload):
         """A live row no thread of this daemon drives: its daemon has exited.
@@ -846,7 +866,7 @@ class Daemon:
         elif op == 'cancel':
             # A row no thread here drives is taken over with its cancel asked
             # for; answering `ok` and changing nothing left clients hung.
-            run = self.runs.get(first.get('run')) or self.adopt(first.get('run'), cancel=True)
+            run = self.live(first.get('run')) or self.adopt(first.get('run'), cancel=True)
             if run:
                 run.canceled.set()
             conn.sendall(dump({'t': 'ok', 'run': first.get('run')}))
@@ -1031,6 +1051,7 @@ class Daemon:
                   dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
                        writeback=bool(plan.get('writeback'))))
         run.state = 'queued'
+        self.hold(run)
         run.save()
         try:
             self.submit_remote(conn, reader, request, repo, job, plan, worktree, checked, run)
@@ -1274,6 +1295,7 @@ class Daemon:
         run = Run(self.state, run_id,
                   dict(request, repo=repo['name'], job=job['id'], reason=reason))
         run.lane = 'local'
+        self.hold(run)
         run.save()
         if origin is not None:
             # Closed the moment its successor exists, not when that successor
@@ -1306,6 +1328,14 @@ class Daemon:
         except OSError:
             self.budget.finish(run.id, 0, 'lost')      # the client went away while queued
             run.finish(STALE, state='refused')
+            return
+        if admission is None and run.canceled.is_set():
+            # `pandora cancel` while it queued: nothing started.
+            self.budget.finish(run.id, 0, 'lost')
+            run.note('canceled while queued; nothing ran')
+            run.finish(CANCELED, state='cancelled')
+            self.deny(conn, 'canceled', 'run %s was canceled while queued; nothing ran'
+                      % run.id, exit=CANCELED)
             return
         if admission is None:
             self.budget.finish(run.id, 0, 'lost')
@@ -1625,7 +1655,7 @@ class Daemon:
     # -- streaming ---------------------------------------------------------
 
     def serve_attach(self, conn, reader, request):
-        run = self.runs.get(request.get('run'))
+        run = self.live(request.get('run'))
         if run is None:
             run = self.adopt(request.get('run'))
         if run is None:
@@ -1638,10 +1668,13 @@ class Daemon:
             phase = progress.attach_line(self.state, run)
         except Exception:                        # noqa: BLE001 - a courtesy, never a verdict
             phase = None
+        owned = run.done.is_set() or self.live(run.id) is run
         conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'reattached': True,
                            'remote': run.remote, 'phase': phase,
                            # Whether anything here will bring this run to an exit.
-                           'owned': run.done.is_set() or run.id in self.runs}))
+                           'owned': owned}))
+        if not owned:
+            return                       # nothing here will finish it; do not wait on it
         self.stream(conn, reader, run, int(request.get('from', 0)))
 
     def adopt(self, run_id, *, cancel=False):
@@ -1662,8 +1695,9 @@ class Daemon:
         except (OSError, ValueError):
             return None
         with self.adopting:
-            if run_id in self.runs:
-                return self.runs[run_id]
+            driven = self.live(run_id)
+            if driven is not None:
+                return driven
             if self.orphaned(dict(payload, id=run_id)):
                 return self.resume_row(dict(payload, id=run_id), cancel=cancel)
         run = Run(self.state, run_id, payload)
@@ -1675,6 +1709,10 @@ class Daemon:
         run.phase = payload.get('phase')
         if run.state not in ('queued', 'running'):
             run.done.set()
+        else:
+            # Live and saved by this daemon, but no longer held: a view only.
+            # Registered, it would be a stand-in nothing ever finishes.
+            return run
         with self.runs_lock:
             self.runs[run_id] = run
         return run

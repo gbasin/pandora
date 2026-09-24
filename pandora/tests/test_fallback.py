@@ -668,6 +668,72 @@ class OrphanedRows(DaemonCase):
             (self.state / 'runs' / 'mine1' / 'meta.json').read_text()), owner='gone')))
 
 
+class OwnPreAccept(DaemonCase):
+    """`pandora cancel` and `attach` reach this daemon's own run before `accepted`."""
+
+    cancel = OrphanedRows.cancel
+    attach = OrphanedRows.attach
+
+    def queued_id(self, lane, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for path in (self.state / 'runs').glob('*/meta.json'):
+                meta = json.loads(path.read_text())
+                if meta.get('lane') == lane and meta['state'] == 'queued':
+                    return meta['id']
+            time.sleep(0.02)
+        self.fail('no queued %s row' % lane)
+
+    def test_cancel_of_a_queued_local_run_reaches_the_real_one(self):
+        def admit(run_id, *, canceled=None, **kwargs):
+            while not canceled():
+                time.sleep(0.02)
+            return None
+        answers = []
+        with mock.patch.object(self.daemon.budget, 'admit', side_effect=admit):
+            caller = threading.Thread(target=lambda: answers.append(
+                self.call(['pnpm', 'unit'])))
+            FakeWorker.raises = WorkerUnreachable('down')      # small: falls back to local
+            caller.start()
+            run_id = self.queued_id('local')
+            self.assertEqual(self.cancel(run_id)['t'], 'ok')
+            caller.join(10)
+        [answer] = answers
+        self.assertEqual((answer.error['code'], answer.exit), ('canceled', 130))
+        meta = json.loads((self.state / 'runs' / run_id / 'meta.json').read_text())
+        self.assertEqual((meta['state'], meta['exit_code']), ('cancelled', 130))
+        self.assertNotIn(run_id, self.daemon.runs)       # no stand-in left behind
+
+    def test_cancel_of_a_remote_run_still_submitting_reaches_it_after_accepted(self):
+        release, asked = threading.Event(), []
+
+        def submit(worker, **kwargs):
+            release.wait(10)
+            return Submission('r-late')
+
+        def follow(worker, run_id, *, should_cancel=None, **kwargs):
+            asked.append(should_cancel())
+            return {'outcome': 'cancelled', 'cli_exit': 130}, 0
+        answers = []
+        with mock.patch.object(FakeWorker, 'submit', submit), \
+                mock.patch.object(FakeWorker, 'follow', follow):
+            caller = threading.Thread(target=lambda: answers.append(self.call(['pnpm', 'unit'])))
+            caller.start()
+            run_id = self.queued_id('remote')
+            self.cancel(run_id)
+            release.set()
+            caller.join(10)
+        self.assertEqual(asked, [True])
+        self.assertEqual(answers[0].exit, 130)
+        self.assertIs(self.daemon.runs[run_id].done.is_set(), True)
+
+    def test_a_live_row_of_ours_that_nothing_holds_is_not_waited_on(self):
+        RestartHygiene.row(self, 'mine2', state='running', owner=daemon_module.OWNER)
+        first, code = self.attach('mine2')
+        self.assertEqual((first['owned'], code), (False, None))
+        self.assertNotIn('mine2', self.daemon.runs)
+
+
 class Unfollowed(unittest.TestCase):
     """A client told that nothing follows its run exits 70 with one line."""
 
