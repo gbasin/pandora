@@ -236,6 +236,8 @@ class Run:
         submitter = submitted_by(self.request)
         if submitter:
             payload['submitter'] = submitter
+        if self.request.get('client'):
+            payload['client'] = self.request['client']
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -562,8 +564,15 @@ class Daemon:
             if key not in self.workers:
                 self.workers[key] = self.worker_factory(
                     host, state=self.state, engine_root=self.config['worker']['engine_root'],
-                    persist=self.config['worker']['ssh_persist'])
+                    persist=self.config['worker']['ssh_persist'], client=self.client_name())
+            # The config is re-read on every connection, so a changed `[client]
+            # name` applies to the next submission with no restart.
+            self.workers[key].client = self.client_name()
             return self.workers[key]
+
+    def client_name(self):
+        """Who this daemon is to a shared worker: `[client] name`, else `user@host`."""
+        return settings.client_name(self.config)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -912,7 +921,7 @@ class Daemon:
             self.gate.sample()          # a person asked; answer about now, not about then
             conn.sendall(dump({'v': VERSION, 't': 'ps', 'data': self.ps(),
                                'pause': self.gate.state(),
-                               'worker': self.health.state()}))
+                               'worker': self.health.state(), 'client': self.client_name()}))
         elif op == 'claims':
             conn.sendall(dump(dict({'v': VERSION, 't': 'claims'}, **self.claims(first))))
         elif op == 'run':
@@ -1168,6 +1177,9 @@ class Daemon:
             who = attribution.of_peer(conn)
             if who:
                 request = dict(request, submitter=who)
+        # Which client daemon this is, for a worker other Macs share: the row,
+        # the engine's ledger and the result all carry it.
+        request = dict(request, client=self.client_name())
         # Only names the repository asked for: an undeclared variable the shim
         # filtered was never going to travel, so saying so would be noise.
         for line in envfilter.notices(plan['env_passthrough'], request.get('env_dropped')):
@@ -1942,7 +1954,7 @@ class Daemon:
         return statistics.build(self.state, since=statistics.parse_since(window),
                                 worker=worker, pause=self.gate.state(),
                                 local=self.budget.snapshot(sample=True),
-                                window=window or 'all')
+                                window=window or 'all', client=self.client_name())
 
 
 def main(argv=None):

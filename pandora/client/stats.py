@@ -119,7 +119,8 @@ def execute_seconds(meta, result):
     return None
 
 
-def build(state, *, since=None, worker=None, pause=None, local=None, window=None):
+def build(state, *, since=None, worker=None, pause=None, local=None, window=None,
+          client=None):
     """The whole report, as one dictionary. `--json` prints exactly this."""
     runs = read_runs(state, since)
     passthrough = read_passthrough(state, since)
@@ -188,6 +189,8 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
              if row.get('reason') not in ('override-ignored', 'off')]),
         'bypassed': bypassed(passthrough),
         'worker': worker or {},
+        # Who this daemon is to a shared worker; every row above is its own.
+        'client': client,
     }
 
 
@@ -260,8 +263,9 @@ def passthrough_summary(rows):
 
 def render(report):
     """The text table. One screen for a quiet day, and no color anywhere."""
-    lines = ['window: %s, %d routed run(s)'
-             % (report.get('window') or 'all', report['runs'])]
+    lines = ['window: %s, %d routed run(s)%s'
+             % (report.get('window') or 'all', report['runs'],
+                ' from %s' % report['client'] if report.get('client') else '')]
     if report['by_job']:
         lines.append('')
         lines.append('%-22s %-6s %-14s %6s' % ('job', 'lane', 'outcome', 'runs'))
@@ -369,6 +373,12 @@ def render_worker(worker):
     if health.get('kernel_drift'):
         lines.append('  kernel drift: running %s, the canary passed on %s'
                      % (health.get('kernel'), health.get('canary_kernel')))
+    clients = health.get('by_client') or {}
+    if clients:
+        live = health.get('live_by_client') or {}
+        lines.append('  clients: ' + ', '.join(
+            '%s %d run(s)%s' % (name, count, ', %d live' % live[name] if live.get(name) else '')
+            for name, count in sorted(clients.items(), key=lambda item: (-item[1], item[0]))))
     for row in health.get('outcomes') or []:
         if row.get('outcome'):
             lines.append('  ledger: %-14s %-10s %d'

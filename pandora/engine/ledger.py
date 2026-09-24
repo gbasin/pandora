@@ -85,7 +85,11 @@ ADDED = (('role', "TEXT NOT NULL DEFAULT 'single'"),
          # An infrastructure retry names the attempt it repeats; a verdict that
          # disagrees with an earlier one on the same input names that one.
          ('retry_of', 'TEXT'),
-         ('flaky_with', 'TEXT'))
+         ('flaky_with', 'TEXT'),
+         # Which client daemon submitted the attempt: `user@host` by default,
+         # `[client] name` when set. NULL on a row from a client that predates
+         # it. Attribution and cancel scope only; never an isolation boundary.
+         ('client', 'TEXT'))
 
 # A parent holds the fan-out and runs nothing itself; `plan` is the build-once
 # attempt a tier-2 parent runs before there are any shards to dispatch.
@@ -110,7 +114,15 @@ class Ledger:
         have = {row['name'] for row in self.db.execute('PRAGMA table_info(attempts)')}
         for name, declaration in ADDED:
             if name not in have:
-                self.db.execute('ALTER TABLE attempts ADD COLUMN %s %s' % (name, declaration))
+                try:
+                    self.db.execute('ALTER TABLE attempts ADD COLUMN %s %s'
+                                    % (name, declaration))
+                except sqlite3.OperationalError as error:
+                    # Two engine processes opened an old ledger at once (two
+                    # clients' calls, or one client's concurrent runs) and the
+                    # other added it first. Found by the two-client test.
+                    if 'duplicate column' not in str(error):
+                        raise
         self.db.execute('CREATE INDEX IF NOT EXISTS attempts_parent ON attempts(parent)')
 
     def close(self):
@@ -120,7 +132,7 @@ class Ledger:
 
     def claim(self, request_id, run_id, *, repo, job, input_id, source_path, argv,
               env, cwd, outputs, size_class, role='single', parent=None,
-              shard_index=None, shard_total=None, retry_of=None):
+              shard_index=None, shard_total=None, retry_of=None, client=None):
         """Insert a queued attempt, or return the existing one for this request.
 
         Returns (row, created). `created` false means the caller is a duplicate
@@ -146,12 +158,12 @@ class Ledger:
             self.db.execute(
                 'INSERT INTO attempts (run_id, request_id, repo, job, input_id, source_path,'
                 ' argv, env, cwd, outputs, size_class, state, same_input_as, created, updated,'
-                ' role, parent, shard_index, shard_total, retry_of)'
-                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                ' role, parent, shard_index, shard_total, retry_of, client)'
+                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (run_id, request_id, repo, job, input_id, source_path,
                  json.dumps(argv), json.dumps(env), cwd, json.dumps(outputs),
                  size_class, 'queued', previous['run_id'] if previous else None, stamp, stamp,
-                 role, parent, shard_index, shard_total, retry_of))
+                 role, parent, shard_index, shard_total, retry_of, client))
         except sqlite3.IntegrityError:
             row = self.by_request(request_id)
             if row is None:
@@ -216,6 +228,20 @@ class Ledger:
     def recent(self, limit=25):
         return self.db.execute('SELECT * FROM attempts ORDER BY created DESC LIMIT ?',
                                (limit,)).fetchall()
+
+    def by_client(self, *, live=False):
+        """{client: attempts} over whole runs (not shards), live ones only or all.
+
+        A row from a client that predates attribution counts under None.
+        """
+        where = "role IN ('single','parent')"
+        args = ()
+        if live:
+            where += ' AND state IN (%s)' % ','.join('?' * len(LIVE))
+            args = LIVE
+        rows = self.db.execute('SELECT client, COUNT(*) n FROM attempts WHERE %s '
+                               'GROUP BY client' % where, args).fetchall()
+        return {row['client']: row['n'] for row in rows}
 
     def counts(self):
         rows = self.db.execute('SELECT state, outcome, COUNT(*) n FROM attempts '

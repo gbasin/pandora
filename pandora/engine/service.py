@@ -30,6 +30,7 @@ would make a 0.06 s clone unmeasurable.
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -42,7 +43,28 @@ from pandora.engine import admission, runner                      # noqa: E402
 from pandora.engine.ledger import Ledger, row_to_dict             # noqa: E402
 from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 
-ENGINE_VERSION = 2
+# 3: requests carry `client`, rows and results record it, and `cancel` and
+# `lookup` are scoped to it.
+ENGINE_VERSION = 3
+CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
+
+
+def client_of(value):
+    """A request's client identity, or None when absent or not a plain short name."""
+    if isinstance(value, str) and CLIENT_PATTERN.fullmatch(value):
+        return value
+    return None
+
+
+def foreign(row, client):
+    """True when `row` belongs to another client than `client`.
+
+    A row with no client (from a client that predates attribution) belongs to
+    nobody in particular and is anyone's; a caller that names no client may
+    act only on such rows.
+    """
+    owner = row['client'] if 'client' in row.keys() else None
+    return bool(owner) and owner != client
 
 
 def emit(payload):
@@ -78,6 +100,7 @@ def submit(args, paths, ledger, request):
     plan = request['plan']
     fanned = bool(plan.get('shards'))
     run_id = 'r' + uuid.uuid4().hex[:15]
+    client = client_of(request.get('client'))
     with gate(paths.root):
         row, created = ledger.claim(
             request['request_id'], run_id,
@@ -85,7 +108,13 @@ def submit(args, paths, ledger, request):
             source_path=request['source_path'], argv=plan['argv'],
             env=plan['env'], cwd=plan['cwd'], outputs=plan['outputs'],
             size_class=plan['size'], role='parent' if fanned else 'single',
-            retry_of=request.get('retry_of'))
+            retry_of=request.get('retry_of'), client=client)
+        if not created and foreign(row, client):
+            # Another client's request under the same id: never attach to its
+            # run, never start a second one. Clients namespace their ids, so this
+            # is a bug or a collision, and the caller is told which run holds it.
+            return emit({'ok': False, 'code': 'request-collision',
+                         'request_id': request['request_id'], 'engine': ENGINE_VERSION})
         if not created:
             return emit({'ok': True, 'duplicate': True, 'run_id': row['run_id'],
                          'state': row['state'], 'same_input_as': row['same_input_as'],
@@ -184,6 +213,9 @@ def resubmit(args, paths, ledger):
     if not Path(row['source_path']).is_dir():
         return emit({'ok': False, 'code': 'source-gone', 'run_id': args.run,
                      'source_path': row['source_path']})
+    if foreign(row, client_of(getattr(args, 'client', None))):
+        return emit({'ok': False, 'code': 'not-yours', 'run_id': args.run,
+                     'client': row['client']})
     request = dict(request, request_id=args.request_id, retry_of=args.run)
     return submit(args, paths, ledger, request)
 
@@ -213,12 +245,17 @@ def cmd_lookup(args):
     try:
         with gate(paths.root):
             row = ledger.by_request(args.request_id)
+            if row is not None and foreign(row, client_of(args.client)):
+                # Not this client's request: neither attach to it nor fence it.
+                return emit({'ok': False, 'code': 'request-collision',
+                             'request_id': args.request_id, 'engine': ENGINE_VERSION})
             if row is None:
                 if args.fence:
                     fence = 'f' + uuid.uuid4().hex[:15]
                     ledger.claim(args.request_id, fence, repo=args.repo or '',
                                  job=args.job or '', input_id='', source_path='', argv=[],
-                                 env={}, cwd='', outputs=[], size_class='')
+                                 env={}, cwd='', outputs=[], size_class='',
+                                 client=client_of(args.client))
                     ledger.finish(fence, outcome='infra_failed', exit_code=None,
                                   evidence={'cause': 'submit-lost', 'fence': True})
                 return emit({'ok': True, 'found': False, 'fenced': bool(args.fence),
@@ -280,6 +317,10 @@ def cmd_cancel(args):
     row = ledger.get(args.run)
     if row is None:
         return emit({'ok': False, 'code': 'stale', 'run_id': args.run})
+    if foreign(row, client_of(args.client)):
+        # One client never stops another's run, whatever id it was handed.
+        return emit({'ok': False, 'code': 'not-yours', 'run_id': args.run,
+                     'client': row['client']})
     if row['state'] == 'finished':
         return emit({'ok': True, 'already': row['outcome'], 'run_id': args.run})
     ledger.request_cancel(args.run)
@@ -306,10 +347,17 @@ def cmd_stats(args):
                              'ceiling_mib': ceiling, 'size_class': size_class,
                              'samples': samples})
     answer = {'ok': True, 'scheduler': scheduler.snapshot(), 'outcomes': ledger.counts(),
-              'reservations': reservations, 'engine': ENGINE_VERSION}
+              'reservations': reservations, 'engine': ENGINE_VERSION,
+              'by_client': ledger_clients(ledger)}
     store.close()
     ledger.close()
     return emit(answer)
+
+
+def ledger_clients(ledger, *, live=False):
+    """`Ledger.by_client` as JSON: a row with no client counts under `(unknown)`."""
+    return {client or '(unknown)': count
+            for client, count in ledger.by_client(live=live).items()}
 
 
 def cmd_health(args):
@@ -358,6 +406,8 @@ def cmd_health(args):
     answer = {'ok': not reason, 'engine': ENGINE_VERSION, 'at': time.time(),
               'reason': '; '.join(reason) or None,
               'scheduler': scheduler.snapshot(), 'live': len(ledger.live()),
+              'live_by_client': ledger_clients(ledger, live=True),
+              'by_client': ledger_clients(ledger),
               'outcomes': ledger.counts(), 'capacity': capacity, 'goldens': goldens,
               'state': state.get('state'), 'ready_since': state.get('at_iso'),
               'canary': {'ok': canary.get('ok'), 'failures': canary.get('failures'),
@@ -486,6 +536,7 @@ def main(argv=None):
     resubmit = sub.add_parser('resubmit')
     resubmit.add_argument('--run', required=True)
     resubmit.add_argument('--request-id', required=True)
+    resubmit.add_argument('--client', default=None)
     resubmit.set_defaults(func=cmd_resubmit)
     lookup = sub.add_parser('lookup')
     lookup.add_argument('--request-id', required=True)
@@ -493,11 +544,14 @@ def main(argv=None):
                         help='claim an unknown id so a late submit of it cannot start')
     lookup.add_argument('--repo', default=None)
     lookup.add_argument('--job', default=None)
+    lookup.add_argument('--client', default=None)
     lookup.set_defaults(func=cmd_lookup)
     for name, function in (('status', cmd_status), ('result', cmd_result),
                            ('cancel', cmd_cancel), ('supervise', cmd_supervise)):
         node = sub.add_parser(name)
         node.add_argument('--run', required=True)
+        if name == 'cancel':
+            node.add_argument('--client', default=None)
         node.set_defaults(func=function)
     logs = sub.add_parser('logs')
     logs.add_argument('--run', required=True)

@@ -394,11 +394,12 @@ def read_json(path):
 
 def cmd_ps(args):
     state, _ = state_of(args)
-    pause, worker = {}, {}
+    pause, worker, me = {}, {}, None
     try:
         answer = ask(state / 'client.sock', {'op': 'ps'})
         rows = answer['data']
         pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
+        me = answer.get('client')
     except OSError:
         rows = []
         for meta in sorted((state / 'runs').glob('*/meta.json')):
@@ -409,10 +410,10 @@ def cmd_ps(args):
         rows.sort(key=lambda row: row.get('started', 0), reverse=True)
         worker = {'worker': 'unknown', 'reason': 'the daemon is not running'}
     if args.json:
-        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker}
+        print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me}
                          if pause or worker else rows, indent=1, sort_keys=True))
         return 0
-    print(worker_line(worker))
+    print(worker_line(worker, me))
     if pause.get('paused'):
         # First line, not a footnote: a queue that is not admitting is the most
         # important fact on the screen.
@@ -440,8 +441,11 @@ def state_word(row):
     return state
 
 
-def worker_line(worker):
+def worker_line(worker, me=None):
     """The header. `down` is what a reader most needs and it is said first.
+
+    `me` is this daemon's client name. A worker other Macs share says how many
+    runs each other client has live on it, and the line ends `as <me>`.
 
     A stale reading reads as `unknown`, not as its last value, because a daemon
     that has not polled since yesterday knows nothing about now -- and a header
@@ -460,8 +464,15 @@ def worker_line(worker):
     age = worker.get('age_seconds')
     if age is not None and state != 'unknown':
         extra.append('polled %ds ago' % age)
-    return 'worker: %s%s' % (state.upper() if state == 'down' else state,
-                             ' (' + '; '.join(extra) + ')' if extra else '')
+    others = {name: count for name, count in
+              ((worker.get('health') or {}).get('live_by_client') or {}).items()
+              if name != me and count}
+    if others:
+        extra.append('live from other clients: ' + ', '.join(
+            '%s %d' % item for item in sorted(others.items())))
+    return 'worker: %s%s%s' % (state.upper() if state == 'down' else state,
+                               ' (' + '; '.join(extra) + ')' if extra else '',
+                               ' as ' + me if me else '')
 
 
 def cmd_logs(args):
@@ -507,6 +518,9 @@ def cmd_result(args):
     if (meta or {}).get('submitter'):
         # The engine never sees who submitted a run; the row does.
         result.setdefault('submitter', meta['submitter'])
+    if (meta or {}).get('client'):
+        # A remote result carries the engine's record; a local one has only the row.
+        result.setdefault('client', meta['client'])
     if args.json:
         # A result from an engine before the rename has only the old key; both
         # are printed for one release, `same_input_as` as the alias.
@@ -562,6 +576,8 @@ def render_result(run_id, result):
     who = submitted(result)
     if who:
         lines.append('  submitted by ' + who)
+    if result.get('client'):
+        lines.append('  client ' + result['client'])
     placed = result.get('placement') or {}
     if placed.get('overridden'):
         lines.append('  placed %s by override; the job says %s'
