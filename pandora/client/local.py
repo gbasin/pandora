@@ -101,6 +101,44 @@ def group_rss_mib(pgid, run=subprocess.run):
     return total // 1024                                # ps reports KiB
 
 
+def elapsed_seconds(text):
+    """`ps -o etime=`: `[[dd-]hh:]mm:ss`, in seconds, or None."""
+    text = (text or '').strip()
+    days, _, clock = text.rpartition('-')
+    try:
+        seconds = 0
+        for part in clock.split(':'):
+            seconds = seconds * 60 + int(part)
+        return seconds + (int(days) * 86400 if days else 0)
+    except ValueError:
+        return None
+
+
+def kill_recorded(pgid, started, *, run=subprocess.run, clock=time.time, kill=None):
+    """SIGKILL a local run's process group left behind by a daemon that died.
+
+    Only when its leader is still the process that run started: a pid is reused,
+    and a group recorded yesterday may now be someone else's. The leader's age
+    from `ps` must put its start within a few seconds of the recorded one.
+    Returns True when a signal was sent.
+    """
+    if not pgid or not started:
+        return False
+    try:
+        proc = run(['ps', '-o', 'etime=', '-p', str(int(pgid))], capture_output=True,
+                   text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    age = elapsed_seconds(proc.stdout)
+    if proc.returncode != 0 or age is None or abs((clock() - age) - float(started)) > 5:
+        return False
+    try:
+        (kill or os.killpg)(int(pgid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
+
+
 class Budget:
     """One queue for this machine: memory admission plus the exclusivity rules.
 
@@ -304,8 +342,10 @@ def child_environment(plan, request_env, *, cpus_hint, run_id, directory):
 class Supervisor:
     """One local command, its process group, its peak and its verdict."""
 
-    def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None):
+    def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None,
+                 on_start=None):
         self.argv = list(argv)
+        self.on_start = on_start
         self.cwd = str(cwd)
         self.env = dict(env)
         self.timeout_seconds = timeout_seconds
@@ -359,6 +399,11 @@ class Supervisor:
             self.on_log('err', ('pandora: cannot start %r: %s\n'
                                 % (self.argv[0], error)).encode())
             return 'infra_failed', None
+        if self.on_start is not None:
+            try:
+                self.on_start(self.proc.pid)
+            except OSError:
+                pass                     # the record is for a restart; never fail the run
         stop = threading.Event()
         threads = [threading.Thread(target=self._pump, args=(self.proc.stdout, 'out'), daemon=True),
                    threading.Thread(target=self._pump, args=(self.proc.stderr, 'err'), daemon=True),
@@ -505,7 +550,8 @@ class LocalExecutor:
             plan['argv'], cwd=Path(worktree) / (plan.get('cwd') or '.'), env=env,
             timeout_seconds=60 * int(plan.get('timeout_minutes') or 30),
             cancel=plan.get('cancel'),
-            on_log=lambda which, chunk: run.stream_local(which, chunk))
+            on_log=lambda which, chunk: run.stream_local(which, chunk),
+            on_start=getattr(run, 'spawned', None))
         outcome, code = supervisor.run(run.canceled.is_set)
         after, after_files = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after

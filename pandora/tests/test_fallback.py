@@ -392,6 +392,115 @@ class StaleMarker(DaemonCase):
         self.assertEqual(parse.call_count, 1)
 
 
+class RestartHygiene(DaemonCase):
+    """A restarted daemon settles every row the last one left live."""
+
+    def row(self, run_id, **fields):
+        directory = self.state / 'runs' / run_id
+        directory.mkdir(parents=True)
+        payload = dict({'id': run_id, 'argv': ['pnpm', 'unit'], 'cwd': str(self.repo),
+                        'repo': 'demo', 'job': 'unit', 'started': time.time()}, **fields)
+        (directory / 'meta.json').write_text(json.dumps(payload))
+        (directory / 'log').touch()
+        return directory
+
+    def settled(self, run_id, timeout=10):
+        path = self.state / 'runs' / run_id / 'meta.json'
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            meta = json.loads(path.read_text())
+            if meta['state'] not in ('queued', 'running'):
+                return meta
+            time.sleep(0.05)
+        self.fail('row %s stayed %s' % (run_id, meta['state']))
+
+    def said(self, run_id):
+        frames = [json.loads(line) for line in
+                  (self.state / 'runs' / run_id / 'log').read_text().splitlines()]
+        return b''.join(base64.b64decode(frame['b64']) for frame in frames
+                        if 'b64' in frame).decode()
+
+    def test_a_local_run_is_closed_and_its_process_group_stopped(self):
+        child = subprocess.Popen(['sleep', '60'], start_new_session=True)
+        self.addCleanup(child.wait)
+        self.addCleanup(lambda: child.poll() is None and child.kill())
+        self.row('loc1', lane='local', state='running', accepted=time.time(),
+                 pgid=child.pid, pgid_started=time.time())
+        self.row('loc2', lane='local', state='queued')
+        self.daemon.resume_interrupted()
+        for run_id in ('loc1', 'loc2'):
+            meta = self.settled(run_id)
+            self.assertEqual((meta['state'], meta['exit_code']), ('infra_failed', 70))
+            self.assertIn('daemon restarted during the run', self.said(run_id))
+        self.assertEqual(child.wait(timeout=5), -9)
+        self.assertIn('stopped its process group %d' % child.pid, self.said('loc1'))
+
+    def test_a_recycled_process_group_is_left_alone(self):
+        child = subprocess.Popen(['sleep', '60'], start_new_session=True)
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        # Recorded an hour before this process started: not the run's leader.
+        self.row('loc3', lane='local', state='running', pgid=child.pid,
+                 pgid_started=time.time() - 3600)
+        self.daemon.resume_interrupted()
+        self.assertEqual(self.settled('loc3')['state'], 'infra_failed')
+        self.assertIsNone(child.poll())
+
+    def test_an_unaccepted_row_the_engine_started_is_adopted(self):
+        asked = []
+
+        def lookup(worker, request_id, *, plan=None, fence=True):
+            asked.append((request_id, plan, fence))
+            return {'ok': True, 'found': True, 'spawned': True, 'run_id': 'r77',
+                    'state': 'running'}
+        self.row('pre1', state='queued', phase='submit')
+        with mock.patch.object(FakeWorker, 'lookup', lookup, create=True):
+            self.daemon.resume_interrupted()
+            meta = self.settled('pre1')
+        self.assertEqual(asked, [('pre1:unit', {'repo': 'demo', 'job': 'unit'}, True)])
+        self.assertEqual((meta['state'], meta['remote'], meta['exit_code']),
+                         ('passed', 'r77', 0))
+        self.assertIn('the worker had started it as r77', self.said('pre1'))
+
+    def test_an_unaccepted_row_the_engine_never_saw_is_closed(self):
+        self.row('pre2', state='queued')
+        with mock.patch.object(FakeWorker, 'lookup', create=True,
+                               side_effect=lambda *a, **k: {'ok': True, 'found': False}):
+            self.daemon.resume_interrupted()
+            meta = self.settled('pre2')
+        self.assertEqual((meta['state'], meta['exit_code']), ('infra_failed', 70))
+        self.assertIn('the worker never started it', self.said('pre2'))
+
+    def test_an_unaccepted_row_is_closed_when_the_worker_cannot_be_asked(self):
+        self.row('pre3', state='queued')
+        with mock.patch.object(FakeWorker, 'lookup', create=True,
+                               side_effect=WorkerUnreachable('no route')):
+            self.daemon.resume_interrupted()
+            meta = self.settled('pre3')
+        self.assertEqual(meta['state'], 'infra_failed')
+        self.assertIn('could not be asked (no route)', self.said('pre3'))
+
+    def test_a_local_run_records_its_process_group(self):
+        # `unit` is remote; placed locally, the supervisor spawns it here.
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(30)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(self.repo),
+                           'argv': ['pnpm', 'unit'], 'env': {}, 'tty': False, 'where': 'local'}))
+        reader = Reader(sock)
+        run_id = None
+        while True:
+            frame = reader.line()
+            if frame is None or frame.get('t') == 'exit':
+                break
+            if frame.get('t') == 'accepted':
+                run_id = frame['run']
+        sock.close()
+        meta = json.loads((self.state / 'runs' / run_id / 'meta.json').read_text())
+        self.assertIsInstance(meta['pgid'], int)
+        self.assertAlmostEqual(meta['pgid_started'], meta['started'], delta=30)
+
+
 class NoRowStaysQueued(DaemonCase):
     """Issue #86: a submission that never reached `accepted` still ends its row.
 

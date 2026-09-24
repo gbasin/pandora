@@ -31,7 +31,8 @@ from pathlib import Path
 
 from ..config import classify as classifier
 from ..config import loader
-from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, Refused, SnapshotError, TransferError, ValidationRejected,
+from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, PandoraError,
+                      Refused, SnapshotError, TransferError, ValidationRejected,
                       WorkerUnreachable)
 from ..engine import bundle
 from ..engine import retry as retries
@@ -40,6 +41,7 @@ from . import enrollment, envfilter, fallback as policy, hints, placement, progr
 from . import stats as statistics
 from . import writeback as writebacks
 from .health import Monitor
+from . import local as local_module
 from .local import Budget, Busy, LocalExecutor
 from .pressure import Gate, Paused
 from .protocol import Reader, VERSION, dump, log_frame
@@ -171,6 +173,10 @@ class Run:
         # {cause, detail} when the request was refused before reaching the
         # worker, so `pandora result` can say why a row with no result ended.
         self.refusal = request.get('refusal')
+        # A local run's process group and when it started, so a daemon that
+        # restarts can stop a tree whose supervisor was the process that died.
+        self.pgid = request.get('pgid')
+        self.pgid_started = request.get('pgid_started')
         # Whether any of the command's own output has been streamed. Kept in a
         # file, because a daemon that restarts mid-run must not forget that the
         # caller has already seen half an answer.
@@ -194,6 +200,8 @@ class Run:
             payload['fell_back_to'] = self.fell_back_to
         if self.refusal:
             payload['refusal'] = self.refusal
+        if self.pgid:
+            payload['pgid'], payload['pgid_started'] = self.pgid, self.pgid_started
         temp = self.meta.with_suffix('.tmp')
         temp.write_text(json.dumps(payload) + '\n')
         temp.replace(self.meta)
@@ -298,6 +306,11 @@ class Run:
             with self.log.open('ab') as handle:
                 handle.write(frame)
             self.wake.notify_all()
+
+    def spawned(self, pid):
+        """The local supervisor started the child, as the leader of its own group."""
+        self.pgid, self.pgid_started = pid, now()
+        self.save()
 
     def note(self, text):
         self.append(log_frame('err', ('pandora: ' + text + '\n').encode()))
@@ -517,13 +530,19 @@ class Daemon:
         raise SystemExit('a listener already owns ' + str(self.socket_path))
 
     def resume_interrupted(self):
-        """After a restart, re-attach to runs that were live when we died.
+        """After a restart, settle every row that was live when we died.
 
         The real backend makes this honest in a way the fake one could not: the
         run is on the worker, the engine's supervisor never stopped, and
         re-attaching is asking the engine for the log from an offset. A run the
         engine no longer knows is closed as an infrastructure failure -- never as
         a pass, because this process has observed no test evidence at all.
+
+        Two kinds of row have no engine run to follow, and used to stay live
+        forever: a local run, whose supervisor was this process, and a remote row
+        that died before `accepted`. The first is closed and its process group
+        killed; the second is looked up on the worker by request id, adopted if
+        the engine started it, and closed otherwise. Returns the ids resumed.
         """
         resumed = []
         for meta in sorted((self.state / 'runs').glob('*/meta.json')):
@@ -531,18 +550,74 @@ class Daemon:
                 payload = json.loads(meta.read_text())
             except (OSError, ValueError):
                 continue
-            if payload.get('state') not in ('queued', 'running') or not payload.get('remote'):
+            if payload.get('state') not in ('queued', 'running'):
                 continue
             run = Run(self.state, payload['id'], payload)
-            run.state = 'running'
-            run.remote = payload['remote']
+            run.lane = payload.get('lane') or 'remote'
+            run.remote = payload.get('remote')
             run.accepted = payload.get('accepted')
             run.started = payload.get('started') or run.started
+            run.phase = payload.get('phase')
+            if run.lane == 'local':
+                self.close_local(run, payload)
+                continue
+            if not run.remote:
+                threading.Thread(target=self.settle_unaccepted, args=(run, payload),
+                                 daemon=True).start()
+                continue
+            run.state = 'running'
             with self.runs_lock:
                 self.runs[run.id] = run
             threading.Thread(target=self.reattach, args=(run,), daemon=True).start()
             resumed.append(run.id)
         return resumed
+
+    def close_local(self, run, payload):
+        """A local run's supervisor died with the last daemon: end the row, and the tree."""
+        killed = local_module.kill_recorded(payload.get('pgid'), payload.get('pgid_started'))
+        run.note('daemon restarted during the run%s; rerun it'
+                 % ('; stopped its process group %s' % payload['pgid'] if killed else ''))
+        run.finish(INFRA, state='infra_failed')
+
+    def settle_unaccepted(self, run, payload):
+        """A remote row that never reached `accepted`: ask the engine, once, by request id.
+
+        The lookup fences the id, so a submit still in flight cannot start the
+        run after this answer. Spawned: adopted like any accepted run. Anything
+        else: closed as an infrastructure failure, with the reason.
+        """
+        job = payload.get('job') or ''
+        repo = next((item for item in self.config['repos']
+                     if item['name'] == (payload.get('repo') or '')), None)
+        why = None
+        found = {}
+        if repo is None or not self.config['worker']['host']:
+            why = 'no worker or enrollment to ask about it'
+        else:
+            try:
+                found = self.worker_for(repo).lookup(
+                    run.id + ':' + job, plan={'repo': payload.get('repo'), 'job': job},
+                    fence=True)
+            except (PandoraError, OSError) as error:
+                why = ('the worker could not be asked (%s); if it started the run, it runs '
+                       'unfollowed' % error)
+        if why is None and found.get('ok') and found.get('spawned') and found.get('run_id'):
+            run.remote = found['run_id']
+            run.state = 'running'
+            run.accepted = run.accepted or now()
+            run.phase = None
+            run.note('daemon restarted before `accepted`; the worker had started it as %s, '
+                     'following it' % run.remote)
+            run.save()
+            with self.runs_lock:
+                self.runs[run.id] = run
+            self.reattach(run)
+            return
+        if why is None:
+            why = ('the worker never started it' if not found.get('found')
+                   else 'the worker has it as %s, not started' % (found.get('state') or '?'))
+        run.note('daemon restarted before `accepted`; %s; rerun it' % why)
+        run.finish(INFRA, state='infra_failed')
 
     def start(self):
         self.acquire_lock()
