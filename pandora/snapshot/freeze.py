@@ -15,6 +15,11 @@ what the slice needs. Three changes, each deliberate:
   deduplicates on. Two worktrees with byte-identical tracked content produce one
   input_id, which is what makes `same_tree_as` meaningful.
 
+A later change, not from v0.1.1: a tracked file git vouches for is not read.
+Its sha256 comes from `Blobs`, a machine-wide map from git blob id to sha256
+(see `index_blobs` and `Blobs` for what git must vouch for, and why the digest
+stays sha256 rather than becoming the blob id).
+
 What is kept verbatim because it was hard-won: the nested-worktree exclusion
 (eichler has ~90 registered worktrees, several inside the repository), the
 symlink containment check, the credential-bearing `.npmrc` refusal, and the
@@ -26,6 +31,8 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -53,9 +60,26 @@ def digest(path):
     return result.hexdigest()
 
 
-def _git(repo, *args):
+def digest_blob(path, oid, size):
+    """(sha256, whether the bytes are git blob `oid`), from one read.
+
+    `size` is the stat size, for the blob header; a file that changed size
+    while it was read simply fails to match. A 64-character id is a sha256
+    repository's.
+    """
+    result = hashlib.sha256()
+    blob = (hashlib.sha1 if len(oid) == 40 else hashlib.sha256)(b'blob %d\0' % size)
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            result.update(chunk)
+            blob.update(chunk)
+    return result.hexdigest(), blob.hexdigest() == oid
+
+
+def _git(repo, *args, input=None):
     try:
-        return subprocess.check_output(['git', '-C', str(repo), *args])
+        return subprocess.check_output(['git', '-C', str(repo), *args], input=input,
+                                       stderr=subprocess.DEVNULL if input is not None else None)
     except (OSError, subprocess.SubprocessError) as error:
         raise SnapshotError('git %s failed in %s: %s' % (args[0], repo, error)) from None
 
@@ -124,6 +148,104 @@ def git_status(repo):
     return marks
 
 
+# Attributes under which checkout writes other bytes than the blob's.
+CONVERTING = ('filter', 'ident', 'working-tree-encoding')
+
+
+def _config(repo, key):
+    proc = subprocess.run(['git', '-C', str(repo), 'config', '--get', key],
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    return proc.stdout.decode().strip().lower()
+
+
+def index_blobs(repo):
+    """{name: blob id} for each tracked file whose bytes git vouches are that blob.
+
+    Git already knows the content of every clean tracked file: the index has its
+    blob id and a stat record, and `git status` compares the stat rather than
+    reading the file. A fresh worktree is all clean tracked files and a new stat
+    everywhere, so this is what spares its first freeze reading 364 MiB.
+
+    A file is vouched for when all of these hold, and is otherwise hashed:
+
+    * stage 0, a regular file, and tagged `H` by `ls-files -v` -- not
+      assume-unchanged or skip-worktree, where git's "clean" means "not
+      looked at";
+    * `git status` finds the work tree equal to the index. Status runs with
+      `--no-optional-locks`: it refreshes stat in memory and never writes the
+      index, so a freeze cannot collide with the agent's own `git add` on
+      index.lock. A racily clean entry (written in the index's own second) is
+      compared by content, by git, as it is for any status;
+    * checkout writes the blob's own bytes: no filter (LFS), ident, or
+      working-tree-encoding, and no CRLF on the way out. Otherwise the file's
+      bytes are not the blob's and a sha256 learned from the blob is wrong.
+
+    Status runs before ls-files: a `git add` landing between them then leaves
+    the file modified in status's answer, never vouched with a stale blob id.
+    Anything that stops git answering -- not a repository root, an old git, an
+    unexpected record -- returns {} and every file is hashed, as before.
+    """
+    try:
+        root = Path(repo).resolve()
+        top = Path(_git(root, 'rev-parse', '--show-toplevel').decode().strip()).resolve()
+        if top != root:
+            return {}
+        changed = set()
+        fields = iter(_git(root, '--no-optional-locks', 'status', '--porcelain=v2', '-z',
+                           '--untracked-files=no', '--no-renames',
+                           '--ignore-submodules=none').split(b'\0'))
+        for field in fields:
+            if not field:
+                continue
+            kind = field[:1]
+            if kind == b'1':
+                _, xy, rest = field.split(b' ', 2)
+                if xy[1:2] != b'.':
+                    changed.add(rest.split(b' ', 6)[6].decode())
+            elif kind == b'2':
+                # A rename record is followed by its origin path; both count.
+                changed.add(field.split(b' ', 9)[9].decode())
+                changed.add(next(fields).decode())
+            elif kind == b'u':
+                changed.add(field.split(b' ', 10)[10].decode())
+            else:
+                return {}
+        staged = {}
+        for field in _git(root, 'ls-files', '-s', '-v', '-z').split(b'\0'):
+            if not field:
+                continue
+            meta, name = field.split(b'\t', 1)
+            tag, mode, oid, stage = meta.decode().split(' ')
+            name = name.decode()
+            if tag == 'H' and stage == '0' and mode in ('100644', '100755') \
+                    and name not in changed:
+                staged[name] = oid
+        if not staged:
+            return {}
+        crlf = _config(root, 'core.autocrlf') in ('true', 'yes', 'on', '1') \
+            or _config(root, 'core.eol') == 'crlf'
+        names = sorted(staged)
+        answer = _git(root, 'check-attr', '-z', '--stdin', *CONVERTING, 'eol', 'text',
+                      input=b'\0'.join(name.encode() for name in names) + b'\0').split(b'\0')
+        attrs = {}
+        for at in range(0, len(answer) - 2, 3):
+            attrs.setdefault(answer[at].decode(), {})[answer[at + 1].decode()] = \
+                answer[at + 2].decode()
+        vouched = {}
+        for name in names:
+            found = attrs.get(name)
+            if found is None:
+                continue
+            if any(found.get(key) not in ('unspecified', 'unset') for key in CONVERTING):
+                continue
+            if found.get('eol') == 'crlf' or (crlf and found.get('text') != 'unset'):
+                continue
+            vouched[name] = staged[name]
+        return vouched
+    except (SnapshotError, ValueError, IndexError, StopIteration, OSError):
+        return {}
+
+
 def excluded(name, globs=()):
     parts = Path(name).parts
     base = parts[-1]
@@ -139,8 +261,8 @@ def excluded(name, globs=()):
 def entry(root, name, known=None):
     """One manifest record, or None for a tracked file that has been deleted.
 
-    `known` is a `Digests`: a file whose stat matches what it recorded is not
-    read again.
+    `known` is an `Identity`, which may know the sha256 without reading the
+    file; without one the file is read.
     """
     path = root / name
     if path.is_symlink():
@@ -160,12 +282,25 @@ def entry(root, name, known=None):
         if any(marker in text for marker in NPMRC_MARKERS):
             raise SnapshotError('credential-bearing .npmrc cannot be submitted: ' + name)
     stat = path.stat()
-    sha = known.get(name, stat) if known is not None else None
-    if sha is None:
-        sha = digest(path)
-        if known is not None:
-            known.put(name, stat, sha)
+    sha = known.sha256(name, path, stat) if known is not None else digest(path)
     return {'path': name, 'sha256': sha, 'executable': bool(stat.st_mode & 0o111)}
+
+
+def _atomic_write(path, text):
+    """Write-then-rename, with a name unique to this call: the daemon freezes
+    from several threads of one process, so a pid alone is not unique."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix=path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(handle, 'w') as stream:
+            stream.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 class Digests:
@@ -211,12 +346,123 @@ class Digests:
     def save(self):
         """Keep exactly what this freeze saw. Never fatal: a lost cache is a slow freeze."""
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.path.with_name(self.path.name + '.%d' % os.getpid())
-            temporary.write_text(json.dumps(self.fresh, separators=(',', ':')))
-            os.replace(temporary, self.path)
+            _atomic_write(self.path, json.dumps(self.fresh, separators=(',', ':')))
         except OSError:
             pass
+
+
+class Blobs:
+    """sha256 by git blob id, shared by every worktree on this machine.
+
+    Why sha256 stays the digest rather than the blob id: the manifest's sha256
+    is not opaque. Write-back compares it with `proposals.digest` of local files
+    and with the worker's `changes`, both sha256 of bytes, and `verify` hashes a
+    materialized tree. A blob id would change the manifest, the input_id of
+    every tree and that comparison. So git supplies the name of the content and
+    this map supplies the digest the rest of the system already speaks; the
+    first freeze of a blob reads it once, and every later worktree holding it
+    does not.
+
+    An entry is stored only when the bytes read hash to the blob id itself
+    (`digest_blob`), so a file that moved under the read cannot teach this map
+    a wrong answer that every later worktree would believe. A hit also needs
+    the file's size to equal the blob's, a last guard against bytes that are
+    not the blob's under a conversion `index_blobs` could not see.
+
+    Entries record the day they were last used. Saving merges with what is on
+    disk, drops entries unused for `KEEP_DAYS`, keeps at most `CAP` of the most
+    recently used, and replaces the file atomically. Concurrent freezes in one
+    daemon serialize on a lock; across processes the last writer wins, which
+    loses entries (a slower freeze) and never corrupts one.
+    """
+    KEEP_DAYS = 30
+    CAP = 200_000
+    NAME = 'blobs.json'
+    _lock = threading.Lock()
+
+    def __init__(self, path=None):
+        self.path = Path(path) if path is not None else None
+        self.today = int(time.time() // 86400)
+        self.table = self._load() if self.path is not None else {}
+        self.fresh = {}
+
+    def _load(self):
+        try:
+            table = json.loads(self.path.read_text())
+            return table if isinstance(table, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def get(self, oid, size):
+        item = self.fresh.get(oid) or self.table.get(oid)
+        if not item or item[0] != size:
+            return None
+        if item[2] != self.today:
+            self.fresh[oid] = [item[0], item[1], self.today]
+        return item[1]
+
+    def put(self, oid, size, sha):
+        self.fresh[oid] = [size, sha, self.today]
+
+    def save(self):
+        """Never fatal: a lost map is a slower freeze."""
+        if self.path is None or not self.fresh:
+            return
+        with self._lock:
+            try:
+                table = self._load()
+                table.update(self.fresh)
+                horizon = self.today - self.KEEP_DAYS
+                kept = [(oid, item) for oid, item in table.items()
+                        if isinstance(item, list) and len(item) == 3 and item[2] >= horizon]
+                if len(kept) > self.CAP:
+                    kept.sort(key=lambda pair: pair[1][2], reverse=True)
+                    kept = kept[:self.CAP]
+                _atomic_write(self.path, json.dumps(dict(kept), separators=(',', ':')))
+            except OSError:
+                pass
+
+
+class Identity:
+    """Where each file's sha256 comes from in one freeze, and a count of each.
+
+    A vouched file (`index_blobs`) is looked up by blob id; any other file goes
+    through the per-worktree `Digests` when there is one; the rest are read.
+    """
+
+    def __init__(self, digests=None, blobs=None):
+        self.digests = digests
+        self.blobs = blobs if blobs is not None else Blobs()
+        self.vouched = {}
+        self.counts = {'read': 0, 'index': 0, 'stat': 0}
+
+    def sha256(self, name, path, stat):
+        oid = self.vouched.get(name)
+        if oid is not None:
+            sha = self.blobs.get(oid, stat.st_size)
+            if sha is not None:
+                self.counts['index'] += 1
+                return sha
+            sha, same = digest_blob(path, oid, stat.st_size)
+            self.counts['read'] += 1
+            if same:
+                self.blobs.put(oid, stat.st_size, sha)
+            return sha
+        if self.digests is not None:
+            sha = self.digests.get(name, stat)
+            if sha is not None:
+                self.counts['stat'] += 1
+                return sha
+        sha = digest(path)
+        self.counts['read'] += 1
+        if self.digests is not None:
+            self.digests.put(name, stat, sha)
+        return sha
+
+    def save(self):
+        if self.digests is not None:
+            self.digests.save()
+        self.blobs.save()
 
 
 def digests_for(directory, repo):
@@ -234,7 +480,7 @@ def input_id(manifest):
     return hashlib.sha256(encode(manifest)).hexdigest()
 
 
-def freeze(repo, *, exclude_globs=(), cache=None):
+def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None):
     """Return (manifest, excluded_names, input_id) for a worktree.
 
     Nothing is copied. The manifest is read twice and the second read must agree
@@ -246,16 +492,24 @@ def freeze(repo, *, exclude_globs=(), cache=None):
     two trees with equal bytes and a different tracked set make checks that ask
     git answer differently, so they are different inputs.
 
-    `cache` is a directory for per-worktree `Digests`; without one every file
-    is read twice, which is correct and slow.
+    `cache` is a directory for per-worktree `Digests` and the machine-wide
+    `Blobs`. Without one, the blob map lives for this call only: the second
+    pass still skips every vouched file, the first reads them all.
+
+    `index=False` hashes every file, as before `index_blobs`; it is what the
+    equivalence tests compare against. `counts`, a dict when given, receives
+    how many files were read, taken from the index, or taken from the stat
+    cache, over both passes.
     """
     repo = Path(repo).resolve()
-    known = digests_for(cache, repo) if cache is not None else None
+    known = Identity(digests_for(cache, repo) if cache is not None else None,
+                     Blobs(Path(cache) / Blobs.NAME) if cache is not None else None)
 
     def read():
         nested = nested_worktree_prefixes(repo)
         first = names(repo, nested)
         marks = git_status(repo)
+        known.vouched = index_blobs(repo) if index else {}
         selected = [name for name in first if not excluded(name, exclude_globs)]
         manifest = []
         for name in selected:
@@ -271,8 +525,9 @@ def freeze(repo, *, exclude_globs=(), cache=None):
     if read() != (nested, first, manifest):
         raise SnapshotError('the worktree changed while it was being frozen; retry')
     dropped = [name for name in first if excluded(name, exclude_globs)]
-    if known is not None:
-        known.save()
+    known.save()
+    if counts is not None:
+        counts.update(known.counts)
     return manifest, dropped + nested, input_id(manifest)
 
 
@@ -292,3 +547,4 @@ def verify(root, manifest):
               if path.is_file() or path.is_symlink()}
     if actual != {record['path'] for record in manifest}:
         raise SnapshotError('the materialized tree has unexpected or missing files')
+
