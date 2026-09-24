@@ -355,6 +355,43 @@ class UploadPhases(DaemonCase):
         self.assertNotEqual(meta['phase'], 'ship')
 
 
+class StaleMarker(DaemonCase):
+    """A claimed run through a marker that no longer matches pandora.toml says so."""
+
+    def mark(self, claims):
+        (self.repo / '.git').mkdir(exist_ok=True)
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
+            socket_path=str(self.daemon.socket_path), repo='demo', claims=claims))
+
+    def test_one_notice_line_names_the_count_and_the_fix(self):
+        self.mark([['unit']])
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        stale = [line for line in answer.notices if 'marker is stale' in line]
+        # Five more forms in pandora.toml than in the marker.
+        self.assertEqual(stale, ['enrollment marker is stale (5 forms differ); run pandora '
+                                 'enroll %s' % self.repo.resolve()])
+
+    def test_a_current_marker_says_nothing(self):
+        from pandora.config import loader
+        self.mark(enrollment.routing_of(loader.load(self.repo / 'pandora.toml'))['claim'])
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
+
+    def test_the_marker_is_read_again_only_when_it_changes(self):
+        self.mark([['unit']])
+        self.call(['pnpm', 'unit'])
+        with mock.patch.object(enrollment, 'parse', side_effect=AssertionError('re-read')):
+            self.call(['pnpm', 'unit'])
+        path = self.repo / '.git' / 'pandora-enrolled'
+        stamp = path.stat().st_mtime_ns + 1_000_000
+        os.utime(path, ns=(stamp, stamp))
+        with mock.patch.object(enrollment, 'parse', wraps=enrollment.parse) as parse:
+            self.call(['pnpm', 'unit'])
+        self.assertEqual(parse.call_count, 1)
+
+
 class NoRowStaysQueued(DaemonCase):
     """Issue #86: a submission that never reached `accepted` still ends its row.
 

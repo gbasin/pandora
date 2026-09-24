@@ -29,6 +29,8 @@ import sys
 import time
 from pathlib import Path
 
+from ..config import loader
+from ..engine import bundle
 from ..config.loader import FILENAME
 from ..errors import ConfigError
 from . import enrollment, placement, settings
@@ -215,6 +217,16 @@ def check_daemon(sock_path, launcher_home):
         return check('daemon', WARN, '%s; it runs the package in %s and the client is %s. '
                      'Restart it from the checkout you mean' % (detail, home, expected),
                      **facts), answer
+    code = answer.get('code')
+    try:
+        mine = bundle.code_digest(Path(expected) / 'pandora')
+    except OSError:
+        mine = None
+    facts.update(code=code, client_code=mine)
+    if code and mine and code != mine:
+        # Same checkout, different bytes: it was updated after the daemon started.
+        return check('daemon', WARN, '%s; daemon code differs from the checkout; run '
+                     '`pandora daemon --restart`' % detail, **facts), answer
     return check('daemon', OK, detail + ', same package as the client', **facts), answer
 
 
@@ -268,10 +280,19 @@ def check_repository(cwd, config, sock_path):
                          'the marker says the client lives in %s, which has no pandora '
                          'package (a removed checkout?). Claimed commands cannot start the '
                          'client; re-run `pandora enroll`' % home, home=home))
+    elif home and os.path.realpath(home) != os.path.realpath(PACKAGE_HOME):
+        # Claimed commands start the client from the marker's `home`, whatever
+        # checkout this doctor or the daemon runs from; three code versions were
+        # live at once on 2026-09-24 this way.
+        out.append(check('marker home', WARN,
+                         'the marker pins the client to %s, but this doctor runs %s; claimed '
+                         'commands run the marker\'s code. Re-run `pandora enroll %s` from the '
+                         'checkout you mean' % (home, PACKAGE_HOME, root or cwd), home=home))
     if marker.get('sock') and os.path.realpath(marker['sock']) != os.path.realpath(sock_path):
         out.append(check('marker socket', WARN,
                          'the marker routes to %s but this doctor looked at %s; the shim '
                          'uses the marker' % (marker['sock'], sock_path)))
+    known = None
     if config is not None:
         known = settings.enrollment_for(config, cwd)
         if known is None:
@@ -282,6 +303,9 @@ def check_repository(cwd, config, sock_path):
                         break
                 except OSError:
                     continue
+    out.append(check_marker_forms(marker, root or cwd, (known or {}).get('config')
+                                  or marker.get('origin')))
+    if config is not None:
         if known is None:
             out.append(check('daemon enrollment', FAIL,
                              'the marker claims commands but %s has no [[repos]] entry for '
@@ -291,6 +315,28 @@ def check_repository(cwd, config, sock_path):
             out.append(check('daemon enrollment', OK, '[[repos]] %s at %s'
                              % (known['name'], known['root'])))
     return out
+
+
+def check_marker_forms(marker, root, fallback):
+    """The marker routes what this worktree's `pandora.toml` claims.
+
+    The shim decides from the marker alone, so a `pandora.toml` changed since
+    the last enrollment routes the old claim set: a new form runs here unrouted,
+    and a removed one costs a Python start to pass through.
+    """
+    try:
+        repo_config = loader.load_for(root, fallback)
+    except (ConfigError, OSError) as error:
+        return check('marker forms', WARN, 'cannot load this worktree\'s configuration to '
+                     'compare with the marker: %s' % error)
+    differences = enrollment.stale_forms(marker, repo_config)
+    if not differences:
+        return check('marker forms', OK, 'the marker matches this worktree\'s %s' % FILENAME)
+    missing = any('missing' in line or line.startswith('subdirectory') for line in differences)
+    return check('marker forms', FAIL if missing else WARN,
+                 'the marker is stale against this worktree\'s %s (%s); re-run `pandora '
+                 'enroll %s`' % (FILENAME, '; '.join(differences), root),
+                 differences=differences)
 
 
 def check_cwd(cwd):

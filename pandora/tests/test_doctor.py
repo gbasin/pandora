@@ -200,9 +200,9 @@ class RepositoryAndCwd(Scratch):
         self.config = {'repos': [{'name': 'demo', 'root': str(self.repo), 'config': ''}],
                        'source': '/cfg.toml'}
 
-    def enroll(self, home=str(HERE), sock='/s/client.sock'):
+    def enroll(self, home=str(HERE), sock='/s/client.sock', claims=(('journey',),)):
         (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
-            socket_path=sock, repo='demo', claims=[['journey']], home=home))
+            socket_path=sock, repo='demo', claims=[list(claim) for claim in claims], home=home))
 
     def statuses(self, items):
         return {item['name']: item['status'] for item in items}
@@ -213,10 +213,46 @@ class RepositoryAndCwd(Scratch):
         self.assertEqual(item['status'], 'fail')
         self.assertIn('pandora enroll %s' % self.repo, item['detail'])
 
+    def configure(self, *forms):
+        (self.repo / 'pandora.toml').write_text(
+            'version = 1\n[repo]\nname = "demo"\nentrypoints = ["pnpm"]\n'
+            '[worker]\nbase_image = "images:ubuntu/26.04"\n' + ''.join(
+                '[[jobs]]\nid = "j%d"\nargs = "none"\nforms = [{ prefix = ["%s"] }]\n'
+                'run = { argv = ["true"] }\n' % (number, form)
+                for number, form in enumerate(forms)))
+
     def test_enrolled_on_both_sides(self):
+        self.configure('journey')
         self.enroll()
         items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
-        self.assertEqual(self.statuses(items), {'repository': 'ok', 'daemon enrollment': 'ok'})
+        self.assertEqual(self.statuses(items), {'repository': 'ok', 'marker forms': 'ok',
+                                                'daemon enrollment': 'ok'})
+
+    def test_a_marker_missing_a_claimed_form_fails_and_names_it(self):
+        self.configure('journey', 'check')
+        self.enroll()
+        item = next(item for item in doctor.check_repository(
+            str(self.repo), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
+        self.assertEqual(item['status'], 'fail')
+        self.assertIn('claim check missing from the marker', item['detail'])
+        self.assertIn('pandora enroll %s' % self.repo, item['detail'])
+
+    def test_a_marker_with_an_extra_form_warns(self):
+        self.configure('journey')
+        self.enroll(claims=(('journey',), ('old',)))
+        item = next(item for item in doctor.check_repository(
+            str(self.repo), self.config, Path('/s/client.sock')) if item['name'] == 'marker forms')
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('claim old in the marker but not in pandora.toml', item['detail'])
+
+    def test_a_marker_pinning_another_checkout_warns(self):
+        other = self.root / 'other'
+        (other / 'pandora' / 'client').mkdir(parents=True)
+        (other / 'pandora' / 'client' / 'shim.py').write_text('')
+        self.configure('journey')
+        self.enroll(home=str(other))
+        items = doctor.check_repository(str(self.repo), self.config, Path('/s/client.sock'))
+        self.assertEqual(self.statuses(items)['marker home'], 'warn')
 
     def test_a_marker_the_daemon_does_not_know_fails(self):
         self.enroll()
@@ -309,6 +345,22 @@ class AgainstARealDaemon(DaemonCase):
         self.assertEqual(names['pnpm on PATH']['status'], 'fail')
         self.assertFalse(report['ok'])
         self.assertIn('check(s) failed', doctor.render(report))
+
+    def test_the_daemon_says_which_code_it_imported(self):
+        from unittest import mock
+        from pandora.engine import bundle
+        import json as json_module
+        digest = bundle.code_digest()
+        self.assertEqual(json_module.loads((self.state / 'daemon.json').read_text())['code'],
+                         digest)
+        item, pong = doctor.check_daemon(self.daemon.socket_path, None)
+        self.assertEqual((pong['code'], item['status']), (digest, 'ok'))
+        # The checkout moved on after the daemon started.
+        with mock.patch.object(doctor.bundle, 'code_digest', return_value='0' * 64):
+            item, _pong = doctor.check_daemon(self.daemon.socket_path, None)
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('daemon code differs from the checkout; run `pandora daemon --restart`',
+                      item['detail'])
 
     def test_a_worker_the_daemon_knows_is_down_fails(self):
         from pandora.errors import WorkerUnreachable

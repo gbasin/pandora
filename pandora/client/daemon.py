@@ -33,6 +33,7 @@ from ..config import classify as classifier
 from ..config import loader
 from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, Refused, SnapshotError, TransferError, ValidationRejected,
                       WorkerUnreachable)
+from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import INFRA, STALE
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
@@ -49,6 +50,9 @@ from .worker import Worker
 # `pong` so `pandora doctor` can tell a daemon started from one checkout from a
 # launcher that resolves to another.
 PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
+# What this daemon imported, as a digest. The checkout can change under a running
+# daemon; `pandora doctor` compares this with the checkout's own.
+CODE_DIGEST = bundle.code_digest()
 # What the caller is told when a submission may have started on the worker and
 # nobody can say. The next action, not a diagnosis: a blind retry could be the
 # second copy of a command that is already running.
@@ -375,6 +379,7 @@ class Daemon:
         self.lock_handle = None
         self.repo_configs = {}
         self.repo_stamps = {}
+        self.markers = {}                  # marker path -> (mtime_ns, parsed)
         self.workers = {}
         self.worker_factory = Worker
         # One local queue per daemon, built once: its learned peaks live in a
@@ -551,7 +556,7 @@ class Daemon:
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
              'worker': self.config['worker']['host'], 'started': now(),
-             'home': PACKAGE_HOME}) + '\n')
+             'home': PACKAGE_HOME, 'code': CODE_DIGEST}) + '\n')
         if self.config['worker']['host']:
             self.health.start()
         return self
@@ -627,6 +632,7 @@ class Daemon:
                                'python_version': '%d.%d.%d' % sys.version_info[:3],
                                'worker': self.config['worker']['host'],
                                'runs': len(self.runs), 'home': PACKAGE_HOME,
+                               'code': CODE_DIGEST,
                                # The cached reading, never a poll: `pandora doctor`
                                # asks this, and a doctor must not change anything.
                                'health': self.health.state()}))
@@ -705,6 +711,31 @@ class Daemon:
         verdict['worktree'] = str(root)
         return repo, config, verdict
 
+    def stale_marker(self, worktree, config):
+        """How many routing forms the marker and this worktree's config disagree on.
+
+        The shim routes from the marker alone, so a `pandora.toml` edited since
+        the last enrollment routes the old claim set without a word. Read once
+        per marker change: one stat per claimed run otherwise. Never a verdict:
+        0 when the marker cannot be read.
+        """
+        try:
+            common = enrollment.common_dir(worktree)
+            path = Path(common) / enrollment.MARKER if common else None
+            stamp = path.stat().st_mtime_ns if path else None
+        except OSError:
+            return 0
+        if path is None:
+            return 0
+        cached = self.markers.get(str(path))
+        if cached is None or cached[0] != stamp:
+            try:
+                cached = (stamp, enrollment.parse(path.read_text()))
+            except OSError:
+                return 0
+            self.markers[str(path)] = cached
+        return len(enrollment.stale_forms(cached[1], config))
+
     def enrollment_by_git(self, cwd):
         """A worktree of an enrolled repository is enrolled.
 
@@ -757,6 +788,11 @@ class Daemon:
         plan = verdict['plan']
         job = config['jobs'][verdict['job']]
         worktree = verdict.get('worktree') or request['cwd']
+        stale = self.stale_marker(worktree, config)
+        if stale:
+            self.tell(conn, 'enrollment marker is stale (%d form%s differ%s); run pandora '
+                            'enroll %s' % (stale, '' if stale == 1 else 's',
+                                          's' if stale == 1 else '', worktree))
         # Only names the repository asked for: an undeclared variable the shim
         # filtered was never going to travel, so saying so would be noise.
         for line in envfilter.notices(plan['env_passthrough'], request.get('env_dropped')):

@@ -249,6 +249,7 @@ ok    pandora on PATH    ~/.local/bin/pandora imports ~/Code/pandora from any di
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, same package as the client
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
 ok    repository         enrolled as eichler: 20 claimed form(s), marker ~/Code/eichler/.git/pandora-enrolled
+ok    marker forms       the marker matches this worktree's pandora.toml
 ok    daemon enrollment  [[repos]] eichler at ~/Code/eichler
 ok    working directory  the worktree root, ~/Code/eichler
 ok    variables          none of PANDORA_OFF, PANDORA_WHERE, PANDORA_SHARDS set

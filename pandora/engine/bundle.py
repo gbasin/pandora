@@ -91,14 +91,32 @@ print(json.dumps({'ok': True, 'path': str(target), 'digest': digest}))
 def payload(source_root=None):
     """(digest, payload) for the engine half of this checkout."""
     root = Path(source_root or Path(__file__).resolve().parents[1])
+    return _pack(root, MEMBERS)
+
+
+def _pack(root, names):
     files = {}
-    for name in MEMBERS:
+    for name in names:
         path = root / name
         if not path.is_file():
             raise FileNotFoundError('engine bundle is missing %s' % path)
         files[name] = base64.b64encode(path.read_bytes()).decode()
     text = json.dumps(files, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(text.encode()).hexdigest(), text
+
+
+def code_digest(source_root=None):
+    """One digest of every module in the package, client half included.
+
+    The same packing as the engine bundle, over `pandora/**/*.py` less the
+    tests, which never run in the daemon. A daemon keeps the code it imported;
+    comparing this with the checkout's is how `doctor` sees a daemon that needs
+    `--restart`.
+    """
+    root = Path(source_root or Path(__file__).resolve().parents[1])
+    names = sorted(str(path.relative_to(root)) for path in root.rglob('*.py')
+                   if 'tests' not in path.relative_to(root).parts[:1])
+    return _pack(root, names)[0]
 
 
 def ensure(link, root, *, source_root=None):
