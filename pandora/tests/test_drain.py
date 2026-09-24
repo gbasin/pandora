@@ -597,6 +597,14 @@ class ARestart(DrainCase):
         self.assertTrue(any('gave up' in line for line in self.said), self.said)
         self.assertTrue(any('pnpm slow' in line for line in self.said), self.said)
         self.assertEqual(self.call(['pnpm', 'unit']).exit, 0, 'still refusing after undrain')
+        # The slow run is still executing; stop it and let its executor finish
+        # writing before the temporary directory goes (a full-suite flake).
+        for row in self.rows('slow'):
+            self.ask({'op': 'cancel', 'run': row['id']})
+        thread.join(timeout=30)
+        self.assertTrue(wait_until(lambda: not any(
+            'execute_local' in thread.name and thread.is_alive()
+            for thread in threading.enumerate()), 10))
 
     def test_now_restarts_when_the_wait_runs_out_and_the_run_ends_70(self):
         thread, answer = self.in_background(['pnpm', 'slow'])
