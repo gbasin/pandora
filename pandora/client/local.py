@@ -151,7 +151,11 @@ class Budget:
                 raise Busy('%s already runs on this machine as %s; stop it with '
                            '`pandora cancel %s`.' % (job, self.singletons[job],
                                                      self.singletons[job]))
-            if self.config.get('one_active_per_worktree', True) and key in self.worktrees:
+            # A singleton is already exclusive on the whole machine, and it is
+            # the long-lived kind (a dev stack): holding the worktree's slot too
+            # would refuse every other local job there for its whole lifetime.
+            pinned = self.config.get('one_active_per_worktree', True) and not singleton
+            if pinned and key in self.worktrees:
                 raise Busy('this worktree already has an active local job (%s). Inspect it '
                            'with `pandora ps`, or cancel it, before starting another.'
                            % self.worktrees[key])
@@ -159,7 +163,7 @@ class Budget:
                                  'singleton': singleton, 'admitted': False}
             if singleton:
                 self.singletons[job] = run_id
-            if self.config.get('one_active_per_worktree', True):
+            if pinned:
                 self.worktrees[key] = run_id
 
     # -- the rule that queues ----------------------------------------------

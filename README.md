@@ -145,7 +145,7 @@ The optional keys and their defaults:
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |
 | | `max_running` | `4` | Local-lane jobs at once. |
-| | `one_active_per_worktree` | `true` | A second local job in one worktree exits 75. |
+| | `one_active_per_worktree` | `true` | A second local job in one worktree exits 75. A `singleton` job does not count. |
 | | `drift` | `warn` | `off`, `warn` or `fail` when the worktree changes during a local run. A job may override it. |
 | | `queue_timeout_seconds` | `0` | 0 waits for the budget as long as it takes. |
 | `[local.pause]` | `enabled`, `sample_seconds`, `swap_growth_mib_per_minute`, `psi_full_avg10`, `free_percent`, `load_per_cpu`, `max_wait_seconds` | `true`, 3, 256, 20.0, 5.0, 8.0, 300 | The gate that stops new local jobs on a Mac under memory pressure. A job held past `max_wait_seconds` exits 70 and never runs. |
@@ -460,7 +460,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Eichler's `--update` is one. |
 | `value_flags` | Flags whose value is not a path, so the subdirectory rule does not check it. |
 | `shards` | `strategy` (`argv` or `env`), `template` (`--shard={i}/{n}`), `default`, `max`, and for tier 2 `plan`, `expect_flag`, `report`, `plan_outputs`. Every shard also gets `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`. Remote only. |
-| `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. |
+| `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. It does not take its worktree's `one_active_per_worktree` slot, so other local jobs still run there while it lives. |
 | `reject` | `[{ args, message }]`: arguments the job refuses, with the reason. |
 | `reject_if_set` | Environment variables that make the job refuse. |
 | `drift` | `off`, `warn` or `fail` for a local run whose worktree changed meanwhile. Use `off` for `small` jobs; freezing a 4,900-file worktree twice costs more than they do. |

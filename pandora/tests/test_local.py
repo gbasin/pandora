@@ -102,6 +102,20 @@ class BudgetRules(unittest.TestCase):
                 pool.reserve('b', repo='eichler', job='dev-stack', worktree=two, singleton=True)
         self.assertIn('pandora cancel a', str(caught.exception))
 
+    def test_a_singleton_does_not_take_its_worktrees_slot(self):
+        pool = budget()
+        pool.reserve('stack', repo='eichler', job='dev-stack', worktree='.', singleton=True)
+        pool.reserve('a', repo='eichler', job='check', worktree='.', singleton=False)
+        with self.assertRaises(Busy) as caught:
+            pool.reserve('b', repo='eichler', job='unit', worktree='.', singleton=False)
+        self.assertIn('active local job (a)', str(caught.exception))
+        with self.assertRaises(Busy):
+            pool.reserve('c', repo='eichler', job='dev-stack', worktree='.', singleton=True)
+        # Releasing the singleton leaves the slot it never took with its owner.
+        pool.finish('stack', 100, 'ok')
+        with self.assertRaises(Busy):
+            pool.reserve('d', repo='eichler', job='unit', worktree='.', singleton=False)
+
     def test_releasing_frees_both_holds(self):
         pool = budget()
         pool.reserve('a', repo='eichler', job='dev-stack', worktree='.', singleton=True)
