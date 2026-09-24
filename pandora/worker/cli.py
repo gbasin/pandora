@@ -24,13 +24,19 @@ def notice(text):
     sys.stderr.flush()
 
 
+# The operator CLI's control-master anchor. Not the daemon's `ssh`: every verb
+# here ends with `remote.close()`, and on a shared master that `-O exit` killed
+# the daemon's in-flight rsyncs (2026-09-24, four runs refused `transfer-failed`).
+CONTROL = 'ssh-cli'
+
+
 def target(args):
     """(host, engine_root, control_dir) from the flags, then the configuration."""
     config = settings.load(args.config)
     host = args.host or config['worker']['host']
     state = Path(args.state or config['client']['state']).expanduser()
     state.mkdir(parents=True, exist_ok=True)
-    return host, args.engine_root or config['worker']['engine_root'], state / 'ssh'
+    return host, args.engine_root or config['worker']['engine_root'], state / CONTROL
 
 
 def manifest_of(args):

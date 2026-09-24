@@ -48,24 +48,44 @@ CAUSES = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
 LOCAL_SIZES = ('small', 'medium')
 
 
-def decide(*, cause, size='large', writeback=False, declared=None, notice=None):
+# What a refusal tells the caller to do next. On 2026-09-24 a refusal that said
+# "run it with PANDORA_OFF=1" sent several agents to run `pnpm check` here at
+# once, unmanaged, and the memory gate paused the lane with swap growing at
+# 4 GiB/min. The local lane is the same command behind the same budget, so it is
+# the next step whenever the job can run there; PANDORA_OFF only when it cannot.
+QUEUE_STEP = 'Retry, or run it in the local queue with PANDORA_WHERE=local.'
+LAST_RESORT = ('Retry. As a last resort, PANDORA_OFF=1 runs it here with no Pandora at '
+               'all, outside the queue.')
+
+
+def next_step(local_lane):
+    """The sentence a refusal ends with. `local_lane`: the job may run in it
+    (`placement.why_not_local(job)` is None)."""
+    return QUEUE_STEP if local_lane else LAST_RESORT
+
+
+def decide(*, cause, size='large', writeback=False, declared=None, notice=None,
+           local_lane=True):
     """The one fallback decision. Returns {'action', 'reason'}.
 
     `declared` is the job's `fallback` table, or None when the job and the
     repository both said nothing. `size` is the job's declared class, and the
     conservative default is `large`: a caller that cannot say how big a job is
-    has not earned the right to run it here.
+    has not earned the right to run it here. `local_lane` says whether the job
+    could run in the local lane if asked; it changes only the refusal's next step.
     """
+    step = next_step(local_lane)
     if cause not in CAUSES:
-        return {'action': 'refuse', 'reason': 'unknown fallback cause %r' % cause}
+        return {'action': 'refuse', 'reason': 'unknown fallback cause %r. %s' % (cause, step)}
     if writeback:
         return {'action': 'refuse',
-                'reason': 'a write-back run is never run locally, because a local run would '
-                          'write files the worker should have written'}
+                'reason': 'a write-back run is never moved to this Mac automatically, because '
+                          'a local run would write files the worker should have written. %s'
+                          % step}
     if declared is not None and cause not in declared['on']:
         return {'action': 'refuse',
-                'reason': 'this job declares fallback only for %s, and this is %s'
-                          % (', '.join(declared['on']), cause)}
+                'reason': 'this job declares fallback only for %s, and this is %s. %s'
+                          % (', '.join(declared['on']), cause, step)}
     if declared is not None:
         action = declared['action']
         why = 'the job declares fallback = "%s"' % action
@@ -75,8 +95,7 @@ def decide(*, cause, size='large', writeback=False, declared=None, notice=None):
     if action == 'local':
         return {'action': 'local', 'reason': notice or ('%s, so it runs in the local lane' % why)}
     return {'action': 'refuse',
-            'reason': '%s, so it is not run on this Mac. Run it with PANDORA_OFF=1 if you '
-                      'mean to.' % why}
+            'reason': '%s, so it is not moved to this Mac automatically. %s' % (why, step)}
 
 
 class Slot:

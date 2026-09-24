@@ -77,7 +77,8 @@ def run_local(real, argv, *, state=None, claimed=True, reason='', where=None):
         else:
             if slot is None:
                 notice('%d local fallback slots are all busy; refusing to add a %s run to '
-                       'this Mac. Retry, or set PANDORA_OFF=1 to run it anyway.'
+                       'this Mac. Retry in a minute. As a last resort, PANDORA_OFF=1 runs '
+                       'it with no Pandora at all, outside every limit.'
                        % (count, argv[0] if argv else 'pnpm'))
                 return STALE
     try:
@@ -218,8 +219,14 @@ class Stream:
                 return int(frame['code'])
 
     def reattach(self):
-        """Re-open the socket and continue the same run from our byte offset."""
+        """Re-open the socket and continue the same run from our byte offset.
+
+        False when the daemon cannot bring the run to an exit: it has no such
+        run, or says nothing here is following it. Retrying either would wait
+        forever on a row nothing will finish.
+        """
         resume = self.offset
+        self.unfollowed = None
         for _ in range(REATTACH_ATTEMPTS):
             time.sleep(REATTACH_PAUSE)
             try:
@@ -231,6 +238,11 @@ class Stream:
                                    'run': self.run, 'from': resume}))
                 reader = Reader(sock)
                 frame = reader.line()
+                if frame is not None and (frame.get('t') == 'error'
+                                          or frame.get('owned') is False):
+                    sock.close()
+                    self.unfollowed = frame.get('msg') or 'the daemon is not following it'
+                    return False
                 if frame is None or frame.get('t') != 'accepted':
                     sock.close()
                     continue
@@ -434,6 +446,10 @@ def main(argv=None):
         if code is not None:
             return code
         if not stream.reattach():
+            if getattr(stream, 'unfollowed', None):
+                notice('run %s: %s; nothing will finish it. Not running locally. Check '
+                       'with: pandora ps' % (stream.run, stream.unfollowed))
+                return INFRA
             notice('lost the daemon after it accepted run %s. Not running locally: it may '
                    'still be executing. Check with: pandora wait %s' % (stream.run, stream.run))
             return INFRA

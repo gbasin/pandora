@@ -14,9 +14,11 @@ What this module is, in one line each:
   actually used, reusing `engine.admission` unchanged -- the same policy that
   admits on the worker, pointed at this machine's RAM minus a reserve. CPU is
   soft: a hint in `PANDORA_CPUS`, never a cgroup.
-* **A process group, supervised.** The command runs with `start_new_session`,
-  so a cancel reaches the whole tree with `killpg` and a stack that spawns
-  Docker cannot survive its supervisor by being a grandchild.
+* **A process tree, supervised.** The command runs with `start_new_session`,
+  and both the memory sample and a cancel cover its group and every descendant
+  by parent pid, so a stack that spawns Docker, or a runner whose workers call
+  `setsid`, cannot survive its supervisor or hide its memory by being a
+  grandchild.
 * **Two exclusivity rules, both optional.** One active local run per worktree
   (Pueue's symlink reservation, without the symlink), and `singleton` jobs that
   own the machine -- which is what `dev:stack` is.
@@ -78,27 +80,134 @@ def budget_from(config):
     return max(1024, total_memory_mib() - int(config.get('reserve_mib') or 4096))
 
 
-def group_rss_mib(pgid, run=subprocess.run):
-    """Resident memory of a whole process group, in MiB.
+# Why a tree and not a process group: macOS has no cgroups, and a process group
+# is escaped with one `setsid`. Eichler's runner spawns its workers `detached`,
+# which is exactly that, so a group-only sample recorded 118-180 MiB peaks for
+# multi-GiB jobs, learned reservations decayed to the 512 MiB floor, and a
+# cancel's `killpg` left the heavy half running. The tree is walked by parent
+# pid from the child, plus anything still in the child's group. A descendant
+# whose parent has already exited is re-parented to launchd and is out of reach
+# of both; nothing short of an OS container sees it.
 
-    `ps` rather than anything cleverer because the thing being measured is a
-    tree of node, pnpm, vitest workers and possibly Docker clients, and the only
-    portable question with an answer is "what does the OS say this pgid holds".
-    """
+
+def process_table(run=subprocess.run):
+    """[(pid, ppid, pgid, rss_kib)] from one `ps`, or [] when it cannot be read."""
     try:
-        proc = run(['ps', '-Ao', 'pgid=,rss='], capture_output=True, text=True, timeout=10)
+        proc = run(['ps', '-Ao', 'pid=,ppid=,pgid=,rss='], capture_output=True, text=True,
+                   timeout=10)
     except (OSError, subprocess.SubprocessError):
-        return 0
-    total = 0
-    want = str(pgid)
+        return []
+    rows = []
     for line in (proc.stdout or '').splitlines():
         parts = line.split()
-        if len(parts) == 2 and parts[0] == want:
-            try:
-                total += int(parts[1])
-            except ValueError:
-                continue
-    return total // 1024                                # ps reports KiB
+        if len(parts) != 4:
+            continue
+        try:
+            rows.append(tuple(int(part) for part in parts))
+        except ValueError:
+            continue
+    return rows
+
+
+def tree_of(table, root, pgid=None):
+    """The pids descended from `root` (itself included), plus every pid in `pgid`.
+
+    Ordered deepest first, so a caller that signals in order reaches children
+    before the parents that would otherwise re-spawn or reap them.
+    """
+    children = {}
+    for pid, ppid, _group, _rss in table:
+        children.setdefault(ppid, []).append(pid)
+    order, seen, frontier = [], {root}, [root]
+    while frontier:
+        order.extend(frontier)
+        frontier = [child for parent in frontier for child in children.get(parent, ())
+                    if child not in seen and not seen.add(child)]
+    if pgid is not None:
+        order.extend(pid for pid, _ppid, group, _rss in table
+                     if group == pgid and pid not in seen and not seen.add(pid))
+    present = {pid for pid, _ppid, _group, _rss in table}
+    return [pid for pid in reversed(order) if pid in present]
+
+
+def process_ages(pids, run=subprocess.run):
+    """{pid: seconds since it started} for the pids `ps` still lists."""
+    try:
+        proc = run(['ps', '-o', 'pid=,etime=', '-p', ','.join(str(pid) for pid in pids)],
+                   capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    ages = {}
+    for line in (proc.stdout or '').splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit():
+            ages[int(parts[0])] = elapsed_seconds(parts[1])
+    return ages
+
+
+def elapsed_seconds(text):
+    """`ps -o etime=`: `[[dd-]hh:]mm:ss`, in seconds, or None."""
+    text = (text or '').strip()
+    days, _, clock = text.rpartition('-')
+    try:
+        seconds = 0
+        for part in clock.split(':'):
+            seconds = seconds * 60 + int(part)
+        return seconds + (int(days) * 86400 if days else 0)
+    except ValueError:
+        return None
+
+
+def kill_recorded(pgid, started, *, run=subprocess.run, clock=time.time, kill=None,
+                  kill_one=None):
+    """SIGKILL a local run's process group left behind by a daemon that died.
+
+    A pid is reused, and a group recorded yesterday may now be someone else's,
+    so the group is proved to be the run's first:
+
+    * its leader is alive and `ps` puts its start within a few seconds of the
+      recorded one; or
+    * the leader is gone -- it usually dies of EPIPE when the old daemon's pipes
+      close -- but `ps` still lists members of that group, and one of them
+      started no earlier than the run did. A group id cannot be handed out
+      again while any member of the old group lives, so those members are the
+      run's own.
+
+    Descendants of the members that left the group (`setsid`) are signalled
+    too. Returns True when a signal was sent.
+    """
+    if not pgid or not started:
+        return False
+    try:
+        pgid = int(pgid)
+    except (TypeError, ValueError):
+        return False
+    table = process_table(run)
+    members = [pid for pid, _ppid, group, _rss in table if group == pgid]
+    if not members:
+        return False
+    ages = process_ages(members, run=run)
+    now = clock()
+    if pgid in members:
+        age = ages.get(pgid)
+        ours = age is not None and abs((now - age) - float(started)) <= 5
+    else:
+        ours = any(age is not None and age <= now - float(started) + 5
+                   for age in (ages.get(pid) for pid in members))
+    if not ours:
+        return False
+    outside = [pid for member in members for pid in tree_of(table, member)
+               if pid not in members]
+    try:
+        (kill or os.killpg)(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    for pid in dict.fromkeys(outside):
+        try:
+            (kill_one or os.kill)(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    return True
 
 
 class Budget:
@@ -193,8 +302,12 @@ class Budget:
                 return
             if time.monotonic() >= deadline:
                 self.gate.refused()
-                raise Paused('this Mac has been under pressure for %ds (%s), so nothing new '
-                             'is being started here. Wait, or run it with PANDORA_OFF=1.'
+                # No bypass offered: an unmanaged run is more load on a machine
+                # that is already short of memory (2026-09-24).
+                raise Paused('this Mac has been under memory pressure for %ds (%s), so nothing '
+                             'new is being started here. Wait a few minutes, then retry. Do '
+                             'not bypass this with PANDORA_OFF=1: an unmanaged run adds to the '
+                             'pressure that stopped this one.'
                              % (self.gate.config['max_wait_seconds'], evidence))
 
     def admit(self, run_id, *, repo, job, canceled=None, timeout=0.0, poll=0.25, note=None):
@@ -300,8 +413,10 @@ def child_environment(plan, request_env, *, cpus_hint, run_id, directory):
 class Supervisor:
     """One local command, its process group, its peak and its verdict."""
 
-    def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None):
+    def __init__(self, argv, *, cwd, env, timeout_seconds, on_log, on_tick=None, cancel=None,
+                 on_start=None):
         self.argv = list(argv)
+        self.on_start = on_start
         self.cwd = str(cwd)
         self.env = dict(env)
         self.timeout_seconds = timeout_seconds
@@ -315,14 +430,54 @@ class Supervisor:
         self.peak_mib = 0
         self.proc = None
         self.killed_at = None
+        self.seen = {}                   # pid -> monotonic time a sample first saw it
+        self.ps = subprocess.run
 
-    def signal_group(self, number):
+    def outside_group(self, table, *, orphans):
+        """The pids to signal one by one: those `killpg` on the child's group misses.
+
+        Descendants that left the group (`setsid`), found by parent pid while the
+        child lives. With `orphans`, also pids a sample saw in the tree that have
+        since been re-parented to launchd, each only while `ps` says it is older
+        than the moment it was first seen: a reused pid is younger. Group members
+        are never listed: they already get the `killpg`, and a second SIGINT
+        makes pnpm, vitest and playwright force-quit, skipping the grace.
+        """
+        root = self.proc.pid
+        group = {pid for pid, _ppid, pgid, _rss in table if pgid == root}
+        found = []
+        if self.proc.returncode is None:
+            found = [pid for pid in tree_of(table, root) if pid not in group and pid != root]
+        if orphans:
+            present = {pid for pid, _ppid, _group, _rss in table}
+            candidates = [pid for pid in self.seen
+                          if pid in present and pid not in group and pid not in found]
+            if candidates:
+                ages = process_ages(candidates, run=self.ps)
+                now = time.monotonic()
+                found += [pid for pid in candidates if ages.get(pid) is not None
+                          and ages[pid] + 1 >= now - self.seen[pid]]
+        return found
+
+    def signal_group(self, number, *, orphans=False):
+        """The child's group once, then each descendant that left it.
+
+        `orphans` is for a cancel or a timeout only. A run that ended on its own
+        may leave a daemon it meant to leave (turbo, nx, watchman), re-parented
+        to launchd; after a normal exit only the group is signalled.
+        """
         if self.proc is None or self.proc.pid is None:
             return
+        extra = self.outside_group(process_table(self.ps), orphans=orphans)
         try:
             os.killpg(self.proc.pid, number)
         except (ProcessLookupError, PermissionError, OSError):
             pass
+        for pid in extra:
+            try:
+                os.kill(pid, number)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
     def _pump(self, stream, which):
         try:
@@ -341,9 +496,19 @@ class Supervisor:
 
     def _sample(self, stop):
         while not stop.wait(SAMPLE_SECONDS):
-            if self.proc is None:
+            if self.proc is None or self.proc.returncode is not None:
                 continue
-            self.peak_mib = max(self.peak_mib, group_rss_mib(self.proc.pid))
+            self.sample(process_table(self.ps))
+
+    def sample(self, table):
+        """One reading: the tree's resident memory, and who is in it now."""
+        root = self.proc.pid
+        members = set(tree_of(table, root, root))
+        now = time.monotonic()
+        for pid in members:
+            self.seen.setdefault(pid, now)
+        self.peak_mib = max(self.peak_mib, sum(rss for pid, _ppid, _group, rss in table
+                                               if pid in members) // 1024)
 
     def run(self, canceled):
         """Returns (outcome, exit_code). `outcome` is the engine's vocabulary."""
@@ -355,6 +520,11 @@ class Supervisor:
             self.on_log('err', ('pandora: cannot start %r: %s\n'
                                 % (self.argv[0], error)).encode())
             return 'infra_failed', None
+        if self.on_start is not None:
+            try:
+                self.on_start(self.proc.pid)
+            except OSError:
+                pass                     # the record is for a restart; never fail the run
         stop = threading.Event()
         threads = [threading.Thread(target=self._pump, args=(self.proc.stdout, 'out'), daemon=True),
                    threading.Thread(target=self._pump, args=(self.proc.stderr, 'err'), daemon=True),
@@ -376,11 +546,11 @@ class Supervisor:
                 if (canceled() or over) and not asked:
                     asked, timed_out = True, over
                     self.killed_at = time.monotonic()
-                    self.signal_group(self.cancel_signal)
+                    self.signal_group(self.cancel_signal, orphans=True)
                 elif asked and time.monotonic() - self.killed_at > self.grace_seconds:
                     # The grace is over. SIGKILL the group, not the child: the
                     # child is usually a shell whose death orphans the tree.
-                    self.signal_group(signal.SIGKILL)
+                    self.signal_group(signal.SIGKILL, orphans=True)
                     self.killed_at = time.monotonic() + max(self.grace_seconds, 1.0)
         finally:
             stop.set()
@@ -388,7 +558,7 @@ class Supervisor:
             # are daemon threads, so a stuck descendant cannot hold the daemon.
             for thread in threads:
                 thread.join(timeout=2.0)
-            self.signal_group(signal.SIGKILL)
+            self.signal_group(signal.SIGKILL, orphans=asked)
         code = self.proc.returncode
         self.peak_mib = max(self.peak_mib, 0)
         if timed_out:
@@ -501,7 +671,8 @@ class LocalExecutor:
             plan['argv'], cwd=Path(worktree) / (plan.get('cwd') or '.'), env=env,
             timeout_seconds=60 * int(plan.get('timeout_minutes') or 30),
             cancel=plan.get('cancel'),
-            on_log=lambda which, chunk: run.stream_local(which, chunk))
+            on_log=lambda which, chunk: run.stream_local(which, chunk),
+            on_start=getattr(run, 'spawned', None))
         outcome, code = supervisor.run(run.canceled.is_set)
         after, after_files = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after

@@ -47,6 +47,52 @@ class SubmitTest(unittest.TestCase):
                 backend.submit(plan=plan, worktree=repo, request_id='q1')
             return sent
 
+    def test_each_step_is_announced_and_a_failure_keeps_the_timings_so_far(self):
+        from pandora.errors import TransferError
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            backend = worker_module.Worker.__new__(worker_module.Worker)
+            backend.link, backend._root = None, '/engine'
+            steps = []
+            plan = {'repo': 'demo', 'secrets_exclude_globs': [], 'git': 'none'}
+            with mock.patch.object(worker_module.transfer, 'send',
+                                   side_effect=TransferError('rsync timed out')):
+                with self.assertRaises(TransferError) as caught:
+                    backend.submit(plan=plan, worktree=repo, request_id='q1',
+                                   phase=steps.append)
+        self.assertEqual(steps, ['freeze', 'ship'])
+        self.assertEqual(set(caught.exception.pre_accept), {'freeze', 'ship'})
+
+    def test_the_transfer_is_logged_from_start_to_its_end(self):
+        from pandora.errors import TransferError
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            backend = worker_module.Worker.__new__(worker_module.Worker)
+            backend.link, backend._root = None, '/engine'
+            backend._bundle = {'path': '/engine/bundles/x'}
+            backend.engine = lambda argv, stdin=None, timeout=None: {'ok': True, 'run_id': 'r1'}
+            plan = {'repo': 'demo', 'secrets_exclude_globs': [], 'git': 'none'}
+            lines = []
+
+            def shipped(*args, on_send=None, stderr_path=None, **kwargs):
+                on_send()
+                return {'path': '/engine/src/demo/x', 'reused': False}
+
+            def failed(*args, on_send=None, stderr_path=None, **kwargs):
+                on_send()
+                error = TransferError('rsync to h failed (255): unexpected end of file')
+                error.rsync_exit = 255
+                raise error
+            with mock.patch.object(worker_module.transfer, 'send', side_effect=shipped):
+                backend.submit(plan=plan, worktree=repo, request_id='q1', log=lines.append)
+            with mock.patch.object(worker_module.transfer, 'send', side_effect=failed):
+                with self.assertRaises(TransferError):
+                    backend.submit(plan=plan, worktree=repo, request_id='q2', log=lines.append)
+        self.assertRegex(lines[0], r'^transfer start: input \w+, 1 files, 1 KiB, from ')
+        self.assertRegex(lines[1], r'^transfer done: input \w+, 1 files, 1 KiB, rsync exit 0, ')
+        self.assertRegex(lines[3], r'^transfer failed: input \w+, syncing 1 files, 1 KiB, '
+                                   r'rsync exit 255, after [\d.]+ s: rsync to h failed')
+
     def test_the_exception_lists_travel_only_when_the_job_asks_for_git(self):
         self.assertEqual(self.submit('synthetic')['git_marks'],
                          {'untracked': ['scratch.md'], 'ignored': []})

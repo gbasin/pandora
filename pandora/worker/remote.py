@@ -83,4 +83,11 @@ class Remote:
         return path
 
     def close(self):
-        self.link.close()
+        """Leave the control master to expire on its own.
+
+        Every `pandora worker` invocation shares one control path, so the one
+        that started the master cannot know whether another is still using it:
+        its `-O exit` would cut that one's transfers off, as the CLI's own used
+        to cut the daemon's. `ControlPersist` reaps an idle master.
+        """
+        return None

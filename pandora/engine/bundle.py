@@ -91,14 +91,53 @@ print(json.dumps({'ok': True, 'path': str(target), 'digest': digest}))
 def payload(source_root=None):
     """(digest, payload) for the engine half of this checkout."""
     root = Path(source_root or Path(__file__).resolve().parents[1])
+    return _pack(root, MEMBERS)
+
+
+def _pack(root, names):
     files = {}
-    for name in MEMBERS:
+    for name in names:
         path = root / name
         if not path.is_file():
             raise FileNotFoundError('engine bundle is missing %s' % path)
         files[name] = base64.b64encode(path.read_bytes()).decode()
     text = json.dumps(files, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(text.encode()).hexdigest(), text
+
+
+def loaded_modules(source_root=None):
+    """The package's modules this process has imported, as package-relative paths."""
+    import sys
+    root = Path(source_root or Path(__file__).resolve().parents[1]).resolve()
+    names = set()
+    for module in list(sys.modules.values()):
+        path = getattr(module, '__file__', None)
+        if not path or not path.endswith('.py'):
+            continue
+        try:
+            names.add(str(Path(path).resolve().relative_to(root)))
+        except ValueError:
+            continue
+    return sorted(names)
+
+
+def code_digest(source_root=None, names=None):
+    """One digest over the named modules of the package, the same packing as the bundle.
+
+    A daemon keeps the code it imported, so it names the modules it loaded and
+    `doctor` digests those same files in the checkout: a change to a module the
+    daemon never imports (the worker half, the canary) is not a reason to
+    restart it. A module the checkout no longer has counts as a difference.
+    """
+    root = Path(source_root or Path(__file__).resolve().parents[1])
+    names = loaded_modules(root) if names is None else sorted(names)
+    files = {}
+    for name in names:
+        path = root / name
+        files[name] = (base64.b64encode(path.read_bytes()).decode() if path.is_file()
+                       else None)
+    text = json.dumps(files, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def ensure(link, root, *, source_root=None):

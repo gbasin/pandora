@@ -22,6 +22,7 @@ turns the second and later round trips from ~90 ms into ~1 ms.
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 from ..errors import TransferError, WorkerUnreachable
@@ -70,17 +71,48 @@ class Link:
         self.anchor = Path(control_dir)
         self.control_dir = control_dir_for(self.anchor)
         self.options = ssh_options(self.control_dir, persist=persist)
+        # None until the first call asks whether a master already listens.
+        self.owns_master = None
+
+    def _probe(self):
+        """Before the first call: is a master already on this control path?
+
+        If one is, another process started it and its sessions ride on it, so
+        `close()` must leave it alone. If none is, this Link's first call starts
+        it. `-O check` talks only to the local socket, never to the host.
+        """
+        if self.owns_master is not None:
+            return
+        try:
+            proc = subprocess.run(['ssh', *self.options, '-O', 'check', self.host],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=CONNECT_TIMEOUT, check=False)
+            self.owns_master = proc.returncode != 0
+        except (OSError, subprocess.TimeoutExpired):
+            # Unknown is treated as not ours: a master left running expires after
+            # ControlPersist, while one exited under a peer kills its transfers.
+            self.owns_master = False
 
     @property
     def rsh(self):
         return 'ssh ' + ' '.join(shlex.quote(item) for item in self.options)
 
+    def _ssh(self, command, stdin, timeout):
+        try:
+            return subprocess.run(['ssh', *self.options, self.host, command],
+                                  input=stdin, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # A worker that does not answer in time is unreachable for this
+            # call; a bare TimeoutExpired is an error no caller handles.
+            raise WorkerUnreachable('ssh %s: no answer within %d s'
+                                    % (self.host, timeout)) from None
+
     def run(self, argv, *, stdin=None, timeout=120, check=True):
         """One remote command. `argv` is a list; it is quoted, never a shell line."""
         command = ' '.join(shlex.quote(item) for item in argv)
-        proc = subprocess.run(['ssh', *self.options, self.host, command],
-                              input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=timeout)
+        self._probe()
+        proc = self._ssh(command, stdin, timeout)
         out = (proc.stdout or b'').decode('utf-8', 'replace')
         err = (proc.stderr or b'').decode('utf-8', 'replace')
         if proc.returncode == 255:
@@ -101,9 +133,8 @@ class Link:
         """
         command = ' '.join(['python3', '-c', shlex.quote(script)]
                            + [shlex.quote(str(item)) for item in args])
-        proc = subprocess.run(['ssh', *self.options, self.host, command],
-                              input=stdin, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, timeout=timeout)
+        self._probe()
+        proc = self._ssh(command, stdin, timeout)
         out = (proc.stdout or b'').decode('utf-8', 'replace')
         err = (proc.stderr or b'').decode('utf-8', 'replace')
         if proc.returncode == 255:
@@ -114,8 +145,17 @@ class Link:
         return proc.returncode, out, err
 
     def close(self):
+        """Exit the master only if this Link started it.
+
+        `-O exit` ends every session multiplexed on the master, not just this
+        Link's: a master another process started carries that process's
+        in-flight rsyncs and engine calls, and exiting it fails them mid-stream.
+        """
+        if not self.owns_master:
+            return
         subprocess.run(['ssh', *self.options, '-O', 'exit', self.host],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        self.owns_master = None
 
 
 def cache_paths(root, repo, input_id):
@@ -125,15 +165,43 @@ def cache_paths(root, repo, input_id):
             'latest': '%s/latest' % base}
 
 
-def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_send=None):
+def log_stderr(text):
+    sys.stderr.write('pandora: ' + text + '\n')
+    sys.stderr.flush()
+
+
+def _text(data):
+    if isinstance(data, str):
+        return data
+    return (data or b'').decode('utf-8', 'replace')
+
+
+def keep_stderr(path, data):
+    """rsync's whole stderr beside the run, when there is any. Never fails a send."""
+    if path is None or not data:
+        return
+    try:
+        Path(path).write_text(_text(data))
+    except OSError:
+        pass
+
+
+def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_send=None,
+         log=None, stderr_path=None):
     """Place this input in the worker's source cache. Idempotent.
 
     `on_send` is called once, just before rsync starts, and only when there is
     something to send: a cache hit is silent here because the accepted line
-    already says so.
+    already says so. `log` receives what is worth a line but not a failure: a
+    staging directory that could not be removed. `stderr_path`, when given,
+    receives rsync's whole stderr; the exception carries only its first 600
+    characters, and on 2026-09-24 the line that explained the failure was not
+    among them. A TransferError from rsync carries `rsync_exit` (None on a
+    timeout) and `stderr`.
 
     Returns {'path', 'reused', 'link_dest', 'seconds', 'files'}.
     """
+    log = log or log_stderr
     paths = cache_paths(root, repo, input_id)
     code, out, _ = link.run(['sh', '-c',
                              'test -e %s && echo present || echo absent' % shlex.quote(paths['final'])],
@@ -168,12 +236,22 @@ print(stage)
         if on_send is not None:
             on_send()
         started = time.monotonic()
-        proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, timeout=timeout)
+        try:
+            proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=timeout)
+        except subprocess.TimeoutExpired as expired:
+            # A TransferError, so the fallback policy decides: a bare
+            # TimeoutExpired escaped every handler up to the connection thread.
+            keep_stderr(stderr_path, expired.stderr)
+            error = TransferError('rsync to %s timed out after %d s' % (link.host, timeout))
+            error.rsync_exit, error.stderr = None, _text(expired.stderr)
+            raise error from None
+        keep_stderr(stderr_path, proc.stderr)
         if proc.returncode != 0:
-            raise TransferError('rsync to %s failed (%d): %s'
-                                % (link.host, proc.returncode,
-                                   (proc.stderr or b'').decode('utf-8', 'replace').strip()[:600]))
+            error = TransferError('rsync to %s failed (%d): %s'
+                                  % (link.host, proc.returncode, _text(proc.stderr).strip()[:600]))
+            error.rsync_exit, error.stderr = proc.returncode, _text(proc.stderr)
+            raise error
         # A concurrent attempt may already have published this input. Keep that
         # completed tree, then atomically point latest at it. Each attempt uses
         # a separate temporary symlink, including across different inputs.
@@ -197,10 +275,17 @@ finally:
         os.unlink(temporary)
 ''', (stage, paths['final'], paths['latest']), timeout=120)
     finally:
-        link.feed('''
+        # A cleanup that fails must not replace the error that brought us here:
+        # the caller's fallback decision depends on which error that was. On
+        # success the stage was renamed away, so a leftover is only garbage.
+        try:
+            link.feed('''
 import shutil, sys
 shutil.rmtree(sys.argv[1], ignore_errors=True)
 ''', (stage,), timeout=120)
+        except Exception as error:               # noqa: BLE001 - logged, never raised
+            log('could not remove staging directory %s on %s: %s: %s'
+                % (stage, link.host, type(error).__name__, error))
     return {'path': paths['final'], 'reused': False, 'link_dest': link_dest,
             'seconds': round(time.monotonic() - started, 2), 'files': len(manifest)}
 

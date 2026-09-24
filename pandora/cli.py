@@ -17,9 +17,8 @@ INVARIANTS
   * `--update` runs on the worker, never here. Its files come back only from
     a passing run (every shard) over a tree you did not edit meanwhile;
     otherwise exit 75, your files untouched, and the next step printed.
-  * `PANDORA_OFF=1 <command>` runs it here with no Pandora at all.
-    `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
-    the queue and the stats; 64 if the job cannot run there, never a fallback.
+  * `PANDORA_WHERE=local|remote <command>` moves one run between lanes, in the
+    queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
     `pandora: hint: ...`: the next action, derived from evidence.
 
@@ -207,6 +206,12 @@ def attach(sock_path, run_id, *, quiet=False, deadline=None):
         notice('cannot attach to %s: %s' % (run_id, (frame or {}).get('msg') or frame))
         sock.close()
         return INFRA
+    if frame.get('owned') is False:
+        # Nothing in the daemon will bring it to an exit; waiting would be forever.
+        notice('run %s is live on disk but the daemon is not following it; check '
+               '`pandora ps`' % run_id)
+        sock.close()
+        return INFRA
     if not quiet and frame.get('phase'):
         notice(frame['phase'])
     timer = None
@@ -319,10 +324,21 @@ def cmd_ps(args):
     for row in rows[:args.limit]:
         print('%-14s %-6s %-10s %-16s %5s  %s' % (
             row.get('id', '')[:14], (row.get('lane') or 'remote')[:6],
-            (row.get('state') or '')[:10], (row.get('remote') or '-')[:16],
+            state_word(row)[:10], (row.get('remote') or '-')[:16],
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
+
+
+# A queued remote row's pre-accept step, as `ps` shows it: `remote shipping`.
+PRE_ACCEPT = {'freeze': 'freezing', 'ship': 'shipping', 'submit': 'submitting'}
+
+
+def state_word(row):
+    state = row.get('state') or ''
+    if state == 'queued' and row.get('phase') in PRE_ACCEPT:
+        return PRE_ACCEPT[row['phase']]
+    return state
 
 
 def worker_line(worker):
@@ -362,7 +378,8 @@ def cmd_logs(args):
                 frame = json.loads(line)
             except ValueError:
                 continue
-            if frame.get('t') == 'log':
+            # `said`: a pre-accept notice the caller saw live, kept in the log.
+            if frame.get('t') in ('log', 'said'):
                 sys.stdout.buffer.write(base64.b64decode(frame['b64']))
     sys.stdout.buffer.flush()
     return 0
@@ -373,8 +390,8 @@ def cmd_result(args):
     path = state / 'runs' / args.run / 'result.json'
     result = read_json(path)
     if result is None:
-        notice('no result for run %s (still running, or it never reached the worker)' % args.run)
-        return 1
+        args.state_dir = state
+        return result_without_one(args, read_json(path.parent / 'meta.json'))
     if args.json:
         # A result from an engine before the rename has only the old key; both
         # are printed for one release, `same_input_as` as the alias.
@@ -384,6 +401,39 @@ def cmd_result(args):
         return 0
     print(render_result(args.run, result))
     return 0
+
+
+def result_without_one(args, meta):
+    """A run that wrote no `result.json`: say what its row does know.
+
+    A refusal before the worker leaves no result, and "no result" used to be
+    all `pandora result` said about the four refused runs of 2026-09-24.
+    """
+    state = (meta or {}).get('state')
+    if state is None or state in ('queued', 'running'):
+        notice('no result for run %s (still running, or it never reached the worker)' % args.run)
+        return 1
+    if args.json:
+        print(json.dumps(meta, indent=1, sort_keys=True))
+    elif state == 'refused' and meta.get('refusal'):
+        refusal = meta['refusal']
+        print('%s: refused before reaching the worker: %s: %s'
+              % (args.run, refusal.get('cause'), refusal.get('detail')))
+    elif meta.get('fell_back_to'):
+        print('%s: %s; see pandora result %s' % (args.run, state, meta['fell_back_to']))
+    else:
+        print('%s: %s, exit %s%s' % (args.run, state, meta.get('exit_code'),
+                                     ', ' + meta['reason'] if meta.get('reason') else ''))
+    if meta.get('fell_back_to'):
+        # The request's verdict is its successor's, not this row's.
+        successor = read_json(Path(args.state_dir) / 'runs' / meta['fell_back_to']
+                              / 'meta.json') or {}
+        code = successor.get('exit_code')
+        return code if isinstance(code, int) else 1
+    if state == 'refused' and meta.get('refusal'):
+        return INFRA
+    code = meta.get('exit_code')
+    return code if isinstance(code, int) and code else 1
 
 
 def render_result(run_id, result):

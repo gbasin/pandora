@@ -51,8 +51,14 @@ class HandshakeTest(DaemonCase):
         while not SlowWorker.canceled and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertEqual(SlowWorker.canceled, ['r-slow'])
-        metas = [json.loads(path.read_text())
-                 for path in (self.state / 'runs').glob('*/meta.json')]
+        # The row is finished just after the cancel returns; wait for it rather
+        # than race it.
+        while time.monotonic() < deadline:
+            metas = [json.loads(path.read_text())
+                     for path in (self.state / 'runs').glob('*/meta.json')]
+            if all(meta['state'] != 'queued' for meta in metas):
+                break
+            time.sleep(0.05)
         self.assertEqual([(m['state'], m['remote']) for m in metas], [('withdrawn', 'r-slow')])
 
 

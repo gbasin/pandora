@@ -7,13 +7,15 @@
 # +4.8 ms p95 on the owner's Mac; the Python equivalent was +39 ms.
 #
 #   1. find the real pnpm   walk PATH, skip our own directory
-#   2. kill switches        PANDORA_OFF, PANDORA_ROUTE_DEPTH
+#   2. recursion guard      PANDORA_ROUTE_DEPTH (and PANDORA_OFF when nested)
 #   3. find the repo        walk up for .git; a worktree's .git is a FILE
-#   4. enrollment           one stat() for <git-common-dir>/pandora-enrolled
+#   4. enrollment           one stat() for <git-common-dir>/pandora-enrolled;
+#                           PANDORA_OFF outside an enrolled repo execs here
 #   5. claim                read the marker with the `read` builtin, no fork;
 #                           any claim length, any declared strip prefix; below
 #                           the worktree root, none under `subdirectory passthrough`
-#   6. hand off             pandora.client.shim (claimed), passthrough (heavy, or
+#   6. PANDORA_OFF          unclaimed: exec; claimed: logged by passthrough, then run
+#   7. hand off             pandora.client.shim (claimed), passthrough (heavy, or
 #                           unclaimed with PANDORA_WHERE set, so the ignored
 #                           override is counted), or exec
 #
@@ -41,15 +43,14 @@ if [ -z "$real" ]; then
     exit 127
 fi
 
-# --- 2. kill switches --------------------------------------------------------
+# --- 2. recursion guard ------------------------------------------------------
 # PANDORA_ROUTE_DEPTH is the recursion guard.  A repository's own scripts
 # re-enter this shim several times for one command (eichler's `pnpm check` is
 # three levels deep), so only the outermost invocation may route.  It is a
 # counter rather than a flag so that a shim that somehow finds itself is bounded
-# instead of looping.
-if [ -n "$PANDORA_OFF" ]; then
-    PANDORA_ROUTE_DEPTH=${PANDORA_ROUTE_DEPTH:-1}
-    export PANDORA_ROUTE_DEPTH
+# instead of looping.  A nested PANDORA_OFF invocation is not the outermost one,
+# so it is neither counted nor logged: the outermost already was.
+if [ -n "$PANDORA_OFF" ] && [ -n "$PANDORA_ROUTE_DEPTH" ]; then
     exec "$real" "$@"
 fi
 if [ -n "$PANDORA_ROUTE_DEPTH" ]; then
@@ -92,6 +93,8 @@ done
 root=$dir
 
 # --- 4. enrollment: one stat, and it covers every worktree of the repo --------
+# PANDORA_OFF outside an enrolled repository takes this same exec: nothing here
+# is Pandora's, so there is nothing to bypass and nothing to log.
 if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
     PANDORA_ROUTE_DEPTH=1; export PANDORA_ROUTE_DEPTH
     exec "$real" "$@"
@@ -143,7 +146,19 @@ done < "$common/pandora-enrolled"
 # unclaimed, and the rules below treat it exactly as one. A string compare.
 if [ "$scope" = passthrough ] && [ "$PWD" != "$root" ]; then claimed=0; fi
 
-# --- 6. hand off -------------------------------------------------------------
+# --- 6. PANDORA_OFF ----------------------------------------------------------
+# On an unclaimed command it changes nothing, so it execs here as before. On a
+# claimed one it skips the queue and the memory gate, which is how the Mac was
+# pushed into swap on 2026-09-24 with nothing on record, so it is handed to the
+# passthrough logger below (one Python start on a path that is already a
+# bypass), which writes a `reason off` row and runs the real pnpm.
+if [ -n "$PANDORA_OFF" ] && { [ "$claimed" != 1 ] || [ -z "$sock" ]; }; then
+    PANDORA_ROUTE_DEPTH=1
+    export PANDORA_ROUTE_DEPTH
+    exec "$real" "$@"
+fi
+
+# --- 7. hand off -------------------------------------------------------------
 PANDORA_REAL_PNPM=$real
 PANDORA_ROUTE_DEPTH=1
 export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
@@ -167,6 +182,17 @@ if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
     home=${target%/*}/..
 fi
 home=${PANDORA_HOME:-$home}
+
+if [ -n "$PANDORA_OFF" ]; then
+    # The kill switch must never fail: without the logger or an interpreter to
+    # run it, the command runs unlogged. Both checks are builtins.
+    [ -f "$home/pandora/client/passthrough.py" ] || exec "$real" "$@"
+    command -v "$python" >/dev/null 2>&1 || exec "$real" "$@"
+    PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONPATH
+    exec "$python" -B -m pandora.client.passthrough --real "$real" --repo "$common" \
+        --state "${sock%/*}" --reason off -- "$@"
+fi
 
 if [ "$claimed" = 1 ] && [ -n "$sock" ]; then
     PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}

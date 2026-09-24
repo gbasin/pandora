@@ -184,9 +184,27 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         'local': local or {},
         'overrides': overrides,
         'passthrough': passthrough_summary(
-            [row for row in passthrough if row.get('reason') != 'override-ignored']),
+            [row for row in passthrough
+             if row.get('reason') not in ('override-ignored', 'off')]),
+        'bypassed': bypassed(passthrough),
         'worker': worker or {},
     }
+
+
+def bypassed(rows):
+    """Claimed commands run with PANDORA_OFF: no queue, no gate, no receipt.
+
+    The shim hands each one to the passthrough logger with `--reason off`, so
+    each is one row, counted apart from the unclaimed heavy commands.
+    """
+    commands = {}
+    for row in rows:
+        if row.get('reason') == 'off':
+            key = ' '.join((row.get('argv') or [])[:1]) or '(unknown)'
+            commands[key] = commands.get(key, 0) + 1
+    return {'runs': sum(commands.values()),
+            'commands': [{'command': key, 'runs': count} for key, count in
+                         sorted(commands.items(), key=lambda item: (-item[1], item[0]))]}
 
 
 def overrides_from(runs, passthrough):
@@ -207,7 +225,8 @@ def overrides_from(runs, passthrough):
             if record.get('overridden'):
                 out[record['override']]['moved'] += 1
     for row in passthrough:
-        if row.get('override') in out:
+        # PANDORA_OFF outranks PANDORA_WHERE: that row is a bypass, not an override.
+        if row.get('override') in out and row.get('reason') != 'off':
             out[row['override']]['unclaimed'] += 1
     return out
 
@@ -298,6 +317,11 @@ def render(report):
                         else ('open' if pause.get('enabled') else 'disabled'),
                         pause.get('episodes', 0), pause.get('paused_seconds', 0),
                         pause.get('jobs_delayed', 0), pause.get('jobs_refused', 0)))
+    off = report.get('bypassed') or {}
+    if off.get('runs'):
+        lines.append('bypassed with PANDORA_OFF: %d claimed command(s) (%s)'
+                     % (off['runs'], ', '.join('%s x%d' % (row['command'], row['runs'])
+                                               for row in off['commands'][:4])))
     lines.append('')
     lines.append('local, not routed: %d command(s), %.1fs in total'
                  % (sum(row['runs'] for row in report['passthrough']),

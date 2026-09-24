@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,71 @@ class ThroughTheShim(unittest.TestCase):
 
     def test_a_light_command_is_not_logged(self):
         self.assertEqual(self.pnpm('why', 'react').returncode, 3)
+        self.assertEqual(self.rows(), [])
+
+    def test_pandora_off_on_a_claimed_command_is_logged_then_run(self):
+        self.env['PANDORA_OFF'] = '1'
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                (self.state / 'passthrough.jsonl').unlink(missing_ok=True)
+                proc = subprocess.run([shell, str(HERE / 'bin' / 'pnpm'), 'journey',
+                                       'a"b\\c', 'tab\there'], cwd=self.repo, env=self.env,
+                                      capture_output=True, text=True, timeout=30)
+                self.assertEqual((proc.returncode, proc.stderr), (3, ''))
+                self.assertTrue(proc.stdout.startswith('real journey'))
+                [row] = self.rows()
+                self.assertEqual((row['reason'], row['exit']), ('off', 3))
+                self.assertAlmostEqual(row['ts'], time.time(), delta=60)
+                self.assertEqual(row['argv'], ['journey', 'a"b\\c', 'tab\there'])
+                self.assertEqual(Path(row['cwd']).resolve(), self.repo.resolve())
+                self.assertTrue(row['repo'].endswith('/.git'))
+
+    def test_pandora_off_ignores_a_bad_placement(self):
+        self.env.update(PANDORA_OFF='1', PANDORA_WHERE='sideways')
+        self.assertEqual(self.pnpm('journey').returncode, 3)
+        self.assertEqual([row['reason'] for row in self.rows()], ['off'])
+
+    def rerender(self, home):
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
+            socket_path=str(self.state / 'client.sock'), repo='demo',
+            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]), home=str(home)))
+
+    def test_pandora_off_runs_the_command_when_the_logger_is_missing(self):
+        self.rerender(self.state / 'no-such-checkout')
+        self.env['PANDORA_OFF'] = '1'
+        proc = self.pnpm('journey')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, 'real journey\n', ''))
+
+    def test_pandora_off_runs_the_command_when_there_is_no_python(self):
+        self.env.update(PANDORA_OFF='1', PANDORA_PYTHON='/nonexistent/python3')
+        proc = self.pnpm('journey')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, 'real journey\n', ''))
+
+    def test_pandora_off_runs_the_command_when_the_logger_cannot_import(self):
+        broken = self.state / 'broken'
+        (broken / 'pandora' / 'client').mkdir(parents=True)
+        for name in ('pandora/__init__.py', 'pandora/client/__init__.py'):
+            (broken / name).write_text('')
+        (broken / 'pandora' / 'client' / 'passthrough.py').write_text(
+            (HERE / 'pandora' / 'client' / 'passthrough.py').read_text())
+        self.rerender(broken)
+        self.env['PANDORA_OFF'] = '1'
+        proc = self.pnpm('journey', 'x')
+        self.assertEqual((proc.returncode, proc.stdout), (3, 'real journey x\n'), proc.stderr)
+        self.assertEqual(self.rows(), [])
+
+    def test_pandora_off_on_anything_else_is_not_logged(self):
+        self.env['PANDORA_OFF'] = '1'
+        self.assertEqual(self.pnpm('build').returncode, 3)                 # heavy, unclaimed
+        self.env['PANDORA_ROUTE_DEPTH'] = '1'
+        self.assertEqual(self.pnpm('journey').returncode, 3)               # nested
+        self.assertEqual(self.rows(), [])
+
+    def test_pandora_off_outside_an_enrolled_repo_execs_unchanged(self):
+        (self.repo / '.git' / 'pandora-enrolled').unlink()
+        self.env['PANDORA_OFF'] = '1'
+        proc = self.pnpm('journey')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, 'real journey\n', ''))
         self.assertEqual(self.rows(), [])
 
 

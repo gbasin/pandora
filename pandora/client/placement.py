@@ -98,8 +98,8 @@ def decide(job, plan, override):
     if changed and where == 'local':
         problem = why_not_local(job)
         if problem:
-            raise refuse('%s. Drop --local/PANDORA_WHERE, or run it with no Pandora at all '
-                         'with PANDORA_OFF=1.' % problem)
+            raise refuse('%s. Drop --local/PANDORA_WHERE. As a last resort, PANDORA_OFF=1 '
+                         'runs it here with no Pandora at all, outside the queue.' % problem)
         plan = dict(plan, where='local')
     elif changed and where == 'remote':
         problem = why_not_remote(job)

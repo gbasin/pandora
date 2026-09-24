@@ -142,6 +142,42 @@ def write(common, text):
     return path
 
 
+def routing_of(repo_config):
+    """The marker lines the shim acts on, as `pandora enroll` would write them."""
+    from ..config import classify
+    return {'strip': [list(prefix) for prefix in repo_config['matching']['strip_prefixes']],
+            'claim': classify.claim_index(repo_config),
+            'subdirectory': repo_config['matching']['subdirectory']}
+
+
+def stale_forms(marker, repo_config):
+    """How the marker's routing differs from this configuration.
+
+    A list of {'kind', 'text'}, empty when they agree. `kind` is `missing` (the
+    configuration routes it and the marker does not), `extra` (the reverse) or
+    `subdirectory`. Only the lines the shim decides with: `strip`, `claim` and
+    `subdirectory`. A marker written before `subdirectory` existed says nothing,
+    which the shim reads as `reroot`.
+    """
+    want = routing_of(repo_config)
+    differences = []
+    for key in ('claim', 'strip'):
+        have = {tuple(item) for item in marker.get(key) or []}
+        need = {tuple(item) for item in want[key]}
+        differences += [{'kind': 'missing',
+                         'text': '%s %s missing from the marker' % (key, ' '.join(item))}
+                        for item in sorted(need - have)]
+        differences += [{'kind': 'extra', 'text': '%s %s in the marker but not in '
+                                                  'pandora.toml' % (key, ' '.join(item))}
+                        for item in sorted(have - need)]
+    have = marker.get('subdirectory') or 'reroot'
+    if have != want['subdirectory']:
+        differences.append({'kind': 'subdirectory',
+                            'text': 'subdirectory %s in the marker, %s in pandora.toml'
+                                    % (have, want['subdirectory'])})
+    return differences
+
+
 def claims_nothing_here(cwd, marker):
     """True when the marker claims only at the worktree root and `cwd` is below it.
 

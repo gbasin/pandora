@@ -10,6 +10,7 @@ from unittest import mock
 
 from pandora import cli
 from pandora.client import shim
+from pandora.errors import TransferError
 from pandora.tests.test_fallback import DaemonCase, FakeWorker
 
 
@@ -146,6 +147,60 @@ class Verbs(DaemonCase):
             _code, _out, err = self.detach('unit')
         self.assertIn('same tree as r0', err)
         self.assertNotIn('same input', err)
+
+    def test_a_refused_run_says_why_it_never_reached_the_worker(self):
+        FakeWorker.raises = TransferError('rsync to h failed (255): unexpected end of file')
+        code, out, err = self.detach('surface')           # large: refused, not local
+        self.assertEqual(code, 70, err)
+        [meta] = [json.loads(path.read_text())
+                  for path in (self.state / 'runs').glob('*/meta.json')]
+        self.assertEqual(meta['state'], 'refused')
+        self.assertEqual(meta['reason'], 'transfer-failed')
+        self.assertEqual(meta['refusal']['cause'], 'transfer-failed')
+        self.assertIn('unexpected end of file', meta['refusal']['detail'])
+        code, out, _ = self.pandora('result', meta['id'])
+        self.assertEqual(code, 70)
+        self.assertEqual(out.strip(), '%s: refused before reaching the worker: transfer-failed: '
+                         'rsync to h failed (255): unexpected end of file' % meta['id'])
+        code, out, _ = self.pandora('result', meta['id'], '--json')
+        self.assertEqual((code, json.loads(out)['refusal']['cause']), (70, 'transfer-failed'))
+
+    def test_a_queued_or_unknown_run_keeps_the_old_message(self):
+        directory = self.state / 'runs' / 'q1'
+        directory.mkdir(parents=True)
+        (directory / 'meta.json').write_text(json.dumps({'id': 'q1', 'state': 'queued'}))
+        for run_id in ('q1', 'nosuchrun000'):
+            code, _out, err = self.pandora('result', run_id)
+            self.assertEqual(code, 1)
+            self.assertIn('still running, or it never reached the worker', err)
+
+    def test_a_row_that_fell_back_points_at_the_local_run(self):
+        directory = self.state / 'runs' / 'f1'
+        directory.mkdir(parents=True)
+        (directory / 'meta.json').write_text(json.dumps(
+            {'id': 'f1', 'state': 'fell_back', 'exit_code': 70, 'fell_back_to': 'l1'}))
+        code, out, _ = self.pandora('result', 'f1')
+        self.assertEqual(out.strip(), 'f1: fell_back; see pandora result l1')
+        self.assertEqual(code, 1)                     # the successor has no verdict yet
+        successor = self.state / 'runs' / 'l1'
+        successor.mkdir()
+        (successor / 'meta.json').write_text(json.dumps({'id': 'l1', 'state': 'command_failed',
+                                                         'exit_code': 3}))
+        self.assertEqual(self.pandora('result', 'f1')[0], 3)
+
+    def test_ps_names_the_pre_accept_step_of_a_queued_remote_row(self):
+        for run_id, phase in (('p1', 'ship'), ('p2', 'submit'), ('p3', None)):
+            directory = self.state / 'runs' / run_id
+            directory.mkdir(parents=True)
+            (directory / 'meta.json').write_text(json.dumps(
+                {'id': run_id, 'state': 'queued', 'lane': 'remote', 'phase': phase,
+                 'argv': ['pnpm', 'check']}))
+        code, out, _ = self.pandora('ps')
+        self.assertEqual(code, 0)
+        words = {line.split()[0]: line.split()[1:3] for line in out.splitlines()
+                 if line.split()[:1] and line.split()[0] in ('p1', 'p2', 'p3')}
+        self.assertEqual(words, {'p1': ['remote', 'shipping'], 'p2': ['remote', 'submitting'],
+                                 'p3': ['remote', 'queued']})
 
     def test_result_json_carries_same_tree_as_and_the_old_key(self):
         directory = self.state / 'runs' / 'old1'

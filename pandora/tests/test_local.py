@@ -8,11 +8,13 @@ container or a repository -- the commands are `sh -c` one-liners.
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pandora.client import local, pressure
 from pandora.client.local import Budget, Busy, LocalExecutor, Supervisor, cli_exit
@@ -237,7 +239,9 @@ class PauseGate(unittest.TestCase):
         with self.assertRaises(Paused) as caught:
             pool.admit('a', repo='eichler', job='check', poll=0.01)
         self.assertIn('PSI', str(caught.exception))
-        self.assertIn('PANDORA_OFF=1', str(caught.exception))
+        self.assertIn('memory pressure', str(caught.exception))
+        self.assertIn('Do not bypass this with PANDORA_OFF=1', str(caught.exception))
+        self.assertNotIn('PANDORA_WHERE', str(caught.exception))
 
     def test_the_counters_are_what_pandora_stats_prints(self):
         gate = Gate({'sample_seconds': 0, 'max_wait_seconds': 0.1},
@@ -372,10 +376,119 @@ class SupervisorBehavior(unittest.TestCase):
         self.assertEqual(outcome, 'passed')
         self.assertGreater(supervisor.peak_mib, 80)
 
-    def test_group_rss_sums_only_the_named_group(self):
-        fake = lambda *a, **k: subprocess.CompletedProcess(
-            a, 0, stdout='100 2048\n100 1024\n200 999999\nbroken\n', stderr='')
-        self.assertEqual(local.group_rss_mib(100, run=fake), 3)
+    # pid ppid pgid rss(KiB). 100 is the child; 102 called setsid and left its
+    # group; 104 stayed in the group but lost its parent; 200 is someone else's.
+    TABLE = ('100 1 100 2048\n101 100 100 1024\n102 101 102 4096\n103 102 102 2048\n'
+             '104 1 100 1024\n200 1 200 999999\nbroken\n')
+
+    def fake_ps(self, *args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=self.TABLE, stderr='')
+
+    def test_tree_rss_follows_descendants_that_left_the_group(self):
+        supervisor = self.supervised(None)
+        supervisor.sample(local.process_table(self.fake_ps))
+        self.assertEqual(supervisor.peak_mib, 10)
+
+    def test_the_tree_is_listed_deepest_first(self):
+        order = local.tree_of(local.process_table(self.fake_ps), 100, 100)
+        self.assertEqual(set(order), {100, 101, 102, 103, 104})
+        self.assertLess(order.index(103), order.index(102))
+        self.assertLess(order.index(102), order.index(101))
+        self.assertEqual(order[-1], 100)
+
+    def supervised(self, returncode):
+        supervisor = Supervisor(['true'], cwd='.', env={}, timeout_seconds=1,
+                                on_log=lambda *_: None)
+        supervisor.proc = mock.Mock(pid=100, returncode=returncode)
+        now = time.monotonic()
+        # 102 was seen 30 s ago and is 40 s old: ours. 103 was seen 30 s ago
+        # but is 5 s old: its pid was reused, so it is left alone.
+        supervisor.seen = {102: now - 30, 103: now - 30}
+        supervisor.ps = lambda argv, **k: subprocess.CompletedProcess(
+            argv, 0, stdout=self.TABLE if 'pid=,ppid=,pgid=,rss=' in argv else
+            '102 00:40\n103 00:05\n', stderr='')
+        return supervisor
+
+    def signalled(self, supervisor, **kwargs):
+        sent = []
+        with mock.patch.object(local.os, 'killpg', lambda pid, sig: sent.append(('group', pid))), \
+                mock.patch.object(local.os, 'kill', lambda pid, sig: sent.append(('pid', pid))):
+            supervisor.signal_group(signal.SIGINT, **kwargs)
+        return sent
+
+    def test_each_process_is_signalled_once(self):
+        # A second SIGINT makes pnpm, vitest and playwright force-quit.
+        sent = self.signalled(self.supervised(None), orphans=True)
+        self.assertEqual(sent[0], ('group', 100))
+        self.assertEqual(sorted(sent[1:]), [('pid', 102), ('pid', 103)])
+
+    def test_after_the_child_exits_only_old_enough_orphans_are_kept(self):
+        sent = self.signalled(self.supervised(0), orphans=True)
+        self.assertEqual(sent, [('group', 100), ('pid', 102)])
+
+    def test_a_run_that_ended_on_its_own_leaves_its_orphans_alone(self):
+        # A turbo or watchman daemon it meant to leave behind.
+        self.assertEqual(self.signalled(self.supervised(0)), [('group', 100)])
+
+    def recorded(self, table, ages, started):
+        def ps(argv, **kwargs):
+            out = table if 'pid=,ppid=,pgid=,rss=' in argv else ages
+            return subprocess.CompletedProcess(argv, 0, stdout=out, stderr='')
+        groups, pids = [], []
+        killed = local.kill_recorded(100, started, run=ps, clock=lambda: 1000.0,
+                                     kill=lambda pid, sig: groups.append(pid),
+                                     kill_one=lambda pid, sig: pids.append(pid))
+        return killed, groups, pids
+
+    def test_a_group_whose_leader_died_is_still_killed_when_it_is_the_runs(self):
+        # 100 died of EPIPE; 101 and 104 are left in its group, 102 left it.
+        table = '101 1 100 1024\n102 101 102 1024\n104 1 100 1024\n'
+        killed, groups, pids = self.recorded(table, '101 01:30\n104 00:10\n', started=900.0)
+        self.assertEqual((killed, groups, pids), (True, [100], [102]))
+
+    def test_a_leaderless_group_older_than_the_run_is_left_alone(self):
+        table = '101 1 100 1024\n'
+        self.assertEqual(self.recorded(table, '101 10:00\n', started=900.0),
+                         (False, [], []))
+
+    def test_a_live_leader_must_have_started_with_the_run(self):
+        table = '100 1 100 1024\n'
+        self.assertTrue(self.recorded(table, '100 01:40\n', started=900.0)[0])
+        self.assertFalse(self.recorded(table, '100 00:10\n', started=900.0)[0])
+
+    def test_a_cancel_reaches_a_descendant_that_called_setsid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            record = Path(tmp) / 'pid'
+            script = ('import os, time\n'
+                      'if os.fork() == 0:\n'
+                      '    os.setsid()\n'
+                      '    open(%r, "w").write(str(os.getpid()))\n'
+                      '    time.sleep(60)\n'
+                      '    os._exit(0)\n'
+                      'time.sleep(60)\n' % str(record))
+            asked = {'at': None}
+
+            def canceled():
+                if asked['at'] is None and record.exists() and record.read_text():
+                    asked['at'] = time.monotonic()
+                return asked['at'] is not None
+            supervisor = Supervisor([sys.executable, '-c', script], cwd='.',
+                                    env=dict(os.environ), timeout_seconds=30,
+                                    on_log=lambda *_: None,
+                                    cancel={'signal': 'SIGTERM', 'grace_ms': 500})
+            outcome, _code = supervisor.run(canceled)
+            self.assertEqual(outcome, 'cancelled')
+            escaped = int(record.read_text())
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(escaped, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                os.kill(escaped, 9)
+                self.fail('the setsid descendant %d survived the cancel' % escaped)
 
 
 class ChildEnvironment(unittest.TestCase):

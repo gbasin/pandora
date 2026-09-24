@@ -66,6 +66,13 @@ forms = [{ prefix = ["writer"] }]
 options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
 outputs = [{ kind = "writeback", requires_option = "update", paths = ["out"] }]
 run = { argv = ["sh", "-c", "echo ran-writer > %(marker)s"] }
+[[jobs]]
+id = "fanout"
+size = "large"
+args = "optional"
+forms = [{ prefix = ["fanout"] }]
+shards = { strategy = "argv", template = "--shard={i}/{n}", default = 2, max = 4 }
+run = { argv = ["sh", "-c", "echo ran-fanout > %(marker)s", "--", "{args}"] }
 [worker]
 base_image = "images:ubuntu/26.04"
 '''
@@ -256,8 +263,33 @@ class OneFallbackPath(DaemonCase):
         self.assertEqual(answer.exit, 70)
         self.assertEqual(answer.error['code'], 'fallback-refused')
         self.assertIn('size large', answer.error['msg'])
-        self.assertIn('PANDORA_OFF=1', answer.error['msg'])
+        # The job could run in the local lane, so the refusal steers there and
+        # not to an unmanaged run (2026-09-24).
+        self.assertIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertNotIn('PANDORA_OFF', answer.error['msg'])
         self.assertFalse(self.marker.exists(), 'a large job ran on this Mac')
+
+    def test_a_sharded_job_offers_pandora_off_only_as_a_last_resort(self):
+        FakeWorker.raises = TransferError('rsync failed (255): unexpected end of file')
+        answer = self.call(['pnpm', 'fanout'])
+        self.assertEqual((answer.error['code'], answer.exit), ('fallback-refused', 70))
+        self.assertNotIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertIn('last resort, PANDORA_OFF=1', answer.error['msg'])
+
+    def test_a_paused_local_lane_says_why_in_the_refused_runs_log(self):
+        from pandora.client.pressure import Paused
+        FakeWorker.raises = WorkerUnreachable('down')
+        reason = 'this Mac has been under memory pressure for 300s (swap growing)'
+        with mock.patch.object(self.daemon.budget, 'admit', side_effect=Paused(reason)):
+            answer = self.call(['pnpm', 'unit'])
+        self.assertEqual((answer.error['code'], answer.exit), ('local-paused', 70))
+        local = [path.parent for path in (self.state / 'runs').glob('*/meta.json')
+                 if json.loads(path.read_text())['lane'] == 'local']
+        self.assertEqual(len(local), 1)
+        self.assertEqual(json.loads((local[0] / 'meta.json').read_text())['state'], 'refused')
+        frames = [json.loads(line) for line in (local[0] / 'log').read_text().splitlines()]
+        said = b''.join(base64.b64decode(frame['b64']) for frame in frames if 'b64' in frame)
+        self.assertIn(reason.encode(), said)
 
     def test_a_large_job_that_declares_local_is_allowed(self):
         FakeWorker.raises = WorkerUnreachable('down')
@@ -277,6 +309,515 @@ class OneFallbackPath(DaemonCase):
         answer = self.call(['pnpm', 'writer', '--update'])
         self.assertEqual(answer.exit, 70)
         self.assertFalse(self.marker.exists())
+
+
+class UploadPhases(DaemonCase):
+    """A slow submission says where it is: in `ps`, in the log, in its timings."""
+
+    def test_each_step_is_on_disk_and_a_failure_keeps_its_partial_timings(self):
+        seen = []
+        state = self.state
+
+        def slow(worker, *, phase=None, progress=None, **kwargs):
+            for name in ('freeze', 'ship'):
+                phase(name)
+                [meta] = [json.loads(path.read_text())
+                          for path in (state / 'runs').glob('*/meta.json')]
+                seen.append((meta['state'], meta['phase']))
+            progress('syncing 3 files, 1 KiB')
+            error = TransferError('rsync to h failed (255): unexpected end of file')
+            error.pre_accept = {'freeze': 0.5, 'ship': 12.0}
+            raise error
+        with mock.patch.object(FakeWorker, 'submit', slow):
+            answer = self.call(['pnpm', 'surface'])
+        self.assertEqual(seen, [('queued', 'freeze'), ('queued', 'ship')])
+        self.assertEqual(answer.notices.count('syncing 3 files, 1 KiB'), 1)
+        [row] = [path.parent for path in (self.state / 'runs').glob('*/meta.json')]
+        meta = json.loads((row / 'meta.json').read_text())
+        self.assertEqual((meta['state'], meta['phase']), ('refused', 'ship'))
+        self.assertEqual(meta['pre_accept'], {'freeze': 0.5, 'ship': 12.0})
+        frames = [json.loads(line) for line in (row / 'log').read_text().splitlines()]
+        said = [base64.b64decode(frame['b64']) for frame in frames if frame['t'] == 'said']
+        self.assertEqual(said, [b'pandora: syncing 3 files, 1 KiB\n'])
+
+    def test_an_accepted_run_streams_the_sync_line_only_once(self):
+        def syncing(worker, *, phase=None, progress=None, **kwargs):
+            phase('ship')
+            progress('syncing 3 files, 1 KiB')
+            return Submission()
+        with mock.patch.object(FakeWorker, 'submit', syncing):
+            answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertEqual(answer.notices, ['syncing 3 files, 1 KiB'])
+        self.assertNotIn(b'syncing', answer.err)
+        meta = json.loads((self.state / 'runs' / answer.accepted['run'] / 'meta.json')
+                          .read_text())
+        self.assertNotEqual(meta['phase'], 'ship')
+
+
+class StaleMarker(DaemonCase):
+    """A claimed run through a marker that no longer matches pandora.toml says so."""
+
+    def mark(self, claims):
+        (self.repo / '.git').mkdir(exist_ok=True)
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
+            socket_path=str(self.daemon.socket_path), repo='demo', claims=claims))
+
+    def test_one_notice_line_names_the_count_and_the_fix(self):
+        self.mark([['unit']])
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        stale = [line for line in answer.notices if 'marker is stale' in line]
+        # Five more forms in pandora.toml than in the marker.
+        self.assertEqual(stale, ['enrollment marker is stale (5 forms differ); run pandora '
+                                 'enroll %s' % self.repo])
+
+    def test_a_branch_whose_pandora_toml_differs_says_nothing(self):
+        # The marker matches the enrolled root; a sibling worktree on a branch
+        # that drops most jobs is normal and must not be told to re-enroll.
+        from pandora.config import loader
+        self.mark(enrollment.routing_of(loader.load(self.repo / 'pandora.toml'))['claim'])
+        branch = self.root / 'branch'
+        branch.mkdir()
+        (self.repo / '.git' / 'worktrees' / 'branch').mkdir(parents=True)
+        (branch / '.git').write_text('gitdir: %s\n' % (self.repo / '.git' / 'worktrees'
+                                                         / 'branch'))
+        text = (self.repo / 'pandora.toml').read_text()
+        (branch / 'pandora.toml').write_text(text[:text.index('[[jobs]]\nid = "surface"')]
+                                             + text[text.index('[worker]'):])
+        answer = self.call(['pnpm', 'unit'], cwd=branch)
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
+
+    def test_a_current_marker_says_nothing(self):
+        from pandora.config import loader
+        self.mark(enrollment.routing_of(loader.load(self.repo / 'pandora.toml'))['claim'])
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertFalse(any('stale' in line for line in answer.notices), answer.notices)
+
+    def test_the_marker_is_read_again_only_when_it_changes(self):
+        self.mark([['unit']])
+        self.call(['pnpm', 'unit'])
+        with mock.patch.object(enrollment, 'parse', side_effect=AssertionError('re-read')):
+            self.call(['pnpm', 'unit'])
+        path = self.repo / '.git' / 'pandora-enrolled'
+        stamp = path.stat().st_mtime_ns + 1_000_000
+        os.utime(path, ns=(stamp, stamp))
+        with mock.patch.object(enrollment, 'parse', wraps=enrollment.parse) as parse:
+            self.call(['pnpm', 'unit'])
+        self.assertEqual(parse.call_count, 1)
+
+
+class RestartHygiene(DaemonCase):
+    """A restarted daemon settles every row the last one left live."""
+
+    def row(self, run_id, **fields):
+        directory = self.state / 'runs' / run_id
+        directory.mkdir(parents=True)
+        payload = dict({'id': run_id, 'argv': ['pnpm', 'unit'], 'cwd': str(self.repo),
+                        'repo': 'demo', 'job': 'unit', 'started': time.time()}, **fields)
+        (directory / 'meta.json').write_text(json.dumps(payload))
+        (directory / 'log').touch()
+        return directory
+
+    def settled(self, run_id, timeout=10):
+        path = self.state / 'runs' / run_id / 'meta.json'
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            meta = json.loads(path.read_text())
+            if meta['state'] not in ('queued', 'running'):
+                return meta
+            time.sleep(0.05)
+        self.fail('row %s stayed %s' % (run_id, meta['state']))
+
+    def said(self, run_id):
+        frames = [json.loads(line) for line in
+                  (self.state / 'runs' / run_id / 'log').read_text().splitlines()]
+        return b''.join(base64.b64decode(frame['b64']) for frame in frames
+                        if 'b64' in frame).decode()
+
+    def test_a_local_run_is_closed_and_its_process_group_stopped(self):
+        child = subprocess.Popen(['sleep', '60'], start_new_session=True)
+        self.addCleanup(child.wait)
+        self.addCleanup(lambda: child.poll() is None and child.kill())
+        self.row('loc1', lane='local', state='running', accepted=time.time(),
+                 pgid=child.pid, pgid_started=time.time())
+        self.row('loc2', lane='local', state='queued')
+        self.daemon.resume_interrupted()
+        for run_id in ('loc1', 'loc2'):
+            meta = self.settled(run_id)
+            self.assertEqual((meta['state'], meta['exit_code']), ('infra_failed', 70))
+            self.assertIn('daemon restarted during the run', self.said(run_id))
+        self.assertEqual(child.wait(timeout=5), -9)
+        self.assertIn('stopped its process group %d' % child.pid, self.said('loc1'))
+
+    def test_a_recycled_process_group_is_left_alone(self):
+        child = subprocess.Popen(['sleep', '60'], start_new_session=True)
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        # Recorded an hour before this process started: not the run's leader.
+        self.row('loc3', lane='local', state='running', pgid=child.pid,
+                 pgid_started=time.time() - 3600)
+        self.daemon.resume_interrupted()
+        self.assertEqual(self.settled('loc3')['state'], 'infra_failed')
+        self.assertIsNone(child.poll())
+
+    def test_an_unaccepted_row_the_engine_started_is_adopted(self):
+        asked = []
+
+        def lookup(worker, request_id, *, plan=None, fence=True):
+            asked.append((request_id, plan, fence))
+            return {'ok': True, 'found': True, 'spawned': True, 'run_id': 'r77',
+                    'state': 'running'}
+        self.row('pre1', state='queued', phase='submit')
+        with mock.patch.object(FakeWorker, 'lookup', lookup, create=True):
+            self.daemon.resume_interrupted()
+            meta = self.settled('pre1')
+        self.assertEqual(asked, [('pre1:unit', {'repo': 'demo', 'job': 'unit'}, True)])
+        self.assertEqual((meta['state'], meta['remote'], meta['exit_code']),
+                         ('passed', 'r77', 0))
+        self.assertIn('the worker had started it as r77', self.said('pre1'))
+
+    def test_an_unaccepted_row_the_engine_never_saw_is_closed(self):
+        self.row('pre2', state='queued')
+        with mock.patch.object(FakeWorker, 'lookup', create=True,
+                               side_effect=lambda *a, **k: {'ok': True, 'found': False}):
+            self.daemon.resume_interrupted()
+            meta = self.settled('pre2')
+        self.assertEqual((meta['state'], meta['exit_code']), ('infra_failed', 70))
+        self.assertIn('the worker never started it', self.said('pre2'))
+
+    def test_an_unaccepted_row_is_closed_when_the_worker_cannot_be_asked(self):
+        self.row('pre3', state='queued')
+        with mock.patch.object(FakeWorker, 'lookup', create=True,
+                               side_effect=WorkerUnreachable('no route')):
+            self.daemon.resume_interrupted()
+            meta = self.settled('pre3')
+        self.assertEqual(meta['state'], 'infra_failed')
+        self.assertIn('could not be asked (no route)', self.said('pre3'))
+
+    def test_an_unaccepted_write_back_the_engine_started_is_stopped_not_adopted(self):
+        # Its frozen context is saved only at `accepted`, so following it would
+        # finish `passed` with nothing written back.
+        stopped = []
+        self.row('wb1', state='queued', phase='submit', argv=['pnpm', 'writer', '--update'],
+                 job='writer')
+        with mock.patch.object(FakeWorker, 'lookup', create=True, return_value={
+                'ok': True, 'found': True, 'spawned': True, 'run_id': 'r9'}), \
+                mock.patch.object(FakeWorker, 'cancel', create=True,
+                                  side_effect=lambda run_id: stopped.append(run_id)):
+            self.daemon.resume_interrupted()
+            meta = self.settled('wb1')
+        self.assertEqual(stopped, ['r9'])
+        self.assertEqual((meta['state'], meta['exit_code'], meta['remote']),
+                         ('infra_failed', 70, None))
+        self.assertIn('frozen context was never saved', self.said('wb1'))
+
+    def test_a_row_still_freezing_or_shipping_is_closed_without_asking(self):
+        for phase in ('freeze', 'ship'):
+            self.row('early-' + phase, state='queued', phase=phase)
+        with mock.patch.object(FakeWorker, 'lookup', create=True,
+                               side_effect=AssertionError('asked the worker')):
+            self.daemon.resume_interrupted()
+            for phase in ('freeze', 'ship'):
+                meta = self.settled('early-' + phase)
+                self.assertEqual(meta['state'], 'infra_failed')
+                self.assertIn('still in %s' % phase, self.said('early-' + phase))
+
+    def test_a_row_the_engine_cannot_account_for_is_uncertain_not_rerun(self):
+        self.row('unk1', state='queued', phase='submit')
+        self.row('unk2', state='queued', phase='submit')
+        answers = {'unk1': WorkerUnreachable('no route'),
+                   'unk2': {'ok': True, 'found': True, 'spawned': False, 'state': 'claimed'}}
+
+        def lookup(worker, request_id, **kwargs):
+            answer = answers[request_id.split(':')[0]]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        with mock.patch.object(FakeWorker, 'lookup', lookup, create=True):
+            self.daemon.resume_interrupted()
+            for run_id in answers:
+                self.settled(run_id)
+                said = self.said(run_id)
+                self.assertIn('check `pandora ps` before retrying', said)
+                self.assertNotIn('rerun it', said)
+
+    def test_an_exception_nobody_named_still_ends_the_row(self):
+        # `bundle.call` raises TimeoutExpired, which the takeover did not catch:
+        # the thread died and the row stayed live with its client waiting.
+        self.row('pre4', state='queued', phase='submit')
+        self.row('acc4', state='running', remote='r4', accepted=time.time())
+        timeout = subprocess.TimeoutExpired(['ssh'], 60)
+        with mock.patch.object(FakeWorker, 'lookup', create=True, side_effect=timeout), \
+                mock.patch.object(FakeWorker, 'follow', side_effect=timeout):
+            self.daemon.resume_interrupted()
+            for run_id in ('pre4', 'acc4'):
+                meta = self.settled(run_id)
+                self.assertEqual((meta['state'], meta['exit_code']), ('infra_failed', 70))
+                self.assertIn('TimeoutExpired', self.said(run_id))
+
+    def test_threads_that_ask_at_once_share_one_worker(self):
+        built = []
+
+        class Slow(FakeWorker):
+            def __init__(self, host, **kwargs):
+                time.sleep(0.1)
+                built.append(self)
+        self.daemon.worker_factory = Slow
+        self.daemon.workers.clear()
+        threads = [threading.Thread(target=self.daemon.worker_for, args=({},))
+                   for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(built), 1)
+
+    def test_a_local_run_records_its_process_group(self):
+        # `unit` is remote; placed locally, the supervisor spawns it here.
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(30)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(self.repo),
+                           'argv': ['pnpm', 'unit'], 'env': {}, 'tty': False, 'where': 'local'}))
+        reader = Reader(sock)
+        run_id = None
+        while True:
+            frame = reader.line()
+            if frame is None or frame.get('t') == 'exit':
+                break
+            if frame.get('t') == 'accepted':
+                run_id = frame['run']
+        sock.close()
+        meta = json.loads((self.state / 'runs' / run_id / 'meta.json').read_text())
+        self.assertIsInstance(meta['pgid'], int)
+        self.assertAlmostEqual(meta['pgid_started'], meta['started'], delta=30)
+
+
+class OrphanedRows(DaemonCase):
+    """A live row whose daemon has exited never leaves a client waiting forever."""
+
+    row = RestartHygiene.row
+    settled = RestartHygiene.settled
+    said = RestartHygiene.said
+
+    def attach(self, run_id, timeout=10):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'attach', 'run': run_id, 'from': 0}))
+        reader = Reader(sock)
+        first = reader.line()
+        code = None
+        while True:
+            frame = reader.line()
+            if frame is None:
+                break
+            if frame.get('t') == 'exit':
+                code = frame['code']
+                break
+        sock.close()
+        return first, code
+
+    def cancel(self, run_id):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect(str(self.daemon.socket_path))
+        sock.sendall(dump({'v': VERSION, 'op': 'cancel', 'run': run_id}))
+        answer = Reader(sock).line()
+        sock.close()
+        return answer
+
+    def test_attaching_to_a_local_row_nobody_supervises_ends_it(self):
+        self.row('orph1', lane='local', state='running', accepted=time.time())
+        first, code = self.attach('orph1')
+        self.assertEqual((first['t'], first['owned'], code), ('accepted', True, 70))
+        self.assertEqual(self.settled('orph1')['state'], 'infra_failed')
+
+    def test_cancel_of_a_local_row_nobody_supervises_ends_it_canceled(self):
+        self.row('orph2', lane='local', state='running', accepted=time.time())
+        self.assertEqual(self.cancel('orph2')['t'], 'ok')
+        meta = self.settled('orph2')
+        self.assertEqual((meta['state'], meta['exit_code']), ('cancelled', 130))
+        self.assertIn('canceled: the daemon that supervised it has exited', self.said('orph2'))
+        # A client attaching afterward replays the exit rather than waiting.
+        self.assertEqual(self.attach('orph2')[1], 130)
+
+    def test_cancel_of_a_remote_row_nobody_follows_cancels_it_on_the_worker(self):
+        cancels = []
+
+        def follow(worker, run_id, *, should_cancel=None, **kwargs):
+            cancels.append((run_id, should_cancel()))
+            return {'outcome': 'cancelled', 'cli_exit': 130}, 0
+        self.row('orph3', state='running', remote='r55', accepted=time.time())
+        with mock.patch.object(FakeWorker, 'follow', follow):
+            self.cancel('orph3')
+            meta = self.settled('orph3')
+        self.assertEqual(cancels, [('r55', True)])
+        self.assertEqual((meta['state'], meta['exit_code']), ('cancelled', 130))
+
+    def test_a_row_saved_by_this_daemon_is_not_taken_over(self):
+        # Before `accepted` a row is live, not in `runs`, and still driven by
+        # its connection thread: attaching must not close it.
+        self.row('mine1', state='queued', owner=daemon_module.OWNER)
+        self.assertFalse(self.daemon.orphaned(json.loads(
+            (self.state / 'runs' / 'mine1' / 'meta.json').read_text())))
+        self.assertTrue(self.daemon.orphaned(dict(json.loads(
+            (self.state / 'runs' / 'mine1' / 'meta.json').read_text()), owner='gone')))
+
+
+class OwnPreAccept(DaemonCase):
+    """`pandora cancel` and `attach` reach this daemon's own run before `accepted`."""
+
+    cancel = OrphanedRows.cancel
+    attach = OrphanedRows.attach
+
+    def queued_id(self, lane, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for path in (self.state / 'runs').glob('*/meta.json'):
+                meta = json.loads(path.read_text())
+                if meta.get('lane') == lane and meta['state'] == 'queued':
+                    return meta['id']
+            time.sleep(0.02)
+        self.fail('no queued %s row' % lane)
+
+    def test_cancel_of_a_queued_local_run_reaches_the_real_one(self):
+        def admit(run_id, *, canceled=None, **kwargs):
+            while not canceled():
+                time.sleep(0.02)
+            return None
+        answers = []
+        with mock.patch.object(self.daemon.budget, 'admit', side_effect=admit):
+            caller = threading.Thread(target=lambda: answers.append(
+                self.call(['pnpm', 'unit'])))
+            FakeWorker.raises = WorkerUnreachable('down')      # small: falls back to local
+            caller.start()
+            run_id = self.queued_id('local')
+            self.assertEqual(self.cancel(run_id)['t'], 'ok')
+            caller.join(10)
+        [answer] = answers
+        self.assertEqual((answer.error['code'], answer.exit), ('canceled', 130))
+        meta = json.loads((self.state / 'runs' / run_id / 'meta.json').read_text())
+        self.assertEqual((meta['state'], meta['exit_code']), ('cancelled', 130))
+        self.assertNotIn(run_id, self.daemon.runs)       # no stand-in left behind
+
+    def test_cancel_of_a_remote_run_still_submitting_reaches_it_after_accepted(self):
+        release, asked = threading.Event(), []
+
+        def submit(worker, **kwargs):
+            release.wait(10)
+            return Submission('r-late')
+
+        def follow(worker, run_id, *, should_cancel=None, **kwargs):
+            asked.append(should_cancel())
+            return {'outcome': 'cancelled', 'cli_exit': 130}, 0
+        answers = []
+        with mock.patch.object(FakeWorker, 'submit', submit), \
+                mock.patch.object(FakeWorker, 'follow', follow):
+            caller = threading.Thread(target=lambda: answers.append(self.call(['pnpm', 'unit'])))
+            caller.start()
+            run_id = self.queued_id('remote')
+            self.cancel(run_id)
+            release.set()
+            caller.join(10)
+        self.assertEqual(asked, [True])
+        self.assertEqual(answers[0].exit, 130)
+        self.assertIs(self.daemon.runs[run_id].done.is_set(), True)
+
+    def test_a_live_row_of_ours_that_nothing_holds_is_not_waited_on(self):
+        RestartHygiene.row(self, 'mine2', state='running', owner=daemon_module.OWNER)
+        first, code = self.attach('mine2')
+        self.assertEqual((first['owned'], code), (False, None))
+        self.assertNotIn('mine2', self.daemon.runs)
+
+
+class Unfollowed(unittest.TestCase):
+    """A client told that nothing follows its run exits 70 with one line."""
+
+    def serve(self, frame):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = str(Path(tmp.name) / 's.sock')
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        server.listen(4)
+        self.addCleanup(server.close)
+
+        def answer():
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    return
+                Reader(conn).line()
+                conn.sendall(dump(frame))
+                conn.close()
+        threading.Thread(target=answer, daemon=True).start()
+        return path
+
+    def idle(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(sock.close)
+        return sock
+
+    def test_the_shim_stops_reattaching_and_says_so(self):
+        path = self.serve({'v': VERSION, 't': 'accepted', 'run': 'x1', 'owned': False})
+        stream = shim.Stream(path, 'x1', Reader(self.idle()), None)
+        with mock.patch.object(shim, 'REATTACH_PAUSE', 0):
+            self.assertFalse(stream.reattach())
+        self.assertIn('not following', stream.unfollowed)
+
+    def test_the_shim_stops_on_a_run_the_daemon_does_not_have(self):
+        path = self.serve({'v': VERSION, 't': 'error', 'code': 'rejected',
+                           'msg': 'no such run x2'})
+        stream = shim.Stream(path, 'x2', Reader(self.idle()), None)
+        with mock.patch.object(shim, 'REATTACH_PAUSE', 0):
+            self.assertFalse(stream.reattach())
+        self.assertEqual(stream.unfollowed, 'no such run x2')
+
+    def test_pandora_wait_exits_70_at_once(self):
+        from pandora import cli
+        path = self.serve({'v': VERSION, 't': 'accepted', 'run': 'x3', 'owned': False})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(cli.attach(path, 'x3'), 70)
+        self.assertIn('the daemon is not following it', err.getvalue())
+
+
+class DaemonLog(DaemonCase):
+    """Every line the daemon writes to its log starts with a UTC time."""
+
+    STAMP = r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ '
+
+    def test_the_helper_stamps_each_line(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            daemon_module.log('worker down: no route')
+        self.assertRegex(err.getvalue(), self.STAMP + 'worker down: no route\n$')
+
+    def test_a_refusal_is_logged_with_its_run_and_cause(self):
+        FakeWorker.raises = TransferError('rsync to h failed (255): unexpected end of file')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            answer = self.call(['pnpm', 'surface'])
+        [line] = [line for line in err.getvalue().splitlines() if 'refused' in line]
+        self.assertRegex(line, self.STAMP + 'run [0-9a-f]{12} refused: transfer-failed: '
+                         'rsync to h failed')
+        self.assertEqual(answer.exit, 70)
+
+    def test_a_restart_logs_what_it_decided(self):
+        directory = self.state / 'runs' / 'loc9'
+        directory.mkdir(parents=True)
+        (directory / 'meta.json').write_text(json.dumps(
+            {'id': 'loc9', 'state': 'running', 'lane': 'local', 'argv': ['pnpm', 'unit']}))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.daemon.resume_interrupted()
+        self.assertRegex(err.getvalue(), self.STAMP + 'resume: local run loc9 closed as '
+                         'infra_failed')
 
 
 class NoRowStaysQueued(DaemonCase):
@@ -652,6 +1193,18 @@ class Policy(unittest.TestCase):
                                 declared={'action': 'local', 'on': list(policy.CAUSES)})
         self.assertEqual(verdict['action'], 'refuse')
         self.assertIn('write-back', verdict['reason'])
+
+    def test_a_refusal_steers_to_the_local_queue_when_the_job_can_run_there(self):
+        for kwargs in ({'size': 'large'}, {'size': 'small', 'writeback': True},
+                       {'size': 'small', 'declared': {'action': 'local', 'on': ['queue-timeout']}}):
+            reason = policy.decide(cause='transfer-failed', **kwargs)['reason']
+            self.assertIn('PANDORA_WHERE=local', reason, kwargs)
+            self.assertNotIn('PANDORA_OFF', reason, kwargs)
+
+    def test_pandora_off_is_named_only_when_the_local_lane_cannot_take_it(self):
+        reason = policy.decide(cause='transfer-failed', size='large', local_lane=False)['reason']
+        self.assertNotIn('PANDORA_WHERE=local', reason)
+        self.assertIn('last resort, PANDORA_OFF=1', reason)
 
     def test_an_unknown_cause_is_refused_rather_than_guessed(self):
         self.assertEqual(policy.decide(cause='cosmic-ray', size='small')['action'], 'refuse')
