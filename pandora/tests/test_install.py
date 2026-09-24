@@ -236,7 +236,7 @@ class Launchers(Case):
         (bindir / 'pnpm').symlink_to(repo / 'bin' / 'pnpm')
         env = {'PATH': '%s:/usr/bin:/bin' % bindir}
         self.assertFalse(install.through_current(bindir / 'pandora', self.data))
-        links = install.launcher_links(env, self.data)
+        links = install.launcher_links(env, self.data, source=str(repo))
         self.assertEqual([item['status'] for item in links], ['fixed', 'fixed'])
         for name in ('pandora', 'pnpm'):
             self.assertEqual(os.readlink(bindir / name), str(self.data / 'current' / 'bin' / name))
@@ -244,6 +244,26 @@ class Launchers(Case):
         self.assertEqual([item['status'] for item in install.launcher_links(env, self.data)],
                          ['ok', 'ok'])
         self.assertEqual(sorted(os.listdir(bindir)), ['pandora', 'pnpm'], 'no scratch link left')
+
+    def test_a_link_into_another_checkout_is_left_alone(self):
+        # Someone else's install -- the live one, when this runs with another
+        # data directory -- is reported, never re-pointed.
+        repo = self.checkout()
+        other = self.checkout('other')
+        install.flip(self.data, self.build(repo)['name'])
+        bindir = self.root / 'bin'
+        bindir.mkdir()
+        (bindir / 'pandora').symlink_to(other / 'bin' / 'pandora')
+        links = install.launcher_links({'PATH': str(bindir)}, self.data, source=str(repo))
+        self.assertEqual(links[0]['status'], 'other')
+        self.assertEqual(os.readlink(bindir / 'pandora'), str(other / 'bin' / 'pandora'))
+        self.assertIn('not the checkout upgraded here; left alone', install.link_lines(links)[0])
+        # A link into an older version of this data root is ours to move.
+        old = self.data / 'versions' / install.installed(self.data)['name']
+        (bindir / 'pandora').unlink()
+        (bindir / 'pandora').symlink_to(old / 'bin' / 'pandora')
+        links = install.launcher_links({'PATH': str(bindir)}, self.data, source=str(repo))
+        self.assertEqual(links[0]['status'], 'fixed')
 
     def test_a_link_to_the_version_directory_is_not_through_current(self):
         repo = self.checkout()
@@ -593,7 +613,9 @@ class Upgrade(Case):
     def test_the_cli_refuses_a_dirty_checkout_and_parses_the_flags(self):
         from pandora import cli
         (self.repo / 'pandora' / 'cli.py').write_text('dirty\n')
+        # A PATH with no launcher on it: this must never re-point the real ones.
         with mock.patch.object(install, 'upgrade', wraps=install.upgrade) as called, \
+                mock.patch.dict(os.environ, PATH='/usr/bin:/bin'), \
                 mock.patch('sys.stderr') as err:
             code = cli.main(['--state', str(self.state), '--config', str(self.root / 'none.toml'),
                              'upgrade', '--from', str(self.repo), '--wait', '5', '--keep', '2'])

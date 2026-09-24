@@ -384,12 +384,23 @@ def find_launcher(name, env):
     return None
 
 
-def launcher_links(env, data, *, fix=True):
+def ours(end, data, source):
+    """Whether a launcher's link chain ends in the checkout being upgraded, or in a version here."""
+    package = os.path.dirname(os.path.dirname(end))
+    if source and os.path.realpath(package) == os.path.realpath(source):
+        return True
+    return is_version(package, data)
+
+
+def launcher_links(env, data, *, source=None, fix=True):
     """Each launcher on PATH: already through `current`, re-pointed, or reported.
 
-    Only a symlink that already reaches a Pandora launcher is re-pointed, with
+    Only a symlink that reaches a Pandora launcher in the checkout being
+    upgraded, or in a version directory of this data root, is re-pointed, with
     a scratch link and one rename, so no shell ever finds the name missing. A
-    copy, or a file that is not Pandora's, is reported and left alone.
+    link into another checkout is someone else's install (a second data
+    directory, a test) and is reported, as is a copy or a file that is not
+    Pandora's.
     """
     out = []
     for name in LAUNCHERS:
@@ -401,6 +412,10 @@ def launcher_links(env, data, *, fix=True):
             out.append({'name': name, 'path': found, 'status': 'ok', 'wanted': wanted})
         elif os.path.islink(found) and is_launcher(found, name):
             was = chain_end(found)
+            if not ours(was, data, source):
+                out.append({'name': name, 'path': found, 'status': 'other', 'was': was,
+                            'wanted': wanted})
+                continue
             if fix:
                 scratch = '%s.pandora-%d' % (found, os.getpid())
                 if os.path.lexists(scratch):
@@ -421,6 +436,10 @@ def link_lines(links):
             lines.append('%s runs through current' % item['path'])
         elif item['status'] == 'fixed':
             lines.append('re-pointed %s from %s to %s' % (item['path'], item['was'], item['wanted']))
+        elif item['status'] == 'other':
+            lines.append('%s runs %s, which is not the checkout upgraded here; left alone. '
+                         'To run current: ln -sf %s %s'
+                         % (item['path'], item['was'], item['wanted'], item['path']))
         elif item['status'] == 'stale':
             lines.append('%s runs %s, not current; `pandora upgrade` re-points it'
                          % (item['path'], item['was']))
@@ -531,7 +550,7 @@ def upgrade(*, state, source=None, data=None, env=None, home=None, dirty_ok=Fals
         % (before['name'] if before else '(none)', after['name'],
            short_code(before and before['meta'].get('code')), short_code(version['meta'].get('code')),
            ', already built' if version['reused'] else ', from %s' % info['source']))
-    for line in link_lines(launcher_links(env, data)):
+    for line in link_lines(launcher_links(env, data, source=info['source'])):
         say(line)
 
     code, keep_home = restart_phase(pong, after, data=data, state=state, home=home, now=now,
