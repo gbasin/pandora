@@ -302,6 +302,16 @@ class IndexTest(unittest.TestCase):
             self.assertEqual(result, snapshot.freeze(repo, index=False))
             self.assertEqual(counts['index'], 0)
 
+    def test_time_prints_where_the_digests_came_from(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                snapshot.main(['--time', str(repo)])
+            self.assertRegex(out.getvalue(), r' s  1 entries  read 1  index 1  stat 0 ')
+
     def test_the_map_forgets_what_no_freeze_has_used_for_a_month(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'blobs.json'

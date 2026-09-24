@@ -548,3 +548,26 @@ def verify(root, manifest):
     if actual != {record['path'] for record in manifest}:
         raise SnapshotError('the materialized tree has unexpected or missing files')
 
+
+def main(argv=None):
+    """`python3 -m pandora.snapshot.freeze --time PATH`: one timed freeze."""
+    import argparse
+    parser = argparse.ArgumentParser(prog='python3 -m pandora.snapshot.freeze')
+    parser.add_argument('--time', action='store_true', required=True,
+                        help='freeze PATH and print wall time and where digests came from')
+    parser.add_argument('--cache', help='the digests directory (default: none, in-memory)')
+    parser.add_argument('--no-index', action='store_true', help='hash every file, as before')
+    parser.add_argument('path')
+    args = parser.parse_args(argv)
+    counts = {}
+    started = time.monotonic()
+    manifest, dropped, identity = freeze(args.path, cache=args.cache,
+                                         index=not args.no_index, counts=counts)
+    seconds = time.monotonic() - started
+    print('%.2f s  %d entries  read %d  index %d  stat %d  (both passes)  input %s'
+          % (seconds, len(manifest), counts['read'], counts['index'], counts['stat'],
+             identity))
+
+
+if __name__ == '__main__':
+    main()
