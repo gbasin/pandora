@@ -19,7 +19,9 @@ Read [...] for setup, suite selection, cancellation, and recovery." in the
 > repository root. Results, reports and artifacts are in your worktree before
 > the command returns, and the exit code is the command's own. Exit 70 is an
 > infrastructure failure, never a test verdict: retry, or run the command here
-> with `PANDORA_WHERE=local`, which keeps it in the queue. If the message says
+> with `PANDORA_WHERE=local`, which keeps it in the queue. When the worker is
+> full, the command waits in the worker's queue and prints `pandora: queued on
+> the worker behind N runs`; that is normal, so let it wait. If the message says
 > this machine is under memory pressure, wait a few minutes and retry; do not
 > bypass it. Exit 75 means a validation is already active in this worktree or
 > the source changed during the run. `--update` runs on the worker too: do not
@@ -79,6 +81,23 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > Pandora refuses a claimed command because it does not understand a key in
 > `pandora.toml`, the message names the key and the fix; the fix updates Pandora
 > on this machine, so leave it to the owner.
+>
+> ## Queueing
+>
+> When the worker is full, a command waits in the worker's queue before it
+> starts. It prints `pandora: queued on the worker behind N runs (position P)`,
+> with an estimate when one exists, and then `still queued` at most once a
+> minute. This is normal. Let it wait, and do not run the command here instead.
+> There is one queue for everybody, first come, first served. The wait has a
+> limit that comes from how long the job usually takes, between 2 and 30
+> minutes. At the limit the command exits 70 with `queue-timeout`, and nothing
+> ran: retry later. `pandora cancel <id>` takes a queued command out of the
+> queue. `pandora ps` shows a queued command as `queued #P`.
+>
+> Each job starts with the `size` in `pandora.toml`. After a few runs, the
+> worker sizes the job from what it actually used, larger or smaller. When the
+> size changes, the command prints `pandora: size for <job>: <old> -> <new>`.
+> No action is needed. After an `oom`, the job goes back to its declared size.
 >
 > `pandora ps` lists runs. `pandora logs <id>` replays one. `pandora cancel <id>`
 > stops one. `pandora result <id>` shows its outcome and hint. `pandora stats`

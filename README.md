@@ -884,7 +884,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `id`, `summary`, `usage` | Name, one-line description, and the usage line printed on a refusal. |
 | `forms` | The argv prefixes the job claims, such as `[{ prefix = ["journey"] }]`. |
 | `where` | `remote` (default) or `local`. Local is the daemon's own lane: the same queue, admission, receipt and exit contract, on the Mac. |
-| `size` | `small`, `medium` (default), `large` or `xlarge`: memory ceilings of 1, 4, 8 and 12 GiB. The reservation is learned from observed peaks after 3 samples; the ceiling is the hard cap. The size also decides fallback. |
+| `size` | `small`, `medium` (default), `large` or `xlarge`: memory ceilings of 1, 4, 8 and 12 GiB. The declared size is the starting class. On the worker, after 3 clean runs, the class becomes the one that p95 of the observed peaks times 1.25 fits, up or down. That class sets both the reservation and the ceiling, which is the hard cap. An `oom` resets the class to the declared one, and learning starts again after 3 more clean runs. A change prints `pandora: size for <job>: <old> -> <new> (p95 N MiB over K runs)`, and `pandora result --json` records `size_declared` and `size_used`. A changed `size` restarts learning from the new value. The declared size also decides fallback. |
 | `args` | `none` (default), `required` or `optional`. `on_extra = { action = "local" }` lets extra arguments fall out of the claim instead of being refused. |
 | `validate` | `{ argv, timeout_ms }`: the repository's own pre-flight check, run in the worktree before anything is frozen or queued. Exit 0 means "I would run this"; anything else is the repository's refusal, shown as is. |
 | `run` | `{ argv, env, unset, cwd }`: the command. `{args}` places the caller's arguments. |
@@ -937,13 +937,13 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json] [--limit N]` | Every active run and the latest 20 completed runs. `--limit` selects 0–200 completed runs, for both text and JSON. Worker health includes the client name and other clients' live counts; pressure includes the sample age. While a restart drains, `daemon: draining` comes first. A remote run not yet accepted shows `freezing`, `shipping` or `submitting`. JSON includes each run's `submitter` and `client`. |
+| `pandora ps [--json] [--limit N]` | Every active run and the latest 20 completed runs. `--limit` selects 0–200 completed runs, for both text and JSON. Worker health includes the client name and other clients' live counts; pressure includes the sample age. While a restart drains, `daemon: draining` comes first. A remote run not yet accepted shows `freezing`, `shipping`, `submitting` or `queued #N` (its place in the worker queue; JSON has it as `queue`). JSON includes each run's `submitter` and `client`. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
-| `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
+| `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A run in the worker queue is withdrawn; nothing ran. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
-| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
+| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, how long runs waited in the worker queue (p50, p95) and how many ended `queue-timeout`, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return. For orchestrators. `--local` and `--remote` place the run. |
 
@@ -965,8 +965,8 @@ agent's tool call times out) does not; the run continues, and `pandora wait
 Pandora's lines go to stderr and start with `pandora:`. The command's own
 output stays on stdout. A remote run prints progress lines: `syncing N files`
 on a source-cache miss (also kept in the run's log for `pandora logs`), `instance ready in N s`, `running (typical 4m10s for
-check; cpus hint 2)` once three earlier runs exist, queue lines for shards and
-the local lane, and a retry line when one happens. The last line may be a hint:
+check; cpus hint 2)` once three earlier runs exist, queue lines for the worker
+queue, shards and the local lane, and a retry line when one happens. The last line may be a hint:
 
 ```
 pandora: hint: review `git diff` of 1 updated files, then validate without --update
@@ -991,7 +991,9 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
-| `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `queue-timeout`, `admission-refused`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
+| `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
+| the worker is full (memory) | queues on the worker; 70 after the bound (`queue-timeout`) | queues; 70 after the bound | queues; 70 after the bound |
+| `admission-refused`: every worker slot is taken, or the reservation is larger than the worker | refuse, 70 | refuse, 70 | refuse, 70 |
 | `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
 | `daemon-unreachable`, never installed here (no client configuration) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
 | the `submit` call fails and the engine cannot then be asked whether it started the run | 70 | 70 | 70 |
@@ -1004,7 +1006,9 @@ engine never saw is fenced, so a late copy cannot start, and falls back as
 above. A worker that cannot be asked ends the run with exit 70 and the message
 "execution is uncertain; check `pandora ps` before retrying".
 
-A job's `fallback = "local"` or `"refuse"` overrides the size column. The local
+A job's `fallback = "local"` or `"refuse"` overrides the size column, except
+for a busy worker: `admission-refused` and `queue-timeout` refuse whatever the
+job declares. The local
 lane is the same queue, memory admission and receipt as any local job, recorded
 as `fallback:<cause>`. A refusal prints the cause and the next step, and
 nothing runs. The next step is "retry, or run it in the local queue with
@@ -1012,6 +1016,29 @@ nothing runs. The next step is "retry, or run it in the local queue with
 that cannot (a sharded one) does it name `PANDORA_OFF=1`, as a last resort. A
 local run refused by the memory-pressure gate says to wait and retry, and not to
 bypass it.
+
+### Queueing
+
+A full worker queues a run; it does not refuse it. When the worker's memory is
+the only obstacle, the run waits in the worker's queue before `accepted`. The
+caller sees `pandora: queued on the worker behind 3 runs (position 2), ~4m10s;
+gives up after 10m00s`, then at most once a minute `still queued behind N
+(position P)`. The heartbeat continues under the wait, so the client does not
+time out. There is one queue for every client, every job and every shard, in
+arrival order. The oldest waiting run is admitted first. A large run at the
+head blocks smaller runs behind it, even when they would fit. There is no
+priority and no per-client share.
+
+The wait is bounded by the job's own history, not by a configuration key:
+`max(120 s, min(1800 s, 3 x p50))` of how long the job's last runs held the
+worker, from admission to finish. With fewer than 3 such runs, the bound is
+600 s. At the bound the run ends `infra_failed`, cause `queue-timeout`, exit 70.
+It never falls back and is never retried. `pandora cancel` withdraws a queued
+run. A daemon restart that drains withdraws it too, and the caller submits it
+again at the back of the queue. A daemon that crashes leaves the run queued on
+the worker; the next daemon follows it. The disk floor, a full set of worker
+slots (`max_running`), and a reservation larger than the worker's whole budget
+still refuse at once with exit 70, because waiting cannot fix them.
 
 ### Write-back (`--update`)
 
@@ -1062,6 +1089,7 @@ runs locally.
 | `partition-unverified` | no | The shards ran; their reports will not change. |
 | `shard-failed` | no | The shard already had its own retry. |
 | `admission-timeout` | no | A retry joins the same full queue. |
+| `queue-timeout` | no | The worker queue did not admit it within its bound; a retry joins the same queue. |
 | `engine-error` | no | An unrecognized failure is not retried. |
 | `worker-lost` | no | The run may still be executing. |
 
