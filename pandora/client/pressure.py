@@ -148,10 +148,8 @@ class Paused(Exception):
 class Gate:
     """Is the local lane open? Sampled lazily, counted for `pandora stats`.
 
-    Lazily, because a background thread sampling a healthy Mac every three
-    seconds forever is exactly the kind of cost this project keeps refusing
-    elsewhere. Nothing asks whether the lane is open unless something wants in,
-    or a person typed `pandora ps`.
+    Sampling is admission's job. Status readers use the latest observation and
+    its age; they never start a probe or wait for admission's probe to finish.
     """
 
     def __init__(self, config=None, *, reader=read_host, clock=time.monotonic, store=None):
@@ -239,10 +237,13 @@ class Gate:
         self._save()
 
     def state(self):
+        age = None if self.at is None else max(0, self.clock() - self.at)
         seconds = self.counters['paused_seconds']
         if self.evidence and self.since is not None:
             seconds = round(seconds + (self.clock() - self.since), 1)
         return {'enabled': bool(self.config['enabled']), 'paused': bool(self.evidence),
+                'age_seconds': age,
+                'stale': age is None or age >= self.config['sample_seconds'],
                 'evidence': self.evidence, 'since': self.since,
                 'max_wait_seconds': self.config['max_wait_seconds'],
                 'paused_seconds': seconds, **{key: value for key, value in self.counters.items()

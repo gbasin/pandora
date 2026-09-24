@@ -62,21 +62,32 @@ def notice(text):
     sys.stderr.flush()
 
 
-# How long an operator verb (`ps`, `cancel`, `wait`, `doctor`) waits for the
+# How long an operator verb (`cancel`, `wait`, `doctor`) waits for the
 # daemon. A starved daemon at load 90 answered in 66 s on 2026-09-24, and a
 # 2-5 s client called it "not running". The shim keeps its 2 s connect: a slow
 # daemon must not delay every pnpm call.
 OPERATOR_SECONDS = 30.0
+PS_SECONDS = 2.0
 
 
-def ask(sock_path, request, timeout=OPERATOR_SECONDS):
+def ask(sock_path, request, timeout=OPERATOR_SECONDS, *, deadline_seconds=None):
+    deadline = None if deadline_seconds is None else time.monotonic() + deadline_seconds
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-    sock.connect(str(sock_path))
-    sock.sendall(dump({'v': VERSION, **request}))
-    reader = Reader(sock)
+
+    def remaining():
+        if deadline is None:
+            return timeout
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError('request deadline exceeded')
+        return left
+
     try:
-        return reader.line()
+        sock.settimeout(remaining())
+        sock.connect(str(sock_path))
+        sock.settimeout(remaining())
+        sock.sendall(dump({'v': VERSION, **request}))
+        return Reader(sock, deadline=deadline).line()
     finally:
         sock.close()
 
@@ -439,49 +450,73 @@ def cmd_ps(args):
     state, _ = state_of(args)
     pause, worker, me, draining = {}, {}, None, None
     try:
-        answer = ask(state / 'client.sock', {'op': 'ps'})
+        answer = ask(state / 'client.sock', {'op': 'ps', 'limit': args.limit},
+                     deadline_seconds=PS_SECONDS)
+        if (not isinstance(answer, dict) or answer.get('t') != 'ps'
+                or not isinstance(answer.get('data'), list)):
+            raise ValueError((answer or {}).get('msg', 'invalid status response')
+                             if isinstance(answer, dict) else 'no status response')
         rows = answer['data']
         pause, worker = answer.get('pause') or {}, answer.get('worker') or {}
         me = answer.get('client')
         draining = answer.get('draining')
-    except OSError as error:
+    except (OSError, ValueError) as error:
         marker = drain.read_marker(state)
         if marker is not None and marker['age'] < drain.STALE_SECONDS:
             # The restart gap: the old daemon has gone and the new one is not up.
             draining = dict(marker, gap=True)
-        rows = []
-        for meta in sorted((state / 'runs').glob('*/meta.json')):
-            try:
-                rows.append(json.loads(meta.read_text()))
-            except (OSError, ValueError):
-                continue
-        rows.sort(key=lambda row: row.get('started', 0), reverse=True)
-        worker = {'worker': 'unknown', 'reason': (
-            'the daemon did not answer within %ds' % OPERATOR_SECONDS
-            if isinstance(error, TimeoutError) else 'the daemon is not running')}
+        reason = ('unresponsive: no status response within %gs' % PS_SECONDS
+                  if isinstance(error, TimeoutError) else 'status unavailable: %s' % error)
+        if args.json:
+            print(json.dumps({'runs': [], 'pause': {}, 'worker': {'worker': 'unknown'},
+                              'client': None, 'draining': draining,
+                              'daemon': {'responding': False, 'reason': reason}}))
+        else:
+            if draining:
+                print(draining_line(draining))
+            print('daemon: %s; run status is unknown' % reason)
+        return INFRA
+    # Older daemons ignore the requested limit. Keep the same display contract
+    # while upgrading: every active row, plus only the requested recent rows.
+    active = [row for row in rows if row.get('state') in ('queued', 'running')]
+    recent = [row for row in rows if row.get('state') not in ('queued', 'running')]
+    rows = active + recent[:args.limit]
     if args.json:
         print(json.dumps({'runs': rows, 'pause': pause, 'worker': worker, 'client': me,
-                          'draining': draining}
-                         if pause or worker else rows, indent=1, sort_keys=True))
+                          'draining': draining, 'daemon': {'responding': True}},
+                         indent=1, sort_keys=True))
         return 0
     if draining:
         # First: every command typed now waits for the restart, and says so.
         print(draining_line(draining))
     print(worker_line(worker, me))
-    if pause.get('paused'):
-        # First line, not a footnote: a queue that is not admitting is the most
-        # important fact on the screen.
-        print('local lane PAUSED: %s (max wait %gs)'
-              % (pause.get('evidence'), pause.get('max_wait_seconds', 0)))
+    if pause.get('enabled'):
+        age = pause.get('age_seconds')
+        freshness = ('sample age unknown' if age is None else
+                     'sampled %gs ago%s' % (round(age, 1), '; stale' if pause.get('stale') else ''))
+        if pause.get('paused'):
+            print('local lane PAUSED: %s (max wait %gs; %s)'
+                  % (pause.get('evidence'), pause.get('max_wait_seconds', 0), freshness))
+        else:
+            print('local pressure: %s (%s)' % ('unknown' if age is None else 'last sample clear',
+                                               freshness))
     print('%-14s %-6s %-10s %-16s %5s  %s'
           % ('run', 'lane', 'state', 'remote', 'exit', 'command'))
-    for row in rows[:args.limit]:
+    for row in rows:
         print('%-14s %-6s %-10s %-16s %5s  %s' % (
             row.get('id', '')[:14], (row.get('lane') or 'remote')[:6],
             state_word(row)[:10], (row.get('remote') or '-')[:16],
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
+
+
+def ps_limit(value):
+    from .client.status import RECENT_LIMIT
+    count = int(value)
+    if not 0 <= count <= RECENT_LIMIT:
+        raise argparse.ArgumentTypeError('recent run limit must be between 0 and %d' % RECENT_LIMIT)
+    return count
 
 
 def draining_line(draining):
@@ -864,7 +899,8 @@ def main(argv=None):
     wait.set_defaults(func=cmd_wait)
 
     ps = sub.add_parser('ps')
-    ps.add_argument('--limit', type=int, default=20)
+    ps.add_argument('--limit', type=ps_limit, default=20,
+                    help='recent completed runs (0–200, default 20); active runs always appear')
     ps.add_argument('--json', action='store_true')
     ps.set_defaults(func=cmd_ps)
 

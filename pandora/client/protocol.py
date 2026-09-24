@@ -12,6 +12,7 @@ worker's engine has admitted the run and named it.
 """
 import base64
 import json
+import time
 
 from ..exits import PRE_ACCEPT
 
@@ -38,8 +39,9 @@ def is_pre_accept(code):
 class Reader:
     """Buffered NDJSON line reader over a socket."""
 
-    def __init__(self, sock):
+    def __init__(self, sock, *, deadline=None):
         self.sock = sock
+        self.deadline = deadline
         self.buf = b''
         self.eof = False
         # Bytes of complete lines handed out so far. The daemon streams the run
@@ -57,6 +59,11 @@ class Reader:
                 return json.loads(raw)
             if self.eof:
                 return None
+            if self.deadline is not None:
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('response deadline exceeded')
+                self.sock.settimeout(remaining)
             chunk = self.sock.recv(65536)
             if not chunk:
                 self.eof = True
