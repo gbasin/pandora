@@ -618,3 +618,20 @@ class Doctor(unittest.TestCase):
                             runner=failed, launchctl=FakeLaunchd())
         names = [item['name'] for item in report['checks']]
         self.assertIn('restart drain', names)
+
+
+class TheWaiter(unittest.TestCase):
+    def test_a_zero_budget_never_waits_and_never_says_so(self):
+        said = []
+        waiter = drain.Waiter('/nonexistent', budget=0, say=said.append,
+                              sleep=lambda _: self.fail('slept'))
+        self.assertFalse(waiter.draining(2))
+        self.assertEqual(said, [])
+
+    def test_the_notice_is_said_once_across_asks(self):
+        said, slept = [], []
+        waiter = drain.Waiter('/nonexistent', budget=10, say=said.append, sleep=slept.append,
+                              clock=lambda: 0.0)
+        self.assertTrue(waiter.draining(2))
+        self.assertTrue(waiter.draining('junk'))
+        self.assertEqual((said, slept), ([drain.NOTICE], [2.0, drain.RETRY_AFTER]))

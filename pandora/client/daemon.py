@@ -1211,7 +1211,8 @@ class Daemon:
                         or (run.lane != 'local' and run.state == 'queued')):
                     blocking.append({'id': run.id, 'lane': run.lane, 'state': run.state,
                                      'phase': run.phase, 'argv': run.request.get('argv')})
-        return {'since': self.draining['since'], 'blockers': blocking,
+            since = self.draining['since']
+        return {'since': since, 'blockers': blocking,
                 'local': sum(row['lane'] == 'local' for row in blocking),
                 'pre_accept': sum(row['lane'] != 'local' for row in blocking)}
 

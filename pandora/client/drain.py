@@ -129,6 +129,9 @@ class Waiter:
         return self.began is not None
 
     def pause(self, seconds):
+        if self.budget <= 0:
+            self.exhausted = True        # PANDORA_DRAIN_WAIT=0: never wait, never say so
+            return False
         if self.began is None:
             self.began = self.clock()
             self.say(NOTICE)

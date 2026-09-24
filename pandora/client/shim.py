@@ -641,7 +641,8 @@ def main(argv=None):
         # Nothing ran: the daemon is restarting and said so. Ask again.
         sock.close()
         if not waiter.draining(frame.get('retry_after')):
-            notice(waiter.gave_up())
+            if waiter.waited():
+                notice(waiter.gave_up())
             return no_daemon('daemon-draining', 'the daemon is still restarting')
     if frame.get('t') == 'error':
         sock.close()
