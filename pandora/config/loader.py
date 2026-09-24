@@ -149,8 +149,8 @@ def _inside(path, where):
 def _no_template(text, where):
     match = TOKEN.search(text)
     if match:
-        raise ConfigError('%s uses template value {%s}; the slice substitutes only {args}'
-                          % (where, match.group(1)))
+        raise UnknownSchema('%s uses template value {%s}; the slice substitutes only {args}'
+                            % (where, match.group(1)), key=where, value='{%s}' % match.group(1))
     return text
 
 
@@ -329,7 +329,8 @@ def _shard_text(text, where, pattern, *, required=()):
     """A string in which only the named tokens may appear."""
     for match in TOKEN.finditer(text):
         if not pattern.fullmatch(match.group(0)):
-            raise ConfigError('%s uses unknown template value %s' % (where, match.group(0)))
+            raise UnknownSchema('%s uses unknown template value %s' % (where, match.group(0)),
+                                key=where, value=match.group(0))
     missing = [token for token in required if token not in text]
     if missing:
         raise ConfigError('%s must use %s' % (where, ', '.join(missing)))
@@ -613,7 +614,7 @@ def validate(value):
     _keys(value, 'configuration', {'version', 'repo', 'worker', 'jobs'},
           {'env', 'secrets', 'fallback', 'feedback', 'matching'})
     if type(value['version']) is not int or value['version'] != VERSION:
-        raise UnknownSchema('configuration version must be %d' % VERSION, key='version',
+        raise UnknownSchema('this code reads another configuration version', key='version',
                             value=value['version'])
 
     repo = _keys(value['repo'], 'repo', {'name', 'entrypoints'}, {'root_markers'})

@@ -525,7 +525,10 @@ class Daemon:
         config merely because their enrollment name is the same.
         """
         path, origin = loader.resolve(root, repo.get('config') or None)
-        stamp = (str(path), path.stat().st_mtime_ns)
+        # By content, not only by date: a file replaced by one with the same
+        # mtime (a checkout, a copy with -p) must not keep its old parse, or a
+        # key this code cannot read would route by the previous file's claims.
+        stamp = (str(path), path.stat().st_mtime_ns, enrollment.digest_of(path))
         key = str(path.resolve())
         if self.repo_stamps.get(key) != stamp:
             config = loader.load(path)

@@ -86,6 +86,17 @@ class LoaderNamesWhatItDoesNotKnow(unittest.TestCase):
             self.load(minimal() + '[future]\nx = 1\n')
         self.assertEqual((caught.exception.key, caught.exception.value), ('future', {'x': 1}))
 
+    def test_an_unknown_template_value_is_unknown_schema_too(self):
+        with self.assertRaises(UnknownSchema) as caught:
+            self.load(minimal().replace('["true", "{args}"]', '["true", "{future}", "{args}"]'))
+        self.assertEqual(caught.exception.value, '{future}')
+
+    def test_an_unknown_version_names_no_version_number_it_expects(self):
+        with self.assertRaises(UnknownSchema) as caught:
+            self.load(minimal().replace('version = 1', 'version = 2'))
+        self.assertEqual((caught.exception.key, caught.exception.value), ('version', 2))
+        self.assertNotIn('1', str(caught.exception).split(': ', 1)[-1])
+
     def test_a_malformed_file_is_a_plain_config_error(self):
         with self.assertRaises(ConfigError) as caught:
             self.load('version = \n')
@@ -176,6 +187,15 @@ class DaemonRefusesWhatItCannotRead(DaemonCase):
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.error['code'], 'config-unknown')
         self.assertIn('matching.color = 3', answer.error['msg'])
+
+    def test_a_same_mtime_replacement_is_read_again(self):
+        path = self.repo / 'pandora.toml'
+        self.assertEqual(self.call(['pnpm', 'unit']).exit, 0)        # warms the parse cache
+        stamp = path.stat().st_mtime_ns
+        path.write_text(path.read_text().replace('[matching]\n', '[matching]\ncolor = 3\n'))
+        os.utime(path, ns=(stamp, stamp))
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.error['code'], 'config-unknown')
 
     def test_a_malformed_file_still_passes_through(self):
         (self.repo / 'pandora.toml').write_text('version = \n')
@@ -332,6 +352,21 @@ class InstalledButNotAnswering(unittest.TestCase):
         self.assertEqual(code, 0)                       # routed as before
         self.assertIn('names /old/checkout as the client home', err)
         self.assertIn('no longer read', err)
+
+    def test_a_legacy_home_is_named_before_a_refresh_rewrites_the_file(self):
+        cache = self.repo / '.git' / 'pandora-claims'
+        cache.write_text(enrollment.render(socket_path=str(self.state / 'client.sock'),
+                                           repo='demo', claims=[['unit']], derived='own')
+                         .replace('repo demo\n', 'repo demo\nhome /old/checkout\n'))
+        (self.repo / 'pandora.toml').write_text(minimal(subdirectory='reroot'))
+        self.config.write_text('[client]\nstate = "%s"\n[[repos]]\nname = "demo"\nroot = "%s"\n'
+                               % (self.state, self.repo))
+        env = mock.patch.dict(os.environ, {'PANDORA_CONFIG': str(self.config)})
+        err = io.StringIO()
+        with env, contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            shim.main(['--sock', str(self.state / 'client.sock'), '--real', str(self.real),
+                       '--state', str(self.state), '--refresh', '--', 'unit'])
+        self.assertIn('names /old/checkout as the client home', err.getvalue())
 
     def test_the_client_says_when_it_refreshed_claims_without_a_daemon(self):
         (self.repo / 'pandora.toml').write_text(minimal(subdirectory='reroot'))

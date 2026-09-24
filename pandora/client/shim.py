@@ -493,6 +493,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     state = args.state or str(Path(args.sock).parent)
+    # Before a refresh can rewrite the file it names: the line is the evidence.
+    legacy_home_notice()
     if args.refresh:
         code = refresh(args, command, state)
         if code is not None:
@@ -583,7 +585,6 @@ def main(argv=None):
     if enrollment.claims_nothing_here(here, marker):
         return pass_through('claimed only at the worktree root; not routed')
 
-    legacy_home_notice(here)
     request = build_request(command, where=where)
     try:
         # A daemon installed here gets a short grace, for a restart in progress;
