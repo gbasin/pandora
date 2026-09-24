@@ -232,7 +232,7 @@ class RepositoryAndCwd(Scratch):
         worktree = worktree or self.repo
         path = worktree / 'pandora.toml'
         text = enrollment.cache_text(loader.load(path), socket_path=sock, repo='demo',
-                                     config_path=path, home=home)
+                                     derived='own', digest_path=path, home=home)
         stamp = time.time_ns() - 60 * 10**9
         os.utime(path, ns=(stamp, stamp))
         enrollment.write_cache(enrollment.cache_path(worktree), text, [path])

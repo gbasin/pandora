@@ -69,6 +69,56 @@ class Paths(unittest.TestCase):
         self.assertEqual(cache.stat().st_mtime_ns, stamp)
 
 
+class FreshnessInPython(unittest.TestCase):
+    """`cache_state` is the shim's rule, for `pandora doctor`."""
+
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.root = Path(home.name).resolve()
+        self.repo = self.root / 'repo'
+        (self.repo / '.git').mkdir(parents=True)
+        self.client = self.root / 'config.toml'
+        self.external = self.root / 'external.toml'
+
+    def derive(self, config=''):
+        repo = {'name': 'demo', 'root': str(self.repo), 'config': config}
+        text, sources = enrollment.derive(self.repo, repo, socket_path='/s', client=self.client)
+        cache = self.repo / '.git' / 'pandora-claims'
+        enrollment.write_cache(cache, text, sources)
+        age(cache, 30)
+        return cache, enrollment.parse(text)
+
+    def state(self, cache):
+        return enrollment.cache_state(self.repo, cache)[0]
+
+    def test_a_missing_external_config_is_named_and_its_arrival_is_seen(self):
+        cache, parsed = self.derive(str(self.external))
+        self.assertEqual((parsed['derived'], parsed['config']), ('none', str(self.external)))
+        self.assertEqual(parsed['noclient'], str(self.client))
+        self.assertIn('# claims nothing:', cache.read_text())
+        self.assertEqual(self.state(cache), 'fresh')
+        self.external.write_text('')
+        age(self.external, 120)
+        self.assertEqual(self.state(cache), 'stale')
+
+    def test_a_deleted_own_file_is_stale(self):
+        (self.repo / 'pandora.toml').write_text('broken')
+        age(self.repo / 'pandora.toml', 60)
+        cache, parsed = self.derive()
+        self.assertEqual(parsed['derived'], 'own')
+        self.assertEqual(self.state(cache), 'fresh')
+        (self.repo / 'pandora.toml').unlink()
+        self.assertEqual(self.state(cache), 'stale')
+
+    def test_the_client_config_appearing_is_stale(self):
+        cache, _parsed = self.derive()
+        self.assertEqual(self.state(cache), 'fresh')
+        self.client.write_text('')
+        age(self.client, 120)
+        self.assertEqual(self.state(cache), 'stale')
+
+
 class ThroughTheShim(unittest.TestCase):
     """The shell alone: the package it hands off to prints how it was called."""
 
@@ -107,9 +157,11 @@ class ThroughTheShim(unittest.TestCase):
         return Path(path)
 
     def cache(self, claims=(('journey',),), git=None, **extra):
+        extra.setdefault('derived', 'own')
+        if 'noclient' not in extra:
+            extra.setdefault('client', str(self.client))
         path = self.write((git or self.repo / '.git') / 'pandora-claims',
-                          [list(claim) for claim in claims],
-                          client=str(self.client), **extra)
+                          [list(claim) for claim in claims], **extra)
         age(path, 30)
         return path
 
@@ -144,7 +196,7 @@ class ThroughTheShim(unittest.TestCase):
         external = self.root / 'external.toml'
         external.write_text('')
         age(external, 60)
-        self.cache(config=str(external))
+        self.cache(config=str(external), derived='external')
         self.assertEqual(self.pnpm('why', PANDORA_PYTHON=NO_PYTHON), 'real why')
         age(external, 0)
         self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
@@ -153,8 +205,50 @@ class ThroughTheShim(unittest.TestCase):
         external = self.root / 'external.toml'
         external.write_text('')
         age(external, 60)
-        self.cache(config=str(external))
+        self.cache(config=str(external), derived='external')
         age(self.toml, 120)                     # older than the cache, and still it wins
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+
+    def test_a_deleted_pandora_toml_makes_its_cache_stale(self):
+        self.cache()
+        self.toml.unlink()
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+
+    def test_a_deleted_external_config_makes_its_cache_stale(self):
+        self.toml.unlink()
+        external = self.root / 'external.toml'
+        external.write_text('')
+        age(external, 60)
+        self.cache(config=str(external), derived='external')
+        external.unlink()
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+
+    def test_a_cache_derived_from_nothing_goes_stale_when_either_file_appears(self):
+        self.toml.unlink()
+        external = self.root / 'external.toml'
+        self.cache(claims=(), config=str(external), derived='none')
+        self.assertEqual(self.pnpm('journey', PANDORA_PYTHON=NO_PYTHON), 'real journey')
+        external.write_text('')
+        age(external, 120)                      # older than the cache: appearing is enough
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+        external.unlink()
+        self.toml.write_text('')
+        age(self.toml, 120)
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+
+    def test_the_client_config_appearing_or_going_makes_the_cache_stale(self):
+        self.client.unlink()
+        self.cache(noclient=str(self.client))
+        self.assertEqual(self.pnpm('why', PANDORA_PYTHON=NO_PYTHON), 'real why')
+        self.client.write_text('')
+        age(self.client, 120)
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+        self.cache()
+        self.client.unlink()
+        self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
+
+    def test_a_cache_that_does_not_say_what_it_came_from_is_stale(self):
+        self.cache(derived='')
         self.assertEqual(self.pnpm('why'), 'client --refresh -- why')
 
     def test_registration_without_a_cache_takes_the_slow_path(self):

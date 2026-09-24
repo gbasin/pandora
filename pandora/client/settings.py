@@ -130,8 +130,13 @@ def normalize(raw):
     return config
 
 
+def path_of(path=None):
+    """The client config file `load(path)` reads, whether or not it exists."""
+    return Path(path or os.environ.get('PANDORA_CONFIG') or DEFAULT_PATH).expanduser()
+
+
 def load(path=None):
-    path = Path(path or os.environ.get('PANDORA_CONFIG') or DEFAULT_PATH).expanduser()
+    path = path_of(path)
     if not path.is_file():
         config = normalize({})
         config['source'] = None

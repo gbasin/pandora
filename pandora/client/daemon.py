@@ -945,12 +945,11 @@ class Daemon:
         if repo is None:
             raise NotClaimed('cwd is not inside an enrolled repository')
         root = Path(enrollment.worktree_root(cwd) or repo['root'])
+        self.write_claims(root, repo)
         try:
             config = self.repo_config(repo, root)
         except ConfigError as error:
-            self.write_claims(root, repo, None, why=str(error))
             raise NotClaimed('no usable config in this worktree: %s' % error) from None
-        self.write_claims(root, repo, config)
         try:
             relative = Path(cwd).resolve().relative_to(root.resolve())
         except ValueError:
@@ -985,7 +984,7 @@ class Daemon:
         verdict['worktree'] = str(root)
         return repo, config, verdict
 
-    def write_claims(self, root, repo, config, why=None):
+    def write_claims(self, root, repo):
         """Derive this worktree's claim cache from the config it routes by.
 
         Called for every classification, so a changed `pandora.toml` reaches the
@@ -994,29 +993,35 @@ class Daemon:
         verdict: a cache that cannot be written leaves the shim on the slow
         path, which costs a Python start and routes correctly. Returns the text.
         """
-        try:
-            path, origin = loader.resolve(root, (repo or {}).get('config') or None)
-        except ConfigError:
-            # None yet: the shim sees a pandora.toml arrive as newer than the cache.
-            path, origin = Path(root) / loader.FILENAME, 'repo-root'
-        client = self.config.get('source')
-        text = enrollment.cache_text(config, socket_path=str(self.socket_path),
-                                     repo=(repo or {}).get('name') or '-',
-                                     config_path=path, external=origin != 'repo-root',
-                                     client=client, home=PACKAGE_HOME, why=why)
+        text, sources = enrollment.derive(
+            root, repo, socket_path=str(self.socket_path),
+            client=str(settings.path_of(self.config_path)), home=PACKAGE_HOME,
+            load=lambda where, entry: self.repo_config(entry, Path(where)))
         cache = enrollment.cache_path(root)
         common = enrollment.common_dir(root)
         if cache is None or common is None:
             return text
         # Only where the shim already looks: `pandora unenroll` removed the
         # registration and the marker, and a `pandora run` afterward must not
-        # leave a cache that makes the shim route this worktree again.
-        if not any((Path(common) / name).is_file()
-                   for name in (enrollment.REGISTRATION, enrollment.MARKER)):
+        # leave a cache that makes the shim route this worktree again. And only
+        # for the daemon enrollment named: a second daemon (another `--state`)
+        # asked about this worktree must not point its cache at itself.
+        owner = None
+        for name in (enrollment.REGISTRATION, enrollment.MARKER):
+            try:
+                owner = enrollment.parse((Path(common) / name).read_text()).get('sock')
+                break
+            except OSError:
+                continue
+        else:
+            return text
+        if not owner or os.path.realpath(owner) != os.path.realpath(self.socket_path):
+            log('claims: not writing %s: the repository is enrolled with %s, not this daemon'
+                % (cache, owner))
             return text
         try:
-            if enrollment.write_cache(cache, text, [path, client]):
-                log('claims: wrote %s from %s' % (cache, path))
+            if enrollment.write_cache(cache, text, sources):
+                log('claims: wrote %s' % cache)
         except OSError as error:
             log('claims: cannot write %s: %s' % (cache, error))
         return text
@@ -1035,16 +1040,7 @@ class Daemon:
         if root is None:
             return {'claimed': False, 'heavy': False, 'why': 'not inside a worktree'}
         repo = settings.enrollment_for(self.config, cwd) or self.enrollment_by_git(cwd)
-        if repo is None:
-            text = self.write_claims(
-                Path(root), None, None,
-                why='no [[repos]] entry in %s for this repository'
-                    % (self.config.get('source') or settings.DEFAULT_PATH))
-        else:
-            try:
-                text = self.write_claims(Path(root), repo, self.repo_config(repo, Path(root)))
-            except (ConfigError, OSError) as error:
-                text = self.write_claims(Path(root), repo, None, why=str(error))
+        text = self.write_claims(Path(root), repo)
         parsed = enrollment.parse(text)
         claimed = enrollment.claimed(argv, parsed)
         if claimed and enrollment.claims_nothing_here(cwd, parsed):

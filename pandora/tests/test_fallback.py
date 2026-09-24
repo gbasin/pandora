@@ -453,13 +453,29 @@ class ClaimCache(DaemonCase):
     def test_a_repository_without_a_repos_entry_gets_a_cache_that_claims_nothing(self):
         other = self.root / 'other'
         (other / '.git').mkdir(parents=True)
-        (other / '.git' / 'pandora-repo').write_text('sock /s\n')
+        (other / '.git' / 'pandora-repo').write_text('sock %s\n' % self.daemon.socket_path)
         (other / 'pandora.toml').write_text((self.repo / 'pandora.toml').read_text())
         self.assertFalse(self.ask(['unit'], cwd=other)['claimed'])
         text = (other / '.git' / 'pandora-claims').read_text()
         self.assertIn('# claims nothing: no [[repos]] entry', text)
         self.assertEqual(enrollment.parse(text)['claim'], [])
         self.assertEqual(enrollment.parse(text)['client'], self.daemon.config['source'])
+
+    def test_a_repository_enrolled_with_another_daemon_is_not_repointed(self):
+        (self.repo / '.git' / 'pandora-repo').write_text('sock /elsewhere/client.sock\n')
+        answer = self.ask(['unit'])
+        self.assertTrue(answer['claimed'])            # it still answers
+        self.assertFalse(self.cache.exists())
+        self.assertEqual(self.call(['pnpm', 'unit']).exit, 0)
+        self.assertFalse(self.cache.exists())
+
+    def test_a_deleted_pandora_toml_is_seen_and_the_cache_then_claims_nothing(self):
+        self.ask(['unit'])
+        (self.repo / 'pandora.toml').unlink()
+        self.assertEqual(enrollment.cache_state(self.repo, self.cache)[0], 'stale')
+        self.assertFalse(self.ask(['unit'])['claimed'])
+        cache = enrollment.parse(self.cache.read_text())
+        self.assertEqual((cache['derived'], cache['claim']), ('none', []))
 
     def test_an_unenrolled_repository_gets_no_cache(self):
         (self.repo / '.git' / 'pandora-repo').unlink()

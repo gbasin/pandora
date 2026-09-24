@@ -133,7 +133,8 @@ def heavy_forms(claims, candidates=DEFAULT_HEAVY):
 
 
 def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None, home=None,
-           policies=(), subdirectory=None, config=None, digest=None, client=None,
+           policies=(), subdirectory=None, derived=None, config=None, digest=None,
+           client=None, noclient=None,
            header='# pandora enrollment v1 -- written by pandora enroll, safe to delete'):
     """The marker text.  One directive per line, first word is the key.
 
@@ -154,13 +155,16 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     Every `strip` line is written before any `claim` or `heavy` line. The shim
     strips as it reads, in one pass, so this order is part of the format.
 
-    A claim cache adds up to three lines. `config` names the file its claims
-    were derived from, only when that is not the worktree's own `pandora.toml`
-    (an absolute path could not be compared with the shim's `$PWD` spelling of
-    the root), and `client` the client configuration that chose it; the shim
-    treats the cache as stale when either is newer than the cache, or when a
-    `config` line is there and the worktree now has a `pandora.toml`. `digest`
-    is the config's content hash, which `pandora doctor` compares, for a file
+    A claim cache adds the lines its freshness is judged by, all read by the
+    shim with builtins. `derived` says which file the claims came from: `own`,
+    the worktree's `pandora.toml` (never written as a path, which could not be
+    compared with the shim's `$PWD` spelling of the root); `external`, the
+    `[[repos]] config` fallback; or `none`, neither exists. `config` names that
+    fallback whenever `[[repos]]` has one, present or not. `client` names the
+    client configuration, or `noclient` names where it would be when there is
+    none. The shim treats the cache as stale when a file it was derived from
+    is newer, has gone, or has appeared (see `cache_state`). `digest` is the
+    derived file's content hash, which `pandora doctor` compares, for a file
     replaced by one with an older mtime.
     """
     lines = [header, 'sock ' + socket_path, 'repo ' + repo]
@@ -168,12 +172,16 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
         lines.append('home ' + home)
     if origin:
         lines.append('origin ' + origin)
+    if derived:
+        lines.append('derived ' + derived)
     if config:
         lines.append('config ' + config)
     if digest:
         lines.append('digest ' + digest)
     if client:
         lines.append('client ' + client)
+    if noclient:
+        lines.append('noclient ' + noclient)
     if subdirectory:
         lines.append('subdirectory ' + subdirectory)
     lines += ['strip ' + ' '.join(prefix) for prefix in strip_prefixes]
@@ -186,7 +194,8 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     return '\n'.join(lines) + '\n'
 
 
-SCALARS = ('sock', 'repo', 'origin', 'home', 'subdirectory', 'config', 'digest', 'client')
+SCALARS = ('sock', 'repo', 'origin', 'home', 'subdirectory', 'derived', 'config', 'digest',
+           'client', 'noclient')
 
 
 def parse(text):
@@ -231,24 +240,28 @@ def digest_of(path):
         return None
 
 
-def cache_text(repo_config, *, socket_path, repo, config_path=None, external=False,
+def cache_text(repo_config, *, socket_path, repo, derived, external=None, digest_path=None,
                client=None, home=None, why=None):
     """The claim cache for one worktree, derived from that worktree's config.
 
-    `config_path` is the file it was derived from, and `external` says it is a
-    `[[repos]] config` fallback rather than the worktree's own `pandora.toml`.
-    `repo_config` None means the worktree has no usable configuration, or its
-    repository has no `[[repos]]` entry (`why` says which): the cache then
-    claims nothing, so the shim execs every command with no Python start, and
-    it goes stale like any other the moment the file it names changes.
+    `derived` is `own`, `external` or `none` (see `render`), `external` the
+    `[[repos]] config` path when there is one, `digest_path` the file the claims
+    came from, and `client` the client configuration's path, whether or not it
+    exists. `repo_config` None means the worktree has no usable configuration,
+    or its repository has no `[[repos]]` entry (`why` says which): the cache
+    then claims nothing, so the shim execs every command with no Python start,
+    and it goes stale like any other the moment a file it names changes.
     """
     from ..config import classify
     header = '# pandora claim cache v1 -- written by the daemon, safe to delete'
     if why:
         header += '\n# claims nothing: ' + why.replace('\n', ' ')
-    common = dict(socket_path=socket_path, repo=repo, home=home, client=client,
-                  config=str(config_path) if config_path and external else None,
-                  digest=digest_of(config_path) if config_path else None, header=header)
+    present = bool(client) and Path(client).is_file()
+    common = dict(socket_path=socket_path, repo=repo, home=home, derived=derived,
+                  config=str(external) if external else None,
+                  digest=digest_of(digest_path) if digest_path else None,
+                  client=str(client) if present else None,
+                  noclient=str(client) if client and not present else None, header=header)
     if repo_config is None:
         return render(claims=[], heavy=heavy_forms([]), **common)
     claims = classify.claim_index(repo_config)
@@ -256,6 +269,59 @@ def cache_text(repo_config, *, socket_path, repo, config_path=None, external=Fal
                   policies=classify.policy_index(repo_config),
                   strip_prefixes=repo_config['matching']['strip_prefixes'],
                   subdirectory=repo_config['matching']['subdirectory'], **common)
+
+
+def repo_entry(config, cwd):
+    """The client config's `[[repos]]` entry for the repository `cwd` is in, or None.
+
+    By path first, then by git common dir, because worktrees usually live
+    beside the enrolled root rather than inside it.
+    """
+    from . import settings
+    found = settings.enrollment_for(config, cwd)
+    if found is not None:
+        return found
+    common = common_dir(cwd)
+    if common is None:
+        return None
+    for repo in config['repos']:
+        try:
+            if common_dir(repo['root']) == common:
+                return repo
+        except OSError:
+            continue
+    return None
+
+
+def derive(root, repo, *, socket_path, client, home=None, load=None, why=None):
+    """(cache text, the files it depends on) for one worktree and its `[[repos]]` entry.
+
+    One derivation for the daemon, `pandora enroll` and the client with no
+    daemon, so all three write the same text. `load(root, repo)` lets the
+    daemon use its parsed-config cache; by default the file is loaded here.
+    """
+    from ..config import loader
+    from ..errors import ConfigError
+    own = Path(root) / loader.FILENAME
+    external = (repo or {}).get('config') or None
+    config = None
+    try:
+        path, origin = loader.resolve(root, external)
+        derived = 'own' if origin == 'repo-root' else 'external'
+    except ConfigError as error:
+        path, derived = None, 'none'
+        why = why or str(error)
+    if repo is None:
+        why = why or 'no [[repos]] entry for this repository'
+    elif path is not None:
+        try:
+            config = load(root, repo) if load else loader.load(path)
+        except (ConfigError, OSError) as error:
+            why = str(error)
+    text = cache_text(config, socket_path=socket_path, repo=(repo or {}).get('name') or '-',
+                      derived=derived, external=external, digest_path=path,
+                      client=client, home=home, why=None if config is not None else why)
+    return text, [own, external, client]
 
 
 def registration_text(*, socket_path, repo, home=None):
@@ -310,34 +376,54 @@ def newer(first, second):
 
 
 def cache_state(root, cache):
-    """Is this worktree's claim cache fresh? (`fresh`|`stale`|`missing`, why, parsed).
+    """Is this worktree's claim cache fresh? (state, why, parsed, the shim sees it).
 
-    The shim's rule, and the one thing it cannot check: whether the config's
-    content still hashes to the cache's `digest`.
+    `state` is `fresh`, `stale` or `missing`. The shim's rule, exactly, and then
+    the one thing it cannot check: whether the derived file still hashes to
+    the cache's `digest`. A cache stale only by digest is one the shim trusts,
+    so only a claimed command, which reaches the daemon, rewrites it.
     """
     cache = Path(cache)
     try:
         parsed = parse(cache.read_text())
     except OSError:
-        return 'missing', 'no claim cache at %s' % cache, None
+        return 'missing', 'no claim cache at %s' % cache, None, True
     own = Path(root) / 'pandora.toml'
-    if newer(own, cache):
-        return 'stale', '%s changed after the cache was written' % own, parsed
-    config = parsed.get('config')
-    if config:
-        if own.exists():
-            return 'stale', ('the cache was derived from %s, and %s now exists'
-                             % (config, own)), parsed
+    config, derived = parsed.get('config'), parsed.get('derived')
+
+    def stale(why):
+        return 'stale', why, parsed, True
+    if derived == 'own':
+        if not own.is_file():
+            return stale('it was derived from %s, which is gone' % own)
+        if newer(own, cache):
+            return stale('%s changed after the cache was written' % own)
+    elif derived == 'external':
+        if own.is_file():
+            return stale('it was derived from %s, and %s now exists' % (config, own))
+        if not config or not Path(config).is_file():
+            return stale('it was derived from %s, which is gone' % config)
         if newer(config, cache):
-            return 'stale', '%s changed after the cache was written' % config, parsed
-    if parsed.get('client') and newer(parsed['client'], cache):
-        return 'stale', ('%s changed after the cache was written' % parsed['client']), parsed
-    source = config or str(own)
-    if parsed.get('digest') and digest_of(source) not in (None, parsed['digest']):
-        return 'stale', ('%s has other content than the cache was derived from, and an '
-                         'older mtime, so the shim cannot tell' % source), parsed
-    return 'fresh', 'derived from %s' % (source if parsed.get('digest') else
-                                         'no configuration'), parsed
+            return stale('%s changed after the cache was written' % config)
+    elif derived == 'none':
+        if own.is_file():
+            return stale('%s appeared after the cache was written' % own)
+        if config and Path(config).is_file():
+            return stale('%s appeared after the cache was written' % config)
+    else:
+        return stale('it does not say what it was derived from')
+    client, noclient = parsed.get('client'), parsed.get('noclient')
+    if client and (not Path(client).is_file() or newer(client, cache)):
+        return stale('%s changed after the cache was written' % client)
+    if noclient and Path(noclient).is_file():
+        return stale('%s appeared after the cache was written' % noclient)
+    source = str(own) if derived == 'own' else config
+    if (derived != 'none' and parsed.get('digest')
+            and digest_of(source) not in (None, parsed['digest'])):
+        return ('stale', '%s has other content than the cache was derived from, and an '
+                'older mtime, so the shim cannot tell' % source, parsed, False)
+    return 'fresh', 'derived from %s' % (source if derived != 'none' else
+                                         'no configuration'), parsed, True
 
 
 def caches_of(common):

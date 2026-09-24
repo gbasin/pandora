@@ -18,9 +18,9 @@
 #   5. claim                read the file with the `read` builtin, no fork;
 #                           any claim length, any declared strip prefix; below
 #                           the worktree root, none under `subdirectory passthrough`
-#   6. freshness            the cache is stale when the config it names, or the
-#                           worktree's pandora.toml, or the client config is
-#                           newer (`-nt`, a builtin); registration is always stale
+#   6. freshness            the cache is stale when a file it was derived from
+#                           is newer, gone or newly there (`-nt`, `-f`: builtins);
+#                           registration is always stale
 #   7. PANDORA_OFF          unclaimed: exec; claimed: logged by passthrough, then run
 #   8. hand off             stale: pandora.client.shim --refresh asks the daemon,
 #                           which rewrites the cache and says whether it is
@@ -147,8 +147,10 @@ fi
 sock=
 home=
 scope=
+derived=
 config=
 client=
+noclient=
 claimed=0
 heavy=0
 IFS=' '
@@ -160,8 +162,10 @@ while IFS=' ' read -r key rest; do
         sock) sock=$rest ;;
         home) home=$rest ;;
         subdirectory) scope=$rest ;;
+        derived) derived=$rest ;;
         config) config=$rest ;;
         client) client=$rest ;;
+        noclient) noclient=$rest ;;
         strip)
             case $keyed in
                 "$rest") keyed= ;;
@@ -183,23 +187,31 @@ done < "$source"
 # unclaimed, and the rules below treat it exactly as one. A string compare.
 if [ "$scope" = passthrough ] && [ "$PWD" != "$root" ]; then claimed=0; fi
 
-# --- 6. freshness: `-nt` is a builtin, so still no fork ------------------------
+# --- 6. freshness: `-nt` and `-f` are builtins, so still no fork --------------
 # A cache is as old as the newest file it was derived from (the daemon dates it
-# so). Any of them newer means the cache predates an edit: the worktree's own
-# pandora.toml; the `[[repos]] config` fallback, which the cache names as
-# `config` only when it was derived from one, and which a pandora.toml at the
-# root then overrides; and the client config that chose it. POSIX.1-2024 has `-nt`; dash and bash
-# both have had it for decades, and bash 3.2 compares whole seconds, which the
-# daemon's dating allows for.
+# so), and it says which file that was. It is stale when that file is newer
+# than it or has gone, when a file that would now win has appeared (a
+# pandora.toml at the root outranks the `[[repos]] config` fallback), or when
+# the client config that chose it is newer, gone, or newly there. POSIX.1-2024
+# has `-nt`; dash and bash both have had it for decades, and bash 3.2 compares
+# whole seconds, which the daemon's dating allows for.
 if [ "$source" = "$gitdir/pandora-claims" ]; then
     own=$root/pandora.toml
-    if [ "$own" -nt "$source" ]; then
-        fresh=0
-    elif [ -n "$config" ] && { [ -f "$own" ] || [ "$config" -nt "$source" ]; }; then
-        fresh=0
-    elif [ -n "$client" ] && [ "$client" -nt "$source" ]; then
+    case $derived in
+        own)
+            if [ ! -f "$own" ] || [ "$own" -nt "$source" ]; then fresh=0; fi ;;
+        external)
+            if [ -f "$own" ] || [ ! -f "$config" ] || [ "$config" -nt "$source" ]; then
+                fresh=0
+            fi ;;
+        none)
+            if [ -f "$own" ] || { [ -n "$config" ] && [ -f "$config" ]; }; then fresh=0; fi ;;
+        *) fresh=0 ;;
+    esac
+    if [ -n "$client" ] && { [ ! -f "$client" ] || [ "$client" -nt "$source" ]; }; then
         fresh=0
     fi
+    if [ -n "$noclient" ] && [ -f "$noclient" ]; then fresh=0; fi
 fi
 
 # --- 7. PANDORA_OFF ----------------------------------------------------------

@@ -188,12 +188,12 @@ def cmd_enroll(args):
     enrollment.write(common, enrollment.registration_text(socket_path=socket_path, repo=name,
                                                           home=home),
                      enrollment.REGISTRATION)
-    client = str(config_path) if config_path.is_file() else None
     claims = classifier.claim_index(repo_config)
     cache = enrollment.cache_path(root)
-    enrollment.write_cache(cache, enrollment.cache_text(
-        repo_config, socket_path=socket_path, repo=name, config_path=path,
-        external=bool(external), client=client, home=home), [path, client])
+    text, sources = enrollment.derive(
+        root, {'name': name, 'root': str(Path(root).resolve()), 'config': external},
+        socket_path=socket_path, client=str(config_path), home=home)
+    enrollment.write_cache(cache, text, sources)
     legacy = Path(common) / enrollment.MARKER
     if legacy.is_file():
         legacy.unlink()

@@ -342,7 +342,7 @@ def check_caches(cwd, root, common, kind):
     digest, and only a claimed command reaches the daemon to rewrite it.
     """
     cache = enrollment.cache_path(cwd)
-    state, why, parsed = enrollment.cache_state(root or cwd, cache)
+    state, why, parsed, seen = enrollment.cache_state(root or cwd, cache)
     if state == 'fresh':
         here = check('claim cache', OK, 'fresh: %d claimed form(s), %s; cache %s'
                      % (len(parsed['claim']), why, cache), cache=str(cache),
@@ -361,7 +361,7 @@ def check_caches(cwd, root, common, kind):
     for other, path in enrollment.caches_of(common):
         if other is None or not Path(other).is_dir():
             continue                     # a bare repository, or a pruned worktree
-        found, _why, _parsed = enrollment.cache_state(other, path)
+        found, _why, _parsed, _seen = enrollment.cache_state(other, path)
         counts[found] += 1
         if found == 'stale':
             stale.append(other)
