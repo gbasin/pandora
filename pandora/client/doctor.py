@@ -204,11 +204,24 @@ def source_head(now, runner=subprocess.run):
     return (proc.stdout.strip() or None) if proc.returncode == 0 else None
 
 
-def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run):
+def restart_advice(supervised, pid):
+    """How to restart this daemon: `--restart` refuses one launchd does not run."""
+    answer = supervised(pid) if supervised else None
+    if answer is True:
+        return '`pandora daemon --restart`'
+    if answer is False:
+        return ('`pandora daemon --stop`, then start it again (launchd does not run it, so '
+                '`--restart` cannot)')
+    return '`pandora daemon --restart` if launchd runs it, else stop it and start it again'
+
+
+def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, supervised=None):
     """A daemon answers on the socket the shim will use, speaking this client's protocol.
 
     With a snapshot installed, the daemon should run the version `current`
     names; without one, the package the launcher runs, as before `upgrade`.
+    `supervised(pid)` says whether launchd runs it, which decides how to
+    restart it; None when unknown.
     """
     try:
         answer = ping(sock_path)
@@ -247,9 +260,10 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run):
                          'since; run `pandora upgrade`' % (detail, old, now['name'],
                                                           now['meta'].get('source'), head[:12]),
                          **facts), answer
-        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it: `pandora '
-                     'daemon --restart` once `pandora ps` shows no local run and no remote run '
-                     'before accepted' % (detail, old, now['name']), **facts), answer
+        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it once '
+                     '`pandora ps` shows no local run and no remote run before accepted: %s'
+                     % (detail, old, now['name'], restart_advice(supervised, answer.get('pid'))),
+                     **facts), answer
     if not now and os.path.realpath(home) != os.path.realpath(expected):
         return check('daemon', WARN, '%s; it runs the package in %s and the client is %s. '
                      'Restart it from the checkout you mean' % (detail, home, expected),
@@ -273,7 +287,8 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run):
         # Same checkout, different bytes: it was updated after the daemon started.
         return check('daemon', WARN, '%s; daemon code differs from the checkout. '
                      'Restarting ends running local runs; check `pandora ps` first, then '
-                     'run `pandora daemon --restart`' % detail, **facts), answer
+                     'restart it: %s' % (detail, restart_advice(supervised, answer.get('pid'))),
+                     **facts), answer
     if now:
         return check('daemon', OK, '%s, runs current (%s)' % (detail, now['name']),
                      **facts), answer
@@ -306,7 +321,8 @@ def check_install(data, launcher, shim, runner=subprocess.run):
             stray.append('%s (%s) runs %s' % (label, path, install.version_label(runs, data)))
     if stray:
         return check('install', WARN, '%s, not current (%s); `pandora upgrade` re-points a '
-                     'link into a checkout' % ('; '.join(stray), now['name']),
+                     'link into the checkout it upgrades or into a version directory; replace '
+                     'any other link with one through current' % ('; '.join(stray), now['name']),
                      stray=stray, **facts)
     detail = 'current is %s, from %s' % (now['name'], meta.get('source') or '(unrecorded)')
     head = source_head(now, runner)
@@ -632,7 +648,14 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
     checks.append(launched)
     checks.append(check_install(data, launched['facts'].get('launcher'),
                                 pnpm['facts'].get('shim'), runner=runner))
-    daemon, pong = check_daemon(sock_path, launcher_home, data, runner=runner)
+    def supervised(pid):
+        from . import launchd
+        if sys.platform != 'darwin':
+            return False
+        agent = launchd.status(launchd.label_for(sock_path.parent), run=launchctl)
+        return bool(agent['loaded'] and agent['pid'] == pid)
+    daemon, pong = check_daemon(sock_path, launcher_home, data, runner=runner,
+                                supervised=supervised)
     checks.append(daemon)
     checks.append(check_worker(pong, sock_path.parent))
     checks.append(check_supervision(pong, sock_path.parent, launchctl=launchctl,

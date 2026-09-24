@@ -471,12 +471,23 @@ class Doctor(Case):
         self.assertIn('the pnpm shim', item['detail'])
         self.assertEqual(item['status'], 'warn')
 
-    def daemon(self, home):
+    def daemon(self, home, supervised=None):
         from pandora.client import doctor
         pong = {'t': 'pong', 'pid': 7, 'v': 2, 'home': str(home), 'code': None}
         with mock.patch.object(doctor, 'ping', return_value=pong):
-            item, _ = doctor.check_daemon(self.state / 'client.sock', None, self.data)
+            item, _ = doctor.check_daemon(self.state / 'client.sock', None, self.data,
+                                          supervised=supervised)
         return item
+
+    def test_restart_advice_follows_who_runs_the_daemon(self):
+        old = self.version
+        self.commit(self.repo, 'VERSION = 2\n')
+        install.flip(self.data, self.build(self.repo)['name'])
+        item = self.daemon(old['path'], supervised=lambda pid: pid == 7)
+        self.assertTrue(item['detail'].endswith(': `pandora daemon --restart`'), item)
+        item = self.daemon(old['path'], supervised=lambda pid: False)
+        self.assertIn('`pandora daemon --stop`, then start it again', item['detail'])
+        self.assertNotIn('daemon --restart`', item['detail'].replace('`--restart` cannot', ''))
 
     def test_a_daemon_on_current_is_ok(self):
         item = self.daemon(self.version['path'])
