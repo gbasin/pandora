@@ -394,18 +394,39 @@ class SupervisorBehavior(unittest.TestCase):
         self.assertLess(order.index(102), order.index(101))
         self.assertEqual(order[-1], 100)
 
-    def test_after_the_child_exits_only_old_enough_orphans_are_kept(self):
+    def supervised(self, returncode):
         supervisor = Supervisor(['true'], cwd='.', env={}, timeout_seconds=1,
                                 on_log=lambda *_: None)
-        supervisor.proc = mock.Mock(pid=100, returncode=0)
+        supervisor.proc = mock.Mock(pid=100, returncode=returncode)
         now = time.monotonic()
         # 102 was seen 30 s ago and is 40 s old: ours. 103 was seen 30 s ago
         # but is 5 s old: its pid was reused, so it is left alone.
         supervisor.seen = {102: now - 30, 103: now - 30}
         supervisor.ps = lambda argv, **k: subprocess.CompletedProcess(
-            argv, 0, stdout='102 00:40\n103 00:05\n', stderr='')
-        members = supervisor.members(local.process_table(self.fake_ps))
-        self.assertEqual(sorted(members), [100, 101, 102, 104])
+            argv, 0, stdout=self.TABLE if 'pid=,ppid=,pgid=,rss=' in argv else
+            '102 00:40\n103 00:05\n', stderr='')
+        return supervisor
+
+    def signalled(self, supervisor, **kwargs):
+        sent = []
+        with mock.patch.object(local.os, 'killpg', lambda pid, sig: sent.append(('group', pid))), \
+                mock.patch.object(local.os, 'kill', lambda pid, sig: sent.append(('pid', pid))):
+            supervisor.signal_group(signal.SIGINT, **kwargs)
+        return sent
+
+    def test_each_process_is_signalled_once(self):
+        # A second SIGINT makes pnpm, vitest and playwright force-quit.
+        sent = self.signalled(self.supervised(None), orphans=True)
+        self.assertEqual(sent[0], ('group', 100))
+        self.assertEqual(sorted(sent[1:]), [('pid', 102), ('pid', 103)])
+
+    def test_after_the_child_exits_only_old_enough_orphans_are_kept(self):
+        sent = self.signalled(self.supervised(0), orphans=True)
+        self.assertEqual(sent, [('group', 100), ('pid', 102)])
+
+    def test_a_run_that_ended_on_its_own_leaves_its_orphans_alone(self):
+        # A turbo or watchman daemon it meant to leave behind.
+        self.assertEqual(self.signalled(self.supervised(0)), [('group', 100)])
 
     def test_a_cancel_reaches_a_descendant_that_called_setsid(self):
         with tempfile.TemporaryDirectory() as tmp:

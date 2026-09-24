@@ -421,38 +421,47 @@ class Supervisor:
         self.seen = {}                   # pid -> monotonic time a sample first saw it
         self.ps = subprocess.run
 
-    def members(self, table):
-        """The pids to signal: the live tree, or the group once the child is reaped.
+    def outside_group(self, table, *, orphans):
+        """The pids to signal one by one: those `killpg` on the child's group misses.
 
-        After the child exits its pid may be reused, and its orphans now hang
-        off launchd, so the walk from it stops. Pids a sample saw in the tree
-        are kept instead, each signalled only while `ps` says it is older than
-        the moment it was first seen: a reused pid is younger.
+        Descendants that left the group (`setsid`), found by parent pid while the
+        child lives. With `orphans`, also pids a sample saw in the tree that have
+        since been re-parented to launchd, each only while `ps` says it is older
+        than the moment it was first seen: a reused pid is younger. Group members
+        are never listed: they already get the `killpg`, and a second SIGINT
+        makes pnpm, vitest and playwright force-quit, skipping the grace.
         """
         root = self.proc.pid
+        group = {pid for pid, _ppid, pgid, _rss in table if pgid == root}
+        found = []
         if self.proc.returncode is None:
-            found = tree_of(table, root, root)
-        else:
-            found = [pid for pid, _ppid, group, _rss in table if group == root]
-        present = {pid for pid, _ppid, _group, _rss in table}
-        orphans = [pid for pid in self.seen if pid in present and pid not in found]
+            found = [pid for pid in tree_of(table, root) if pid not in group and pid != root]
         if orphans:
-            ages = process_ages(orphans, run=self.ps)
-            now = time.monotonic()
-            found += [pid for pid in orphans
-                      if ages.get(pid) is not None and ages[pid] + 1 >= now - self.seen[pid]]
+            present = {pid for pid, _ppid, _group, _rss in table}
+            candidates = [pid for pid in self.seen
+                          if pid in present and pid not in group and pid not in found]
+            if candidates:
+                ages = process_ages(candidates, run=self.ps)
+                now = time.monotonic()
+                found += [pid for pid in candidates if ages.get(pid) is not None
+                          and ages[pid] + 1 >= now - self.seen[pid]]
         return found
 
-    def signal_group(self, number):
-        """The child's group, then every descendant, including those that left it."""
+    def signal_group(self, number, *, orphans=False):
+        """The child's group once, then each descendant that left it.
+
+        `orphans` is for a cancel or a timeout only. A run that ended on its own
+        may leave a daemon it meant to leave (turbo, nx, watchman), re-parented
+        to launchd; after a normal exit only the group is signalled.
+        """
         if self.proc is None or self.proc.pid is None:
             return
-        members = self.members(process_table(self.ps))
+        extra = self.outside_group(process_table(self.ps), orphans=orphans)
         try:
             os.killpg(self.proc.pid, number)
         except (ProcessLookupError, PermissionError, OSError):
             pass
-        for pid in members:
+        for pid in extra:
             try:
                 os.kill(pid, number)
             except (ProcessLookupError, PermissionError, OSError):
@@ -525,11 +534,11 @@ class Supervisor:
                 if (canceled() or over) and not asked:
                     asked, timed_out = True, over
                     self.killed_at = time.monotonic()
-                    self.signal_group(self.cancel_signal)
+                    self.signal_group(self.cancel_signal, orphans=True)
                 elif asked and time.monotonic() - self.killed_at > self.grace_seconds:
                     # The grace is over. SIGKILL the group, not the child: the
                     # child is usually a shell whose death orphans the tree.
-                    self.signal_group(signal.SIGKILL)
+                    self.signal_group(signal.SIGKILL, orphans=True)
                     self.killed_at = time.monotonic() + max(self.grace_seconds, 1.0)
         finally:
             stop.set()
@@ -537,7 +546,7 @@ class Supervisor:
             # are daemon threads, so a stuck descendant cannot hold the daemon.
             for thread in threads:
                 thread.join(timeout=2.0)
-            self.signal_group(signal.SIGKILL)
+            self.signal_group(signal.SIGKILL, orphans=asked)
         code = self.proc.returncode
         self.peak_mib = max(self.peak_mib, 0)
         if timed_out:
