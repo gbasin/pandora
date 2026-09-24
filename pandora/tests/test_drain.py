@@ -10,6 +10,8 @@ import io
 import json
 import os
 import socket
+import subprocess
+import tempfile
 import threading
 import time
 import unittest
@@ -487,7 +489,7 @@ class ARestart(DrainCase):
 
 class ARestartWithoutADrain(unittest.TestCase):
     def setUp(self):
-        home = __import__('tempfile').TemporaryDirectory()
+        home = tempfile.TemporaryDirectory()
         self.addCleanup(home.cleanup)
         self.state = home.name
         self.said, self.restarts = [], []
@@ -574,3 +576,45 @@ class TheCommand(DrainCase):
         self.assertIn(['kickstart', '-k', 'gui/%d/com.pandora.daemon' % os.getuid()],
                       fake.calls)
         self.assertIn('drained', err)
+
+
+class Doctor(unittest.TestCase):
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.state = home.name
+
+    def test_no_marker_no_line(self):
+        from pandora.client import doctor
+        self.assertIsNone(doctor.check_drain(self.state))
+
+    def test_a_fresh_marker_is_reported_as_a_restart_in_progress(self):
+        from pandora.client import doctor
+        drain.write_marker(self.state, {'since': time.time(), 'pid': 77})
+        item = doctor.check_drain(self.state)
+        self.assertEqual(item['status'], doctor.INFO)
+        self.assertIn('pid 77', item['detail'])
+
+    def test_a_stale_marker_is_a_warning_and_is_left_where_it_is(self):
+        from pandora.client import doctor
+        drain.write_marker(self.state, {'since': 0, 'pid': 77})
+        stamp = time.time() - drain.STALE_SECONDS - 120
+        os.utime(drain.marker_path(self.state), (stamp, stamp))
+        item = doctor.check_drain(self.state)
+        self.assertEqual(item['status'], doctor.WARN)
+        self.assertIn('never finished', item['detail'])
+        self.assertTrue(drain.marker_path(self.state).exists(), 'doctor changed something')
+
+    def test_the_report_carries_it(self):
+        from pandora.client import doctor
+        drain.write_marker(self.state, {'since': 0, 'pid': 77})
+        stamp = time.time() - drain.STALE_SECONDS - 120
+        os.utime(drain.marker_path(self.state), (stamp, stamp))
+        from pandora.tests.test_launchd import FakeLaunchd
+
+        def failed(argv, **_):
+            return subprocess.CompletedProcess(argv, 1, '', '')
+        report = doctor.run(state=self.state, env={'PATH': '/nonexistent'}, cwd=self.state,
+                            runner=failed, launchctl=FakeLaunchd())
+        names = [item['name'] for item in report['checks']]
+        self.assertIn('restart drain', names)

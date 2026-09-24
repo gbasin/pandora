@@ -34,7 +34,7 @@ from pathlib import Path
 from ..engine import bundle
 from ..config.loader import FILENAME
 from ..errors import ConfigError
-from . import enrollment, install, placement, settings
+from . import drain, enrollment, install, placement, settings
 from .health import DEFAULT_INTERVAL, STALE_FACTOR
 from .protocol import Reader, VERSION, dump
 
@@ -550,6 +550,24 @@ def check_shim_markers(env, shim):
     return check('shim markers', OK, '%s beside the shim only' % SHIM_MARKER)
 
 
+def check_drain(state, *, clock=time.time):
+    """A `draining` marker: a restart in progress, or one that never finished. None when absent."""
+    marker = drain.read_marker(state, clock=clock)
+    if marker is None:
+        return None
+    path = drain.marker_path(state)
+    if marker['age'] >= drain.STALE_SECONDS:
+        return check('restart drain', WARN,
+                     '%s is %d min old: a restart that never finished. Clients ignore it. '
+                     'Unless `pandora ps` says draining, remove it; `pandora daemon '
+                     '--restart` also clears it' % (path, marker['age'] // 60),
+                     marker=str(path), age_seconds=int(marker['age']), pid=marker.get('pid'))
+    return check('restart drain', INFO,
+                 'a restart is draining the daemon (asked by pid %s, %ds ago); commands wait '
+                 'for it' % (marker.get('pid') or '?', marker['age']),
+                 marker=str(path), age_seconds=int(marker['age']), pid=marker.get('pid'))
+
+
 def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
                       upgraded=False):
     """Whether launchd supervises the daemon that answered, or nothing does.
@@ -647,6 +665,9 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
     checks.append(check_worker(pong, sock_path.parent))
     checks.append(check_supervision(pong, sock_path.parent, launchctl=launchctl,
                                     upgraded=install.installed(data) is not None))
+    drained = check_drain(sock_path.parent)
+    if drained is not None:
+        checks.append(drained)
     checks.extend(check_repository(cwd, loaded, state_path / 'client.sock', data))
     checks.append(check_cwd(cwd))
     checks.append(check_variables(env))
