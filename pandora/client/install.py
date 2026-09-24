@@ -467,8 +467,10 @@ def link_lines(links):
                          'To run current: ln -sf %s %s'
                          % (item['path'], item['was'], item['wanted'], item['path']))
         elif item['status'] == 'stale':
-            lines.append('%s runs %s, not current; `pandora upgrade` re-points it'
-                         % (item['path'], item['was']))
+            lines.append('%s runs %s, not current; left alone because this data directory '
+                         'is not the default one. To run current: ln -sf %s %s, or '
+                         '`pandora upgrade --relink`'
+                         % (item['path'], item['was'], item['wanted'], item['path']))
         elif item['status'] == 'missing':
             lines.append('no %s on PATH; link one: ln -s %s ~/.local/bin/%s'
                          % ('`pandora`' if item['name'] == 'pandora' else 'pnpm shim',
@@ -502,22 +504,62 @@ def blocker_line(row):
                              ' '.join(row.get('argv') or [])[:60])
 
 
+class NoAnswer(Exception):
+    """The socket gave no usable answer: a close, or a frame of the wrong kind."""
+
+
+def probe(ping):
+    """`('pong', answer)`, `('absent', why)` or `('silent', why)`.
+
+    Absent: nothing listens on the socket. Silent: something does, or may, and
+    did not answer as this client's daemon -- a timeout (a daemon busy on a
+    swapping Mac), a close, an error frame such as a protocol mismatch. Only
+    absent is evidence that no run is being driven, and even that is checked
+    against the lock before anything is restarted.
+    """
+    try:
+        answer = ping()
+    except (FileNotFoundError, ConnectionRefusedError) as error:
+        return 'absent', str(error)
+    except (OSError, ValueError) as error:
+        return 'silent', str(error) or type(error).__name__
+    if not isinstance(answer, dict) or answer.get('t') != 'pong':
+        said = answer.get('msg') if isinstance(answer, dict) else None
+        return 'silent', 'it answered %s' % (said or answer)
+    return 'pong', answer
+
+
+def ask_ps(sock):
+    """The daemon's rows. Anything but a `ps` frame raises: it is not an answer."""
+    from ..cli import ask
+    answer = ask(sock, {'op': 'ps'})
+    if not isinstance(answer, dict) or answer.get('t') != 'ps':
+        raise NoAnswer('it answered %s' % ((answer or {}).get('msg') if isinstance(answer, dict)
+                                            else answer))
+    return answer.get('data') or []
+
+
+def pending(ps):
+    """What a restart would end now, one line each; a daemon that cannot say counts too."""
+    try:
+        rows = ps()
+    except (OSError, ValueError, NoAnswer) as error:
+        return ['the daemon did not answer `ps` (%s)' % (str(error) or type(error).__name__)]
+    return [blocker_line(row) for row in blockers(rows)]
+
+
 def wait_for_safe(ps, *, wait=WAIT_SECONDS, interval=POLL_SECONDS, clock=time.monotonic,
                   sleep=time.sleep, say=print):
     """True once `ps()` shows nothing a restart would end; False after `wait` seconds.
 
-    `ps()` returns the daemon's rows, or raises OSError when no daemon answers,
-    which is safe: nothing is driving a run. What is waited on is printed when
-    it changes, not every poll.
+    A `ps` that times out, closes or answers with an error is not "nothing
+    running": it is a daemon that cannot say, and the wait goes on. What is
+    waited on is printed when it changes, not every poll.
     """
     deadline = clock() + max(wait, 0)
     said = None
     while True:
-        try:
-            rows = ps()
-        except OSError:
-            return True
-        waiting = [blocker_line(row) for row in blockers(rows)]
+        waiting = pending(ps)
         if not waiting:
             return True
         if waiting != said:
@@ -535,123 +577,287 @@ def wait_for_safe(ps, *, wait=WAIT_SECONDS, interval=POLL_SECONDS, clock=time.mo
 
 # -- the whole verb ------------------------------------------------------------------
 
-def short_code(text):
-    return (text or '?')[:12]
+IMPORTS = 'import pandora.cli, pandora.client.daemon, pandora.client.shim'
+NOW_NOTE = ('restarting now (--now): a local run ends with exit 70; a remote run still '
+            'freezing or shipping ends with exit 70; one submitting is looked up on the '
+            'worker and followed if it started, closed if not. Rerun what ended. Accepted '
+            'remote runs continue')
 
 
-def upgrade(*, state, source=None, data=None, env=None, home=None, dirty_ok=False, now=False,
-            wait=WAIT_SECONDS, keep=KEEP, platform=None, git_run=subprocess.run,
-            launchctl=subprocess.run, ping=None, ps=None, clock=time.monotonic,
-            sleep=time.sleep, say=print):
-    """Snapshot, flip, re-point the launchers, restart at a safe moment, prune.
+def check_imports(path, pythons, *, run=subprocess.run):
+    """Each interpreter that will run the version can import its client and daemon.
 
-    Returns the exit code: 0 when the daemon runs the new version or no daemon
-    runs; 75 when the wait ran out, with `current` already flipped; 1 when
-    this verb cannot restart the daemon itself (hand-started, or its plist
-    runs a checkout) and says what to type instead.
+    From `/`, with only the version on PYTHONPATH, so neither the cwd nor an
+    inherited path can make a broken tree look whole.
     """
+    env = {key: value for key, value in os.environ.items()
+           if key not in ('PYTHONPATH', 'PYTHONHOME', 'PYTHONSAFEPATH')}
+    env['PYTHONPATH'] = str(path)
+    for python in pythons:
+        try:
+            proc = run([python, '-B', '-c', IMPORTS], cwd='/', env=env, capture_output=True,
+                       text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise Refused('%s could not run to check %s: %s. Nothing changed'
+                          % (python, path, error))
+        if proc.returncode != 0:
+            last = ((proc.stderr or '').strip().splitlines() or ['exit %d' % proc.returncode])[-1]
+            raise Refused('%s cannot import %s: %s. Nothing changed' % (python, path, last))
+
+
+def interpreters(env, state, home):
+    """The plist's pinned interpreter and the one the launchers find, first found first."""
     import sys
     from . import launchd
+    found = [launchd.agent_python(launchd.label_for(state), home),
+             env.get('PANDORA_PYTHON') or launchd.first_on_path('python3', env)]
+    return list(dict.fromkeys(path for path in found if path)) or [sys.executable]
+
+
+def pick(data, name):
+    """An installed version, for `--version`: present, and intact."""
+    path = Path(data) / VERSIONS / name
+    if not (path / META).is_file():
+        have = sorted(p.name for p in (Path(data) / VERSIONS).glob('[!.]*')) \
+            if (Path(data) / VERSIONS).is_dir() else []
+        raise Refused('no installed version %s; installed: %s' % (name, ', '.join(have) or 'none'))
+    if not intact(path):
+        raise Refused('%s was edited after it was built; pick another, or build the commit '
+                      'again with `pandora upgrade --from <checkout>`' % path)
+    return found(path)
+
+
+def names_current(program, data):
+    """Whether a plist's program goes through `current`, even before `current` exists."""
+    if not program:
+        return False
+    if through_current(program, data):
+        return True
+    return os.path.normpath(program) == os.path.normpath(
+        str(current_link(data) / 'bin' / 'pandora'))
+
+
+def default_data(home=None):
+    """The data root for this user with no XDG_DATA_HOME: where the real launchers point."""
+    return Path(home or Path.home()) / '.local' / 'share' / 'pandora'
+
+
+def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
+            dirty_ok=False, now=False, no_restart=False, relink=None, wait=WAIT_SECONDS,
+            keep=KEEP, platform=None, git_run=subprocess.run, check_run=subprocess.run,
+            launchctl=subprocess.run, ping=None, ps=None, clock=time.monotonic,
+            sleep=time.sleep, say=print):
+    """Build or pick a version, wait for a safe moment, flip `current`, restart, prune.
+
+    `current` moves only when the daemon can move with it (or `--no-restart`
+    asks for the flip alone), so a timed-out wait leaves nothing changed.
+    Exits: 0 the daemon runs the new version, or no daemon runs; 75 no safe
+    moment came, or the daemon did not answer, and nothing changed; 1 refused,
+    upgrade cannot restart this daemon, or the new daemon never answered.
+    """
+    import sys
     from .doctor import ping as doctor_ping
     env = dict(os.environ if env is None else env)
     data = Path(data or data_root(env, home))
     sock = Path(state) / 'client.sock'
-    ping = ping or (lambda: doctor_ping(sock))
-    if ps is None:
-        def ps():
-            from ..cli import ask
-            answer = ask(sock, {'op': 'ps'})
-            return (answer or {}).get('data') or []
-
-    info = describe(source_for(source, data), dirty_ok=dirty_ok, run=git_run)
-    before = installed(data)
-    try:
-        pong = ping()
-    except (OSError, ValueError):
-        pong = None
-    version = snapshot(info, data, run=git_run)
-    flip(data, version['name'])
-    after = installed(data)
-    say('current  %s -> %s (code %s -> %s)%s'
-        % (before['name'] if before else '(none)', after['name'],
-           short_code(before and before['meta'].get('code')), short_code(version['meta'].get('code')),
-           ', already built' if version['reused'] else ', from %s' % info['source']))
-    for line in link_lines(launcher_links(env, data, source=info['source'])):
-        say(line)
-
-    code, keep_home = restart_phase(pong, after, data=data, state=state, home=home, now=now,
-                                    wait=wait, platform=platform or sys.platform,
-                                    launchctl=launchctl, ping=ping, ps=ps, clock=clock,
-                                    sleep=sleep, say=say, launchd=launchd)
-    removed = prune(data, keep=keep, protect=[keep_home])
-    if removed:
-        say('pruned %s (keeping %d)' % (', '.join(sorted(removed)), keep))
+    if relink is None:
+        # Only the default data root is the one the machine's launchers use; a
+        # scratch XDG_DATA_HOME must never re-point them (it did, once).
+        relink = os.path.realpath(data) == os.path.realpath(default_data(home))
+    job = Job(state=Path(state), data=data, env=env, home=home, now=now, wait=wait,
+              platform=platform or sys.platform, launchctl=launchctl, relink=relink,
+              ping=ping or (lambda: doctor_ping(sock)), ps=ps or (lambda: ask_ps(sock)),
+              clock=clock, sleep=sleep, say=say, before=installed(data), source=None)
+    if version:
+        job.target = pick(data, version)
+        say('version  %s (tree %s), built before' % (job.target['name'],
+                                                      short_code(job.target['meta'].get('code'))))
+    else:
+        info = describe(source_for(source, data), dirty_ok=dirty_ok, run=git_run)
+        job.source = info['source']
+        job.target = snapshot(info, data, run=git_run)
+        if job.target.get('edited'):
+            say('version  %s was edited after it was built; built the commit again as %s'
+                % (job.target['edited'], job.target['name']))
+        say('version  %s (tree %s), %s' % (job.target['name'],
+                                           short_code(job.target['meta'].get('code')),
+                                           'already built' if job.target['reused']
+                                           else 'built from %s' % info['source']))
+    check_imports(job.target['path'], interpreters(env, state, home), run=check_run)
+    kind, value = probe(job.ping)
+    if kind == 'pong':
+        code, keep_home = job.with_daemon(value, no_restart)
+    elif kind == 'absent':
+        code, keep_home = job.without_daemon(value)
+    else:
+        code, keep_home = job.silent(value)
+    if job.flipped:
+        protect = [keep_home, job.before and job.before['path']]
+        removed = prune(data, keep=keep, protect=protect)
+        if removed:
+            say('pruned %s (keeping %d)' % (', '.join(sorted(removed)), keep))
     return code
 
 
-def restart_phase(pong, after, *, data, state, home, now, wait, platform, launchctl, ping, ps,
-                  clock, sleep, say, launchd):
-    """(exit code, a daemon home pruning must keep) for the restart half of `upgrade`."""
-    new_path = after['path']
-    if pong is None:
-        if platform == 'darwin':
-            label = launchd.label_for(state)
-            if launchd.status(label, run=launchctl)['loaded']:
-                # Loaded but not answering: nothing to protect, and a kickstart
-                # starts it from the plist now instead of at the next throttle.
-                try:
-                    launchd.restart(label, run=launchctl, say=say)
-                except launchd.Refused as error:
-                    say(str(error))
-                    return 1, None
-                return 0, None
-        say('no daemon answers on %s; the next one started runs %s'
-            % (Path(state) / 'client.sock', after['name']))
-        return 0, None
-    old_home = pong.get('home')
-    old = version_label(old_home, data)
-    daemon_line = 'daemon   pid %s runs %s (code %s)' % (pong.get('pid'), old,
-                                                         short_code(pong.get('code')))
-    if old_home and os.path.realpath(old_home) == new_path:
-        say(daemon_line + '; already current')
-        return 0, old_home
-    say(daemon_line)
-    if platform != 'darwin':
-        say('restart the daemon yourself when `pandora ps` shows nothing running: it runs '
-            '%s until then' % old)
-        return 1, old_home
-    label = launchd.label_for(state)
-    agent = launchd.status(label, run=launchctl)
-    if not agent['loaded'] or agent['pid'] != pong.get('pid'):
-        say('launchd does not run this daemon, so upgrade cannot restart it. Stop it with '
-            '`pandora daemon --stop`, then start %s/bin/pandora daemon, or `pandora daemon '
-            '--install`' % after['link'])
-        return 1, old_home
-    program = launchd.agent_program(label, home)
-    if not (program and through_current(program, data)):
-        say('the launchd agent runs %s, not current. Run `pandora daemon --install` once '
-            '(it restarts the daemon: check `pandora ps` first)' % (program or '(unknown)'))
-        return 1, old_home
-    if now:
-        say('restarting now (--now): local runs end with exit 70 and are rerun by hand')
-    elif not wait_for_safe(ps, wait=wait, clock=clock, sleep=sleep, say=say):
-        say('gave up after %ds: current is %s, the daemon still runs %s. Run `pandora upgrade` '
-            'again later, or `pandora upgrade --now`' % (wait, after['name'], old))
-        return 75, old_home
-    try:
-        launchd.restart(label, run=launchctl, say=say)
-    except launchd.Refused as error:
-        say(str(error))
-        return 1, old_home
-    for _ in range(20):
-        try:
-            fresh = ping()
-        except (OSError, ValueError):
-            fresh = None
-        if fresh and fresh.get('pid') != pong.get('pid'):
-            say('daemon   pid %s runs %s (code %s)' % (fresh.get('pid'),
-                version_label(fresh.get('home'), data), short_code(fresh.get('code'))))
+def short_code(text):
+    return (text or '?')[:12]
+
+
+class Job:
+    """One upgrade's state between the checks, so each step reads as the rule it applies."""
+
+    def __init__(self, **fields):
+        self.__dict__.update(fields)
+        self.flipped = False
+        self.target = None
+
+    # -- moving current
+
+    def install(self):
+        flip(self.data, self.target['name'])
+        self.flipped = True
+        self.say('current  %s -> %s' % (self.before['name'] if self.before else '(none)',
+                                        self.target['name']))
+        for line in link_lines(launcher_links(self.env, self.data, source=self.source,
+                                              fix=self.relink)):
+            self.say(line)
+
+    def undo(self):
+        if self.before:
+            flip(self.data, self.before['name'])
+        else:
+            os.unlink(current_link(self.data))
+        self.flipped = False
+
+    def unchanged(self):
+        return ('Nothing changed: current is still %s; %s waits in versions/'
+                % (self.before['name'] if self.before else '(none)', self.target['name']))
+
+    # -- the three things the socket can say
+
+    def with_daemon(self, pong, no_restart):
+        old_home = pong.get('home')
+        old = version_label(old_home, self.data)
+        self.say('daemon   pid %s runs %s' % (pong.get('pid'), old))
+        if old_home and os.path.realpath(old_home) == os.path.realpath(self.target['path']):
+            self.install()
+            self.say('the daemon already runs %s' % self.target['name'])
+            return 0, old_home
+        why = self.cannot_restart(pong)
+        if why and not no_restart:
+            self.say(why)
+            self.say(self.unchanged() + '. `pandora upgrade --no-restart` moves current '
+                     'without restarting the daemon')
+            return 1, old_home
+        if why or no_restart:
+            self.install()
+            self.say('%s--no-restart: the daemon runs %s until it restarts; `pandora doctor` '
+                     'says so meanwhile' % (why + '; ' if why else '', old))
+            return 0, old_home
+        return self.restart_when_safe(pong.get('pid'), old_home)
+
+    def without_daemon(self, why):
+        from . import launchd
+        label = launchd.recorded_label(self.state) if self.platform == 'darwin' else None
+        holder = launchd.lock_holder(self.state)
+        if holder:
+            # The socket is gone or refusing, yet a daemon holds the lock: one
+            # starting, or wedged. Either may be driving runs.
+            return self.silent('%s, but pid %s holds %s' % (why, holder,
+                                                            self.state / 'daemon.lock'))
+        self.install()
+        if label is None or not launchd.status(label, run=self.launchctl)['loaded']:
+            self.say('no daemon answers on %s; the next one started runs %s'
+                     % (self.state / 'client.sock', self.target['name']))
             return 0, None
-        sleep(0.5)
-    say('the daemon has not answered since the restart; `pandora doctor` will say why')
-    return 0, old_home
+        # Loaded, not running, and nobody holds the lock: start it now rather
+        # than at launchd's next throttle.
+        return self.restart(label, None)
+
+    def silent(self, why):
+        from . import launchd
+        if not self.now:
+            self.say('the daemon on %s did not answer (%s). It may be driving runs, and '
+                     'a restart would end them unseen. %s. Try again, or `pandora upgrade '
+                     '--now`' % (self.state / 'client.sock', why, self.unchanged()))
+            return 75, None
+        label = launchd.recorded_label(self.state) if self.platform == 'darwin' else None
+        agent = launchd.status(label, run=self.launchctl) if label else {'loaded': False}
+        if not agent['loaded']:
+            self.say('the daemon did not answer (%s), and launchd supervises no daemon for '
+                     '%s, so upgrade cannot restart it. %s' % (why, self.state, self.unchanged()))
+            return 1, None
+        self.say(NOW_NOTE)
+        self.install()
+        return self.restart(label, agent.get('pid'))
+
+    # -- restarting
+
+    def cannot_restart(self, pong):
+        """Why upgrade cannot restart the daemon that answered, or None."""
+        from . import launchd
+        if self.platform != 'darwin':
+            return 'launchd is macOS only; restart the daemon yourself'
+        self.label = launchd.label_for(self.state)
+        agent = launchd.status(self.label, run=self.launchctl)
+        if not agent['loaded'] or agent['pid'] != pong.get('pid'):
+            return ('launchd does not run this daemon, so upgrade cannot restart it: stop it '
+                    'with `pandora daemon --stop`, then start it with `pandora daemon '
+                    '--install` once current has moved')
+        program = launchd.agent_program(self.label, self.home)
+        if not names_current(program, self.data):
+            return ('the launchd agent runs %s, not current: run `pandora daemon --install` '
+                    'once current has moved (it restarts the daemon; check `pandora ps` '
+                    'first)' % (program or '(unknown)'))
+        return None
+
+    def restart_when_safe(self, old_pid, old_home):
+        deadline = self.clock() + max(self.wait, 0)
+        if self.now:
+            self.say(NOW_NOTE)
+        while True:
+            if not self.now and not wait_for_safe(
+                    self.ps, wait=deadline - self.clock(), clock=self.clock, sleep=self.sleep,
+                    say=self.say):
+                self.say('gave up after %ds waiting for a safe moment. %s. Run `pandora '
+                         'upgrade` again later, or with --now' % (self.wait, self.unchanged()))
+                return 75, old_home
+            self.install()
+            late = [] if self.now else pending(self.ps)
+            if not late:
+                break
+            # A submission landed between the last poll and the flip.
+            self.undo()
+            self.say('a run started as current moved; moved it back:')
+            for line in late:
+                self.say('  ' + line)
+            if self.clock() >= deadline:
+                self.say('gave up after %ds. %s' % (self.wait, self.unchanged()))
+                return 75, old_home
+        return self.restart(self.label, old_pid, old_home)
+
+    def restart(self, label, old_pid, old_home=None):
+        from . import launchd
+        try:
+            launchd.restart(label, run=self.launchctl, say=self.say)
+        except launchd.Refused as error:
+            self.undo()
+            self.say('%s. %s' % (error, self.unchanged()))
+            return 1, old_home
+        for _ in range(20):
+            kind, fresh = probe(self.ping)
+            if kind == 'pong' and fresh.get('pid') != old_pid:
+                runs = version_label(fresh.get('home'), self.data)
+                self.say('daemon   pid %s runs %s' % (fresh.get('pid'), runs))
+                if os.path.realpath(fresh.get('home') or '') == os.path.realpath(
+                        self.target['path']):
+                    return 0, None
+                self.say('the new daemon does not run %s; `pandora doctor` says why'
+                         % self.target['name'])
+                return 1, fresh.get('home')
+            self.sleep(0.5)
+        back = (' To go back: `pandora upgrade --version %s`' % self.before['name']
+                if self.before else '')
+        self.say('no daemon has answered 10 s after the restart; read %s.%s'
+                 % (self.state / 'logs' / 'daemon.log', back))
+        return 1, old_home

@@ -64,6 +64,8 @@ class Case(unittest.TestCase):
         (repo / 'pandora' / '__init__.py').write_text('')
         (repo / 'pandora' / 'cli.py').write_text('VERSION = 1\n')
         (repo / 'pandora' / 'client' / 'shim.py').write_text('')
+        (repo / 'pandora' / 'client' / '__init__.py').write_text('')
+        (repo / 'pandora' / 'client' / 'daemon.py').write_text('')
         (repo / 'README.md').write_text('readme\n')
         git(repo, 'init', '-q')
         git(repo, 'add', '-A')
@@ -567,14 +569,45 @@ class SafeMoment(Case):
         self.assertFalse(safe)
         self.assertEqual(clock.slept, [10, 10, 5])
 
-    def test_no_daemon_is_safe(self):
-        def ps():
-            raise ConnectionRefusedError('nobody')
-        self.assertTrue(install.wait_for_safe(ps, wait=5, say=self.said.append))
+    def test_a_daemon_that_cannot_say_is_not_safe(self):
+        # A timeout, a close, or an error frame is a daemon that may be busy
+        # driving runs, never "nothing running".
+        for failure in (TimeoutError('timed out'), ConnectionResetError('reset'),
+                        install.NoAnswer('it answered version mismatch')):
+            clock = FakeClock()
+
+            def ps(failure=failure):
+                raise failure
+            self.said.clear()
+            self.assertFalse(install.wait_for_safe(ps, wait=20, clock=clock, sleep=clock.sleep,
+                                                   say=self.said.append))
+            self.assertIn('the daemon did not answer `ps`', '\n'.join(self.said))
+
+    def test_only_a_ps_frame_is_an_answer(self):
+        with mock.patch('pandora.cli.ask', return_value={'t': 'error', 'msg': 'version'}):
+            with self.assertRaises(install.NoAnswer):
+                install.ask_ps(self.state / 'client.sock')
+        with mock.patch('pandora.cli.ask', return_value=None):
+            with self.assertRaises(install.NoAnswer):
+                install.ask_ps(self.state / 'client.sock')
+        with mock.patch('pandora.cli.ask', return_value={'t': 'ps', 'data': ROWS}):
+            self.assertEqual(install.ask_ps(self.state / 'client.sock'), ROWS)
+
+    def test_only_a_pong_is_a_daemon(self):
+        def raises(error):
+            def ping():
+                raise error
+            return ping
+        self.assertEqual(install.probe(raises(FileNotFoundError('x')))[0], 'absent')
+        self.assertEqual(install.probe(raises(ConnectionRefusedError('x')))[0], 'absent')
+        self.assertEqual(install.probe(raises(TimeoutError('timed out')))[0], 'silent')
+        self.assertEqual(install.probe(lambda: {'t': 'error', 'msg': 'v1 vs v2'}),
+                         ('silent', 'it answered v1 vs v2'))
+        self.assertEqual(install.probe(lambda: {'t': 'pong', 'pid': 1})[0], 'pong')
 
 
 class Upgrade(Case):
-    """The whole verb, against a fake launchd and a fake daemon."""
+    """The whole verb, against a fake launchd, a fake daemon and a fake clock."""
 
     LABEL = 'com.pandora.daemon'
 
@@ -587,10 +620,12 @@ class Upgrade(Case):
         self.old = str(self.data / 'versions' / old)
         self.commit(self.repo, 'VERSION = 2\n')
         self.fake = FakeLaunchd({self.LABEL: 4242})
-        self.pong = {'pid': 4242, 'home': self.old, 'code': 'a' * 64}
+        self.pong = {'t': 'pong', 'pid': 4242, 'home': self.old}
         self.write_plist(self.data / 'current' / 'bin' / 'pandora')
+        (self.state / 'launchd.json').write_text(json.dumps({'label': self.LABEL}))
         self.clock = FakeClock()
         self.rows = []
+        self.ps_calls = 0
 
     def write_plist(self, program):
         path = launchd.plist_path(self.LABEL, self.home)
@@ -600,77 +635,189 @@ class Upgrade(Case):
             path='/usr/bin')))
 
     def ping(self):
-        if self.fake.loaded.get(self.LABEL) not in (None, 4242):
-            return {'pid': self.fake.loaded[self.LABEL],
-                    'home': os.path.realpath(self.data / 'current'), 'code': 'b' * 64}
-        if self.pong is None:
-            raise FileNotFoundError('no socket')
+        pid = self.fake.loaded.get(self.LABEL)
+        if pid not in (None, 4242):
+            # A daemon launchd started after the restart runs what current names.
+            return {'t': 'pong', 'pid': pid, 'home': os.path.realpath(self.data / 'current')}
+        if isinstance(self.pong, Exception):
+            raise self.pong
         return self.pong
 
     def ps(self):
-        if not self.rows:
-            return []
-        return self.rows.pop(0)
+        self.ps_calls += 1
+        return self.rows.pop(0) if self.rows else []
+
+    def current(self):
+        return install.installed(self.data)['path']
 
     def upgrade(self, **kwargs):
-        return install.upgrade(state=self.state, source=str(self.repo), data=self.data,
-                               env={'PATH': '/usr/bin:/bin'}, home=self.home,
-                               platform='darwin', launchctl=self.fake, ping=self.ping,
-                               ps=self.ps, clock=self.clock, sleep=self.clock.sleep,
-                               say=self.said.append, **kwargs)
+        import sys
+        return install.upgrade(state=self.state, data=self.data,
+                               env={'PATH': '/usr/bin:/bin', 'PANDORA_PYTHON': sys.executable},
+                               home=self.home, platform='darwin', launchctl=self.fake,
+                               ping=self.ping, ps=self.ps, clock=self.clock,
+                               sleep=self.clock.sleep, say=self.said.append,
+                               **dict({'source': str(self.repo)}, **kwargs))
 
-    def test_flips_then_restarts_once_nothing_would_end(self):
-        self.rows = [ROWS[:1], []]
+    def kicked(self):
+        return any(call[:2] == ['kickstart', '-k'] for call in self.fake.calls)
+
+    def test_waits_then_flips_and_restarts(self):
+        self.rows = [ROWS[:1], [], []]
         code = self.upgrade()
         text = '\n'.join(self.said)
         self.assertEqual(code, 0, text)
         new = install.installed(self.data)['name']
-        self.assertNotEqual(new, Path(self.old).name)
-        self.assertIn('current  %s -> %s' % (Path(self.old).name, new), text)
-        self.assertIn('daemon   pid 4242 runs %s (code aaaaaaaaaaaa)' % Path(self.old).name, text)
+        self.assertNotEqual(self.current(), self.old)
+        self.assertIn('daemon   pid 4242 runs %s' % Path(self.old).name, text)
         self.assertIn('r-local-run local running', text)
-        self.assertIn(['kickstart', '-k', 'gui/%d/%s' % (os.getuid(), self.LABEL)], self.fake.calls)
-        self.assertIn('runs %s (code bbbbbbbbbbbb)' % new, text)
+        # The flip comes after the wait, not before it.
+        self.assertLess(text.index('waiting up to'), text.index('current  %s -> %s'
+                                                               % (Path(self.old).name, new)))
+        self.assertTrue(self.kicked())
+        self.assertIn('runs %s' % new, self.said[-1] if 'pruned' not in self.said[-1]
+                      else self.said[-2])
 
-    def test_now_restarts_without_asking_ps(self):
-        self.rows = [ROWS, ROWS]
-        self.assertEqual(self.upgrade(now=True), 0, self.said)
-        self.assertEqual(len(self.rows), 2, 'ps was not asked')
-        self.assertIn('kickstart', self.fake.verbs())
-
-    def test_a_wait_that_runs_out_leaves_current_flipped_and_the_daemon_alone(self):
+    def test_a_wait_that_runs_out_changes_nothing(self):
         self.rows = [ROWS] * 100
         code = self.upgrade(wait=30)
         self.assertEqual(code, 75)
-        self.assertNotIn('kickstart', self.fake.verbs())
-        self.assertNotEqual(install.installed(self.data)['path'], self.old)
-        self.assertTrue(Path(self.old).is_dir(), 'the daemon\'s home is never pruned')
-        self.assertIn('`pandora upgrade --now`', self.said[-1])
+        self.assertFalse(self.kicked())
+        self.assertEqual(self.current(), self.old, 'current did not move')
+        self.assertIn('Nothing changed: current is still %s' % Path(self.old).name,
+                      '\n'.join(self.said))
+        self.assertIn('--now', self.said[-1])
 
-    def test_a_plist_that_runs_a_checkout_is_not_restarted(self):
+    def test_a_run_that_lands_as_current_moves_puts_it_back(self):
+        # Safe at the poll, a submission in the window before the restart.
+        self.rows = [[], ROWS[2:3], [], []]
+        code = self.upgrade()
+        self.assertEqual(code, 0, self.said)
+        self.assertIn('a run started as current moved; moved it back:', self.said)
+        self.assertEqual(self.ps_calls, 4)
+        self.assertTrue(self.kicked())
+
+    def test_now_restarts_without_asking_ps_and_says_what_ends(self):
+        self.rows = [ROWS, ROWS]
+        self.assertEqual(self.upgrade(now=True), 0, self.said)
+        self.assertEqual(self.ps_calls, 0)
+        self.assertTrue(self.kicked())
+        text = '\n'.join(self.said)
+        self.assertIn('a remote run still freezing or shipping ends with exit 70', text)
+        self.assertIn('one submitting is looked up on the worker', text)
+
+    def test_a_plist_that_runs_a_checkout_changes_nothing_unless_asked(self):
         self.write_plist(self.repo / 'bin' / 'pandora')
         self.assertEqual(self.upgrade(), 1)
-        self.assertNotIn('kickstart', self.fake.verbs())
-        self.assertIn('Run `pandora daemon --install` once', '\n'.join(self.said))
+        self.assertFalse(self.kicked())
+        self.assertEqual(self.current(), self.old)
+        self.assertIn('`pandora upgrade --no-restart` moves current', self.said[-1])
+        self.said.clear()
+        self.assertEqual(self.upgrade(no_restart=True), 0)
+        self.assertNotEqual(self.current(), self.old)
+        self.assertFalse(self.kicked())
 
-    def test_a_hand_started_daemon_is_not_restarted(self):
+    def test_a_hand_started_daemon_changes_nothing(self):
         self.fake.loaded.clear()
         self.assertEqual(self.upgrade(), 1)
         self.assertIn('launchd does not run this daemon', '\n'.join(self.said))
+        self.assertEqual(self.current(), self.old)
+
+    def test_a_daemon_that_does_not_answer_ping_is_not_restarted(self):
+        # A daemon busy on a swapping Mac times out; it may be driving runs.
+        self.pong = TimeoutError('timed out')
+        self.assertEqual(self.upgrade(), 75)
+        self.assertFalse(self.kicked())
+        self.assertEqual(self.current(), self.old)
+        self.assertIn('did not answer (timed out)', '\n'.join(self.said))
+        # --now is the explicit override, and restarts through the recorded label.
+        self.said.clear()
+        self.assertEqual(self.upgrade(now=True), 0, self.said)
+        self.assertTrue(self.kicked())
+
+    def test_an_error_frame_is_not_a_pong(self):
+        self.pong = {'t': 'error', 'code': 'version', 'msg': 'protocol v1 vs v2'}
+        self.assertEqual(self.upgrade(), 75)
+        self.assertEqual(self.current(), self.old)
+
+    def test_no_socket_and_another_state_never_touches_the_default_agent(self):
+        # `--state /tmp/x` with nothing listening: no launchd.json there, so
+        # the machine's own agent under the default label is left alone.
+        self.pong = FileNotFoundError('no socket')
+        (self.state / 'launchd.json').unlink()
+        self.assertEqual(self.upgrade(), 0)
+        self.assertFalse(self.kicked())
+        self.assertNotIn('print', self.fake.verbs())
+        self.assertIn('no daemon answers', '\n'.join(self.said))
+
+    def test_no_socket_while_a_daemon_holds_the_lock_changes_nothing(self):
+        from pandora.tests.test_launchd import HOLD
+        import sys
+        self.pong = FileNotFoundError('no socket')
+        proc = subprocess.Popen([sys.executable, '-c', HOLD, str(self.state / 'daemon.lock')],
+                                stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (proc.poll() is None and proc.kill(), proc.wait()))
+        self.assertEqual(proc.stdout.readline().strip(), 'held')
+        self.assertEqual(self.upgrade(), 75)
+        self.assertFalse(self.kicked())
+        self.assertIn('holds', '\n'.join(self.said))
+        self.assertEqual(self.current(), self.old)
+
+    def test_no_socket_and_a_loaded_agent_that_is_down_is_started(self):
+        self.pong = FileNotFoundError('no socket')
+        self.fake.loaded[self.LABEL] = None
+        self.assertEqual(self.upgrade(), 0, self.said)
+        self.assertTrue(any(call[0] == 'kickstart' for call in self.fake.calls))
+
+    def test_a_new_daemon_that_never_answers_is_an_error_with_the_way_back(self):
+        self.rows = []
+        self.ping_after = None
+
+        def silent_after_restart():
+            if self.fake.loaded.get(self.LABEL) != 4242:
+                raise ConnectionRefusedError('nobody')
+            return self.pong
+        self.ping = silent_after_restart
+        code = self.upgrade()
+        self.assertEqual(code, 1)
+        self.assertIn('no daemon has answered 10 s after the restart', self.said[-1]
+                      if 'pruned' not in self.said[-1] else self.said[-2])
+        self.assertIn('`pandora upgrade --version %s`' % Path(self.old).name,
+                      '\n'.join(self.said))
+
+    def test_a_version_that_cannot_import_is_refused_before_anything_moves(self):
+        (self.repo / 'pandora' / 'client' / 'daemon.py').write_text('import nonexistent_mod\n')
+        git(self.repo, 'commit', '-q', '-am', 'broken')
+        with self.assertRaises(install.Refused) as caught:
+            self.upgrade()
+        self.assertIn("No module named 'nonexistent_mod'", str(caught.exception))
+        self.assertIn('Nothing changed', str(caught.exception))
+        self.assertEqual(self.current(), self.old)
+        self.assertFalse(self.kicked())
+
+    def test_version_goes_back_to_an_installed_one(self):
+        self.upgrade(now=True)
+        self.fake.loaded[self.LABEL] = 4242
+        self.pong = {'t': 'pong', 'pid': 4242, 'home': self.current()}
+        self.said.clear()
+        self.assertEqual(self.upgrade(version=Path(self.old).name, source=None, now=True), 0,
+                         self.said)
+        self.assertEqual(self.current(), self.old)
+        with self.assertRaises(install.Refused):
+            self.upgrade(version='nope', source=None)
 
     def test_a_daemon_already_on_the_new_version_is_left_alone(self):
         self.upgrade(now=True)
         self.fake.calls.clear()
         self.said.clear()
-        self.pong = self.ping()
         self.fake.loaded[self.LABEL] = 4242
-        self.pong['pid'] = 4242
+        self.pong = {'t': 'pong', 'pid': 4242, 'home': self.current()}
         self.assertEqual(self.upgrade(), 0)
-        self.assertTrue(any(line.endswith('; already current') for line in self.said), self.said)
-        self.assertNotIn('kickstart', self.fake.verbs())
+        self.assertIn('the daemon already runs %s' % Path(self.current()).name, self.said)
+        self.assertFalse(self.kicked())
 
     def test_no_daemon_and_no_agent(self):
-        self.pong = None
+        self.pong = FileNotFoundError('no socket')
         self.fake.loaded.clear()
         self.assertEqual(self.upgrade(), 0)
         self.assertIn('no daemon answers', '\n'.join(self.said))
@@ -678,18 +825,45 @@ class Upgrade(Case):
     def test_old_versions_are_pruned_after_the_restart(self):
         for index in range(4):
             self.commit(self.repo, 'VERSION = %d\n' % (index + 10))
-            self.upgrade(now=True)
+            self.assertEqual(self.upgrade(now=True), 0, self.said)
             self.fake.loaded[self.LABEL] = 4242
-            self.pong = {'pid': 4242, 'home': install.installed(self.data)['path'], 'code': 'c'}
+            self.pong = {'t': 'pong', 'pid': 4242, 'home': self.current()}
         names = sorted(p.name for p in (self.data / 'versions').iterdir())
         self.assertEqual(len(names), 3, names)
         self.assertIn(install.installed(self.data)['name'], names)
 
+    def test_a_scratch_data_root_never_re_points_the_launchers(self):
+        bindir = self.root / 'pathbin'
+        bindir.mkdir()
+        (bindir / 'pandora').symlink_to(self.repo / 'bin' / 'pandora')
+        import sys
+        code = install.upgrade(state=self.state, source=str(self.repo), data=self.data,
+                               env={'PATH': str(bindir), 'PANDORA_PYTHON': sys.executable},
+                               home=self.home, platform='darwin', launchctl=self.fake,
+                               ping=self.ping, ps=self.ps, clock=self.clock,
+                               sleep=self.clock.sleep, say=self.said.append, now=True)
+        self.assertEqual(code, 0, self.said)
+        self.assertEqual(os.readlink(bindir / 'pandora'), str(self.repo / 'bin' / 'pandora'))
+        self.assertIn('ln -sf %s %s' % (self.data / 'current' / 'bin' / 'pandora',
+                                        bindir / 'pandora'), '\n'.join(self.said))
+        # The default data root, or --relink, does move it.
+        self.said.clear()
+        code = install.upgrade(state=self.state, source=str(self.repo), data=self.data,
+                               env={'PATH': str(bindir), 'PANDORA_PYTHON': sys.executable},
+                               home=self.home, platform='darwin', launchctl=self.fake,
+                               ping=self.ping, ps=self.ps, clock=self.clock,
+                               sleep=self.clock.sleep, say=self.said.append, now=True,
+                               relink=True, no_restart=True)
+        self.assertEqual(os.readlink(bindir / 'pandora'),
+                         str(self.data / 'current' / 'bin' / 'pandora'))
+
     def test_the_cli_refuses_a_dirty_checkout_and_parses_the_flags(self):
         from pandora import cli
         (self.repo / 'pandora' / 'cli.py').write_text('dirty\n')
-        # A PATH with no launcher on it: this must never re-point the real ones.
+        # HOME and XDG_DATA_HOME are the test package's scratch; PATH holds no
+        # launcher; and nothing past the refusal may run.
         with mock.patch.object(install, 'upgrade', wraps=install.upgrade) as called, \
+                mock.patch.object(install, 'snapshot', side_effect=AssertionError('went on')), \
                 mock.patch.dict(os.environ, PATH='/usr/bin:/bin'), \
                 mock.patch('sys.stderr') as err:
             code = cli.main(['--state', str(self.state), '--config', str(self.root / 'none.toml'),
@@ -699,6 +873,13 @@ class Upgrade(Case):
         self.assertEqual(called.call_args.kwargs['keep'], 2)
         written = ''.join(call.args[0] for call in err.write.call_args_list)
         self.assertIn('uncommitted changes', written)
+
+    def test_the_cli_keeps_at_least_two(self):
+        from pandora import cli
+        with mock.patch('sys.stderr'):
+            self.assertEqual(cli.main(['--state', str(self.state), '--config',
+                                       str(self.root / 'none.toml'), 'upgrade', '--keep', '1']),
+                             64)
 
 
 if __name__ == '__main__':

@@ -101,6 +101,19 @@ def launcher(env=None, home=None):
     return program if install.installed(install.data_root(env, home)) else program.resolve()
 
 
+def recorded_label(state):
+    """The label `--install` recorded for this state directory, or None.
+
+    Unlike `label_for`, never the default: a verb that would act on an agent
+    it was not told about (`upgrade --state /tmp/x` with nothing listening)
+    must not reach the machine's real daemon by default.
+    """
+    try:
+        return json.loads((Path(state) / RECORD).read_text())['label']
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def label_for(state, given=None):
     """The label asked for, else the one `--install` recorded, else the default."""
     if given:
