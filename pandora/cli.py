@@ -153,7 +153,7 @@ def cmd_daemon_supervision(args):
 
 
 def cmd_upgrade(args):
-    """Snapshot the checkout into `<data>/versions`, flip `current`, restart at a safe moment.
+    """Snapshot the checkout into `<data>/versions`, drain the daemon, flip `current`, restart.
 
     See `client/install.py` for the layout and why nothing runs from the checkout.
     """
@@ -788,7 +788,7 @@ def main(argv=None):
     daemon.set_defaults(func=cmd_daemon)
 
     upgrade = sub.add_parser('upgrade', help="install the checkout's HEAD as the version "
-                             'everything runs, and restart the daemon at a safe moment')
+                             'everything runs, and restart the daemon after a drain')
     upgrade.add_argument('--from', dest='source', default=None, metavar='CHECKOUT',
                          help='the checkout to snapshot (default: the one current came from)')
     upgrade.add_argument('--dirty', action='store_true',
@@ -796,8 +796,9 @@ def main(argv=None):
     upgrade.add_argument('--version', default=None, metavar='NAME',
                          help='install a version already under versions/ (to go back to one)')
     upgrade.add_argument('--now', action='store_true',
-                         help='restart the daemon at once: local runs and remote runs not yet '
-                              'accepted end (a submitting one is looked up on the worker)')
+                         help='restart the daemon at once: local runs executing and remote runs '
+                              'not yet accepted end (a submitting one is looked up on the '
+                              'worker); queued local runs are submitted again')
     upgrade.add_argument('--no-restart', action='store_true',
                          help='move current even though the daemon keeps its version until it '
                               'restarts')
@@ -805,7 +806,8 @@ def main(argv=None):
                          help='re-point the launchers on PATH even with a non-default data '
                               'directory')
     upgrade.add_argument('--wait', type=float, default=600, metavar='SECONDS',
-                         help='how long to wait for a safe moment to restart (default 600)')
+                         help='how long the drain waits for the runs a restart would end '
+                              '(default 600)')
     upgrade.add_argument('--keep', type=int, default=3,
                          help='versions to keep, current included (default 3, at least 2)')
     upgrade.set_defaults(func=cmd_upgrade)

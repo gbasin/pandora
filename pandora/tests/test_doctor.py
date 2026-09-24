@@ -470,8 +470,8 @@ class AgainstARealDaemon(DaemonCase):
         with mock.patch.object(doctor.bundle, 'code_digest', return_value='0' * 64):
             item, _pong = doctor.check_daemon(self.daemon.socket_path, None)
         self.assertEqual(item['status'], 'warn')
-        self.assertIn('daemon code differs from the checkout. Restarting ends running local '
-                      'runs; check `pandora ps` first', item['detail'])
+        self.assertIn('daemon code differs from the checkout; restart it: `pandora daemon '
+                      '--restart`', item['detail'])
 
     def test_only_modules_the_daemon_loads_count(self):
         # A change to the worker half or the canary is no reason to restart the

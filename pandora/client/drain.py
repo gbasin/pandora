@@ -230,14 +230,20 @@ def end(sock_path, *, ask=ask):
 
 
 def rows_from_ps(sock_path, *, ask=ask):
-    """A daemon from before drain: the same question, asked of `ps`."""
+    """A daemon from before drain: the same question, asked of `ps`.
+
+    Its queued local runs block too: nothing withdraws them for resubmission,
+    and its stop would end them with exit 70.
+    """
     try:
         answer = ask(sock_path, {'op': 'ps'})
     except (OSError, ValueError) as error:
         raise Unanswered(str(error) or type(error).__name__) from None
     if not isinstance(answer, dict) or answer.get('t') != 'ps':
         raise Unanswered('it answered %s' % answer)
-    return blockers(answer.get('data') or [])
+    rows = answer.get('data') or []
+    return [row for row in rows if row in blockers(rows) or (
+        (row.get('lane') == 'local') and row.get('state') == 'queued')]
 
 
 NOW_NOTE = ('restarting now (--now): a local run still executing ends with exit 70; a remote '
@@ -247,13 +253,15 @@ NOW_NOTE = ('restarting now (--now): a local run still executing ends with exit 
 
 def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, say=notice,
                       before_restart=None, ask=ask, clock=time.monotonic, sleep=time.sleep,
-                      interval=1.0, successor_seconds=SUCCESSOR_SECONDS):
+                      interval=1.0, successor_seconds=SUCCESSOR_SECONDS,
+                      again='`pandora daemon --restart --now`'):
     """Drain the daemon, wait for what a restart would end, restart it. Returns an exit code.
 
     `restart()` restarts the daemon (launchd's kickstart for `pandora daemon
     --restart`); `before_restart()`, when given, runs once nothing blocks and
     before the restart -- `pandora upgrade` moves `current` there. Either may
-    raise: the daemon leaves draining and the error propagates.
+    raise: the daemon leaves draining and the error propagates. `again` is the
+    command the timeout and silence messages name for going ahead anyway.
 
     0 when the successor cleared the marker; 75 (`STALE`) when the wait ran out
     without `now`, after the daemon left draining; 1 when the successor did not
@@ -274,7 +282,7 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
         if not now:
             end(sock, ask=ask)        # in case it heard the drain and the answer was lost
             say('the daemon did not answer the drain (%s); not restarting. Look at '
-                '%s, or restart anyway with --now' % (error, state / 'logs' / 'daemon.log'))
+                '%s, or go ahead anyway with %s' % (error, state / 'logs' / 'daemon.log', again))
             return STALE
         say('the daemon did not answer the drain (%s); restarting anyway (--now)' % error)
         held, blocking = False, []
@@ -322,7 +330,7 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                     'restarted. Still running:' % round(wait))
                 for row in blocking:
                     say('  ' + blocker_line(row))
-                say('retry later, or `pandora daemon --restart --now` to end them')
+                say('retry later, or %s to end them' % again)
                 return STALE
             say(NOW_NOTE)
         elif held:

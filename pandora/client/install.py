@@ -18,7 +18,9 @@ left the daemon on the old code, for hours, until a digest warning in `doctor`
   the version directory as they start (`cd -P`), so a process that lives across
   a flip keeps importing from the version it started with.
 * The daemon is restarted into the new version only when a restart ends
-  nothing: no local run running or queued, no remote run before `accepted`.
+  nothing: it is drained first (`drain.drain_and_restart`), so new commands
+  wait instead of starting, and `current` moves once no local run is executing
+  and no remote run is before `accepted`, just before the kickstart.
 
 `<data>` is `$XDG_DATA_HOME/pandora`, else `~/.local/share/pandora`. Pulling
 the checkout changes nothing live until the next `pandora upgrade`. An install
@@ -41,7 +43,6 @@ VERSIONS = 'versions'
 META = '.pandora-version'
 KEEP = 3
 WAIT_SECONDS = 600
-POLL_SECONDS = 10
 LAUNCHERS = ('pandora', 'pnpm')
 RUNNING = Path(__file__).resolve().parents[2]
 # The parts of the tree the digest covers: what runs, not the notes.
@@ -506,32 +507,7 @@ def link_lines(links):
     return lines
 
 
-# -- a safe moment -------------------------------------------------------------------
-
-def blockers(rows):
-    """The runs a daemon restart would end: local running or queued, remote not yet accepted.
-
-    A remote row is `queued` until the worker says `accepted` -- through
-    freezing, shipping and submitting -- and `running` after it; an accepted
-    remote run survives a restart (`Daemon.resume_interrupted`).
-    """
-    out = []
-    for row in rows:
-        state, lane = row.get('state'), row.get('lane') or 'remote'
-        if state == 'queued' or (lane == 'local' and state == 'running'):
-            out.append(row)
-    return out
-
-
-def blocker_line(row):
-    from ..cli import state_word
-    return '%s %s %s: %s' % (row.get('id', '?'), row.get('lane') or 'remote', state_word(row),
-                             ' '.join(row.get('argv') or [])[:60])
-
-
-class NoAnswer(Exception):
-    """The socket gave no usable answer: a close, or a frame of the wrong kind."""
-
+# -- the daemon ----------------------------------------------------------------------
 
 def probe(ping):
     """`('pong', answer)`, `('absent', why)` or `('silent', why)`.
@@ -552,52 +528,6 @@ def probe(ping):
         said = answer.get('msg') if isinstance(answer, dict) else None
         return 'silent', 'it answered %s' % (said or answer)
     return 'pong', answer
-
-
-def ask_ps(sock):
-    """The daemon's rows. Anything but a `ps` frame raises: it is not an answer."""
-    from ..cli import ask
-    answer = ask(sock, {'op': 'ps'})
-    if not isinstance(answer, dict) or answer.get('t') != 'ps':
-        raise NoAnswer('it answered %s' % ((answer or {}).get('msg') if isinstance(answer, dict)
-                                            else answer))
-    return answer.get('data') or []
-
-
-def pending(ps):
-    """What a restart would end now, one line each; a daemon that cannot say counts too."""
-    try:
-        rows = ps()
-    except (OSError, ValueError, NoAnswer) as error:
-        return ['the daemon did not answer `ps` (%s)' % (str(error) or type(error).__name__)]
-    return [blocker_line(row) for row in blockers(rows)]
-
-
-def wait_for_safe(ps, *, wait=WAIT_SECONDS, interval=POLL_SECONDS, clock=time.monotonic,
-                  sleep=time.sleep, say=print):
-    """True once `ps()` shows nothing a restart would end; False after `wait` seconds.
-
-    A `ps` that times out, closes or answers with an error is not "nothing
-    running": it is a daemon that cannot say, and the wait goes on. What is
-    waited on is printed when it changes, not every poll.
-    """
-    deadline = clock() + max(wait, 0)
-    said = None
-    while True:
-        waiting = pending(ps)
-        if not waiting:
-            return True
-        if waiting != said:
-            say('waiting up to %ds for %d run%s a restart would end:'
-                % (max(0, round(deadline - clock())), len(waiting),
-                   '' if len(waiting) == 1 else 's'))
-            for line in waiting:
-                say('  ' + line)
-            said = waiting
-        remaining = deadline - clock()
-        if remaining <= 0:
-            return False
-        sleep(min(interval, remaining))
 
 
 # -- the whole verb ------------------------------------------------------------------
@@ -670,17 +600,21 @@ def default_data(home=None):
 def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
             dirty_ok=False, now=False, no_restart=False, relink=None, wait=WAIT_SECONDS,
             keep=KEEP, platform=None, git_run=subprocess.run, check_run=subprocess.run,
-            launchctl=subprocess.run, ping=None, ps=None, clock=time.monotonic,
+            launchctl=subprocess.run, ping=None, ask=None, clock=time.monotonic,
             sleep=time.sleep, say=print):
-    """Build or pick a version, wait for a safe moment, flip `current`, restart, prune.
+    """Build or pick a version, drain the daemon, flip `current`, restart, prune.
 
     `current` moves only when the daemon can move with it (or `--no-restart`
-    asks for the flip alone), so a timed-out wait leaves nothing changed.
+    asks for the flip alone), so a timed-out wait leaves nothing changed. The
+    wait is `drain.drain_and_restart`: the daemon holds new submissions while
+    the runs a restart would end finish, and `current` moves once nothing
+    blocks, just before the kickstart. `ask` is its transport, for tests.
     Exits: 0 the daemon runs the new version, or no daemon runs; 75 no safe
     moment came, or the daemon did not answer, and nothing changed; 1 refused,
     upgrade cannot restart this daemon, or the new daemon never answered.
     """
     import sys
+    from . import drain
     from .doctor import ping as doctor_ping
     env = dict(os.environ if env is None else env)
     data = Path(data or data_root(env, home))
@@ -691,7 +625,7 @@ def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
         relink = os.path.realpath(data) == os.path.realpath(default_data(home))
     job = Job(state=Path(state), data=data, env=env, home=home, now=now, wait=wait,
               platform=platform or sys.platform, launchctl=launchctl, relink=relink,
-              ping=ping or (lambda: doctor_ping(sock)), ps=ps or (lambda: ask_ps(sock)),
+              ping=ping or (lambda: doctor_ping(sock)), ask=ask or drain.ask,
               clock=clock, sleep=sleep, say=say, before=installed(data), source=None)
     if version:
         job.target = pick(data, version)
@@ -837,29 +771,41 @@ class Job:
         return None
 
     def restart_when_safe(self, old_pid, old_home):
-        deadline = self.clock() + max(self.wait, 0)
-        if self.now:
-            self.say(NOW_NOTE)
-        while True:
-            if not self.now and not wait_for_safe(
-                    self.ps, wait=deadline - self.clock(), clock=self.clock, sleep=self.sleep,
-                    say=self.say):
-                self.say('gave up after %ds waiting for a safe moment. %s. Run `pandora '
-                         'upgrade` again later, or with --now' % (self.wait, self.unchanged()))
-                return 75, old_home
-            self.install()
-            late = [] if self.now else pending(self.ps)
-            if not late:
-                break
-            # A submission landed between the last poll and the flip.
-            self.undo()
-            self.say('a run started as current moved; moved it back:')
-            for line in late:
-                self.say('  ' + line)
-            if self.clock() >= deadline:
-                self.say('gave up after %ds. %s' % (self.wait, self.unchanged()))
-                return 75, old_home
-        return self.restart(self.label, old_pid, old_home)
+        """Drain, flip `current` once nothing blocks, kickstart, then check the new daemon.
+
+        `--now` does not wait: the drain asks once, withdraws queued local runs
+        for resubmission, and the restart ends the rest (`drain.NOW_NOTE`). A
+        wait that runs out leaves the daemon admitting runs and `current` where
+        it was.
+        """
+        from . import drain, launchd
+        kicked = []
+
+        def kickstart():
+            launchd.restart(self.label, run=self.launchctl, say=self.say)
+            kicked.append(True)
+        try:
+            code = drain.drain_and_restart(
+                self.state, restart=kickstart, wait=0 if self.now else self.wait,
+                now=self.now, say=self.say, before_restart=self.install, ask=self.ask,
+                clock=self.clock, sleep=self.sleep, again='`pandora upgrade --now`')
+        except launchd.Refused as error:
+            if self.flipped:
+                self.undo()
+            self.say('%s. %s' % (error, self.unchanged()))
+            return 1, old_home
+        except BaseException:
+            # Before the kickstart, the old daemon still runs the old version.
+            if self.flipped and not kicked:
+                self.undo()
+            raise
+        if code == 75:
+            self.say('%s. Run `pandora upgrade` again later, or with --now' % self.unchanged())
+            return 75, old_home
+        if code != 0:
+            self.say(self.way_back())
+            return 1, old_home
+        return self.confirm(old_pid, old_home)
 
     def restart(self, label, old_pid, old_home=None):
         from . import launchd
@@ -869,6 +815,14 @@ class Job:
             self.undo()
             self.say('%s. %s' % (error, self.unchanged()))
             return 1, old_home
+        return self.confirm(old_pid, old_home)
+
+    def way_back(self):
+        return ('To go back: `pandora upgrade --version %s`' % self.before['name']
+                if self.before else '')
+
+    def confirm(self, old_pid, old_home):
+        """A new daemon answers, and runs the target version."""
         for _ in range(20):
             kind, fresh = probe(self.ping)
             if kind == 'pong' and fresh.get('pid') != old_pid:
@@ -881,8 +835,7 @@ class Job:
                          % self.target['name'])
                 return 1, fresh.get('home')
             self.sleep(0.5)
-        back = (' To go back: `pandora upgrade --version %s`' % self.before['name']
-                if self.before else '')
+        back = self.way_back()
         self.say('no daemon has answered 10 s after the restart; read %s.%s'
-                 % (self.state / 'logs' / 'daemon.log', back))
+                 % (self.state / 'logs' / 'daemon.log', ' ' + back if back else ''))
         return 1, old_home

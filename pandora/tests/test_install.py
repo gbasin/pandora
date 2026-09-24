@@ -2,8 +2,8 @@
 
 The checkout is a real git repository in a temporary directory, so "committed
 tree", "dirty" and "untracked" are git's answers rather than mocks. launchd is
-`FakeLaunchd` from `test_launchd`, the daemon's `ping` and `ps` are callables,
-and the clock is fake, so the ten-second poll costs nothing.
+`FakeLaunchd` from `test_launchd`, the daemon's `ping` and its side of the
+drain are callables, and the clock is fake, so the drain's polls cost nothing.
 """
 import json
 import os
@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from pandora.client import install, launchd
+from pandora.client import drain, install, launchd
 from pandora.tests.test_launchd import FakeLaunchd
 
 HERE = Path(__file__).resolve().parents[2]
@@ -586,54 +586,28 @@ ROWS = [
 ]
 
 
-class SafeMoment(Case):
-    def test_what_a_restart_would_end(self):
-        self.assertEqual([row['id'] for row in install.blockers(ROWS)],
-                         ['r-local-run', 'r-local-q', 'r-ship'])
-        self.assertIn('r-ship remote shipping: journey', install.blocker_line(ROWS[2]))
+class Kickstarts(FakeLaunchd):
+    """launchd, plus the one thing the successor does that upgrade waits for: the marker goes."""
 
-    def test_waits_while_runs_block_and_says_what_it_waits_on_once(self):
-        clock = FakeClock()
-        answers = iter([ROWS, ROWS, ROWS[1:], []])
-        safe = install.wait_for_safe(lambda: next(answers), wait=600, clock=clock,
-                                     sleep=clock.sleep, say=self.said.append)
-        self.assertTrue(safe)
-        self.assertEqual(clock.slept, [10, 10, 10])
-        headers = [line for line in self.said if line.startswith('waiting')]
-        self.assertEqual(headers, ['waiting up to 600s for 3 runs a restart would end:',
-                                   'waiting up to 580s for 2 runs a restart would end:'])
+    def __init__(self, loaded, state):
+        super().__init__(loaded)
+        self.state = state
+        self.refuse_kickstart = False
+        self.successor_settles = True
+        self.marker_at_kickstart = None
 
-    def test_gives_up_after_the_wait(self):
-        clock = FakeClock()
-        safe = install.wait_for_safe(lambda: ROWS, wait=25, clock=clock, sleep=clock.sleep,
-                                     say=self.said.append)
-        self.assertFalse(safe)
-        self.assertEqual(clock.slept, [10, 10, 5])
+    def __call__(self, argv, **kwargs):
+        if argv[1] == 'kickstart' and '-k' in argv[2:]:
+            self.marker_at_kickstart = drain.marker_path(self.state).exists()
+            if self.refuse_kickstart:
+                self.calls.append(argv[1:])
+                return self.done(5, err='Kickstart failed')
+            if self.successor_settles:
+                drain.clear_marker(self.state)
+        return super().__call__(argv, **kwargs)
 
-    def test_a_daemon_that_cannot_say_is_not_safe(self):
-        # A timeout, a close, or an error frame is a daemon that may be busy
-        # driving runs, never "nothing running".
-        for failure in (TimeoutError('timed out'), ConnectionResetError('reset'),
-                        install.NoAnswer('it answered version mismatch')):
-            clock = FakeClock()
 
-            def ps(failure=failure):
-                raise failure
-            self.said.clear()
-            self.assertFalse(install.wait_for_safe(ps, wait=20, clock=clock, sleep=clock.sleep,
-                                                   say=self.said.append))
-            self.assertIn('the daemon did not answer `ps`', '\n'.join(self.said))
-
-    def test_only_a_ps_frame_is_an_answer(self):
-        with mock.patch('pandora.cli.ask', return_value={'t': 'error', 'msg': 'version'}):
-            with self.assertRaises(install.NoAnswer):
-                install.ask_ps(self.state / 'client.sock')
-        with mock.patch('pandora.cli.ask', return_value=None):
-            with self.assertRaises(install.NoAnswer):
-                install.ask_ps(self.state / 'client.sock')
-        with mock.patch('pandora.cli.ask', return_value={'t': 'ps', 'data': ROWS}):
-            self.assertEqual(install.ask_ps(self.state / 'client.sock'), ROWS)
-
+class TheDaemon(Case):
     def test_only_a_pong_is_a_daemon(self):
         def raises(error):
             def ping():
@@ -660,13 +634,14 @@ class Upgrade(Case):
         install.flip(self.data, old)
         self.old = str(self.data / 'versions' / old)
         self.commit(self.repo, 'VERSION = 2\n')
-        self.fake = FakeLaunchd({self.LABEL: 4242})
+        self.fake = Kickstarts({self.LABEL: 4242}, self.state)
         self.pong = {'t': 'pong', 'pid': 4242, 'home': self.old}
         self.write_plist(self.data / 'current' / 'bin' / 'pandora')
         (self.state / 'launchd.json').write_text(json.dumps({'label': self.LABEL}))
         self.clock = FakeClock()
         self.rows = []
-        self.ps_calls = 0
+        self.drains = 0
+        self.flips = []
 
     def write_plist(self, program):
         path = launchd.plist_path(self.LABEL, self.home)
@@ -684,9 +659,17 @@ class Upgrade(Case):
             raise self.pong
         return self.pong
 
-    def ps(self):
-        self.ps_calls += 1
-        return self.rows.pop(0) if self.rows else []
+    def ask(self, _sock, request, timeout=30.0):
+        """The daemon's side of a drain: the marker, and the rows that still block."""
+        self.assertEqual(request['op'], 'drain')
+        if request.get('cancel'):
+            drain.clear_marker(self.state)
+            return {'t': 'drain', 'draining': False}
+        self.drains += 1
+        if not drain.marker_path(self.state).exists():
+            drain.write_marker(self.state, {'since': 0, 'pid': request.get('pid')})
+        rows = self.rows.pop(0) if self.rows else []
+        return {'t': 'drain', 'draining': True, 'blockers': drain.blockers(rows)}
 
     def current(self):
         return install.installed(self.data)['path']
@@ -696,7 +679,7 @@ class Upgrade(Case):
         return install.upgrade(state=self.state, data=self.data,
                                env={'PATH': '/usr/bin:/bin', 'PANDORA_PYTHON': sys.executable},
                                home=self.home, platform='darwin', launchctl=self.fake,
-                               ping=self.ping, ps=self.ps, clock=self.clock,
+                               ping=self.ping, ask=self.ask, clock=self.clock,
                                sleep=self.clock.sleep, say=self.said.append,
                                **dict({'source': str(self.repo)}, **kwargs))
 
@@ -719,29 +702,49 @@ class Upgrade(Case):
         self.assertIn('runs %s' % new, self.said[-1] if 'pruned' not in self.said[-1]
                       else self.said[-2])
 
-    def test_a_wait_that_runs_out_changes_nothing(self):
-        self.rows = [ROWS] * 100
+    def test_a_wait_that_runs_out_changes_nothing_and_undrains(self):
+        self.rows = [ROWS] * 1000
         code = self.upgrade(wait=30)
         self.assertEqual(code, 75)
         self.assertFalse(self.kicked())
         self.assertEqual(self.current(), self.old, 'current did not move')
+        self.assertFalse(drain.marker_path(self.state).exists(), 'left draining')
         self.assertIn('Nothing changed: current is still %s' % Path(self.old).name,
                       '\n'.join(self.said))
         self.assertIn('--now', self.said[-1])
+        self.assertIn('retry later, or `pandora upgrade --now` to end them', self.said)
 
-    def test_a_run_that_lands_as_current_moves_puts_it_back(self):
-        # Safe at the poll, a submission in the window before the restart.
-        self.rows = [[], ROWS[2:3], [], []]
-        code = self.upgrade()
+    def test_current_moves_while_the_daemon_holds_new_runs_just_before_the_kickstart(self):
+        # No window for a run to start between the last poll and the restart:
+        # the daemon is draining when current moves and when launchd restarts it.
+        self.rows = [ROWS[2:3], []]
+        real = install.flip
+        with mock.patch.object(install, 'flip', side_effect=lambda data, name: (
+                self.flips.append(drain.marker_path(self.state).exists()),
+                real(data, name))):
+            code = self.upgrade()
         self.assertEqual(code, 0, self.said)
-        self.assertIn('a run started as current moved; moved it back:', self.said)
-        self.assertEqual(self.ps_calls, 4)
-        self.assertTrue(self.kicked())
+        self.assertEqual(self.flips, [True])
+        self.assertTrue(self.fake.marker_at_kickstart)
+        self.assertEqual(self.drains, 2)
 
-    def test_now_restarts_without_asking_ps_and_says_what_ends(self):
+    def test_a_refused_kickstart_puts_current_back_and_undrains(self):
+        self.fake.refuse_kickstart = True
+        self.assertEqual(self.upgrade(), 1)
+        self.assertEqual(self.current(), self.old)
+        self.assertFalse(drain.marker_path(self.state).exists())
+        self.assertIn('Nothing changed', self.said[-1])
+
+    def test_a_successor_that_never_settles_is_an_error_with_the_way_back(self):
+        self.fake.successor_settles = False
+        self.assertEqual(self.upgrade(), 1)
+        self.assertIn('`pandora upgrade --version %s`' % Path(self.old).name, self.said[-1])
+
+    def test_now_does_not_wait_and_says_what_ends(self):
         self.rows = [ROWS, ROWS]
         self.assertEqual(self.upgrade(now=True), 0, self.said)
-        self.assertEqual(self.ps_calls, 0)
+        self.assertEqual(self.drains, 1)
+        self.assertEqual(self.clock.slept, [])
         self.assertTrue(self.kicked())
         text = '\n'.join(self.said)
         self.assertIn('a remote run still freezing or shipping ends with exit 70', text)
@@ -881,7 +884,7 @@ class Upgrade(Case):
         code = install.upgrade(state=self.state, source=str(self.repo), data=self.data,
                                env={'PATH': str(bindir), 'PANDORA_PYTHON': sys.executable},
                                home=self.home, platform='darwin', launchctl=self.fake,
-                               ping=self.ping, ps=self.ps, clock=self.clock,
+                               ping=self.ping, ask=self.ask, clock=self.clock,
                                sleep=self.clock.sleep, say=self.said.append, now=True)
         self.assertEqual(code, 0, self.said)
         self.assertEqual(os.readlink(bindir / 'pandora'), str(self.repo / 'bin' / 'pandora'))
@@ -892,7 +895,7 @@ class Upgrade(Case):
         code = install.upgrade(state=self.state, source=str(self.repo), data=self.data,
                                env={'PATH': str(bindir), 'PANDORA_PYTHON': sys.executable},
                                home=self.home, platform='darwin', launchctl=self.fake,
-                               ping=self.ping, ps=self.ps, clock=self.clock,
+                               ping=self.ping, ask=self.ask, clock=self.clock,
                                sleep=self.clock.sleep, say=self.said.append, now=True,
                                relink=True, no_restart=True)
         self.assertEqual(os.readlink(bindir / 'pandora'),

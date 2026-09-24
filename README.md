@@ -445,7 +445,7 @@ The version lines warn in these cases:
 |---|---|---|
 | `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into the checkout it upgrades or into a version directory. Replace any other link with one through `current`. |
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
-| `daemon` | `daemon runs <old>, current is <new>; restart it` | Restart when `pandora ps` shows nothing a restart would end: `pandora daemon --restart` under launchd, else stop and start it. Or run `pandora upgrade`, which waits for that moment. |
+| `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first; else stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
 | `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
 | `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It restarts the daemon; check `pandora ps` first. |
 | `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
@@ -476,28 +476,28 @@ pandora upgrade
 3. It imports the new version's client and daemon with the interpreter the
    plist pins and the one the launchers find. A version that cannot import is
    refused, and nothing changes.
-4. It waits until a daemon restart would end nothing: no local run `running`
-   or `queued`, and no remote run `queued`, `freezing`, `shipping` or
-   `submitting`. It checks every 10 seconds for up to `--wait` seconds
-   (default 600) and prints the runs it waits for. A daemon that does not
-   answer `ps` is not idle; the wait goes on.
+4. It drains the daemon, as `pandora daemon --restart` does: new commands
+   wait, and a queued local run is submitted again later. It waits until no
+   local run is `running` and no remote run is `queued`, `freezing`,
+   `shipping` or `submitting`. It checks every second for up to `--wait`
+   seconds (default 600) and prints the runs it waits for.
 5. It points `current` at the new version with one rename. A reader sees the
-   old version or the new one, never neither.
-6. It checks `pandora ps` once more. If a run started meanwhile, it points
-   `current` back and waits again.
-7. It restarts the daemon with `launchctl kickstart -k`, and waits up to 10
-   seconds for the new daemon to answer from the new version.
-8. It re-points `pandora` and the shim on PATH through `current`, when they
+   old version or the new one, never neither. The daemon is still draining, so
+   no run can start before the restart.
+6. It restarts the daemon with `launchctl kickstart -k`. It waits up to 20
+   seconds for the new daemon to end the drain, then up to 10 seconds for it to
+   answer from the new version.
+7. It re-points `pandora` and the shim on PATH through `current`, when they
    are symlinks into the checkout it upgrades or into a version directory,
    and the data directory is the default `~/.local/share/pandora`. With
    another data directory it prints the `ln -sf` to run; `--relink` moves the
    links anyway. It reports a copy or a missing launcher and leaves it.
-9. It deletes old versions. It keeps the three most recently installed
+8. It deletes old versions. It keeps the three most recently installed
    (`--keep N`, at least 2), `current`, the version before it, and the
    version the daemon runs.
 
-`--now` skips the wait and restarts at once. A local run then ends with exit
-70. A remote run still `freezing` or `shipping` ends with exit 70. A remote run
+`--now` skips the wait and restarts at once. A queued local run is submitted
+again. A local run that is executing ends with exit 70. A remote run still `freezing` or `shipping` ends with exit 70. A remote run
 `submitting` is looked up on the worker: followed if it started, closed if
 not. Rerun what ended. Accepted remote runs continue on the worker.
 
@@ -512,8 +512,8 @@ from.
 | Exit | Meaning |
 |---|---|
 | 0 | The daemon runs the new version, or no daemon runs. |
-| 75 | Nothing changed. No safe moment came within `--wait`, or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
-| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not answer from the new version within 10 seconds. The last lines say what to run. |
+| 75 | Nothing changed. The drain ended without a restart: a run still blocked it after `--wait`, and the daemon admits runs again. Or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
+| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
 
 To go back, install a version that is still built:
 

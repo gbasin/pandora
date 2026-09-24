@@ -209,14 +209,18 @@ def source_head(now, runner=subprocess.run):
 
 
 def restart_advice(supervised, pid):
-    """How to restart this daemon: `--restart` refuses one launchd does not run."""
+    """How to restart this daemon: `--restart` drains it, and refuses one launchd does not run.
+
+    A stop does not drain: it ends local runs, so that advice says to look first.
+    """
     answer = supervised(pid) if supervised else None
     if answer is True:
         return '`pandora daemon --restart`'
     if answer is False:
         return ('`pandora daemon --stop`, then start it again (launchd does not run it, so '
-                '`--restart` cannot)')
-    return '`pandora daemon --restart` if launchd runs it, else stop it and start it again'
+                '`--restart` cannot; a stop ends local runs, so check `pandora ps` first)')
+    return ('`pandora daemon --restart` if launchd runs it, else check `pandora ps`, stop it '
+            'and start it again')
 
 
 def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, supervised=None):
@@ -266,8 +270,7 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
                          'since; run `pandora upgrade`' % (detail, old, now['name'],
                                                           now['meta'].get('source'), head[:12]),
                          **facts), answer
-        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it once '
-                     '`pandora ps` shows no local run and no remote run before accepted: %s'
+        return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it: %s'
                      % (detail, old, now['name'], restart_advice(supervised, answer.get('pid'))),
                      **facts), answer
     if not now and os.path.realpath(home) != os.path.realpath(expected):
@@ -287,13 +290,12 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
     if code and mine and code != mine and now:
         return check('daemon', WARN, '%s; daemon code differs from %s on disk: something '
                      'edited the version directory. `pandora upgrade` builds the commit '
-                     'again under a new name and restarts the daemon at a safe moment'
+                     'again under a new name and restarts the daemon after a drain'
                      % (detail, now['path']), **facts), answer
     if code and mine and code != mine:
         # Same checkout, different bytes: it was updated after the daemon started.
-        return check('daemon', WARN, '%s; daemon code differs from the checkout. '
-                     'Restarting ends running local runs; check `pandora ps` first, then '
-                     'restart it: %s' % (detail, restart_advice(supervised, answer.get('pid'))),
+        return check('daemon', WARN, '%s; daemon code differs from the checkout; restart '
+                     'it: %s' % (detail, restart_advice(supervised, answer.get('pid'))),
                      **facts), answer
     if now:
         return check('daemon', OK, '%s, runs current (%s)' % (detail, now['name']),
