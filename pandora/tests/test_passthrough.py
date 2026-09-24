@@ -37,8 +37,7 @@ class ThroughTheShim(unittest.TestCase):
         (fake / 'pnpm').chmod(0o755)
         (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]),
-            home=str(HERE)))
+            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']])))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH'):
             self.env.pop(name, None)
@@ -88,14 +87,9 @@ class ThroughTheShim(unittest.TestCase):
         self.assertEqual(self.pnpm('journey').returncode, 3)
         self.assertEqual([row['reason'] for row in self.rows()], ['off'])
 
-    def rerender(self, home):
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
-            socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]), home=str(home)))
-
     def test_pandora_off_runs_the_command_when_the_logger_is_missing(self):
-        self.rerender(self.state / 'no-such-checkout')
-        self.env['PANDORA_OFF'] = '1'
+        # The client's checkout is the shim's own, or PANDORA_HOME: here, gone.
+        self.env.update(PANDORA_OFF='1', PANDORA_HOME=str(self.state / 'no-such-checkout'))
         proc = self.pnpm('journey')
         self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (3, 'real journey\n', ''))
 
@@ -111,7 +105,7 @@ class ThroughTheShim(unittest.TestCase):
             (broken / name).write_text('')
         (broken / 'pandora' / 'client' / 'passthrough.py').write_text(
             (HERE / 'pandora' / 'client' / 'passthrough.py').read_text())
-        self.rerender(broken)
+        self.env['PANDORA_HOME'] = str(broken)
         self.env['PANDORA_OFF'] = '1'
         proc = self.pnpm('journey', 'x')
         self.assertEqual((proc.returncode, proc.stdout), (3, 'real journey x\n'), proc.stderr)
@@ -152,7 +146,7 @@ class ClaimedOnlyAtTheRoot(unittest.TestCase):
         (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
             claims=[['test']], heavy=enrollment.heavy_forms([['test']]),
-            strip_prefixes=[['run']], home=str(HERE), subdirectory='passthrough'))
+            strip_prefixes=[['run']], subdirectory='passthrough'))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_WHERE', 'PANDORA_HOME'):
             self.env.pop(name, None)
@@ -213,11 +207,12 @@ class ClaimShapes(unittest.TestCase):
         claims = [['journey'], ['test:surface', 'desk'], ['surface', 'run', 'all']]
         (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(root / 'client.sock'), repo='demo', claims=claims,
-            heavy=enrollment.heavy_forms(claims), home=str(package),
+            heavy=enrollment.heavy_forms(claims),
             strip_prefixes=[['run'], ['validate'], ['exec', 'turbo']]))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_HOME', 'PANDORA_WHERE'):
             self.env.pop(name, None)
+        self.env['PANDORA_HOME'] = str(package)     # the stand-in client, not this checkout
 
     def pnpm(self, *argv):
         outputs = set()

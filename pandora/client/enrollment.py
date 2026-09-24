@@ -14,9 +14,9 @@ Three files, all derived, all safe to delete:
     ``<common>/worktrees/<name>/`` for a linked worktree, ``<common>/`` for the
     main one. Written by the daemon whenever it classifies from that worktree.
 ``<common>/pandora-repo``
-    Registration: this repository is enrolled. It holds only the socket and the
-    client home, so a worktree created tomorrow, with no cache yet, takes the
-    slow path instead of the non-enrolled exec. Written by `pandora enroll`,
+    Registration: this repository is enrolled. It holds only the socket, so a
+    worktree created tomorrow, with no cache yet, takes the slow path instead
+    of the non-enrolled exec. Written by `pandora enroll`,
     and by the daemon on first contact.
 ``<common>/pandora-enrolled``
     The v0.2 marker, one per repository, written by `pandora enroll` before
@@ -25,6 +25,11 @@ Three files, all derived, all safe to delete:
 
 The line format is the same in all three, and the claim list can change (the
 daemon rewrites it) with no shim change.
+
+None of them names a client home any more: the shim runs the client from the
+checkout it is itself in. A file written before that may still carry a `home`
+line; `parse` keeps reading it for one release so the client can say it is
+ignored (`legacy_home`), and the next rewrite drops it.
 """
 import hashlib
 import os
@@ -40,6 +45,9 @@ REGISTRATION = 'pandora-repo'      # per repository, in the common dir
 # a cache is dated this far back, so the shim takes the slow path again until
 # the edit has settled, and the daemon then dates it exactly.
 SETTLE_NS = 2_000_000_000
+# What `write_cache` returns for a cache whose claims it replaced: truthy, and
+# distinct from a first write or a re-dating, so a caller can say so once.
+CHANGED = 'changed'
 
 
 def common_dir(start):
@@ -132,18 +140,16 @@ def heavy_forms(claims, candidates=DEFAULT_HEAVY):
     return [list(item) for item in candidates if tuple(item) not in claimed]
 
 
-def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None, home=None,
+def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None,
            policies=(), subdirectory=None, derived=None, config=None, digest=None,
            client=None, noclient=None,
            header='# pandora enrollment v1 -- written by pandora enroll, safe to delete'):
     """The marker text.  One directive per line, first word is the key.
 
-    `home` is the directory the `pandora` package lives in, so a shim installed
-    anywhere on PATH can find the client without an absolute path baked into it.
-
     `policy` lines carry each claimed form's size class and declared fallback.
-    The POSIX shim never reads them -- its `case` matches six keys (`sock`,
-    `home`, `subdirectory`, `strip`, `claim`, `heavy`) and ignores the rest --
+    The POSIX shim never reads them -- its `case` matches the keys above `end`
+    (`sock`, `subdirectory`, `derived`, `config`, `client`, `noclient`,
+    `strip`, `claim`, `heavy`) and ignores the rest --
     but the Python client does, and it is the only thing that can answer "may
     this run here" when the daemon that owns the configuration is the thing
     that is gone.
@@ -170,8 +176,6 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     replaced by one with an older mtime.
     """
     lines = [header, 'sock ' + socket_path, 'repo ' + repo]
-    if home:
-        lines.append('home ' + home)
     if origin:
         lines.append('origin ' + origin)
     if derived:
@@ -224,6 +228,31 @@ def parse(text):
     return marker
 
 
+def legacy_home(cwd):
+    """(file, home) when the file this worktree routes by still names a client home.
+
+    The shim no longer reads `home`: it runs the client from its own checkout.
+    Kept for one release so the client can say the line is ignored. None
+    otherwise, and never raises.
+    """
+    try:
+        _common, path, _kind = source_for(cwd)
+        if path is None:
+            return None
+        home = parse(path.read_text()).get('home')
+    except OSError:
+        return None
+    return (path, home) if home else None
+
+
+def refreshed_from(parsed):
+    """What a refreshed cache names as its source, for the one line that says so."""
+    derived = (parsed or {}).get('derived')
+    if derived == 'external' and parsed.get('config'):
+        return parsed['config']
+    return 'pandora.toml'
+
+
 def temporary(path):
     """A temp name no other writer shares: the daemon writes from many threads."""
     return path.with_name('%s.%d.%d.tmp' % (path.name, os.getpid(), threading.get_ident()))
@@ -246,7 +275,7 @@ def digest_of(path):
 
 
 def cache_text(repo_config, *, socket_path, repo, derived, external=None, digest_path=None,
-               client=None, home=None, why=None):
+               client=None, why=None, unknown=None):
     """The claim cache for one worktree, derived from that worktree's config.
 
     `derived` is `own`, `external` or `none` (see `render`), `external` the
@@ -256,17 +285,29 @@ def cache_text(repo_config, *, socket_path, repo, derived, external=None, digest
     or its repository has no `[[repos]]` entry (`why` says which): the cache
     then claims nothing, so the shim execs every command with no Python start,
     and it goes stale like any other the moment a file it names changes.
+
+    `unknown` is the one exception: a file refused only for a key or value this
+    code does not know (`loader.claimed_forms` of it). Its claims are kept, with
+    no policy lines, so a claimed command still reaches the daemon, which
+    refuses it with the key, the value and the fix, instead of the shim running
+    it here unmanaged.
     """
     from ..config import classify
     header = '# pandora claim cache v1 -- written by the daemon, safe to delete'
     if why:
         header += '\n# claims nothing: ' + why.replace('\n', ' ')
     present = bool(client) and Path(client).is_file()
-    common = dict(socket_path=socket_path, repo=repo, home=home, derived=derived,
+    common = dict(socket_path=socket_path, repo=repo, derived=derived,
                   config=str(external) if external else None,
                   digest=digest_of(digest_path) if digest_path else None,
                   client=str(client) if present else None,
                   noclient=str(client) if client and not present else None, header=header)
+    if repo_config is None and unknown and unknown.get('claims'):
+        claims = unknown['claims']
+        common['header'] = header.replace('# claims nothing: ', '# refuses what it claims: ')
+        return render(claims=claims, heavy=heavy_forms(claims),
+                      strip_prefixes=unknown.get('strip') or [],
+                      subdirectory=unknown.get('subdirectory'), **common)
     if repo_config is None:
         return render(claims=[], heavy=heavy_forms([]), **common)
     claims = classify.claim_index(repo_config)
@@ -331,7 +372,7 @@ def write_owned(root, text, sources, socket_path):
         return False, 'cannot write %s: %s' % (cache, error)
 
 
-def derive(root, repo, *, socket_path, client, home=None, load=None, why=None):
+def derive(root, repo, *, socket_path, client, load=None, why=None):
     """(cache text, the files it depends on) for one worktree and its `[[repos]]` entry.
 
     One derivation for the daemon, `pandora enroll` and the client with no
@@ -339,8 +380,9 @@ def derive(root, repo, *, socket_path, client, home=None, load=None, why=None):
     daemon use its parsed-config cache; by default the file is loaded here.
     """
     from ..config import loader
-    from ..errors import ConfigError
+    from ..errors import ConfigError, UnknownSchema
     own = Path(root) / loader.FILENAME
+    unknown = None
     external = (repo or {}).get('config') or None
     config = None
     try:
@@ -354,17 +396,19 @@ def derive(root, repo, *, socket_path, client, home=None, load=None, why=None):
     elif path is not None:
         try:
             config = load(root, repo) if load else loader.load(path)
+        except UnknownSchema as error:
+            why, unknown = str(error), loader.claimed_forms(path)
         except (ConfigError, OSError) as error:
             why = str(error)
     text = cache_text(config, socket_path=socket_path, repo=(repo or {}).get('name') or '-',
                       derived=derived, external=external, digest_path=path,
-                      client=client, home=home, why=None if config is not None else why)
+                      client=client, why=None if config is not None else why, unknown=unknown)
     return text, [own, external, client]
 
 
-def registration_text(*, socket_path, repo, home=None):
+def registration_text(*, socket_path, repo):
     """`pandora-repo`: enrolled, and where the daemon is; no claims of its own."""
-    return render(socket_path=socket_path, repo=repo, claims=[], home=home,
+    return render(socket_path=socket_path, repo=repo, claims=[],
                   header='# pandora registration v1 -- written by pandora enroll, '
                          'safe to delete')
 
@@ -382,10 +426,15 @@ def write_cache(path, text, sources, *, clock=time.time_ns):
     Dated the newest source's mtime, never "now": a source edited after the
     daemon read it is then newer than the cache, whatever the order of the two
     writes. A source edited within `SETTLE_NS` is dated that much earlier, so
-    the shim takes the slow path until the edit settles. Returns True when
-    anything was written.
+    the shim takes the slow path until the edit settles. Returns False when
+    nothing was written, `CHANGED` when a cache was there and its text is
+    now different (the claims were refreshed from a changed file), else True.
     """
     path = Path(path)
+    try:
+        before = path.read_text()
+    except OSError:
+        before = None
     stamps = [stamp for stamp in (mtime_ns(source) for source in sources if source)
               if stamp is not None]
     now = clock()
@@ -393,7 +442,7 @@ def write_cache(path, text, sources, *, clock=time.time_ns):
     if now - want < SETTLE_NS:
         want -= SETTLE_NS
     try:
-        if path.read_text() == text and path.stat().st_mtime_ns == want:
+        if before == text and path.stat().st_mtime_ns == want:
             return False
     except OSError:
         pass
@@ -401,7 +450,7 @@ def write_cache(path, text, sources, *, clock=time.time_ns):
     temp.write_text(text)
     os.utime(temp, ns=(want, want))
     temp.replace(path)
-    return True
+    return CHANGED if before is not None and before != text else True
 
 
 def newer(first, second):

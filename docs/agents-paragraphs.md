@@ -62,7 +62,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > | Exit | Meaning | Do this |
 > |---|---|---|
-> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the queue here with `PANDORA_WHERE=local <command>`. If the message says this machine is under memory pressure, wait a few minutes, then retry. Do not bypass it. |
+> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the queue here with `PANDORA_WHERE=local <command>`. If the message says this machine is under memory pressure, wait a few minutes, then retry. Do not bypass it. If it says the daemon does not answer, or does not understand `pandora.toml`, run `pandora doctor` and tell the owner; do not bypass it. |
 > | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. | Wait for the other run. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 > | 130 | You canceled it. | Nothing. |
@@ -73,8 +73,11 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > Each worktree routes by its own `pandora.toml`. If you change it, the change
 > applies from the next command in that worktree. That one command starts a
-> little slower while Pandora reads the new file. There is nothing to enroll
-> again.
+> little slower while Pandora reads the new file, and may print `pandora: claim
+> cache refreshed from pandora.toml`. There is nothing to enroll again. If
+> Pandora refuses a claimed command because it does not understand a key in
+> `pandora.toml`, the message names the key and the fix; the fix updates Pandora
+> on this machine, so leave it to the owner.
 >
 > `pandora ps` lists runs. `pandora logs <id>` replays one. `pandora cancel <id>`
 > stops one. `pandora result <id>` shows its outcome and hint. `pandora stats`

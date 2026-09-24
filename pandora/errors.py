@@ -15,6 +15,22 @@ class ConfigError(PandoraError):
     """A pandora.toml Pandora refuses to load."""
 
 
+class UnknownSchema(ConfigError):
+    """A pandora.toml key or value this code does not know.
+
+    Either the file has a mistake or it was written for newer Pandora code than
+    the process reading it. `key` is the dotted key, `value` what the file set
+    it to (None when it cannot be shown). The daemon refuses a claimed command
+    on it with both, instead of running it unmanaged.
+    """
+
+    def __init__(self, message, key=None, value=None):
+        super().__init__(message)
+        self.key = key
+        self.value = value
+        self.path = None
+
+
 class Refused(PandoraError):
     """An argv a configured job claims but cannot accept.
 

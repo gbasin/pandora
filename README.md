@@ -35,8 +35,8 @@ The invariants, as `pandora --help` states them:
 * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
   `pandora: hint: ...`: the next action, derived from evidence.
 * Each worktree routes by its own `pandora.toml`. An edit takes effect on the
-  next command in that worktree, at the cost of one Python start. Enroll a
-  repository once; never again after a change.
+  next command in that worktree, at the cost of one Python start. Enrolling a
+  repository is consent, given once; never again after a change.
 
 v0.2 is proved against one repository (eichler), one worker (4 vCPU, 15.6 GiB,
 x86_64 Ubuntu 26.04) and one Mac. Read [Operating limits](#operating-limits)
@@ -223,7 +223,7 @@ What a restart does to each run:
 | Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
 | Remote, not yet accepted | Still freezing or shipping: ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
 | Local | Ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits; a local run still queued ends `withdrawn`. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
-| A claimed command typed while no daemon listens (1-2 s) | Runs here unmanaged, as if Pandora were not installed. |
+| A claimed command typed while no daemon listens (1-2 s) | Waits up to 5 s for the new daemon, then routes. If none answers, exits 70 with the doctor hint. |
 
 A client attached to a run that ends this way exits 70. It does not wait.
 `kill -USR1 <daemon pid>` writes every thread's stack to the daemon log, for a
@@ -239,9 +239,11 @@ it.
 
 ### 5. Enroll each repository
 
-Write the configuration first, so the files enrollment writes point at the
-right socket. Then enroll the repository from any of its worktrees. Do this
-once per repository.
+Enrolling is consent: it says that Pandora may route this repository on this
+Mac. It is not configuration. What is routed is each worktree's own
+`pandora.toml`, read again whenever it changes. Write the client configuration
+first, so the files enrollment writes point at the right socket. Then enroll
+the repository from any of its worktrees. Do this once per repository.
 
 ```sh
 pandora enroll ~/Code/eichler
@@ -267,7 +269,7 @@ three things:
    the `[[repos]]` entry the daemon routes by, and asks the daemon to do the
    same.
 
-It also removes the v0.2 marker, `<common>/pandora-enrolled`, if there is one.
+It also removes the old marker, `<common>/pandora-enrolled`, if there is one.
 
 Each worktree has its own claim cache, `pandora-claims`, in the worktree's own
 Git directory (`git rev-parse --git-dir`): `<common>/worktrees/<name>/` for a
@@ -276,41 +278,63 @@ worktree's `pandora.toml`, whenever it classifies a command from that worktree.
 The shim reads it with shell builtins and forks nothing. A worktree on a branch
 with a different `pandora.toml` routes by its own file.
 
-The registration and every claim cache also record `home`, the package whose
-client code the shim runs for a claimed command. With an installed version,
-`enroll` and the daemon write `~/.local/share/pandora/current`, so both follow
-every upgrade and the shim and the daemon run one version. Without one, they
-write the checkout the writer runs from.
+The cache is a cache of `pandora.toml` and checks itself. You do not enroll
+again after a change to the file. The shim compares dates: a cache older than
+the worktree's `pandora.toml`, the `--config` file it came from, or the client
+configuration is stale. On a stale or missing cache the shim starts Python
+once. The daemon rewrites the cache and says whether the command is claimed.
+The command then routes, or runs as if Pandora were not installed. Every
+claimed command also reaches the daemon, which derives the cache again from the
+file's content, so a file replaced by one with an older date is caught there.
+Whenever a rewrite changes the claims, the caller sees one line:
 
-You do not enroll again after a change to `pandora.toml`. The shim compares
-dates: a cache older than the worktree's `pandora.toml`, the `--config` file it
-came from, or the client configuration is stale. On a stale or missing cache
-the shim starts Python once. The daemon rewrites the cache and says whether
-the command is claimed. The command then routes, or runs as if Pandora were not
-installed. The next command reads the new cache. A file replaced by one with an
-older date is not seen by the shim. The next claimed command rewrites the cache,
-and `pandora doctor` reports it until then. Without a daemon, the client
-derives the cache itself from the worktree's `pandora.toml` and writes it. A
-claimed command then runs here with the no-daemon notice and a row in
-`<state>/passthrough.jsonl`; an unclaimed one runs as usual. With
-`PANDORA_OFF=1` and no fresh cache, the passthrough logger decides the same
-way and logs only a claimed command.
+```
+pandora: claim cache refreshed from pandora.toml
+```
 
-A cache records `home`, the checkout whose client code the shim runs for a
-claimed command. The daemon writes its own checkout there. After you update
-that checkout, restart the daemon. The shim starts the new client code at once;
-the daemon does not.
+The next command reads the new cache. Until a claimed command runs, `pandora
+doctor` reports a cache whose file changed without a newer date: the cache
+records the file's SHA-256 digest. Without a daemon, the client derives the
+cache itself from the worktree's `pandora.toml` and writes it. With
+`PANDORA_OFF=1` and no fresh cache, the passthrough logger decides the same way
+and logs only a claimed command.
 
-To move from v0.2, update the checkout, restart the daemon (`pandora ps` first,
-then `pandora daemon --restart`), then run `pandora enroll <root>` once per
-repository. Restart first: a daemon from before claim caches answers the
-shim's question with "unknown op", so every command in a worktree without a
+Two worktrees on branches with different `pandora.toml` files do not share a
+cache. Each cache is in its own worktree's Git directory, so neither rewrites
+the other's.
+
+The shim runs the client from where it is itself installed: the file the `pnpm`
+link on PATH resolves to. After `pandora upgrade` that link goes through
+`~/.local/share/pandora/current`, so the shim follows every upgrade, and it
+imports from the version directory `current` names when the command starts. No
+file names a client home. A cache or registration written before this change
+can still have a `home` line. The line is read and ignored. A claimed command
+says so when the line names another package. The daemon's next rewrite drops it
+from a cache; `pandora enroll <root>` drops it from the registration. A shim
+link that still points into a checkout runs that checkout's code; `pandora
+doctor` warns about it, and `pandora upgrade` prints the `ln -sf` that fixes it.
+
+To move from the old marker, update the checkout, restart the daemon (`pandora
+ps` first, then `pandora daemon --restart`), then run `pandora enroll <root>`
+once per repository. Restart first: a daemon from before claim caches answers
+the shim's question with "unknown op", so every command in a worktree without a
 cache pays a Python start and two daemon round trips. `enroll` asks the daemon
-and warns when it does not know the question. Until you enroll again
-the shim reads the v0.2 marker in each worktree that has no cache, and the
-marker can be stale. The daemon writes a worktree's cache on its first claimed
-command; from then on that worktree routes by its own `pandora.toml`. The v0.2
-marker is read for one more release.
+and warns when it does not know the question. Until you enroll again the shim
+reads the old marker in each worktree that has no cache, and the marker can be
+stale. The daemon writes a worktree's cache on its first claimed command; from
+then on that worktree routes by its own `pandora.toml`. The old marker is read
+for one more release.
+
+### When the daemon is installed but does not answer
+
+The client configuration, `~/.config/pandora/config.toml`, is how the shim
+knows the daemon was installed on this Mac. Where it exists, a claimed command
+that finds no daemon on the socket waits up to five seconds, which covers a
+restart. Then it exits 70 and prints ``pandora: hint: run `pandora doctor` ``.
+Nothing runs. Where the file does not exist, Pandora was never installed here.
+A claimed command in an enrolled clone then runs here as if Pandora were not
+installed, with one notice and a row in `<state>/passthrough.jsonl`.
+`PANDORA_OFF=1` bypasses both: the command runs here with no Pandora.
 
 To stop routing a repository, unenroll it.
 
@@ -318,7 +342,7 @@ To stop routing a repository, unenroll it.
 pandora unenroll ~/Code/eichler
 ```
 
-`unenroll` removes the registration, the v0.2 marker and every worktree's claim
+`unenroll` removes the registration, the old marker and every worktree's claim
 cache it finds under the Git common directory. It leaves the `[[repos]]` entry
 in the client configuration and says so. Remove that entry too: `pandora run`
 still routes while it is there.
@@ -344,7 +368,7 @@ warn  pnpm on PATH       shim ~/.local/bin/pnpm, real pnpm /opt/homebrew/bin/pnp
 ok    recursion guard    PANDORA_ROUTE_DEPTH is not set
 ok    pandora on PATH    ~/.local/bin/pandora imports ~/.local/share/pandora/versions/f91ef4e7a1c2 from any directory
 ok    install            current is f91ef4e7a1c2, from ~/Code/pandora; `pandora` and the shim run through it
-ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, runs current (f91ef4e7a1c2)
+ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, worker ubuntu@WORKER_IP, runs current (f91ef4e7a1c2)
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
 ok    daemon supervision launchd runs pid 47841 as com.pandora.daemon, interpreter /opt/homebrew/bin/python3 (3.14.0); launchd starts it with /opt/homebrew/bin/python3; `pandora upgrade` after updating the checkout
 ok    repository         enrolled as eichler, registration ~/Code/eichler/.git/pandora-repo
@@ -367,10 +391,10 @@ The repository rows:
 
 | Row | `ok` | Otherwise |
 |---|---|---|
-| `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the v0.2 marker enrolls it; run `pandora enroll <root>` once. |
-| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next command here refreshes it (the next claimed command, when only its digest shows it); or there is no cache yet, and the next command writes it. `info`: no cache yet, and the v0.2 marker routes this worktree until then. Never `fail`. |
+| `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the old marker enrolls it; run `pandora enroll <root>` once. |
+| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next command here refreshes it (the next claimed command, when only its digest shows it); or there is no cache yet, and the next command writes it. `info`: no cache yet, and the old marker routes this worktree until then. Never `fail`. |
 | `claim caches` | Always `info`: every worktree of the repository, counted as fresh, stale or without a cache. | |
-| `client home` | Not shown. | `fail`: the file the shim reads names a checkout with no `pandora` package; the row says whether to delete the cache or enroll again. Never delete `pandora-repo` for this: that unenrolls. `warn`: it names a checkout other than the doctor's, or, once a version is installed, anything but `current`. |
+| `client home` | Not shown. | `info`: the file the shim reads still has a `home` line. It is ignored; the row says what rewrites the file without it. |
 | `client socket` | Not shown. | `warn`: the cache routes to another socket than the one the doctor checked. |
 | `daemon enrollment` | The client configuration has a `[[repos]]` entry for the repository. | `fail`: it has none, so the daemon passes every command through. |
 
@@ -630,7 +654,18 @@ The other worker verbs:
 A repository declares its routed boundary in `pandora.toml` at its root. The
 loader looks there first, and uses the enrollment's `--config` path only when
 the root has none. The schema is closed: an unknown key is refused with the
-allowed set printed. The reference is
+allowed set printed.
+
+The file is the contract between the repository and the daemon. When the
+running daemon does not understand a key or a value, for example a daemon
+started before `subdirectory = "passthrough"` existed, each claimed command is
+refused with exit 70 and nothing runs. The refusal names the key and the value
+and gives the fix: when `pandora ps` shows nothing running, `git -C <the
+daemon's checkout> pull && pandora daemon --restart`. If the key is a mistake,
+fix the file. The claim cache keeps the file's claimed forms meanwhile, so these
+commands reach the refusal instead of running unmanaged. A file that is not
+valid TOML, or that the daemon cannot read, claims nothing, and every command
+runs as if Pandora were not installed. The reference is
 [`pandora/config/examples/eichler.pandora.toml`](pandora/config/examples/eichler.pandora.toml),
 with the sharded surface job in
 [`eichler-surfaces.pandora.toml`](pandora/config/examples/eichler-surfaces.pandora.toml).
@@ -798,7 +833,8 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `queue-timeout`, `admission-refused`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
-| `daemon-unreachable` (no daemon answers the socket) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
+| `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
+| `daemon-unreachable`, never installed here (no client configuration) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
 | the `submit` call fails and the engine cannot then be asked whether it started the run | 70 | 70 | 70 |
 | any failure after `accepted` | 70 | 70 | 70 |
 

@@ -129,6 +129,23 @@ def is_version(home, data):
     return real.parent == Path(os.path.realpath(Path(data) / VERSIONS))
 
 
+def update_fix(home, data=None):
+    """The one command that brings the code at `home` up to its source, as a person types it.
+
+    A version directory is updated by pulling its source checkout and
+    upgrading, which restarts the daemon at a safe moment. A checkout is pulled
+    and the daemon restarted once `pandora ps` shows nothing running. No
+    version numbers: the fix is the same whichever side is older.
+    """
+    data = data_root() if data is None else data
+    if home and is_version(home, data):
+        source = (read_meta(Path(os.path.realpath(home))) or {}).get('source')
+        return ('`git -C %s pull && pandora upgrade`' % source if source
+                else '`pandora upgrade --from <your pandora checkout>`')
+    return ('when `pandora ps` shows nothing running, `git -C %s pull && pandora daemon '
+            '--restart`' % home)
+
+
 def chain_end(path):
     """Where a launcher's own symlinks end, directories left unresolved.
 

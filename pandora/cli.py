@@ -39,7 +39,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
-  pandora doctor [--json] (read-only) | enroll <repo> | unenroll <repo> | worker <verb>
+  pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
   pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...]
 """
 import argparse
@@ -53,7 +53,7 @@ from pathlib import Path
 from .client import enrollment, settings
 from .client.protocol import Reader, VERSION, dump
 from .config import loader
-from .errors import ConfigError, PandoraError
+from .errors import ConfigError, PandoraError, UnknownSchema
 from .exits import INFRA, STILL_RUNNING
 
 
@@ -153,9 +153,11 @@ def cmd_upgrade(args):
 
 
 def cmd_enroll(args):
-    """Register a repository once: `[[repos]]`, registration, and this worktree's cache.
+    """Consent, once per repository, to route it: `[[repos]]`, registration, this cache.
 
-    Nothing here has to be run again after `pandora.toml` changes: the daemon
+    Enrolling says "Pandora may route this repository on this Mac". It is not a
+    configuration step: what is routed is each worktree's own `pandora.toml`,
+    and nothing here has to be run again after it changes: the daemon
     derives each worktree's claim cache from that worktree's own file, and the
     shim notices a file newer than its cache. What enrolling writes:
 
@@ -165,9 +167,8 @@ def cmd_enroll(args):
       including ones created tomorrow, to the daemon once;
     * this worktree's claim cache, so its first command is fork-free.
 
-    It removes the v0.2 `pandora-enrolled` marker, which the new files replace.
+    It removes the old `pandora-enrolled` marker, which the new files replace.
     """
-    from .client import install
     state, config = state_of(args)
     common = enrollment.common_dir(args.repo)
     root = enrollment.worktree_root(args.repo)
@@ -177,6 +178,12 @@ def cmd_enroll(args):
     try:
         path, origin = loader.resolve(root, args.config_toml)
         repo_config = loader.load(path)
+    except UnknownSchema as error:
+        from .client import install
+        notice('%s. If the file is right, this Pandora is older than the file needs: %s. If '
+               'it is a mistake, fix the file'
+               % (error, install.update_fix(str(Path(__file__).resolve().parents[1]))))
+        return 1
     except ConfigError as error:
         notice(str(error))
         return 1
@@ -210,19 +217,18 @@ def cmd_enroll(args):
                'if it is not what you meant, change it to:\n%s'
                % (config_path, known['name'], known['root'],
                   settings.repo_block(name, Path(root).resolve(), external)))
-    home = install.package_home()
     socket_path = str(state / 'client.sock')
     enrollment.write(common, enrollment.registration_text(
-        socket_path=socket_path, repo=known['name'], home=home), enrollment.REGISTRATION)
+        socket_path=socket_path, repo=known['name']), enrollment.REGISTRATION)
     cache = enrollment.cache_path(root)
     text, sources = enrollment.derive(root, known, socket_path=socket_path,
-                                      client=str(config_path), home=home)
+                                      client=str(config_path))
     enrollment.write_cache(cache, text, sources)
     claims = enrollment.parse(text)['claim']
     legacy = Path(common) / enrollment.MARKER
     if legacy.is_file():
         legacy.unlink()
-        notice('removed the v0.2 marker %s; the files below replace it' % legacy)
+        notice('removed the old marker %s; the files below replace it' % legacy)
     notice('enrolled %s: %d claimed form%s here; registration %s, claim cache %s. Other '
            'worktrees derive theirs from their own %s on their first command; after a '
            'change to it, the next command takes effect with no enroll'
@@ -237,8 +243,8 @@ def check_daemon_knows_claims(sock_path, root):
     try:
         answer = ask(sock_path, {'op': 'claims', 'cwd': str(root), 'argv': []}, timeout=5.0)
     except OSError as error:
-        notice('no daemon answers on %s (%s). Claimed commands run here unmanaged until '
-               'one does: `pandora daemon --install`' % (sock_path, error))
+        notice('no daemon answers on %s (%s). Claimed commands exit 70 until one does: '
+               '`pandora daemon --install`' % (sock_path, error))
         return
     if (answer or {}).get('t') != 'claims':
         notice('the daemon on %s predates claim caches. Until it restarts, every command '
@@ -247,7 +253,7 @@ def check_daemon_knows_claims(sock_path, root):
 
 
 def cmd_unenroll(args):
-    """Remove the registration, the v0.2 marker and every claim cache under the common dir."""
+    """Remove the registration, the old marker and every claim cache under the common dir."""
     common = enrollment.common_dir(args.repo)
     if common is None:
         notice('not a git repository: %s' % args.repo)
@@ -671,7 +677,7 @@ def cmd_stats(args):
         data = (answer or {}).get('data')
         if not isinstance(data, dict) or 'by_job' not in data:
             # An older daemon: no answer, or the pre-v0.2 shape.
-            raise OSError('the daemon gave no v0.2 report; restart it to pick one up')
+            raise OSError('the daemon runs older code and gave no report; restart it to pick one up')
     except OSError as error:
         notice('no report from the daemon (%s); reporting from %s without the worker'
                % (error, state))
@@ -741,7 +747,14 @@ def main(argv=None):
     # `enrol` and `unenrol` are the old British spellings, kept as hidden aliases
     # for one release so scripts and muscle memory keep working.
     enroll = sub.add_parser('enroll', aliases=['enrol'],
-                            help='register a repository once, all worktrees at once')
+                            help='consent to route a repository: once, for every worktree. '
+                                 'What is routed is each worktree\'s own pandora.toml; a '
+                                 'change to it needs no enroll',
+                            description='Consent, once per repository, for Pandora to route '
+                                        'it on this Mac. Enrolling is not configuration: each '
+                                        'worktree routes by its own pandora.toml, and a '
+                                        'change to that file takes effect on the next command '
+                                        'with no enroll.')
     enroll.add_argument('repo')
     enroll.add_argument('--name', default=None)
     enroll.add_argument('--config', dest='config_toml', default=None,

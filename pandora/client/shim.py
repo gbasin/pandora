@@ -51,6 +51,11 @@ PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
 # stalled that thread past 20 s and a live 364 MiB upload was withdrawn.
 HANDSHAKE_SECONDS = 120.0
 CLAIMS_SECONDS = 20.0         # the slow path's question is local: no freeze, no worker
+# How long a claimed command waits for a daemon that is installed but not
+# answering, before exit 70: a `pandora daemon --restart` leaves the socket
+# unanswered for one to two seconds, and launchd restarts a crashed one as fast.
+DAEMON_GRACE_SECONDS = 5.0
+DAEMON_GRACE_PAUSE = 0.25
 REATTACH_ATTEMPTS = 20
 REATTACH_PAUSE = 0.25
 
@@ -270,6 +275,45 @@ class Stream:
         return False
 
 
+def installed_here():
+    """The client configuration's path when it exists: the daemon was installed on this Mac.
+
+    Then a daemon that does not answer is broken, not absent, and a claimed
+    command is refused rather than run unmanaged. Where there is no
+    configuration (an enrolled clone on a Mac that never installed the
+    daemon), no daemon means no Pandora, and the command passes through.
+    """
+    # `settings.path_of`, without importing `settings`: it imports `tomllib`,
+    # which the interpreter the shim found (3.9 on a stock Mac) may not have.
+    path = Path(os.environ.get('PANDORA_CONFIG') or '~/.config/pandora/config.toml').expanduser()
+    return path if path.is_file() else None
+
+
+def connect_within(path, grace, *, clock=time.monotonic, pause=DAEMON_GRACE_PAUSE):
+    """`connect`, retried for `grace` seconds; raises the last OSError."""
+    deadline = clock() + grace
+    while True:
+        try:
+            return connect(path, timeout=2.0)
+        except (OSError, socket.timeout):
+            if clock() >= deadline:
+                raise
+            time.sleep(pause)
+
+
+def legacy_home_notice(cwd=None):
+    """One line when the file this worktree routes by still names a client home."""
+    found = enrollment.legacy_home(cwd or os.getcwd())
+    if found is None:
+        return
+    path, home = found
+    if os.path.realpath(home) == os.path.realpath(PACKAGE_HOME):
+        return                           # nothing changes; the next rewrite drops it quietly
+    notice('%s names %s as the client home; that line is no longer read, and this client '
+           'runs from %s. The next claimed command rewrites a claim cache without it; '
+           '`pandora enroll <root>` rewrites the registration' % (path, home, PACKAGE_HOME))
+
+
 def ask_claims(sock_path, command):
     """The daemon's verdict on a command the shim could not decide: {claimed, heavy}.
 
@@ -329,15 +373,14 @@ def local_claims(sock_path, cwd=None):
         config = settings.load()
     except ConfigError:
         return None
-    from . import install
-    # `current`, never this process's own version directory: a cache written
-    # here outlives the version, and prune removes it two upgrades later.
     text, sources = enrollment.derive(root, enrollment.repo_entry(config, cwd),
                                       socket_path=str(sock_path),
-                                      client=str(settings.path_of()),
-                                      home=install.package_home(running=PACKAGE_HOME))
-    enrollment.write_owned(root, text, sources, sock_path)
-    return enrollment.parse(text)
+                                      client=str(settings.path_of()))
+    written, _why = enrollment.write_owned(root, text, sources, sock_path)
+    parsed = enrollment.parse(text)
+    if written == enrollment.CHANGED:
+        notice('claim cache refreshed from %s' % enrollment.refreshed_from(parsed))
+    return parsed
 
 
 def claimed_here(sock_path, command, cwd=None):
@@ -373,6 +416,10 @@ def refresh(args, command, state):
         if claimed:
             return None
         return unclaimed(args.real, command, state=state, repo=args.repo, heavy=heavy)
+    if answer is not None and answer.get('refreshed'):
+        # The daemon found this worktree's config changed and rewrote its
+        # claims: said once, here, because the next command reads the new ones.
+        notice('claim cache refreshed from %s' % answer['refreshed'])
     if answer is None or answer.get('claimed'):
         return None
     return unclaimed(args.real, command, state=state, repo=args.repo,
@@ -446,6 +493,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     state = args.state or str(Path(args.sock).parent)
+    # Before a refresh can rewrite the file it names: the line is the evidence.
+    legacy_home_notice()
     if args.refresh:
         code = refresh(args, command, state)
         if code is not None:
@@ -478,6 +527,16 @@ def main(argv=None):
         if subdirectory_offender(command) is not None:
             notice('run from the repo root to route')
             return USAGE
+        installed = installed_here()
+        if installed is not None:
+            # Installed and not answering is a broken install, not a machine
+            # without Pandora: running the claimed command here, unmanaged, is
+            # how this Mac went into swap on 2026-09-24. `PANDORA_OFF=1` still
+            # bypasses everything; the shim never gets here with it set.
+            notice('%s; the daemon is installed on this Mac (%s) but does not answer, so '
+                   'nothing ran' % (message, installed))
+            notice('hint: run `pandora doctor`; it names the fix')
+            return INFRA
         if where == 'remote':
             # Only the daemon can reach the worker, and an explicit `--remote`
             # is never answered with a local run.
@@ -528,7 +587,9 @@ def main(argv=None):
 
     request = build_request(command, where=where)
     try:
-        sock = connect(args.sock, timeout=2.0)
+        # A daemon installed here gets a short grace, for a restart in progress;
+        # one never installed gets none, and the command passes through at once.
+        sock = connect_within(args.sock, DAEMON_GRACE_SECONDS if installed_here() else 0.0)
     except (OSError, socket.timeout) as error:
         return no_daemon('daemon-unreachable', 'daemon socket %s: %s' % (args.sock, error))
     sock.settimeout(HANDSHAKE_SECONDS)
