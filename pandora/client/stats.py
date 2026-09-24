@@ -19,7 +19,7 @@ Two honesty notes that the renderer says out loud rather than hiding:
   `accepted` frame. For a local run that is the admission wait. For a remote one
   it is freeze plus ship plus submit -- the engine admits synchronously and
   refuses rather than queues -- so it is a *pre-accept* wait rather than time
-  spent in a queue, and it is labelled that way.
+  spent in a queue, and it is labeled that way.
 * **Execute** is the command's own time: the engine's `durations.execute` for a
   remote run, the whole supervised wall for a local one. They are not the same
   measurement and they are not summed together.
@@ -215,7 +215,7 @@ def overrides_from(runs, passthrough):
 def passthrough_summary(rows):
     """Unclaimed heavy-looking commands, grouped, worst total first.
 
-    Grouped on the first two argv tokens because that is what a person recognises
+    Grouped on the first two argv tokens because that is what a person recognizes
     (`pnpm test:surface`, not the whole command line), and ordered by total
     duration because the question is "what is eating this Mac", not "what did I
     type most".
@@ -240,7 +240,7 @@ def passthrough_summary(rows):
 # -- rendering ---------------------------------------------------------------
 
 def render(report):
-    """The text table. One screen for a quiet day, and no colour anywhere."""
+    """The text table. One screen for a quiet day, and no color anywhere."""
     lines = ['window: %s, %d routed run(s)'
              % (report.get('window') or 'all', report['runs'])]
     if report['by_job']:

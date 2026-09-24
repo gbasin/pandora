@@ -6,7 +6,7 @@ sum of the reservations on live rows, so an engine that dies and comes back
 admits against the same picture it left. Nothing else changes -- the reservation
 arithmetic below is `admission.reserve`, unmodified.
 
-Admission is serialised by one file lock. Two SSH calls arriving together must
+Admission is serialized by one file lock. Two SSH calls arriving together must
 not both read `held = 8 GiB` and both decide they fit.
 
 The CPU hint is the other half of the POC's result and the easier half to get
@@ -31,7 +31,7 @@ MIN_CPUS = 1
 
 @contextmanager
 def gate(state):
-    """Serialise admission across the engine's many short-lived processes."""
+    """Serialize admission across the engine's many short-lived processes."""
     path = Path(state) / 'admission.lock'
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open('a+')

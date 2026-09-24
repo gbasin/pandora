@@ -83,7 +83,7 @@ def ship_plan(remote, root, args):
                   (item['journey'] or {}).get('id', '-'), (item['surface'] or {}).get('id', '-')))
     if not targets:
         notice('no enrolled repository names a [worker] table; pass --journey or --surfaces '
-               'to prove a toolchain before the first enrolment')
+               'to prove a toolchain before the first enrollment')
     return remote.put('%s/worker/toolchains/canary-plan.json' % root,
                       json.dumps({'targets': targets}, indent=1, sort_keys=True) + '\n')
 
@@ -349,7 +349,7 @@ def add_parser(sub):
                     'surface, then the quota and memory-watchdog checks.')
     node.add_argument('--journey', default=None,
                       help='override: a toolchain JSON (local path is shipped) proved with '
-                           'journey S0-01; for a worker before any enrolment')
+                           'journey S0-01; for a worker before any enrollment')
     node.add_argument('--surfaces', default=None,
                       help='override: a toolchain JSON proved with a surface-runner plan')
     node.add_argument('--source', default=None,

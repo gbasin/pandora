@@ -84,7 +84,7 @@ args = "required"
 fallback = "refuse"
 # Playwright writes its trace and its report on SIGINT and loses both on
 # SIGTERM. Remote cancel destroys the instance, so this applies to a local run;
-# the contract travels to the worker and its supervisor honours it before the
+# the contract travels to the worker and its supervisor honors it before the
 # destroy.
 cancel = { signal = "SIGINT", grace_ms = 60000 }
 usage = "Use pnpm test:surface <borrower-web|desk> [Playwright selectors] [--grep <pattern>]."

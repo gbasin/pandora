@@ -1,4 +1,4 @@
-"""Per-user client daemon: owns the config, the enrolments, the runs and the socket.
+"""Per-user client daemon: owns the config, the enrollments, the runs and the socket.
 
 Three invariants the rest of the design leans on, unchanged from the POC:
 
@@ -16,7 +16,6 @@ worktree, shipping it, submitting -- is provably non-executing, so the client
 may still go local. Everything after it may not.
 """
 import argparse
-import errno
 import fcntl
 import json
 import os
@@ -31,12 +30,11 @@ from pathlib import Path
 
 from ..config import classify as classifier
 from ..config import loader
-from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, PandoraError,
-                      Refused, SnapshotError, TransferError, ValidationRejected,
+from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, Refused, SnapshotError, TransferError, ValidationRejected,
                       WorkerUnreachable)
 from ..engine import retry as retries
 from ..exits import INFRA, STALE
-from . import enrolment, envfilter, fallback as policy, hints, placement, progress, settings
+from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
 from .health import Monitor
@@ -135,7 +133,7 @@ class Run:
         self.meta = self.dir / 'meta.json'
         self.lock = threading.Lock()
         self.wake = threading.Condition(self.lock)
-        self.cancelled = threading.Event()
+        self.canceled = threading.Event()
         self.done = threading.Event()
         self.exit_code = None
         self.state = 'queued'
@@ -151,7 +149,7 @@ class Run:
         # When the client was told `accepted`. The gap between this and
         # `started` is the queue wait -- everything the caller spent not knowing
         # whether its command would run anywhere -- and it is the one number
-        # `pandora stats` cannot derive from anything else afterwards.
+        # `pandora stats` cannot derive from anything else afterward.
         self.accepted = None
         self.hint = None
         # The local run a remote row handed its request to, when a fallback
@@ -402,7 +400,7 @@ class Daemon:
 
         The enrolled root identifies a repository, not the checkout that will
         execute this command. Cache by path so sibling worktrees cannot share a
-        config merely because their enrolment name is the same.
+        config merely because their enrollment name is the same.
         """
         path, origin = loader.resolve(root, repo.get('config') or None)
         stamp = (str(path), path.stat().st_mtime_ns)
@@ -632,7 +630,7 @@ class Daemon:
         elif op == 'cancel':
             run = self.runs.get(first.get('run'))
             if run:
-                run.cancelled.set()
+                run.canceled.set()
             conn.sendall(dump({'t': 'ok', 'run': first.get('run')}))
         else:
             self.deny(conn, 'rejected', 'unknown op %r' % op)
@@ -642,18 +640,18 @@ class Daemon:
     def plan_for(self, request):
         """Classify one request. Raises the pre-accept refusals; returns a plan.
 
-        The worktree, not the enrolment's root: one enrolment covers every
+        The worktree, not the enrollment's root: one enrollment covers every
         worktree of a repository, and the command was typed in exactly one of
         them. The *invocation* directory inside that worktree is what decides
         whether the job can be re-rooted -- see `classify.path_like`.
         """
         cwd = request.get('cwd') or ''
-        repo = settings.enrolment_for(self.config, cwd)
+        repo = settings.enrollment_for(self.config, cwd)
         if repo is None:
-            repo = self.enrolment_by_git(cwd)
+            repo = self.enrollment_by_git(cwd)
         if repo is None:
             raise NotClaimed('cwd is not inside an enrolled repository')
-        root = Path(enrolment.worktree_root(cwd) or repo['root'])
+        root = Path(enrollment.worktree_root(cwd) or repo['root'])
         try:
             config = self.repo_config(repo, root)
         except ConfigError as error:
@@ -670,7 +668,7 @@ class Daemon:
         if verdict['decision'] == 'local':
             raise NotClaimed(verdict['reason'])
         job = config['jobs'][verdict['job']]
-        if (config['origin'] == 'enrolment'
+        if (config['origin'] == 'enrollment'
                 and root.resolve() == Path(repo['root']).resolve()):
             # The explicit external config was enrolled for this checkout.
             # Still avoid a known missing direct script before preflight.
@@ -692,7 +690,7 @@ class Daemon:
         verdict['worktree'] = str(root)
         return repo, config, verdict
 
-    def enrolment_by_git(self, cwd):
+    def enrollment_by_git(self, cwd):
         """A worktree of an enrolled repository is enrolled.
 
         Matching on path prefix misses the common case on this machine, where
@@ -700,12 +698,12 @@ class Daemon:
         back to the git common directory -- the same identity the shim's marker
         uses.
         """
-        common = enrolment.common_dir(cwd) if cwd else None
+        common = enrollment.common_dir(cwd) if cwd else None
         if common is None:
             return None
         for repo in self.config['repos']:
             try:
-                enrolled_common = enrolment.common_dir(repo['root'])
+                enrolled_common = enrollment.common_dir(repo['root'])
                 if enrolled_common and Path(enrolled_common).resolve() == Path(common).resolve():
                     return repo
             except OSError:
@@ -753,7 +751,7 @@ class Daemon:
                             'argument names a path' % verdict['rerooted'])
 
         # The job's `where`, or the caller's `--local`/`--remote`. A request the
-        # job cannot honour is refused here, before anything is frozen or queued.
+        # job cannot honor is refused here, before anything is frozen or queued.
         try:
             placed = placement.decide(job, plan, request.get('where'))
         except Refused as error:
@@ -999,7 +997,7 @@ class Daemon:
         try:
             conn.sendall(dump({'v': VERSION, 't': 'queued', 'run': run.id}))
             admission = self.budget.admit(run.id, repo=repo['name'], job=job['id'],
-                                          cancelled=run.cancelled.is_set,
+                                          canceled=run.canceled.is_set,
                                           timeout=self.local.queue_timeout,
                                           note=lambda text: self.tell(conn, text))
         except Busy as error:
@@ -1114,7 +1112,7 @@ class Daemon:
                 result, offset = worker.follow(
                     run.remote, offset=offset,
                     on_log=lambda chunk: run.stream_in(chunk),
-                    should_cancel=run.cancelled.is_set,
+                    should_cancel=run.canceled.is_set,
                     on_status=lambda row: self.observe(run, row))
                 run.flush_remote()
                 if self.retry(run, repo, plan, result):
@@ -1152,7 +1150,7 @@ class Daemon:
         repo = next((item for item in self.config['repos']
                      if item['name'] == (run.request.get('repo') or '')), None)
         if repo is None:
-            run.note('this daemon no longer has an enrolment for run %s' % run.id)
+            run.note('this daemon no longer has an enrollment for run %s' % run.id)
             run.finish(70, state='infra_failed')
             return
         collected = None
@@ -1161,7 +1159,7 @@ class Daemon:
             while True:
                 result, _ = worker.follow(run.remote, offset=run.consumed(),
                                           on_log=lambda chunk: run.stream_in(chunk),
-                                          should_cancel=run.cancelled.is_set,
+                                          should_cancel=run.canceled.is_set,
                                           on_status=lambda row: self.observe(run, row))
                 run.flush_remote()
                 # The plan is gone, so write-back is judged from the argv.
@@ -1188,7 +1186,7 @@ class Daemon:
         """(retry?, cause, why-not) for one finished attempt.
 
         The order is the order of the rules in `engine.retry`: only an infra
-        failure, only once, never a cancelled or stale run, never once the
+        failure, only once, never a canceled or stale run, never once the
         caller has seen the command's own output, and then only a cause the
         table names as retryable. Write-back is allowed only because the first
         attempt is never delivered: its outputs are not collected, so nothing
@@ -1200,8 +1198,8 @@ class Daemon:
         cause = retries.cause_of(result)
         if run.attempts:
             return False, cause, 'this was already the retry'
-        if run.cancelled.is_set():
-            return False, cause, 'the run was cancelled'
+        if run.canceled.is_set():
+            return False, cause, 'the run was canceled'
         if result.get('cli_exit') == STALE:
             return False, cause, 'the run is stale'
         if run.output_seen():
@@ -1416,7 +1414,7 @@ class Daemon:
             if frame is None:
                 return                   # disconnect == detach, never cancel
             if frame.get('t') == 'cancel':
-                run.cancelled.set()
+                run.canceled.set()
             elif frame.get('t') == 'detach':
                 return
 

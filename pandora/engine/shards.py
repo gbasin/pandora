@@ -1,4 +1,4 @@
-"""Cutting one job into N, and proving afterwards that the cut was honest.
+"""Cutting one job into N, and proving afterward that the cut was honest.
 
 Nothing here talks to Incus, to SQLite or to a socket, because every decision
 worth arguing about is arithmetic on lists: how many shards to cut, what each
@@ -57,7 +57,7 @@ def requested(env, config):
     not parse the repository's command line, so the override is an environment
     variable the shim sets. An unreadable value is ignored rather than refused:
     the configured default is always a safe answer, and failing a run over a
-    typo in an optimisation hint would be worse than running it.
+    typo in an optimization hint would be worse than running it.
     """
     raw = (env or {}).get('PANDORA_SHARDS', '')
     if isinstance(raw, str) and raw.strip().isdigit() and int(raw) >= 1:

@@ -33,7 +33,7 @@ class FakeRun:
     def __init__(self, directory, run_id='r0'):
         self.id = run_id
         self.dir = Path(directory)
-        self.cancelled = threading.Event()
+        self.canceled = threading.Event()
         self.chunks = []
         self.notes = []
         self.started = time.time()
@@ -169,13 +169,13 @@ class BudgetRules(unittest.TestCase):
             pool.admit('a', repo='eichler', job='check')
         self.assertIn('budget_mib', str(caught.exception))
 
-    def test_a_cancelled_wait_is_not_an_admission(self):
+    def test_a_canceled_wait_is_not_an_admission(self):
         pool = budget(budget_mib=4096)
         pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
         pool.reserve('b', repo='eichler', job='check', worktree='/b', singleton=False)
         pool.admit('a', repo='eichler', job='check')
         self.assertIsNone(pool.admit('b', repo='eichler', job='check',
-                                     cancelled=lambda: True, timeout=10))
+                                     canceled=lambda: True, timeout=10))
 
 
 class PauseGate(unittest.TestCase):
@@ -272,7 +272,7 @@ class PauseGate(unittest.TestCase):
         self.assertIsNotNone(reading['load_per_cpu'])
 
 
-class SupervisorBehaviour(unittest.TestCase):
+class SupervisorBehavior(unittest.TestCase):
     def test_it_streams_both_pipes_and_reports_the_exit(self):
         seen = []
         supervisor = Supervisor(['sh', '-c', 'echo out; echo err >&2; exit 3'],
@@ -496,7 +496,7 @@ class ExecutorEndToEnd(unittest.TestCase):
 
     def test_declared_evidence_paths_are_recorded_in_the_receipt(self):
         # The answer to EICHLER_VALIDATION_DIRECTORY: the job says where it
-        # writes, and the receipt says what was there afterwards.
+        # writes, and the receipt says what was there afterward.
         outputs = [{'kind': 'evidence', 'paths': ['cleanup-required', 'logs/*.txt']}]
         _run, result, _pool = self.execute(
             ['sh', '-c', 'mkdir -p logs && echo x > logs/one.txt && echo y > cleanup-required'],
@@ -517,14 +517,14 @@ class ExecutorEndToEnd(unittest.TestCase):
                                            cancel={'signal': 'SIGINT', 'grace_ms': 240000})
         self.assertEqual(result['cancel'], {'signal': 'SIGINT', 'grace_ms': 240000})
 
-    def test_a_cancelled_run_exits_130_and_releases_its_holds(self):
+    def test_a_canceled_run_exits_130_and_releases_its_holds(self):
         pool = budget()
         executor = LocalExecutor(pool, drift='off')
         run = FakeRun(self.root / 'run')
         run.dir.mkdir(parents=True, exist_ok=True)
         pool.reserve(run.id, repo='eichler', job='fake', worktree=self.root, singleton=False)
         admission = pool.admit(run.id, repo='eichler', job='fake')
-        threading.Timer(0.8, run.cancelled.set).start()
+        threading.Timer(0.8, run.canceled.set).start()
         result = executor.execute(run, plan_for(['sh', '-c', 'sleep 30']), repo='eichler',
                                   job='fake', worktree=self.root, request_env={},
                                   admission=admission, note=run.note)

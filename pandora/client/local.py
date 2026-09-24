@@ -38,7 +38,7 @@ from pathlib import Path
 
 from ..engine.admission import Admission, Store
 from ..errors import PandoraError, SnapshotError
-from ..exits import CANCELLED, INFRA, STALE
+from ..exits import CANCELED, INFRA, STALE
 from ..snapshot.freeze import freeze
 from . import progress
 from .pressure import Gate, Paused
@@ -168,7 +168,7 @@ class Budget:
 
     # -- the rule that queues ----------------------------------------------
 
-    def wait_for_the_machine(self, *, cancelled=None, note=None, poll=0.5):
+    def wait_for_the_machine(self, *, canceled=None, note=None, poll=0.5):
         """Hold here while the host is in no state to be given work.
 
         Deliberately outside the lock: a job waiting on the machine must not
@@ -183,7 +183,7 @@ class Budget:
         if note is not None:
             note('local lane paused: %s' % evidence)
         while True:
-            if cancelled is not None and cancelled():
+            if canceled is not None and canceled():
                 return
             time.sleep(poll)
             evidence = self.gate.closed()
@@ -197,13 +197,13 @@ class Budget:
                              'is being started here. Wait, or run it with PANDORA_OFF=1.'
                              % (self.gate.config['max_wait_seconds'], evidence))
 
-    def admit(self, run_id, *, repo, job, cancelled=None, timeout=0.0, poll=0.25, note=None):
+    def admit(self, run_id, *, repo, job, canceled=None, timeout=0.0, poll=0.25, note=None):
         """Block until the memory fits, then return the admission record.
 
-        Returns None if the caller cancelled or the deadline passed, which are
+        Returns None if the caller canceled or the deadline passed, which are
         both still pre-accept: nothing has run.
         """
-        self.wait_for_the_machine(cancelled=cancelled, note=note)
+        self.wait_for_the_machine(canceled=canceled, note=note)
         deadline = (time.monotonic() + timeout) if timeout else None
         said = None
         with self.lock:
@@ -216,7 +216,7 @@ class Budget:
                            'smaller size class.'
                            % (job, reservation, self.admission.budget_mib))
             while True:
-                if cancelled is not None and cancelled():
+                if canceled is not None and canceled():
                     return None
                 verdict = self.admission.admit(run_id, repo, job)
                 if verdict['admitted']:
@@ -345,7 +345,7 @@ class Supervisor:
                 continue
             self.peak_mib = max(self.peak_mib, group_rss_mib(self.proc.pid))
 
-    def run(self, cancelled):
+    def run(self, canceled):
         """Returns (outcome, exit_code). `outcome` is the engine's vocabulary."""
         try:
             self.proc = subprocess.Popen(
@@ -373,7 +373,7 @@ class Supervisor:
                 if self.on_tick is not None:
                     self.on_tick(self)
                 over = deadline is not None and time.monotonic() > deadline
-                if (cancelled() or over) and not asked:
+                if (canceled() or over) and not asked:
                     asked, timed_out = True, over
                     self.killed_at = time.monotonic()
                     self.signal_group(self.cancel_signal)
@@ -416,7 +416,7 @@ def cli_exit(outcome, exit_code):
     if outcome in ('passed', 'command_failed'):
         return exit_code if exit_code is not None else INFRA
     if outcome == 'cancelled':
-        return CANCELLED
+        return CANCELED
     if outcome == 'drifted':
         return STALE
     return INFRA
@@ -502,7 +502,7 @@ class LocalExecutor:
             timeout_seconds=60 * int(plan.get('timeout_minutes') or 30),
             cancel=plan.get('cancel'),
             on_log=lambda which, chunk: run.stream_local(which, chunk))
-        outcome, code = supervisor.run(run.cancelled.is_set)
+        outcome, code = supervisor.run(run.canceled.is_set)
         after, after_files = self.fingerprint(worktree, plan, drift)
         drifted = before is not None and after is not None and before != after
         changed = changed_paths(before_files, after_files) if drifted else []

@@ -12,21 +12,21 @@ from pandora.tests.test_fallback import DaemonCase, FakeWorker, Submission
 class SlowWorker(FakeWorker):
     """Takes `delay` seconds to freeze, ship and submit, like a loaded Mac does."""
     delay = 2.0
-    cancelled = []
+    canceled = []
 
     def submit(self, **kwargs):
         time.sleep(SlowWorker.delay)
         return Submission('r-slow')
 
     def cancel(self, run_id):
-        SlowWorker.cancelled.append(run_id)
+        SlowWorker.canceled.append(run_id)
         return {'ok': True}
 
 
 class HandshakeTest(DaemonCase):
     def setUp(self):
         super().setUp()
-        SlowWorker.cancelled = []
+        SlowWorker.canceled = []
         self.daemon.worker_factory = SlowWorker
         self.daemon.workers.clear()
         self.every = daemon_module.Heartbeat.EVERY
@@ -38,7 +38,7 @@ class HandshakeTest(DaemonCase):
         answer = self.call(['pnpm', 'unit'], timeout=1.0)
         self.assertIsNotNone(answer.accepted, answer.error)
         self.assertEqual(answer.accepted['remote'], 'r-slow')
-        self.assertEqual(SlowWorker.cancelled, [])
+        self.assertEqual(SlowWorker.canceled, [])
 
     def test_a_caller_that_left_before_accepted_gets_its_submission_withdrawn(self):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -48,9 +48,9 @@ class HandshakeTest(DaemonCase):
         time.sleep(0.3)
         sock.close()                       # what a shim that timed out does
         deadline = time.monotonic() + 10
-        while not SlowWorker.cancelled and time.monotonic() < deadline:
+        while not SlowWorker.canceled and time.monotonic() < deadline:
             time.sleep(0.05)
-        self.assertEqual(SlowWorker.cancelled, ['r-slow'])
+        self.assertEqual(SlowWorker.canceled, ['r-slow'])
         metas = [json.loads(path.read_text())
                  for path in (self.state / 'runs').glob('*/meta.json')]
         self.assertEqual([(m['state'], m['remote']) for m in metas], [('withdrawn', 'r-slow')])

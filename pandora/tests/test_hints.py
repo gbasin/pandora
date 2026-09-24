@@ -5,7 +5,6 @@ negative ones: a rule that fires on a run it knows nothing about is worse than a
 rule that never fires at all.
 """
 import json
-import os
 import subprocess
 import tempfile
 import unittest

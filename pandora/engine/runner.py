@@ -132,7 +132,7 @@ def supervise(root, run_id, *, driver=None):
     # whole beside the attempt, which is where the parts the *executor* needs but
     # the scheduler does not -- the cancel contract -- are read from. No column,
     # no migration, and an attempt written before this existed reads as the
-    # default, which is the old behaviour exactly.
+    # default, which is the old behavior exactly.
     cancel = (submitted_plan(paths, run_id) or {}).get('cancel') or {}
     limits = Limits(memory_mib=row['reservation_mib'] or 2048,
                     ceiling_mib=row['ceiling_mib'] or 4096,
@@ -205,15 +205,15 @@ def supervise(root, run_id, *, driver=None):
         note('turbo cache %s' % (cache_env['TURBO_API'] if cache_env else 'off: ' + why))
         evidence['cgroup'] = driver.harden(instance, limits)
         mark('harden')
-        cancelled = {'yes': False}
+        canceled = {'yes': False}
 
         def tick():
             """One host-side check per sample: has anyone asked us to stop?"""
-            if cancelled['yes']:
+            if canceled['yes']:
                 return 'cancel'
             fresh = ledger.get(run_id)
             if fresh is not None and fresh['cancel_requested']:
-                cancelled['yes'] = True
+                canceled['yes'] = True
                 return 'cancel'
             return None
 
@@ -534,11 +534,11 @@ def write_json(path, payload):
 
 
 def cli_exit(outcome, exit_code):
-    from ..exits import CANCELLED, INFRA
+    from ..exits import CANCELED, INFRA
     if outcome in ('passed', 'command_failed'):
         return exit_code if exit_code is not None else INFRA
     if outcome == 'cancelled':
-        return CANCELLED
+        return CANCELED
     if outcome in ('oom', 'timed_out'):
         # The run did not produce a verdict. Reporting the command's -9 as if it
         # were its own exit would let a caller mistake a killed run for a test

@@ -240,7 +240,7 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
 
     # One budget per toolchain: two repositories on one worker are two
     # goldens to clone and two journeys to run, and a gate that fails because
-    # more was enrolled is measuring the enrolment, not the machine.
+    # more was enrolled is measuring the enrollment, not the machine.
     checks.add('canary inside its %ds budget' % budget,
                checks.seconds < budget, '%.1fs' % checks.seconds)
     failures = checks.failures

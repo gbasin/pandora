@@ -1,7 +1,7 @@
 """What the worker actually is, read from the worker itself.
 
 `provision.sh` prints the same survey at the end of a provisioning run; this is
-the one `pandora worker status` uses afterwards, so drift is answered from the
+the one `pandora worker status` uses afterward, so drift is answered from the
 live machine rather than from a file written when it was last touched.
 """
 import os

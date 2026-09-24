@@ -407,7 +407,7 @@ rm -rf "$2"
 
         Measured on the worker over eichler (4,961 files, 375 MiB): `git add -A`
         is 9.1 s with git's default loose-object compression and 2.9-3.0 s with
-        it off; the commit is 0.1 s and eichler's whole fingerprint afterwards is
+        it off; the commit is 0.1 s and eichler's whole fingerprint afterward is
         25 ms. The objects are uncompressed on purpose: they live exactly as long
         as the instance. Returns seconds.
         """
@@ -632,7 +632,7 @@ rm -rf "$2"
         cgroup. It is checked on the same schedule as the watchdog and for the
         same reason: nothing inside the run can delay it.
         """
-        name, t0, offset = instance.name, time.monotonic(), 0
+        t0, offset = time.monotonic(), 0
         samples, peak, evidence = [], 0, {}
         stall_since, outcome, code = None, None, None
         deadline = t0 + limits.wall_seconds

@@ -4,7 +4,7 @@ Nothing here knows a repository. Every claimed spelling, every option and every
 output path comes from the loaded configuration; this module owns only the
 matching order and the plan shape the engine consumes.
 
-The argv boundary is deliberately thin. Pandora recognises the literal form it
+The argv boundary is deliberately thin. Pandora recognizes the literal form it
 claims, the options it must consume itself (an option that arms writeback), the
 flags whose *value* it must not read, and an explicit refusal list. Everything
 else is forwarded to the repository's own runner unexamined, because the
@@ -227,7 +227,7 @@ def path_like(tokens, exists=None):
 
     This is the whole of the subdirectory rule. `pnpm journey S0-01` typed three
     directories down means the same thing everywhere, because `S0-01` is a
-    selector the repository resolves against its own catalogue; `pnpm unit
+    selector the repository resolves against its own catalog; `pnpm unit
     ./foo.test.ts` does not, because the path is relative to where it was typed.
     So the first is re-rooted and the second is not -- and "could name a file" is
     answered by a slash or by the filesystem, never by guessing at extensions.
@@ -327,8 +327,8 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
 def claim_index(config):
     """Every claimed argv prefix the configuration declares, shortest first.
 
-    This is what the shim reads out of the enrolment marker. It is an
-    optimisation -- "could this be claimed?" answered in microseconds without
+    This is what the shim reads out of the enrollment marker. It is an
+    optimization -- "could this be claimed?" answered in microseconds without
     loading 300 lines of TOML -- and never the decision: the daemon
     re-classifies every request it receives and may still refuse.
     """
@@ -345,7 +345,7 @@ def claim_index(config):
 def policy_index(config):
     """Each claimed form's size class and fallback verdict, for the marker.
 
-    Written into the enrolment so the client can answer "may this run on this
+    Written into the enrollment so the client can answer "may this run on this
     Mac" without the daemon -- which matters precisely because the commonest
     reason to ask is that the daemon is not there to be asked.
     """

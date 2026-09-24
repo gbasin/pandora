@@ -20,7 +20,7 @@ Two steps, in this order:
 The repository cannot relax step 1. A secret-shaped or platform name in
 `passthrough` is still dropped -- the worker is a shared machine, and the
 classifier claims only commands that need no credentials -- and because that is
-a declaration not honoured, it is named on stderr (`notices`). Names nobody
+a declaration not honored, it is named on stderr (`notices`). Names nobody
 declared are not mentioned: they were never going to travel.
 
 `reject_if_set` is a different question -- "is this set where the caller typed

@@ -9,7 +9,7 @@
 #   1. find the real pnpm   walk PATH, skip our own directory
 #   2. kill switches        PANDORA_OFF, PANDORA_ROUTE_DEPTH
 #   3. find the repo        walk up for .git; a worktree's .git is a FILE
-#   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
+#   4. enrollment           one stat() for <git-common-dir>/pandora-enrolled
 #   5. claim                read the marker with the `read` builtin, no fork;
 #                           any claim length, any declared strip prefix; below
 #                           the worktree root, none under `subdirectory passthrough`
@@ -91,7 +91,7 @@ done
 # The walk stopped at the worktree root, spelled the way $PWD spells it.
 root=$dir
 
-# --- 4. enrolment: one stat, and it covers every worktree of the repo --------
+# --- 4. enrollment: one stat, and it covers every worktree of the repo --------
 if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
     PANDORA_ROUTE_DEPTH=1; export PANDORA_ROUTE_DEPTH
     exec "$real" "$@"
@@ -105,7 +105,7 @@ fi
 # Token equality implies that, so the shim never misses a claim the daemon
 # would make; a token holding a space can make it claim one the daemon does not,
 # and the daemon then answers `passthrough`, which costs a Python start and no
-# more.  `pandora enrol` writes every strip line before any claim line, so one
+# more.  `pandora enroll` writes every strip line before any claim line, so one
 # pass strips first and matches after.  Both the argv as typed and the stripped
 # one are tried, because a claim may itself begin with a strip word.
 sock=
@@ -149,7 +149,7 @@ PANDORA_ROUTE_DEPTH=1
 export PANDORA_REAL_PNPM PANDORA_ROUTE_DEPTH
 python=${PANDORA_PYTHON:-python3}
 # The package lives beside the *file* this shim is, which is not beside the
-# symlink on PATH that reached it. `pandora enrol` writes the answer into the
+# symlink on PATH that reached it. `pandora enroll` writes the answer into the
 # marker as `home`, so this walk -- one `readlink` fork per hop -- runs only for
 # a marker that has none, and never on the non-enrolled path above.
 if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then

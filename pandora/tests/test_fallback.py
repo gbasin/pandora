@@ -21,7 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 from pandora.client import daemon as daemon_module
-from pandora.client import enrolment, fallback as policy, shim
+from pandora.client import enrollment, fallback as policy, shim
 from pandora.client.protocol import Reader, VERSION, dump
 from pandora.errors import EngineError, SnapshotError, TransferError, WorkerUnreachable
 
@@ -154,7 +154,7 @@ class DaemonCase(unittest.TestCase):
         config = self.root / 'config.toml'
         config.write_text(
             '[client]\nstate = "%s"\n[worker]\nhost = "fake@nowhere"\n'
-            # No notification centre pop-ups from a test suite.
+            # No notification center pop-ups from a test suite.
             '[notify]\nenabled = false\n'
             '[local]\nbudget_mib = 16384\nqueue_timeout_seconds = 20\ndrift = "off"\n'
             '[local.pause]\nenabled = false\n'
@@ -470,11 +470,11 @@ class WithoutADaemon(unittest.TestCase):
         self.cwd = os.getcwd()
         self.addCleanup(os.chdir, self.cwd)
 
-    def enrol(self, policies, subdirectory=None):
+    def enroll(self, policies, subdirectory=None):
         """A git repository with a marker, and this process inside it."""
         git = self.root / 'repo' / '.git'
         git.mkdir(parents=True)
-        (git / 'pandora-enrolled').write_text(enrolment.render(
+        (git / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
             claims=[item['prefix'] for item in policies], policies=policies,
             subdirectory=subdirectory))
@@ -490,7 +490,7 @@ class WithoutADaemon(unittest.TestCase):
                           '--', *command])
 
     def test_a_small_job_runs_here_under_the_slot_budget(self):
-        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+        self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}])
         self.assertEqual(self.run_shim(['unit']), 0)
         self.assertTrue(self.ran.exists())
@@ -498,7 +498,7 @@ class WithoutADaemon(unittest.TestCase):
         self.assertIn('daemon-unreachable', log)
 
     def test_a_path_typed_in_a_subdirectory_is_refused_without_the_daemon_too(self):
-        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+        self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}])
         (self.root / 'repo' / 'apps').mkdir()
         os.chdir(self.root / 'repo' / 'apps')
@@ -510,7 +510,7 @@ class WithoutADaemon(unittest.TestCase):
     def test_a_root_only_claim_passes_through_below_the_root_before_any_socket(self):
         # `pandora run` does not come through the POSIX shim, so the client
         # applies its rule. The notice names why; no daemon is mentioned.
-        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+        self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}], subdirectory='passthrough')
         (self.root / 'repo' / 'apps').mkdir()
         os.chdir(self.root / 'repo' / 'apps')
@@ -525,7 +525,7 @@ class WithoutADaemon(unittest.TestCase):
         self.assertEqual(row['reason'], 'passthrough')
 
     def test_a_root_only_claim_below_the_root_refuses_remote_like_any_unclaimed(self):
-        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+        self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}], subdirectory='passthrough')
         (self.root / 'repo' / 'apps').mkdir()
         os.chdir(self.root / 'repo' / 'apps')
@@ -541,7 +541,7 @@ class WithoutADaemon(unittest.TestCase):
         # The owner's rule for a machine without Pandora is "run directly", and
         # a dead daemon is that machine. Refusing here cost an engineer their
         # `pnpm journey` on 2026-09-23 (eichler #1536).
-        self.enrol([{'prefix': ['surface'], 'size': 'large', 'fallback': 'auto',
+        self.enroll([{'prefix': ['surface'], 'size': 'large', 'fallback': 'auto',
                      'writeback': False}])
         self.assertEqual(self.run_shim(['surface']), 0)
         self.assertTrue(self.ran.exists())
@@ -549,18 +549,18 @@ class WithoutADaemon(unittest.TestCase):
         self.assertIn('daemon-unreachable', log)
 
     def test_a_marker_without_policies_passes_through_as_well(self):
-        self.enrol([])
+        self.enroll([])
         self.assertEqual(self.run_shim(['surface']), 0)
         self.assertTrue(self.ran.exists())
 
     def test_update_runs_here_and_writes_in_place_without_a_daemon(self):
-        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'local',
+        self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'local',
                      'writeback': True}])
         self.assertEqual(self.run_shim(['unit', '--update']), 0)
         self.assertTrue(self.ran.exists())
 
     def test_an_explicit_remote_request_is_still_refused_without_a_daemon(self):
-        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+        self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}])
         os.environ['PANDORA_WHERE'] = 'remote'
         try:
@@ -572,12 +572,12 @@ class WithoutADaemon(unittest.TestCase):
     def test_the_marker_round_trips_through_the_shell_readable_format(self):
         policies = [{'prefix': ['test:unit'], 'size': 'medium', 'fallback': 'refuse',
                      'writeback': True}]
-        text = enrolment.render(socket_path='/s', repo='demo',
+        text = enrollment.render(socket_path='/s', repo='demo',
                                 claims=[['test:unit']], policies=policies)
-        marker = enrolment.parse(text)
+        marker = enrollment.parse(text)
         self.assertEqual(marker['policy'], policies)
-        self.assertEqual(enrolment.policy_for(['test:unit', 'x'], marker)['size'], 'medium')
-        self.assertIsNone(enrolment.policy_for(['other'], marker))
+        self.assertEqual(enrollment.policy_for(['test:unit', 'x'], marker)['size'], 'medium')
+        self.assertIsNone(enrollment.policy_for(['other'], marker))
 
 
 class RemoteCancelContract(unittest.TestCase):
@@ -624,7 +624,7 @@ class RemoteCancelContract(unittest.TestCase):
         self.assertIn('kill -9', script)
         self.assertGreater(seen[0][1]['timeout'], 240)
 
-    def test_the_default_is_the_old_behaviour_exactly(self):
+    def test_the_default_is_the_old_behavior_exactly(self):
         from pandora.executor.incus import IncusDriver
         from pandora.executor.interface import Instance
         driver = IncusDriver(root='/tmp/none', sudo=False)

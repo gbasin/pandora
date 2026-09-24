@@ -35,8 +35,7 @@ from pathlib import Path
 from ..config import classify as classifier
 from ..engine import bundle
 from ..engine import writeback as engine_writeback
-from ..errors import (EngineError, ExecutionUncertain, PandoraError, TransferError,
-                      WorkerUnreachable)
+from ..errors import (EngineError, ExecutionUncertain, PandoraError, WorkerUnreachable)
 from ..snapshot import freeze as snapshot
 from ..snapshot import transfer
 from . import writeback as writebacks
@@ -187,7 +186,7 @@ class Worker:
           the caller's fallback policy decides as it would have;
         * the engine has no such request -- the original error, re-raised, and a
           fallback is permitted as before. The lookup fenced the id, so a submit
-          still in flight on the worker cannot start it afterwards;
+          still in flight on the worker cannot start it afterward;
         * the engine cannot be asked, or answers anything else --
           `ExecutionUncertain`. Never a fallback: the command may be running.
         """
@@ -277,11 +276,11 @@ class Worker:
         reaches the worker within one poll. `on_status` sees every status row,
         which is how the daemon knows a run's phase without asking again.
         """
-        cancelled = False
+        canceled = False
         while True:
-            if should_cancel is not None and should_cancel() and not cancelled:
+            if should_cancel is not None and should_cancel() and not canceled:
                 self.cancel(run_id)
-                cancelled = True
+                canceled = True
             chunk = self.logs(run_id, offset)
             if chunk:
                 on_log(chunk)

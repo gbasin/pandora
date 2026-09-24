@@ -77,7 +77,7 @@ class CommandOutput(unittest.TestCase):
         self.assertFalse(retry.command_output(
             b'pandora: turbo cache off: no server\npandora: instance ready in 1.2 s\n\n'))
 
-    def test_a_labelled_pandora_line_is_not_output_either(self):
+    def test_a_labeled_pandora_line_is_not_output_either(self):
         self.assertFalse(retry.command_output('[1/2] pandora: cpus hint 2\n'))
 
     def test_one_line_of_the_command_is(self):
@@ -567,11 +567,11 @@ class RetryVerdict(unittest.TestCase):
         return daemon_module.Run(self.tmp.name, 'x%d' % time.monotonic_ns(),
                                  {'argv': list(argv), 'job': 'unit'})
 
-    def test_a_cancelled_run_is_never_retried(self):
+    def test_a_canceled_run_is_never_retried(self):
         run = self.fresh()
-        run.cancelled.set()
+        run.canceled.set()
         go, _, why = self.daemon.retry_verdict(run, {'options': {}}, dict(INFRA))
-        self.assertEqual((go, why), (False, 'the run was cancelled'))
+        self.assertEqual((go, why), (False, 'the run was canceled'))
 
     def test_write_back_before_output_may_retry(self):
         go, _, _ = self.daemon.retry_verdict(self.fresh(), {'options': {'update': True}},

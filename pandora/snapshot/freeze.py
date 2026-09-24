@@ -283,7 +283,7 @@ def git_marks(manifest):
 
 
 def verify(root, manifest):
-    """Check a materialised tree against a manifest. Used by the engine's tests."""
+    """Check a materialized tree against a manifest. Used by the engine's tests."""
     for record in manifest:
         bare = {key: value for key, value in record.items() if key != 'git'}
         if entry(Path(root), record['path']) != bare:
@@ -291,4 +291,4 @@ def verify(root, manifest):
     actual = {str(path.relative_to(root)) for path in Path(root).rglob('*')
               if path.is_file() or path.is_symlink()}
     if actual != {record['path'] for record in manifest}:
-        raise SnapshotError('the materialised tree has unexpected or missing files')
+        raise SnapshotError('the materialized tree has unexpected or missing files')

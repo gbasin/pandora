@@ -1,4 +1,4 @@
-"""The invoking checkout owns routing, even when enrolment spans worktrees."""
+"""The invoking checkout owns routing, even when enrollment spans worktrees."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,7 +50,7 @@ class WorktreeConfig(unittest.TestCase):
         self.external = root / 'external.toml'
         self.external.write_text(config('tools/validation/journey-runner.mjs'))
         self.client = daemon.Daemon.__new__(daemon.Daemon)
-        self.client.config = settings.normalise({'repos': [
+        self.client.config = settings.normalize({'repos': [
             {'name': 'demo', 'root': str(self.enrolled), 'config': str(self.external)}]})
         self.client.repo_configs = {}
         self.client.repo_stamps = {}
@@ -86,7 +86,7 @@ class WorktreeConfig(unittest.TestCase):
         path.parent.mkdir(parents=True)
         path.write_text('')
         _repo, loaded, verdict = self.plan(self.new)
-        self.assertEqual(loaded['origin'], 'enrolment')
+        self.assertEqual(loaded['origin'], 'enrollment')
         self.assertEqual(verdict['worktree'], str(self.new.resolve()))
 
     def test_external_config_needs_positive_compatibility_evidence(self):
@@ -111,7 +111,7 @@ class WorktreeConfig(unittest.TestCase):
             '["node", "tools/unknown.mjs", "validate", "{args}"]',
             '["pnpm", "validate", "journey", "--dry-run", "{args}"]'))
         _repo, loaded, verdict = self.plan(self.enrolled)
-        self.assertEqual(loaded['origin'], 'enrolment')
+        self.assertEqual(loaded['origin'], 'enrollment')
         self.assertEqual(verdict['plan']['argv'][0], 'pnpm')
 
     def test_incompatible_writeback_is_marked_for_refusal_by_the_shim(self):

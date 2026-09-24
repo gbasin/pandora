@@ -1,4 +1,4 @@
-# Repo-owned configuration contract — draft for judgement, not for merge
+# Repo-owned configuration contract — draft for judgment, not for merge
 
 Status: draft, 2026-09-21. Evaluates whether Pandora's repository knowledge can
 move into a file the target repository owns, and whether the result is pleasant
@@ -292,7 +292,7 @@ outputs = [
 ]
 ```
 
-- `artifacts` — copied under the attempt's `results/`. Direct analogue of CI's
+- `artifacts` — copied under the attempt's `results/`. Direct analog of CI's
   `upload-artifact` paths, and the config can be diffed against `ci.yml` to
   check they agree.
 - `generated` — exclusively-owned directories replaced atomically in the
@@ -324,7 +324,7 @@ notice = "Remote worker unavailable; running this command locally instead. …"
 
 `passthrough` is an allowlist of host variable *names* forwarded into the
 container; `set` is the fixed environment. Per-job `run.env` overrides both, and
-a job may set a variable to `""` to neutralise an inherited one — the journey
+a job may set a variable to `""` to neutralize an inherited one — the journey
 jobs use `CI = ""`, which is the declarative form of today's `env -u CI` child in
 `warm/journey.py`.
 
@@ -353,7 +353,7 @@ from the top-level table. Semantics:
   `[pandora] Remote worker unavailable; running this command locally instead. …`
   and the fallback is recorded in `submission.json` so the evidence path shows
   a locally-produced result was not remote evidence.
-- `action = "fail"` keeps today's behaviour for jobs that cannot run on a Mac
+- `action = "fail"` keeps today's behavior for jobs that cannot run on a Mac
   (nothing in the Eichler config needs it yet; `test:postgres` arguably does,
   since it needs a local Docker stack — see open questions).
 
@@ -655,7 +655,7 @@ The changes:
    are not worth it.
 2. **Get SEAM-1 and SEAM-2 merged into Eichler first.** Both are small and both
    are independently good for Eichler (an explicit direct-exec flag is clearer
-   than overloading `GITHUB_ACTIONS`; an `external` stack that honours
+   than overloading `GITHUB_ACTIONS`; an `external` stack that honors
    `DATABASE_WS_PROXY` is a bug fix). If they cannot land, the config buys much
    less, because `validation-stack.mjs`'s textual surgery survives.
 3. **Resolve open question 2 (t-shirt sizes) before step 2.** Once a repo PR can
@@ -784,7 +784,7 @@ a good reminder that "the workflow is just data" is shakier than it looks.
 
 ### 10.4 Pod networking: what a shared namespace does and does not reproduce
 
-The plan now carries a `network` section (`classify.network()`), modelling one
+The plan now carries a `network` section (`classify.network()`), modeling one
 network namespace per run: a pause container owns the namespace and every
 service plus the job container joins it with `--network container:<pause>`.
 
@@ -881,7 +881,7 @@ twice in a row and nobody fixes it, inheritance has earned its risk.
 `{p.*}` / `{f.*}` / `{opt.*}` / `{params_json}` template vocabulary. What a job
 declares now is: literal `forms`, `args = "none" | "required" | "optional"`, the
 `options` Pandora itself must consume (an option that arms writeback, one that
-changes shard behaviour), `value_flags` (flags whose *value* Pandora must not
+changes shard behavior), `value_flags` (flags whose *value* Pandora must not
 read), an explicit `reject` list with a message, and per-form `on_extra`.
 Everything else is spliced into the repo runner's argv at `{args}`.
 

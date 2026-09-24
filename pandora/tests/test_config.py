@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from pandora.config import classify, loader
-from pandora.errors import ConfigError, NotClaimed, Refused
+from pandora.errors import ConfigError, NotClaimed
 
 EXAMPLE = Path(__file__).resolve().parents[1] / 'config/examples/eichler.pandora.toml'
 
@@ -159,7 +159,7 @@ run = { argv = ["node", "other.mjs"] }
 
 
 class ResolveTest(unittest.TestCase):
-    def test_the_repo_root_wins_over_the_enrolment(self):
+    def test_the_repo_root_wins_over_the_enrollment(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'repo'
             root.mkdir()
@@ -170,7 +170,7 @@ class ResolveTest(unittest.TestCase):
             self.assertEqual(path, root / 'pandora.toml')
             self.assertEqual(origin, 'repo-root')
 
-    def test_the_enrolment_is_used_when_the_repo_has_none(self):
+    def test_the_enrollment_is_used_when_the_repo_has_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'repo'
             root.mkdir()
@@ -178,7 +178,7 @@ class ResolveTest(unittest.TestCase):
             other.write_text(MINIMAL)
             path, origin = loader.resolve(root, other)
             self.assertEqual(path, other)
-            self.assertEqual(origin, 'enrolment')
+            self.assertEqual(origin, 'enrollment')
 
     def test_a_named_configuration_that_is_absent_is_an_error_not_a_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -234,7 +234,7 @@ class ClassifyTest(unittest.TestCase):
 
     def test_a_subdirectory_invocation_is_re_rooted_when_nothing_names_a_path(self):
         # `S0-01` means the same thing in every directory, because the repository
-        # resolves it against its own catalogue.
+        # resolves it against its own catalog.
         verdict = classify.classify(self.config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
         self.assertEqual(verdict['decision'], 'remote')
         self.assertEqual(verdict['rerooted'], 'apps/agent')

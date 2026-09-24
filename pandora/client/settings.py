@@ -1,4 +1,4 @@
-"""`~/.config/pandora/config.toml`: the worker, the state directory, the enrolments.
+"""`~/.config/pandora/config.toml`: the worker, the state directory, the enrollments.
 
 TOML rather than the POC's JSON because this is a file a person edits, and
 because the repository configuration it points at is TOML too. It is read on
@@ -82,7 +82,7 @@ def _expand(value):
     return str(Path(value).expanduser()) if value else value
 
 
-def normalise(raw):
+def normalize(raw):
     config = {'worker': dict(DEFAULTS['worker']), 'client': dict(DEFAULTS['client']),
               'backend': dict(DEFAULTS['backend']), 'local': dict(DEFAULTS['local']),
               'notify': dict(DEFAULTS['notify']), 'repos': []}
@@ -125,27 +125,27 @@ def normalise(raw):
                                 'config': _expand(item.get('config', ''))})
     names = [repo['name'] for repo in config['repos']]
     if len(set(names)) != len(names):
-        raise ConfigError('two enrolments share a name: ' + ', '.join(sorted(names)))
+        raise ConfigError('two enrollments share a name: ' + ', '.join(sorted(names)))
     return config
 
 
 def load(path=None):
     path = Path(path or os.environ.get('PANDORA_CONFIG') or DEFAULT_PATH).expanduser()
     if not path.is_file():
-        config = normalise({})
+        config = normalize({})
         config['source'] = None
         return config
     try:
         raw = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as error:
         raise ConfigError('%s is not valid TOML: %s' % (path, error)) from None
-    config = normalise(raw)
+    config = normalize(raw)
     config['source'] = str(path)
     return config
 
 
-def enrolment_for(config, cwd):
-    """Which enrolment, if any, owns this directory.
+def enrollment_for(config, cwd):
+    """Which enrollment, if any, owns this directory.
 
     Matching is by path prefix against the enrolled root *and* against every
     sibling worktree of it, because the point of enrolling a repository is that

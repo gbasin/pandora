@@ -1,8 +1,8 @@
-"""Enrolment: which worktrees the shim may claim, decided without running git.
+"""Enrollment: which worktrees the shim may claim, decided without running git.
 
-Enrolment is a property of a repository, not of a worktree.  Every worktree of
+Enrollment is a property of a repository, not of a worktree.  Every worktree of
 one repository shares one git *common directory*, so one marker file written
-there enrols all of them at once -- the ~135 eichler worktrees on this machine
+there enrolls all of them at once -- the ~135 eichler worktrees on this machine
 are covered by a single file, and a worktree created tomorrow is covered the
 moment it is created.
 
@@ -49,7 +49,7 @@ def worktree_root(start):
     """The worktree `start` is inside, or None.
 
     Not the same question as `common_dir`: that one identifies the *repository*,
-    which is what enrolment is a property of. This one identifies the checkout,
+    which is what enrollment is a property of. This one identifies the checkout,
     which is what a job runs in and what a subdirectory invocation is measured
     against.
     """
@@ -95,7 +95,7 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     Every `strip` line is written before any `claim` or `heavy` line. The shim
     strips as it reads, in one pass, so this order is part of the format.
     """
-    lines = ['# pandora enrolment v1 -- written by pandora enrol, safe to delete',
+    lines = ['# pandora enrollment v1 -- written by pandora enroll, safe to delete',
              'sock ' + socket_path, 'repo ' + repo]
     if home:
         lines.append('home ' + home)
@@ -165,7 +165,7 @@ def marker_for(cwd):
 
 
 def key_of(argv, strip_prefixes):
-    """Normalise one argv tail for matching against claims of any length.
+    """Normalize one argv tail for matching against claims of any length.
 
     ``argv`` excludes the tool name.  Declared wrapper prefixes (``pnpm run
     test:unit``) are removed once each, in declaration order, exactly as the

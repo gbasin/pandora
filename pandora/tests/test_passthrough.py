@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pandora.client import enrolment
+from pandora.client import enrollment
 
 HERE = Path(__file__).resolve().parents[2]
 SHELLS = ['sh'] + [shell for shell in ('/bin/dash', '/usr/bin/dash') if os.path.exists(shell)][:1]
@@ -18,7 +18,7 @@ SHELLS = ['sh'] + [shell for shell in ('/bin/dash', '/usr/bin/dash') if os.path.
 
 class HeavyForms(unittest.TestCase):
     def test_a_claimed_form_is_never_also_heavy(self):
-        forms = enrolment.heavy_forms([['build'], ['journey']])
+        forms = enrollment.heavy_forms([['build'], ['journey']])
         self.assertNotIn(['build'], forms)
         self.assertIn(['lint'], forms)
 
@@ -34,9 +34,9 @@ class ThroughTheShim(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
         (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\nexit 3\n')
         (fake / 'pnpm').chmod(0o755)
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[['journey']], heavy=enrolment.heavy_forms([['journey']]),
+            claims=[['journey']], heavy=enrollment.heavy_forms([['journey']]),
             home=str(HERE)))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH'):
@@ -83,9 +83,9 @@ class ClaimedOnlyAtTheRoot(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
         (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\n')
         (fake / 'pnpm').chmod(0o755)
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[['test']], heavy=enrolment.heavy_forms([['test']]),
+            claims=[['test']], heavy=enrollment.heavy_forms([['test']]),
             strip_prefixes=[['run']], home=str(HERE), subdirectory='passthrough'))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_WHERE', 'PANDORA_HOME'):
@@ -122,7 +122,7 @@ class ClaimedOnlyAtTheRoot(unittest.TestCase):
 
 
 class ClaimShapes(unittest.TestCase):
-    """Every claim `enrol` can write reaches the client through the real shim.
+    """Every claim `enroll` can write reaches the client through the real shim.
 
     The shim used to match only one- and two-token claims and understood only
     `strip run`. Eichler strips `validate` as well, so `pnpm validate check` ran
@@ -145,9 +145,9 @@ class ClaimShapes(unittest.TestCase):
         (package / 'pandora' / 'client' / 'shim.py').write_text(
             'import sys\nprint("routed " + " ".join(sys.argv[sys.argv.index("--") + 1:]))\n')
         claims = [['journey'], ['test:surface', 'desk'], ['surface', 'run', 'all']]
-        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrollment.render(
             socket_path=str(root / 'client.sock'), repo='demo', claims=claims,
-            heavy=enrolment.heavy_forms(claims), home=str(package),
+            heavy=enrollment.heavy_forms(claims), home=str(package),
             strip_prefixes=[['run'], ['validate'], ['exec', 'turbo']]))
         self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_HOME', 'PANDORA_WHERE'):
@@ -180,17 +180,17 @@ class ClaimShapes(unittest.TestCase):
 
     def test_the_marker_lists_every_strip_before_any_claim(self):
         # The shim strips as it reads, in one pass: it relies on this order.
-        text = enrolment.render(socket_path='/s', repo='demo', claims=[['a']],
+        text = enrollment.render(socket_path='/s', repo='demo', claims=[['a']],
                                 strip_prefixes=[['run'], ['validate']])
         keys = [line.split()[0] for line in text.splitlines() if not line.startswith('#')]
         self.assertLess(max(i for i, key in enumerate(keys) if key == 'strip'),
                         min(i for i, key in enumerate(keys) if key == 'claim'))
 
     def test_the_subdirectory_mode_round_trips_through_the_marker(self):
-        text = enrolment.render(socket_path='/s', repo='demo', claims=[['a']],
+        text = enrollment.render(socket_path='/s', repo='demo', claims=[['a']],
                                 subdirectory='passthrough')
-        self.assertEqual(enrolment.parse(text)['subdirectory'], 'passthrough')
-        self.assertIsNone(enrolment.parse(enrolment.render(
+        self.assertEqual(enrollment.parse(text)['subdirectory'], 'passthrough')
+        self.assertIsNone(enrollment.parse(enrollment.render(
             socket_path='/s', repo='demo', claims=[['a']]))['subdirectory'])
 
 

@@ -24,7 +24,7 @@ The invariants, as `pandora --help` states them:
   command runs as if Pandora were not installed.
 * Exit codes that are not the command's own: 70 infrastructure failure, never a
   test verdict; 75 busy or stale; 124 `--max-wait` elapsed and the run was not
-  stopped; 130 cancelled.
+  stopped; 130 canceled.
 * `--update` runs on the worker, never here. Its files come back only from a
   passing run (every shard) over a tree you did not edit meanwhile; otherwise
   exit 75, your files untouched, and the next step printed.
@@ -42,7 +42,7 @@ before you rely on it.
 
 The install is machine-wide and changes nothing in the target repository. It
 has five parts: the two launchers on PATH, one configuration file, the daemon,
-one enrolment per repository, and `pandora doctor` to prove the result.
+one enrollment per repository, and `pandora doctor` to prove the result.
 
 ### Prerequisites
 
@@ -186,35 +186,47 @@ wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
 foreground or under `nohup`. `pandora doctor` then warns that nothing restarts
 it.
 
-### 5. Enrol each repository
+### 5. Enroll each repository
 
 Write the configuration first, so the marker points at the right socket. Then
-enrol the repository from any of its worktrees.
+enroll the repository from any of its worktrees.
 
 ```sh
-pandora enrol ~/Code/eichler
+pandora enroll ~/Code/eichler
 ```
 
 If the repository has no `pandora.toml` at its root yet, name one.
 
 ```sh
-pandora enrol ~/Code/eichler --config ~/.config/pandora/repos/eichler.pandora.toml
+pandora enroll ~/Code/eichler --config ~/.config/pandora/repos/eichler.pandora.toml
 ```
 
-`enrol` loads and validates the repository's configuration, then writes one
+`enroll` loads and validates the repository's configuration, then writes one
 marker file, `pandora-enrolled`, into the Git common directory. One marker
 covers every worktree of the repository, including worktrees created later. It
 prints the `[[repos]]` block the client configuration needs. Add that block if
 it is not there.
 
-Enrol again after any change to the claimed forms in `pandora.toml`. The shim
-reads the claim list from the marker, not from `pandora.toml`.
+Enrollment is manual. Run it once per repository, not once per worktree: the
+marker is in the Git common directory, so every worktree shares it.
+
+Enroll again after any change to the claimed forms or to `[matching]
+subdirectory` in `pandora.toml`. The shim reads the claim list and the
+subdirectory mode from the marker, not from `pandora.toml`, so until you enroll
+again the shim acts on the old values. `pandora doctor` does not compare the
+marker with `pandora.toml` and does not report a stale claim list or mode. It
+reports only a marker whose `home` names a removed checkout, or whose socket is
+not the one the doctor checked.
 
 To stop routing a repository, remove the marker.
 
 ```sh
-pandora unenrol ~/Code/eichler
+pandora unenroll ~/Code/eichler
 ```
+
+`pandora enrol` and `pandora unenrol`, the old spellings, still work for one
+release. Each prints a one-line deprecation notice on stderr and then runs
+`enroll` or `unenroll`. Change scripts to the new spelling.
 
 ### 6. Prove the install
 
@@ -235,7 +247,7 @@ ok    pandora on PATH    ~/.local/bin/pandora imports ~/Code/pandora from any di
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, same package as the client
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
 ok    repository         enrolled as eichler: 20 claimed form(s), marker ~/Code/eichler/.git/pandora-enrolled
-ok    daemon enrolment   [[repos]] eichler at ~/Code/eichler
+ok    daemon enrollment  [[repos]] eichler at ~/Code/eichler
 ok    working directory  the worktree root, ~/Code/eichler
 ok    variables          none of PANDORA_OFF, PANDORA_WHERE, PANDORA_SHARDS set
 ok    shim markers       .pandora-shim beside the shim only
@@ -383,7 +395,7 @@ The other worker verbs:
 ## The repository side
 
 A repository declares its routed boundary in `pandora.toml` at its root. The
-loader looks there first, and uses the enrolment's `--config` path only when
+loader looks there first, and uses the enrollment's `--config` path only when
 the root has none. The schema is closed: an unknown key is refused with the
 allowed set printed. The reference is
 [`pandora/config/examples/eichler.pandora.toml`](pandora/config/examples/eichler.pandora.toml),
@@ -490,7 +502,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
 | 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. | Wait for the other run. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
-| 130 | Cancelled. | Nothing. |
+| 130 | Canceled. | Nothing. |
 
 ### Variables
 
@@ -540,7 +552,7 @@ ignores and the snapshot therefore did not ship.
 A job that runs on the worker gets `PANDORA_CPUS`, the host's cores divided by
 the runs admitted when it starts. A runner can use it for its own parallelism.
 
-## Behaviour tables
+## Behavior tables
 
 ### Fallback
 
@@ -587,7 +599,7 @@ deletes.
 | A shard failed, was never dispatched, filed no report, or the partition is unverified | Nothing from any shard | The command's own non-zero, or 70 |
 | Two shards changed one declared file differently | Nothing | 75 |
 | Two shards changed disjoint top-level keys of one JSON object | The merged file | 0 |
-| Run failed, oom, timed out or cancelled | Nothing | The run's own |
+| Run failed, oom, timed out or canceled | Nothing | The run's own |
 | Proposed bytes arrive with the wrong digest, or the fetch fails | Nothing | 70 |
 | Infrastructure failure before `accepted` | Nothing, and nothing runs here | 70 |
 
@@ -617,7 +629,7 @@ runs locally.
 | `partition-unverified` | no | The shards ran; their reports will not change. |
 | `shard-failed` | no | The shard already had its own retry. |
 | `admission-timeout` | no | A retry joins the same full queue. |
-| `engine-error` | no | An unrecognised failure is not retried. |
+| `engine-error` | no | An unrecognized failure is not retried. |
 | `worker-lost` | no | The run may still be executing. |
 
 `oom`, `timed_out`, `cancelled` and `command_failed` are verdicts and are never
@@ -685,7 +697,7 @@ Known caveats:
   the other app's paths as missing.
 * `PANDORA_CPUS` is fixed when a command starts. A run admitted alone keeps its
   larger hint when others join.
-* A remote run's verdict is not checked against the worktree afterwards. Only
+* A remote run's verdict is not checked against the worktree afterward. Only
   write-back re-freezes. Do not edit a worktree while a remote validation runs.
 * One remote run per worktree is not enforced. Only the local lane holds a
   worktree lock.
@@ -705,7 +717,7 @@ Known caveats:
 |---|---|
 | `bin/pandora`, `bin/pnpm` | The two POSIX launchers. `pnpm` is the shim; its non-enrolled path forks nothing. |
 | `pandora/cli.py`, `errors.py`, `exits.py` | The one `pandora` command, the typed exceptions and the exit table. |
-| `pandora/client/` | Runs on the Mac: the daemon, the shim client, enrolment, the local lane, fallback, placement, write-back settlement, health, stats, hints, `doctor`. |
+| `pandora/client/` | Runs on the Mac: the daemon, the shim client, enrollment, the local lane, fallback, placement, write-back settlement, health, stats, hints, `doctor`. |
 | `pandora/config/` | Runs on the Mac: the `pandora.toml` loader and the argv classifier. |
 | `pandora/snapshot/` | Runs on the Mac: the manifest freeze and the transfer into the worker's source cache. |
 | `pandora/engine/` | Runs on the worker: the ledger, admission, scheduler, per-run supervisor, fan-out, retry, write-back proposal and turbo cache server. |
@@ -727,7 +739,7 @@ turbo cache server keeps the bundle it started with until its unit restarts;
 v0.1 and v0.1.1 used a per-session launcher,
 `experiments/routing/launch.py`, which gave each agent session a private PATH.
 v0.2 replaces it with the machine-wide shim, the daemon, per-repository
-enrolment and `pandora.toml`. v0.2 ships only a `pnpm` shim. The v0.1.1
+enrollment and `pandora.toml`. v0.2 ships only a `pnpm` shim. The v0.1.1
 Docker profile is not carried over.
 
 * [v0.1 contract](notes/v0.1-contract.md) and its twelve-agent baseline,

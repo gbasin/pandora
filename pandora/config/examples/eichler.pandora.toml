@@ -2,7 +2,7 @@
 #
 # In v0.2 final this file lives at the eichler repository root, where the loader
 # looks first. For the slice it lives outside the repository -- copied to
-# ~/.config/pandora/repos/eichler.pandora.toml and named by the enrolment --
+# ~/.config/pandora/repos/eichler.pandora.toml and named by the enrollment --
 # because the combined Eichler PR has not landed and the slice is not allowed to
 # open it.
 #

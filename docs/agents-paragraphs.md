@@ -38,9 +38,19 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 >
 > ## What changes for you
 >
-> Nothing about the commands. Run them from the repository root. A validation
-> typed in a subdirectory with a path in its arguments is refused (exit 64) with
-> `pandora: run from the repo root to route`; it never runs locally by accident.
+> Nothing about the commands. Run them from the repository root. There, Pandora
+> claims them. Below the root, the `[matching] subdirectory` mode in
+> `pandora.toml` decides what a claimed command does:
+>
+> - `passthrough`, the mode this repository uses: nothing is claimed below the
+>   root. The command runs as typed, on this machine, as if Pandora were not
+>   installed. It gets no queue and no receipt. `pnpm test` in a package runs
+>   that package's own script. To route a suite, run it from the root.
+> - `reroot`: the command runs from the root. If an argument names a path, the
+>   command is refused with exit 64 and `pandora: run from the repo root to
+>   route`, because a run from the root would read that path differently.
+> - `reject`: every claimed command typed below the root is refused with
+>   `Run this command from the repository root.`
 >
 > Results, reports and artifacts are in your worktree before the command
 > returns. A report the runner did not write is reported as missing. Missing is
@@ -53,7 +63,7 @@ Replaces the opening paragraph and the whole "Machine setup" section. The
 > | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it here with `PANDORA_WHERE=local <command>`. |
 > | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. | Wait for the other run. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
-> | 130 | You cancelled it. | Nothing. |
+> | 130 | You canceled it. | Nothing. |
 >
 > Pandora's own lines go to stderr and start with `pandora:`. The last one can
 > be `pandora: hint: ...`. A hint comes from measured evidence, such as a memory
