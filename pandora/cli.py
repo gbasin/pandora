@@ -7,8 +7,8 @@ INVARIANTS
   * Same cwd, environment and exit code as a local run; `$?` and traps behave.
   * Declared results are in your worktree before the command exits. A missing
     report is reported as missing, never as zero failures.
-  * Run from the repository root. In a subdirectory, a routed command whose
-    arguments name a path is refused (exit 64) rather than run locally.
+  * Run from the repository root. Below it, `[matching] subdirectory` re-roots
+    a command (64 if an argument names a path), refuses it, or leaves it alone.
   * Exit codes that are not the command's own:
       70  infrastructure failure, never a test verdict
       75  busy or stale: a validation already active here, or the tree changed
@@ -153,6 +153,7 @@ def cmd_enrol(args):
                             heavy=enrolment.heavy_forms(claims),
                             policies=classifier.policy_index(repo_config),
                             strip_prefixes=repo_config['matching']['strip_prefixes'],
+                            subdirectory=repo_config['matching']['subdirectory'],
                             origin=str(path),
                             home=str(Path(__file__).resolve().parents[1]))
     marker = enrolment.write(common, text)

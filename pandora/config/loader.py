@@ -616,7 +616,7 @@ def validate(value):
     repo = _keys(value['repo'], 'repo', {'name', 'entrypoints'}, {'root_markers'})
     matching = _keys(value.get('matching', {}), 'matching', (), {'strip_prefixes', 'subdirectory'})
     subdirectory = _choice(matching.get('subdirectory', 'reroot'), 'matching.subdirectory',
-                           ('reroot', 'local', 'reject'))
+                           ('reroot', 'local', 'reject', 'passthrough'))
     feedback = _keys(value.get('feedback', {}), 'feedback', (), {'reject_suffix', 'extra_message'})
     secrets = _keys(value.get('secrets', {}), 'secrets', (), {'exclude_globs'})
     environment = _keys(value.get('env', {}), 'env', (),
@@ -671,6 +671,9 @@ def validate(value):
             # `reroot`: run from the worktree root when no argument names a
             # path, refuse with 64 when one does. `local` is its old name, from
             # when the second case passed through to an unbounded local run.
+            # `passthrough`: a claim holds only at the worktree root; typed
+            # anywhere else the command is unclaimed, for a repository whose
+            # bare root forms (`test`, `build`) mean something else in a package.
             'subdirectory': {'local': 'reroot'}.get(subdirectory, subdirectory),
         },
         'feedback': {

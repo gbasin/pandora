@@ -17,8 +17,11 @@ The invariants, as `pandora --help` states them:
 * Same cwd, environment and exit code as a local run; `$?` and traps behave.
 * Declared results are in your worktree before the command exits. A missing
   report is reported as missing, never as zero failures.
-* Run from the repository root. In a subdirectory, a routed command whose
-  arguments name a path is refused (exit 64) rather than run locally.
+* Run from the repository root. Below it, `[matching] subdirectory` decides.
+  `reroot` (the default) runs a routed command from the root, and refuses one
+  whose arguments name a path (exit 64) rather than run it locally. `reject`
+  refuses every routed command. `passthrough` claims nothing there, so the
+  command runs as if Pandora were not installed.
 * Exit codes that are not the command's own: 70 infrastructure failure, never a
   test verdict; 75 busy or stale; 124 `--max-wait` elapsed and the run was not
   stopped; 130 cancelled.
@@ -145,7 +148,7 @@ The optional keys and their defaults:
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |
 | | `max_running` | `4` | Local-lane jobs at once. |
-| | `one_active_per_worktree` | `true` | A second local job in one worktree exits 75. |
+| | `one_active_per_worktree` | `true` | A second local job in one worktree exits 75. A `singleton` job does not count. |
 | | `drift` | `warn` | `off`, `warn` or `fail` when the worktree changes during a local run. A job may override it. |
 | | `queue_timeout_seconds` | `0` | 0 waits for the budget as long as it takes. |
 | `[local.pause]` | `enabled`, `sample_seconds`, `swap_growth_mib_per_minute`, `psi_full_avg10`, `free_percent`, `load_per_cpu`, `max_wait_seconds` | `true`, 3, 256, 20.0, 5.0, 8.0, 300 | The gate that stops new local jobs on a Mac under memory pressure. A job held past `max_wait_seconds` exits 70 and never runs. |
@@ -412,7 +415,7 @@ equal the planned partition exactly.
 |---|---|
 | `version` | `1`. |
 | `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. |
-| `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`); `subdirectory = "reroot"` or `"reject"`. |
+| `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`); `subdirectory = "reroot"`, `"reject"` or `"passthrough"`: what a claimed command typed below the worktree root does. `reroot` runs it from the root unless an argument names a path, then exits 64. `reject` refuses it. `passthrough` claims it only at the root, so below it the command runs unchanged, like an unclaimed one, decided in the shim with no fork. Use it when bare root forms (`test`, `build`) mean a package's own script in a subdirectory. |
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
 | `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`; `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
@@ -460,7 +463,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Eichler's `--update` is one. |
 | `value_flags` | Flags whose value is not a path, so the subdirectory rule does not check it. |
 | `shards` | `strategy` (`argv` or `env`), `template` (`--shard={i}/{n}`), `default`, `max`, and for tier 2 `plan`, `expect_flag`, `report`, `plan_outputs`. Every shard also gets `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`. Remote only. |
-| `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. |
+| `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. It does not take its worktree's `one_active_per_worktree` slot, so other local jobs still run there while it lives. |
 | `reject` | `[{ args, message }]`: arguments the job refuses, with the reason. |
 | `reject_if_set` | Environment variables that make the job refuse. |
 | `drift` | `off`, `warn` or `fail` for a local run whose worktree changed meanwhile. Use `off` for `small` jobs; freezing a 4,900-file worktree twice costs more than they do. |

@@ -301,6 +301,16 @@ def check_cwd(cwd):
     here = Path(cwd).resolve()
     if here == Path(root).resolve():
         return check('working directory', OK, 'the worktree root, %s' % root)
+    try:
+        _common, marker = enrolment.marker_for(cwd)
+    except OSError:
+        marker = None
+    if enrolment.claims_nothing_here(cwd, marker):
+        return check('working directory', WARN,
+                     'you are in %s, below the worktree root %s. This repository claims '
+                     'commands only at the root, so every command typed here runs as if '
+                     'Pandora were not installed'
+                     % (here.relative_to(Path(root).resolve()), root))
     return check('working directory', WARN,
                  'you are in %s, below the worktree root %s. A claimed command typed here '
                  'runs from the root when no argument names a path, and is refused with exit '

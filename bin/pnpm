@@ -11,7 +11,8 @@
 #   3. find the repo        walk up for .git; a worktree's .git is a FILE
 #   4. enrolment            one stat() for <git-common-dir>/pandora-enrolled
 #   5. claim                read the marker with the `read` builtin, no fork;
-#                           any claim length, any declared strip prefix
+#                           any claim length, any declared strip prefix; below
+#                           the worktree root, none under `subdirectory passthrough`
 #   6. hand off             pandora.client.shim (claimed), passthrough (heavy, or
 #                           unclaimed with PANDORA_WHERE set, so the ignored
 #                           override is counted), or exec
@@ -87,6 +88,9 @@ while :; do
     [ -n "$dir" ] || dir=/
 done
 
+# The walk stopped at the worktree root, spelled the way $PWD spells it.
+root=$dir
+
 # --- 4. enrolment: one stat, and it covers every worktree of the repo --------
 if [ -z "$common" ] || [ ! -f "$common/pandora-enrolled" ]; then
     PANDORA_ROUTE_DEPTH=1; export PANDORA_ROUTE_DEPTH
@@ -106,6 +110,7 @@ fi
 # one are tried, because a claim may itself begin with a strip word.
 sock=
 home=
+scope=
 claimed=0
 heavy=0
 IFS=' '
@@ -116,6 +121,7 @@ while IFS=' ' read -r key rest; do
     case $key in
         sock) sock=$rest ;;
         home) home=$rest ;;
+        subdirectory) scope=$rest ;;
         strip)
             case $keyed in
                 "$rest") keyed= ;;
@@ -132,6 +138,10 @@ while IFS=' ' read -r key rest; do
             ;;
     esac
 done < "$common/pandora-enrolled"
+# `subdirectory passthrough`: a claim holds only at the worktree root, because
+# `pnpm test` in a package is that package's test. Below it the command is
+# unclaimed, and the rules below treat it exactly as one. A string compare.
+if [ "$scope" = passthrough ] && [ "$PWD" != "$root" ]; then claimed=0; fi
 
 # --- 6. hand off -------------------------------------------------------------
 PANDORA_REAL_PNPM=$real

@@ -240,6 +240,15 @@ class RepositoryAndCwd(Scratch):
         self.assertEqual(item['status'], 'warn')
         self.assertIn('exit 64', item['detail'])
 
+    def test_a_root_only_repository_says_a_subdirectory_is_unclaimed(self):
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+            socket_path='/s/client.sock', repo='demo', claims=[['journey']],
+            subdirectory='passthrough'))
+        item = doctor.check_cwd(str(self.repo / 'apps'))
+        self.assertEqual(item['status'], 'warn')
+        self.assertIn('only at the root', item['detail'])
+        self.assertNotIn('exit 64', item['detail'])
+
 
 class Cli(Scratch):
     def test_help_names_it_and_json_is_the_report(self):
