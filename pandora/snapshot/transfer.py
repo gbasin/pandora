@@ -70,6 +70,27 @@ class Link:
         self.anchor = Path(control_dir)
         self.control_dir = control_dir_for(self.anchor)
         self.options = ssh_options(self.control_dir, persist=persist)
+        # None until the first call asks whether a master already listens.
+        self.owns_master = None
+
+    def _probe(self):
+        """Before the first call: is a master already on this control path?
+
+        If one is, another process started it and its sessions ride on it, so
+        `close()` must leave it alone. If none is, this Link's first call starts
+        it. `-O check` talks only to the local socket, never to the host.
+        """
+        if self.owns_master is not None:
+            return
+        try:
+            proc = subprocess.run(['ssh', *self.options, '-O', 'check', self.host],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=CONNECT_TIMEOUT, check=False)
+            self.owns_master = proc.returncode != 0
+        except (OSError, subprocess.TimeoutExpired):
+            # Unknown is treated as not ours: a master left running expires after
+            # ControlPersist, while one exited under a peer kills its transfers.
+            self.owns_master = False
 
     @property
     def rsh(self):
@@ -78,6 +99,7 @@ class Link:
     def run(self, argv, *, stdin=None, timeout=120, check=True):
         """One remote command. `argv` is a list; it is quoted, never a shell line."""
         command = ' '.join(shlex.quote(item) for item in argv)
+        self._probe()
         proc = subprocess.run(['ssh', *self.options, self.host, command],
                               input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               timeout=timeout)
@@ -101,6 +123,7 @@ class Link:
         """
         command = ' '.join(['python3', '-c', shlex.quote(script)]
                            + [shlex.quote(str(item)) for item in args])
+        self._probe()
         proc = subprocess.run(['ssh', *self.options, self.host, command],
                               input=stdin, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=timeout)
@@ -114,8 +137,17 @@ class Link:
         return proc.returncode, out, err
 
     def close(self):
+        """Exit the master only if this Link started it.
+
+        `-O exit` ends every session multiplexed on the master, not just this
+        Link's: a master another process started carries that process's
+        in-flight rsyncs and engine calls, and exiting it fails them mid-stream.
+        """
+        if not self.owns_master:
+            return
         subprocess.run(['ssh', *self.options, '-O', 'exit', self.host],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        self.owns_master = None
 
 
 def cache_paths(root, repo, input_id):

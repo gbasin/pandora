@@ -197,6 +197,66 @@ class TransferPathTest(unittest.TestCase):
                             'the control path would overflow a unix socket name')
             self.assertLess(len(str(link.control_dir)), 45)
 
+    def test_the_operator_cli_never_shares_the_daemons_master(self):
+        import argparse
+        from pandora.snapshot import transfer
+        from pandora.worker import cli
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'config.toml'
+            config.write_text('[worker]\nhost = "u@h"\n')
+            args = argparse.Namespace(config=str(config), host=None, state=tmp,
+                                      engine_root=None)
+            _, _, control = cli.target(args)
+            self.assertNotEqual(control, Path(tmp) / 'ssh')
+            self.assertNotEqual(transfer.control_dir_for(control),
+                                transfer.control_dir_for(Path(tmp) / 'ssh'))
+
+
+class LinkOwnershipTest(unittest.TestCase):
+    """`close()` exits a master only when this Link started it."""
+
+    def link(self, tmp, master_running):
+        from pandora.snapshot import transfer
+        calls = []
+
+        def fake(argv, **kwargs):
+            calls.append(argv)
+            if '-O' in argv:
+                verb = argv[argv.index('-O') + 1]
+                return subprocess.CompletedProcess(argv, 0 if master_running and verb == 'check'
+                                                   else 255, b'', b'')
+            return subprocess.CompletedProcess(argv, 0, b'ok', b'')
+        patch = mock.patch.object(transfer.subprocess, 'run', side_effect=fake)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return transfer.Link('user@host', Path(tmp) / 'ssh'), calls
+
+    @staticmethod
+    def verbs(calls):
+        return [argv[argv.index('-O') + 1] for argv in calls if '-O' in argv]
+
+    def test_a_link_that_started_the_master_exits_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            link, calls = self.link(tmp, master_running=False)
+            link.run(['true'])
+            link.feed('pass')
+            link.close()
+            self.assertEqual(self.verbs(calls), ['check', 'exit'])
+
+    def test_a_master_another_process_started_is_left_running(self):
+        # Its in-flight rsyncs ride on it; `-O exit` would cut them off.
+        with tempfile.TemporaryDirectory() as tmp:
+            link, calls = self.link(tmp, master_running=True)
+            link.run(['true'])
+            link.close()
+            self.assertEqual(self.verbs(calls), ['check'])
+
+    def test_a_link_that_never_called_exits_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            link, calls = self.link(tmp, master_running=False)
+            link.close()
+            self.assertEqual(calls, [])
+
 
 if __name__ == '__main__':
     unittest.main()
