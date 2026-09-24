@@ -611,7 +611,8 @@ there is no fair share between clients, so one Mac can fill the budget. Every
 client logs in as the same worker user, with that user's SSH key. And a Mac
 still running older Pandora code sends no name: its runs record no client, and
 it can cancel anyone's run. The guarantees above hold once every Mac runs this
-code.
+code. Change `[client] name` only while `pandora ps` shows nothing live: runs
+submitted under the old name answer cancel and lookup only to that name.
 
 Where the name shows:
 
