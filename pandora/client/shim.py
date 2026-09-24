@@ -334,6 +334,34 @@ def main(argv=None):
         return run_local(args.real, command, state=state, claimed=False,
                          reason=cause, where=where)
 
+    def pass_through(message, writeback=False):
+        """Not claimed here: run it as if the shim were not installed."""
+        if args.detach:
+            notice(message + '; nothing was started. '
+                   'Only a routed command can be detached; run it directly.')
+            return INFRA
+        if where == 'remote' or updating or writeback:
+            notice(message + '; the requested remote or '
+                   'write-back run cannot pass through to local execution.')
+            return INFRA
+        # Pandora has no opinion about this invocation -- not enrolled, not
+        # claimed, or typed in a subdirectory with a path in the argv. It is
+        # not a fallback, so it takes no slot; it is what would have happened
+        # if the shim were not installed.
+        notice(message)
+        return run_local(args.real, command, state=state, claimed=False,
+                         reason='passthrough', where=where)
+
+    # `subdirectory = "passthrough"` below the worktree root: nothing is claimed,
+    # so no socket. The POSIX shim decides this itself; `pandora run` lands here.
+    here = os.getcwd()
+    try:
+        _common, marker = enrolment.marker_for(here)
+    except OSError:
+        marker = None
+    if enrolment.claims_nothing_here(here, marker):
+        return pass_through('claimed only at the worktree root; not routed')
+
     request = build_request(command, where=where)
     try:
         sock = connect(args.sock, timeout=2.0)
@@ -356,22 +384,9 @@ def main(argv=None):
     if frame.get('t') == 'error':
         sock.close()
         code = frame.get('code')
-        if code == 'passthrough' and args.detach:
-            notice((frame.get('msg') or 'not routed') + '; nothing was started. '
-                   'Only a routed command can be detached; run it directly.')
-            return INFRA
         if code == 'passthrough':
-            if where == 'remote' or updating or frame.get('writeback'):
-                notice((frame.get('msg') or 'not routed') + '; the requested remote or '
-                       'write-back run cannot pass through to local execution.')
-                return INFRA
-            # Pandora has no opinion about this invocation -- not enrolled, not
-            # claimed, or typed in a subdirectory with a path in the argv. It is
-            # not a fallback, so it takes no slot; it is what would have happened
-            # if the shim were not installed.
-            notice(frame.get('msg') or 'not routed')
-            return run_local(args.real, command, state=state, claimed=False,
-                             reason='passthrough', where=where)
+            return pass_through(frame.get('msg') or 'not routed',
+                                writeback=frame.get('writeback'))
         # Everything else is the daemon's own verdict, and the daemon is the one
         # thing that knows this machine's queue, this job's size and this repo's
         # policy. It has already decided whether a local run is allowed; there is

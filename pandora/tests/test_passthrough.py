@@ -66,6 +66,61 @@ class ThroughTheShim(unittest.TestCase):
         self.assertEqual(self.rows(), [])
 
 
+class ClaimedOnlyAtTheRoot(unittest.TestCase):
+    """`subdirectory passthrough`: the shim claims nothing below the worktree root.
+
+    Through the real shim and the real package, so a claimed command that did
+    reach the client would say so on stderr: there is no daemon to answer it.
+    """
+
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        root = Path(home.name)
+        self.repo, self.state, fake = root / 'repo', root / 'state', root / 'fake'
+        for directory in (self.repo / 'apps' / 'agent', self.state, fake):
+            directory.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        (fake / 'pnpm').write_text('#!/bin/sh\necho "real $*"\n')
+        (fake / 'pnpm').chmod(0o755)
+        (self.repo / '.git' / 'pandora-enrolled').write_text(enrolment.render(
+            socket_path=str(self.state / 'client.sock'), repo='demo',
+            claims=[['test']], heavy=enrolment.heavy_forms([['test']]),
+            strip_prefixes=[['run']], home=str(HERE), subdirectory='passthrough'))
+        self.env = dict(os.environ, PATH='%s:%s' % (HERE / 'bin', fake) + ':/usr/bin:/bin')
+        for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_WHERE', 'PANDORA_HOME'):
+            self.env.pop(name, None)
+
+    def pnpm(self, cwd, *argv, shell='sh', **extra):
+        return subprocess.run([shell, str(HERE / 'bin' / 'pnpm'), *argv], cwd=cwd,
+                              env=dict(self.env, **extra), capture_output=True, text=True,
+                              timeout=30)
+
+    def rows(self):
+        path = self.state / 'passthrough.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines()] \
+            if path.exists() else []
+
+    def test_below_the_root_a_claimed_form_runs_unchanged_and_silently(self):
+        for shell in SHELLS:
+            for argv in (['test'], ['run', 'test', 'src/x.test.ts']):
+                with self.subTest(shell=shell, argv=argv):
+                    proc = self.pnpm(self.repo / 'apps' / 'agent', *argv, shell=shell)
+                    self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
+                                     (0, 'real %s\n' % ' '.join(argv), ''))
+        self.assertEqual(self.rows(), [])
+
+    def test_at_the_root_the_same_form_is_still_claimed(self):
+        proc = self.pnpm(self.repo, 'test')
+        self.assertIn('daemon socket', proc.stderr)     # it reached the client
+
+    def test_an_override_below_the_root_is_ignored_and_counted_as_unclaimed(self):
+        proc = self.pnpm(self.repo / 'apps', 'test', PANDORA_WHERE='remote')
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, 'real test\n', ''))
+        [row] = self.rows()
+        self.assertEqual((row['reason'], row['override']), ('override-ignored', 'remote'))
+
+
 class ClaimShapes(unittest.TestCase):
     """Every claim `enrol` can write reaches the client through the real shim.
 
@@ -130,6 +185,13 @@ class ClaimShapes(unittest.TestCase):
         keys = [line.split()[0] for line in text.splitlines() if not line.startswith('#')]
         self.assertLess(max(i for i, key in enumerate(keys) if key == 'strip'),
                         min(i for i, key in enumerate(keys) if key == 'claim'))
+
+    def test_the_subdirectory_mode_round_trips_through_the_marker(self):
+        text = enrolment.render(socket_path='/s', repo='demo', claims=[['a']],
+                                subdirectory='passthrough')
+        self.assertEqual(enrolment.parse(text)['subdirectory'], 'passthrough')
+        self.assertIsNone(enrolment.parse(enrolment.render(
+            socket_path='/s', repo='demo', claims=[['a']]))['subdirectory'])
 
 
 if __name__ == '__main__':

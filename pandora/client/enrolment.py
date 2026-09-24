@@ -75,17 +75,22 @@ def heavy_forms(claims, candidates=DEFAULT_HEAVY):
 
 
 def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=None, home=None,
-           policies=()):
+           policies=(), subdirectory=None):
     """The marker text.  One directive per line, first word is the key.
 
     `home` is the directory the `pandora` package lives in, so a shim installed
     anywhere on PATH can find the client without an absolute path baked into it.
 
     `policy` lines carry each claimed form's size class and declared fallback.
-    The POSIX shim never reads them -- its `case` matches five keys (`sock`,
-    `home`, `strip`, `claim`, `heavy`) and ignores the rest -- but the Python
-    client does, and it is the only thing that can answer "may this run here"
-    when the daemon that owns the configuration is the thing that is gone.
+    The POSIX shim never reads them -- its `case` matches six keys (`sock`,
+    `home`, `subdirectory`, `strip`, `claim`, `heavy`) and ignores the rest --
+    but the Python client does, and it is the only thing that can answer "may
+    this run here" when the daemon that owns the configuration is the thing
+    that is gone.
+
+    `subdirectory` is `[matching] subdirectory`. The shim acts only on
+    `passthrough`: below the worktree root it claims nothing, decided by
+    comparing `$PWD` with the root it already walked to, so no fork.
 
     Every `strip` line is written before any `claim` or `heavy` line. The shim
     strips as it reads, in one pass, so this order is part of the format.
@@ -96,6 +101,8 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
         lines.append('home ' + home)
     if origin:
         lines.append('origin ' + origin)
+    if subdirectory:
+        lines.append('subdirectory ' + subdirectory)
     lines += ['strip ' + ' '.join(prefix) for prefix in strip_prefixes]
     lines += ['claim ' + ' '.join(claim) for claim in claims]
     lines += ['policy %s %s %d %s' % (item['size'], item['fallback'],
@@ -107,14 +114,14 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
 
 
 def parse(text):
-    marker = {'sock': None, 'repo': None, 'origin': None, 'home': None,
+    marker = {'sock': None, 'repo': None, 'origin': None, 'home': None, 'subdirectory': None,
               'strip': [], 'claim': [], 'heavy': [], 'policy': []}
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith('#'):
             continue
         key, _, rest = line.partition(' ')
-        if key in ('sock', 'repo', 'origin', 'home'):
+        if key in ('sock', 'repo', 'origin', 'home', 'subdirectory'):
             marker[key] = rest.strip()
         elif key in ('strip', 'claim', 'heavy'):
             marker[key].append(rest.split())
@@ -133,6 +140,18 @@ def write(common, text):
     temp.write_text(text)
     temp.replace(path)
     return path
+
+
+def claims_nothing_here(cwd, marker):
+    """True when the marker claims only at the worktree root and `cwd` is below it.
+
+    The POSIX shim's rule, for a caller that did not come through it (`pandora
+    run`). The daemon reaches the same answer from the configuration.
+    """
+    if not marker or marker.get('subdirectory') != 'passthrough':
+        return False
+    root = worktree_root(cwd)
+    return root is not None and Path(cwd).resolve() != Path(root).resolve()
 
 
 def marker_for(cwd):

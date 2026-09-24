@@ -7,6 +7,8 @@ different ways for that to be true, which is precisely why they must not be four
 different code paths.
 """
 import base64
+import contextlib
+import io
 import json
 import os
 import socket
@@ -440,6 +442,15 @@ class SubdirectoryInvocations(DaemonCase):
         answer = self.call(['pnpm', 'unit', 'src/nothing.test.ts'], cwd=self.repo / 'sub')
         self.assertEqual((answer.error['code'], answer.exit), ('subdirectory', 64))
 
+    def test_a_root_only_repository_passes_a_subdirectory_through(self):
+        # Neither re-rooted nor refused: the client runs it as if unclaimed.
+        (self.repo / 'pandora.toml').write_text(
+            (CONFIG % {'marker': self.marker}).replace('"reroot"', '"passthrough"'))
+        answer = self.call(['pnpm', 'unit', 'src/x.test.ts'], cwd=self.repo / 'sub')
+        self.assertEqual(answer.error['code'], 'passthrough')
+        self.assertIn('worktree root', answer.error['msg'])
+        self.assertFalse(self.marker.exists(), 'the daemon ran it')
+
     def test_an_unenrolled_directory_passes_through_rather_than_refusing(self):
         answer = self.call(['pnpm', 'unit'], cwd=self.root)
         self.assertEqual(answer.error['code'], 'passthrough')
@@ -459,13 +470,14 @@ class WithoutADaemon(unittest.TestCase):
         self.cwd = os.getcwd()
         self.addCleanup(os.chdir, self.cwd)
 
-    def enrol(self, policies):
+    def enrol(self, policies, subdirectory=None):
         """A git repository with a marker, and this process inside it."""
         git = self.root / 'repo' / '.git'
         git.mkdir(parents=True)
         (git / 'pandora-enrolled').write_text(enrolment.render(
             socket_path=str(self.state / 'client.sock'), repo='demo',
-            claims=[item['prefix'] for item in policies], policies=policies))
+            claims=[item['prefix'] for item in policies], policies=policies,
+            subdirectory=subdirectory))
         os.chdir(self.root / 'repo')
 
     def run_shim(self, command):
@@ -494,6 +506,36 @@ class WithoutADaemon(unittest.TestCase):
         self.assertFalse(self.ran.exists())
         self.assertEqual(self.run_shim(['unit', 'fast']), 0)
         self.assertTrue(self.ran.exists())
+
+    def test_a_root_only_claim_passes_through_below_the_root_before_any_socket(self):
+        # `pandora run` does not come through the POSIX shim, so the client
+        # applies its rule. The notice names why; no daemon is mentioned.
+        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+                     'writeback': False}], subdirectory='passthrough')
+        (self.root / 'repo' / 'apps').mkdir()
+        os.chdir(self.root / 'repo' / 'apps')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(self.run_shim(['unit', 'src/x.test.ts']), 0)
+        self.assertTrue(self.ran.exists())
+        self.assertIn('worktree root', err.getvalue())
+        self.assertNotIn('daemon', err.getvalue())
+        [row] = [json.loads(line) for line in
+                 (self.state / 'passthrough.jsonl').read_text().splitlines()]
+        self.assertEqual(row['reason'], 'passthrough')
+
+    def test_a_root_only_claim_below_the_root_refuses_remote_like_any_unclaimed(self):
+        self.enrol([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
+                     'writeback': False}], subdirectory='passthrough')
+        (self.root / 'repo' / 'apps').mkdir()
+        os.chdir(self.root / 'repo' / 'apps')
+        os.environ['PANDORA_WHERE'] = 'remote'
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(self.run_shim(['unit']), 70)
+        finally:
+            os.environ.pop('PANDORA_WHERE', None)
+        self.assertFalse(self.ran.exists())
 
     def test_a_large_job_runs_here_too_because_no_daemon_means_no_pandora(self):
         # The owner's rule for a machine without Pandora is "run directly", and
