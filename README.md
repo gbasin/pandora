@@ -520,7 +520,7 @@ final text for a repository's `AGENTS.md` and its validation notes.
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line. |
+| `pandora ps [--json]` | What is running and what just ran, with the worker's health on the first line. A remote run not yet accepted shows its step: `freezing`, `shipping` or `submitting`. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. |
 | `pandora logs <id>` | Replay a run's output. |
 | `pandora result <id> [--json]` | Outcome, exit, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
@@ -538,7 +538,7 @@ agent's tool call times out) does not; the run continues, and `pandora wait
 
 Pandora's lines go to stderr and start with `pandora:`. The command's own
 output stays on stdout. A remote run prints progress lines: `syncing N files`
-on a source-cache miss, `instance ready in N s`, `running (typical 4m10s for
+on a source-cache miss (also kept in the run's log for `pandora logs`), `instance ready in N s`, `running (typical 4m10s for
 check; cpus hint 2)` once three earlier runs exist, queue lines for shards and
 the local lane, and a retry line when one happens. The last line may be a hint:
 

@@ -109,55 +109,81 @@ class Worker:
     # -- submission --------------------------------------------------------
 
     def submit(self, *, plan, worktree, request_id, cache_root=None, control=None,
-               progress=None):
+               progress=None, phase=None):
         """Freeze, ship and submit. Raises before the worker acknowledges anything.
 
         `progress` receives one line when a transfer actually starts, naming the
         size of the tree being synced. It is the tree's size, not the bytes on
         the wire: rsync with `--link-dest` sends only what the cache lacks, and
         which that is is not known until it has finished.
+
+        `phase` is called with `freeze`, `ship` and `submit` as each begins, so
+        a row can say where a slow submission is. An exception raised from here
+        carries `pre_accept`: the timings so far, the failing step's included.
         """
         marks = {}
-        started = time.monotonic()
-        manifest, dropped, input_id = snapshot.freeze(
-            worktree, exclude_globs=plan['secrets_exclude_globs'],
-            cache=getattr(self, 'state', None) and self.state / 'digests')
-        marks['freeze'] = round(time.monotonic() - started, 2)
+        step = {'name': None, 'at': time.monotonic()}
 
-        mark = time.monotonic()
-        source = transfer.send(
-            self.link, manifest, worktree=worktree, root=cache_root or self.root(),
-            repo=plan['repo'], input_id=input_id,
-            on_send=(lambda: progress(sync_line(worktree, manifest))) if progress else None)
-        marks['ship'] = round(time.monotonic() - mark, 2)
+        def enter(name):
+            step['name'], step['at'] = name, time.monotonic()
+            if phase is not None:
+                phase(name)
 
-        mark = time.monotonic()
-        request = {'request_id': request_id, 'input_id': input_id,
-                   'source_path': source['path'], 'plan': plan,
-                   'manifest_files': len(manifest), 'dropped': len(dropped)}
-        if plan.get('git') == 'synthetic':
-            # The engine builds the run's repository from the tree plus these
-            # two lists, so its index is this worktree's tracked set.
-            request['git_marks'] = snapshot.git_marks(manifest)
-        # How many shards the caller asked for and whether a failing shard stops
-        # the rest. Decisions about *this invocation*, not about the repository,
-        # so they travel beside the plan rather than inside it.
-        request.update({key: value for key, value in (control or {}).items()
-                        if key in ('want_shards', 'keep_going')})
-        # Resolved first, so a bundle that cannot be placed fails as what it is:
-        # before the engine has seen this request, and still a fallback.
-        self.bundle_path()
+        def leave():
+            marks[step['name']] = round(time.monotonic() - step['at'], 2)
+            step['name'] = None
+
         try:
-            answer = self.engine(['submit'], stdin=json.dumps(request), timeout=120)
-        except (WorkerUnreachable, EngineError, subprocess.TimeoutExpired) as error:
-            # The call itself failed, which is not the same as the engine
-            # refusing. It may have claimed and spawned the run and lost only the
-            # reply, so the answer is asked for again rather than assumed.
-            answer = self.recover(request_id, plan, error)
-        marks['submit'] = round(time.monotonic() - mark, 2)
+            enter('freeze')
+            manifest, dropped, input_id = snapshot.freeze(
+                worktree, exclude_globs=plan['secrets_exclude_globs'],
+                cache=getattr(self, 'state', None) and self.state / 'digests')
+            leave()
+
+            enter('ship')
+            source = transfer.send(
+                self.link, manifest, worktree=worktree, root=cache_root or self.root(),
+                repo=plan['repo'], input_id=input_id,
+                on_send=(lambda: progress(sync_line(worktree, manifest))) if progress else None)
+            leave()
+
+            enter('submit')
+            request = {'request_id': request_id, 'input_id': input_id,
+                       'source_path': source['path'], 'plan': plan,
+                       'manifest_files': len(manifest), 'dropped': len(dropped)}
+            if plan.get('git') == 'synthetic':
+                # The engine builds the run's repository from the tree plus these
+                # two lists, so its index is this worktree's tracked set.
+                request['git_marks'] = snapshot.git_marks(manifest)
+            # How many shards the caller asked for and whether a failing shard
+            # stops the rest. Decisions about *this invocation*, not about the
+            # repository, so they travel beside the plan rather than inside it.
+            request.update({key: value for key, value in (control or {}).items()
+                            if key in ('want_shards', 'keep_going')})
+            # Resolved first, so a bundle that cannot be placed fails as what it
+            # is: before the engine has seen this request, and still a fallback.
+            self.bundle_path()
+            try:
+                answer = self.engine(['submit'], stdin=json.dumps(request), timeout=120)
+            except (WorkerUnreachable, EngineError, subprocess.TimeoutExpired) as error:
+                # The call itself failed, which is not the same as the engine
+                # refusing. It may have claimed and spawned the run and lost only
+                # the reply, so the answer is asked for again rather than assumed.
+                answer = self.recover(request_id, plan, error)
+            leave()
+        except Exception as error:
+            if step['name'] is not None:
+                marks[step['name']] = round(time.monotonic() - step['at'], 2)
+            try:
+                error.pre_accept = dict(marks)
+            except AttributeError:
+                pass
+            raise
         if not answer.get('ok'):
-            raise EngineError(json.dumps({'code': answer.get('code', 'rejected'),
-                                          'detail': answer.get('admission')}))
+            error = EngineError(json.dumps({'code': answer.get('code', 'rejected'),
+                                            'detail': answer.get('admission')}))
+            error.pre_accept = dict(marks)
+            raise error
         return Submission(answer['run_id'], admission=answer.get('admission'),
                           duplicate=answer.get('duplicate', False),
                           same_tree_as=answer.get('same_input_as'),

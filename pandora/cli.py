@@ -318,10 +318,21 @@ def cmd_ps(args):
     for row in rows[:args.limit]:
         print('%-14s %-6s %-10s %-16s %5s  %s' % (
             row.get('id', '')[:14], (row.get('lane') or 'remote')[:6],
-            (row.get('state') or '')[:10], (row.get('remote') or '-')[:16],
+            state_word(row)[:10], (row.get('remote') or '-')[:16],
             '-' if row.get('exit_code') is None else row['exit_code'],
             ' '.join(row.get('argv') or [])[:60]))
     return 0
+
+
+# A queued remote row's pre-accept step, as `ps` shows it: `remote shipping`.
+PRE_ACCEPT = {'freeze': 'freezing', 'ship': 'shipping', 'submit': 'submitting'}
+
+
+def state_word(row):
+    state = row.get('state') or ''
+    if state == 'queued' and row.get('phase') in PRE_ACCEPT:
+        return PRE_ACCEPT[row['phase']]
+    return state
 
 
 def worker_line(worker):
@@ -361,7 +372,8 @@ def cmd_logs(args):
                 frame = json.loads(line)
             except ValueError:
                 continue
-            if frame.get('t') == 'log':
+            # `said`: a pre-accept notice the caller saw live, kept in the log.
+            if frame.get('t') in ('log', 'said'):
                 sys.stdout.buffer.write(base64.b64decode(frame['b64']))
     sys.stdout.buffer.flush()
     return 0

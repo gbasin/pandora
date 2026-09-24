@@ -98,13 +98,18 @@ PHASES = {'queued': 'waiting for admission on the worker',
           'collecting': 'collecting outputs on the worker'}
 
 
+# The daemon's own steps before `accepted` (`Worker.submit`'s `phase`).
+PRE_ACCEPT = {'freeze': ', freezing the worktree', 'ship': ', shipping its source to the worker',
+              'submit': ', submitting to the worker'}
+
+
 def attach_line(state, run, *, now=None):
     """The one line `pandora wait` prints on attach: where the run is right now."""
     now = time.time() if now is None else now
     if run.done.is_set() or run.state not in ('queued', 'running'):
         return 'run %s finished: %s, exit %s' % (run.id, run.state, run.exit_code)
     if run.accepted is None:
-        return 'run %s is queued' % run.id
+        return 'run %s is queued%s' % (run.id, PRE_ACCEPT.get(run.phase, ''))
     lane = run.lane or 'remote'
     job = run.request.get('job')
     if lane == 'local':

@@ -16,6 +16,7 @@ worktree, shipping it, submitting -- is provably non-executing, so the client
 may still go local. Everything after it may not.
 """
 import argparse
+import base64
 import fcntl
 import json
 import os
@@ -296,6 +297,15 @@ class Run:
 
     def note(self, text):
         self.append(log_frame('err', ('pandora: ' + text + '\n').encode()))
+
+    def said(self, text):
+        """A line the caller already had as a pre-accept notice, kept for `logs`.
+
+        Not a `log` frame: the stream after `accepted` starts at offset 0, and a
+        second copy of the line would reach the caller then.
+        """
+        self.append(dump({'t': 'said', 's': 'err', 'b64': base64.b64encode(
+            ('pandora: ' + text + '\n').encode()).decode()}))
 
     def suggest(self, text):
         """The last line the caller sees, when there is one worth saying.
@@ -818,12 +828,27 @@ class Daemon:
         # `ExecutionUncertain`: the submit call failed and the engine could not
         # be asked what it did (`Worker.recover`), so it never falls back.
         beat = Heartbeat(conn).start()
+
+        def entered(name):
+            # `pandora ps` reads meta.json: a slow ship shows as `shipping`,
+            # not as a `queued` row nobody can tell apart from a stuck one.
+            run.phase = name
+            run.save()
+
+        def said(text):
+            # The live caller hears it as a notice; the log keeps it for `logs`.
+            run.said(text)
+            beat.say(text)
         try:
             try:
                 worker = self.worker_for(repo)
                 submission = worker.submit(plan=plan, worktree=worktree,
                                            request_id=run.id + ':' + plan['job'],
-                                           control=request, progress=beat.say)
+                                           control=request, progress=said, phase=entered)
+            except Exception as error:
+                # What each step cost up to the failure, the failing one included.
+                run.pre_accept = dict(getattr(error, 'pre_accept', None) or run.pre_accept)
+                raise
             finally:
                 # Stopped before any other frame is written: two threads never
                 # share the socket.
@@ -887,6 +912,7 @@ class Daemon:
             writebacks.save(run.dir, submission.writeback)
         run.state = 'running'
         run.accepted = now()
+        run.phase = None                 # from here, the engine's row state
         run.save()
         with self.runs_lock:
             self.runs[run.id] = run

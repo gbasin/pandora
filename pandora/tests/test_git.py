@@ -47,6 +47,22 @@ class SubmitTest(unittest.TestCase):
                 backend.submit(plan=plan, worktree=repo, request_id='q1')
             return sent
 
+    def test_each_step_is_announced_and_a_failure_keeps_the_timings_so_far(self):
+        from pandora.errors import TransferError
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            backend = worker_module.Worker.__new__(worker_module.Worker)
+            backend.link, backend._root = None, '/engine'
+            steps = []
+            plan = {'repo': 'demo', 'secrets_exclude_globs': [], 'git': 'none'}
+            with mock.patch.object(worker_module.transfer, 'send',
+                                   side_effect=TransferError('rsync timed out')):
+                with self.assertRaises(TransferError) as caught:
+                    backend.submit(plan=plan, worktree=repo, request_id='q1',
+                                   phase=steps.append)
+        self.assertEqual(steps, ['freeze', 'ship'])
+        self.assertEqual(set(caught.exception.pre_accept), {'freeze', 'ship'})
+
     def test_the_exception_lists_travel_only_when_the_job_asks_for_git(self):
         self.assertEqual(self.submit('synthetic')['git_marks'],
                          {'untracked': ['scratch.md'], 'ignored': []})

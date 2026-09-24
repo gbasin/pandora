@@ -182,6 +182,20 @@ class Verbs(DaemonCase):
         code, out, _ = self.pandora('result', 'f1')
         self.assertEqual((code, out.strip()), (0, 'f1: fell_back; see pandora result l1'))
 
+    def test_ps_names_the_pre_accept_step_of_a_queued_remote_row(self):
+        for run_id, phase in (('p1', 'ship'), ('p2', 'submit'), ('p3', None)):
+            directory = self.state / 'runs' / run_id
+            directory.mkdir(parents=True)
+            (directory / 'meta.json').write_text(json.dumps(
+                {'id': run_id, 'state': 'queued', 'lane': 'remote', 'phase': phase,
+                 'argv': ['pnpm', 'check']}))
+        code, out, _ = self.pandora('ps')
+        self.assertEqual(code, 0)
+        words = {line.split()[0]: line.split()[1:3] for line in out.splitlines()
+                 if line.split()[:1] and line.split()[0] in ('p1', 'p2', 'p3')}
+        self.assertEqual(words, {'p1': ['remote', 'shipping'], 'p2': ['remote', 'submitting'],
+                                 'p3': ['remote', 'queued']})
+
     def test_result_json_carries_same_tree_as_and_the_old_key(self):
         directory = self.state / 'runs' / 'old1'
         directory.mkdir(parents=True)

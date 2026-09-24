@@ -311,6 +311,50 @@ class OneFallbackPath(DaemonCase):
         self.assertFalse(self.marker.exists())
 
 
+class UploadPhases(DaemonCase):
+    """A slow submission says where it is: in `ps`, in the log, in its timings."""
+
+    def test_each_step_is_on_disk_and_a_failure_keeps_its_partial_timings(self):
+        seen = []
+        state = self.state
+
+        def slow(worker, *, phase=None, progress=None, **kwargs):
+            for name in ('freeze', 'ship'):
+                phase(name)
+                [meta] = [json.loads(path.read_text())
+                          for path in (state / 'runs').glob('*/meta.json')]
+                seen.append((meta['state'], meta['phase']))
+            progress('syncing 3 files, 1 KiB')
+            error = TransferError('rsync to h failed (255): unexpected end of file')
+            error.pre_accept = {'freeze': 0.5, 'ship': 12.0}
+            raise error
+        with mock.patch.object(FakeWorker, 'submit', slow):
+            answer = self.call(['pnpm', 'surface'])
+        self.assertEqual(seen, [('queued', 'freeze'), ('queued', 'ship')])
+        self.assertEqual(answer.notices.count('syncing 3 files, 1 KiB'), 1)
+        [row] = [path.parent for path in (self.state / 'runs').glob('*/meta.json')]
+        meta = json.loads((row / 'meta.json').read_text())
+        self.assertEqual((meta['state'], meta['phase']), ('refused', 'ship'))
+        self.assertEqual(meta['pre_accept'], {'freeze': 0.5, 'ship': 12.0})
+        frames = [json.loads(line) for line in (row / 'log').read_text().splitlines()]
+        said = [base64.b64decode(frame['b64']) for frame in frames if frame['t'] == 'said']
+        self.assertEqual(said, [b'pandora: syncing 3 files, 1 KiB\n'])
+
+    def test_an_accepted_run_streams_the_sync_line_only_once(self):
+        def syncing(worker, *, phase=None, progress=None, **kwargs):
+            phase('ship')
+            progress('syncing 3 files, 1 KiB')
+            return Submission()
+        with mock.patch.object(FakeWorker, 'submit', syncing):
+            answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        self.assertEqual(answer.notices, ['syncing 3 files, 1 KiB'])
+        self.assertNotIn(b'syncing', answer.err)
+        meta = json.loads((self.state / 'runs' / answer.accepted['run'] / 'meta.json')
+                          .read_text())
+        self.assertNotEqual(meta['phase'], 'ship')
+
+
 class NoRowStaysQueued(DaemonCase):
     """Issue #86: a submission that never reached `accepted` still ends its row.
 
