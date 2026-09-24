@@ -45,9 +45,9 @@ before you rely on it.
 ## Install on a Mac
 
 The install is machine-wide and changes nothing in the target repository. It
-has five parts: the two launchers on PATH, one configuration file, the daemon,
-one enrollment per repository, done once, and `pandora doctor` to prove the
-result.
+has six parts: an installed version of Pandora, the two launchers on PATH, one
+configuration file, the daemon, one enrollment per repository, done once, and
+`pandora doctor` to prove the result.
 
 ### Prerequisites
 
@@ -64,7 +64,7 @@ result.
   idle minutes, so no verb cuts off the daemon's or another verb's transfers.
 * A provisioned worker. See [The worker](#the-worker).
 
-### 1. Clone the checkout
+### 1. Clone the checkout and install a version
 
 ```sh
 git clone https://github.com/gbasin/pandora.git ~/Code/pandora
@@ -76,18 +76,34 @@ Check out the v0.2 line. Until it merges to `main`, that is `v0.2/assembly`.
 git -C ~/Code/pandora checkout v0.2/assembly
 ```
 
-The launchers run the package from this checkout. Do not delete or move it
-while the daemon runs.
+Install the checkout's HEAD as the version Pandora runs.
+
+```sh
+~/Code/pandora/bin/pandora upgrade
+```
+
+`upgrade` copies the committed tree into
+`~/.local/share/pandora/versions/<commit>/` and points
+`~/.local/share/pandora/current` at it. The launchers, the daemon and the
+claim caches all run from `current`, never from the checkout. Pulling,
+editing or switching branches in the checkout changes nothing live until the
+next `pandora upgrade`. See [Upgrade](#upgrade). If `XDG_DATA_HOME` is set,
+the directory is `$XDG_DATA_HOME/pandora` instead.
 
 ### 2. Put the launchers first on PATH
 
-Link both launchers into one directory.
+Link both launchers into one directory, through `current`.
 
 ```sh
 mkdir -p ~/.local/bin
-ln -s ~/Code/pandora/bin/pandora ~/.local/bin/pandora
-ln -s ~/Code/pandora/bin/pnpm ~/.local/bin/pnpm
+ln -s ~/.local/share/pandora/current/bin/pandora ~/.local/bin/pandora
+ln -s ~/.local/share/pandora/current/bin/pnpm ~/.local/bin/pnpm
 ```
+
+Do not link into the checkout or into a `versions/` directory. A link into the
+checkout runs whatever the checkout holds now. A link into a version directory
+stops at that version. `pandora upgrade` re-points a link into a checkout, and
+`pandora doctor` warns about either.
 
 Create the shim marker beside them.
 
@@ -166,8 +182,10 @@ budget_mib` and `[client] max_wait_seconds`; nothing in v0.2 reads them.
 
 ### 4. Start the daemon
 
-Install the launchd user agent. It runs the daemon from this checkout, restarts
-it after a crash or a reboot, and logs to `<state>/logs/daemon.log`.
+Install the launchd user agent. It runs the daemon from
+`~/.local/share/pandora/current`, restarts it after a crash or a reboot, and
+logs to `<state>/logs/daemon.log`. Without an installed version, it runs the
+daemon from the checkout the `pandora` you ran comes from.
 
 ```sh
 pandora daemon --install
@@ -183,14 +201,16 @@ failed transfer also leaves rsync's whole stderr in
 interpreter that ran the install. If a hand-started daemon already holds the
 lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 
-After you update the checkout, restart the daemon. It runs the code it started
-with. `pandora doctor` warns when a module the daemon loaded differs from the
-same file in the checkout. A change to a module the daemon never loads, such as
-the worker half, is not a reason to restart.
+The daemon runs the version it started with. `pandora upgrade` restarts it into
+a new version when no run would be lost; see [Upgrade](#upgrade). On an
+install that runs the checkout, restart it after you update the checkout.
+`pandora doctor` then warns when a module the daemon loaded differs from the
+same file in the checkout. A change to a module the daemon never loads, such
+as the worker half, is not a reason to restart.
 
-Check that a restart is safe first. Run `pandora ps`. No local run may show
-`running`. No remote run may show `queued`, `freezing`, `shipping` or
-`submitting`. Then restart.
+To restart by hand, check that a restart is safe first. Run `pandora ps`. No
+local run may show `running` or `queued`. No remote run may show `queued`,
+`freezing`, `shipping` or `submitting`. Then restart.
 
 ```sh
 pandora daemon --restart
@@ -256,6 +276,12 @@ worktree's `pandora.toml`, whenever it classifies a command from that worktree.
 The shim reads it with shell builtins and forks nothing. A worktree on a branch
 with a different `pandora.toml` routes by its own file.
 
+The registration and every claim cache also record `home`, the package whose
+client code the shim runs for a claimed command. With an installed version,
+`enroll` and the daemon write `~/.local/share/pandora/current`, so both follow
+every upgrade and the shim and the daemon run one version. Without one, they
+write the checkout the writer runs from.
+
 You do not enroll again after a change to `pandora.toml`. The shim compares
 dates: a cache older than the worktree's `pandora.toml`, the `--config` file it
 came from, or the client configuration is stale. On a stale or missing cache
@@ -316,9 +342,11 @@ The doctor changes nothing. It asks the daemon only `ping`. It exits 1 on any
 ```
 warn  pnpm on PATH       shim ~/.local/bin/pnpm, real pnpm /opt/homebrew/bin/pnpm (-> .../corepack/dist/pnpm.js); the real pnpm is a corepack shim, which chooses a pnpm per directory, so a local run and a worker run can use different versions
 ok    recursion guard    PANDORA_ROUTE_DEPTH is not set
-ok    pandora on PATH    ~/.local/bin/pandora imports ~/Code/pandora from any directory
-ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, same package as the client
+ok    pandora on PATH    ~/.local/bin/pandora imports ~/.local/share/pandora/versions/f91ef4e7a1c2 from any directory
+ok    install            current is f91ef4e7a1c2, from ~/Code/pandora; `pandora` and the shim run through it
+ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, protocol v2, worker ubuntu@WORKER_IP, runs current (f91ef4e7a1c2)
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
+ok    daemon supervision launchd runs pid 47841 as com.pandora.daemon, interpreter /opt/homebrew/bin/python3 (3.14.0); launchd starts it with /opt/homebrew/bin/python3; `pandora upgrade` after updating the checkout
 ok    repository         enrolled as eichler, registration ~/Code/eichler/.git/pandora-repo
 ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/eichler/pandora.toml; cache ~/Code/eichler/.git/pandora-claims
 info  claim caches       57 worktree(s): 41 fresh, 2 stale, 14 without a cache; each refreshes on its next command
@@ -331,8 +359,9 @@ all checks passed
 ```
 
 The first line is `ok` when the real pnpm is not a version manager's shim. A
-`warn` there is acceptable. `claim caches` is information. Every other line must
-be `ok`. `pandora doctor --json` prints the same checks with their facts.
+`warn` there is acceptable. `claim caches` is information. On an install that
+runs the checkout, the `install` line is `info` and says so. Every other line
+must be `ok`. `pandora doctor --json` prints the same checks with their facts.
 
 The repository rows:
 
@@ -341,9 +370,91 @@ The repository rows:
 | `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the v0.2 marker enrolls it; run `pandora enroll <root>` once. |
 | `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next command here refreshes it (the next claimed command, when only its digest shows it); or there is no cache yet, and the next command writes it. `info`: no cache yet, and the v0.2 marker routes this worktree until then. Never `fail`. |
 | `claim caches` | Always `info`: every worktree of the repository, counted as fresh, stale or without a cache. | |
-| `client home` | Not shown. | `fail`: the file the shim reads names a checkout with no `pandora` package; the row says whether to delete the cache or enroll again. Never delete `pandora-repo` for this: that unenrolls. `warn`: it names a checkout other than the doctor's. |
+| `client home` | Not shown. | `fail`: the file the shim reads names a checkout with no `pandora` package; the row says whether to delete the cache or enroll again. Never delete `pandora-repo` for this: that unenrolls. `warn`: it names a checkout other than the doctor's, or, once a version is installed, anything but `current`. |
 | `client socket` | Not shown. | `warn`: the cache routes to another socket than the one the doctor checked. |
 | `daemon enrollment` | The client configuration has a `[[repos]]` entry for the repository. | `fail`: it has none, so the daemon passes every command through. |
+
+The version lines warn in these cases:
+
+| Line | Warning | Do this |
+|---|---|---|
+| `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into a checkout. Replace any other link with one through `current`. |
+| `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
+| `daemon` | `daemon runs <old>, current is <new>; restart it` | Restart when `pandora ps` shows nothing a restart would end, or run `pandora upgrade`, which waits for that. |
+| `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
+| `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It restarts the daemon; check `pandora ps` first. |
+| `client home` | the registration or the claim cache pins the client to a path other than `current` | Registration: `pandora enroll <repo>`. Cache: once the daemon runs `current`, delete the cache; the next command writes it again. |
+
+A checkout that has moved on since the last upgrade is not a warning. The
+`install` line notes its commit.
+
+## Upgrade
+
+Pandora runs from a snapshot of the checkout, never from the checkout itself.
+To move to new code, update the checkout, then install its HEAD.
+
+```sh
+git -C ~/Code/pandora pull
+pandora upgrade
+```
+
+`pandora upgrade` does these steps:
+
+1. It refuses if the checkout has uncommitted changes to tracked files.
+   `--dirty` snapshots the working tree instead, as
+   `<commit>-dirty-<digest>`. Untracked files are never copied.
+2. It copies the committed tree at HEAD into `versions/<commit>/`, named by the
+   first 12 hex digits of the commit. A commit already installed is reused.
+3. It points `current` at that version with one rename. A reader sees the old
+   version or the new one, never neither.
+4. It re-points `pandora` and the shim on PATH through `current` when they are
+   symlinks into a checkout. It reports a copy or a missing launcher and
+   leaves it alone.
+5. It restarts the daemon when no run would be lost: no local run `running` or
+   `queued`, and no remote run `queued`, `freezing`, `shipping` or
+   `submitting`. It checks every 10 seconds for up to `--wait` seconds
+   (default 600) and prints the runs it waits for. `--now` restarts at once;
+   local runs then end with exit 70.
+6. It deletes old versions. It keeps the three most recently installed
+   (`--keep N`), `current`, and the version the daemon runs.
+
+It prints the old and new version with their code digests, and the daemon's
+version before and after the restart. `--from <checkout>` names the checkout;
+the default is the checkout the current version came from.
+
+| Exit | Meaning |
+|---|---|
+| 0 | The daemon runs the new version, or no daemon runs. |
+| 75 | The wait ran out. `current` is the new version, and the daemon still runs the old one. Run `pandora upgrade` again later, or `pandora upgrade --now`. |
+| 1 | Refused: uncommitted changes, or not a Pandora checkout. Or `upgrade` cannot restart the daemon: it was started by hand, or its plist runs a checkout. The last line says what to run. |
+
+The directories, under `$XDG_DATA_HOME/pandora`, else `~/.local/share/pandora`:
+
+| Path | What it is |
+|---|---|
+| `versions/<commit>/` | One installed tree. Written once, then never changed. `.pandora-version` in it records the commit, the source checkout and the code digest. |
+| `current` | A relative symlink to one version. The plist, the launchers on PATH, the registration and the claim caches name paths through it, so none of them goes stale. |
+
+The launchers resolve `current` when they start. A daemon or a claimed command
+keeps importing from the version it started with, even after `current` moves.
+
+### Move an install that runs the checkout
+
+An install from before `pandora upgrade` links the launchers into the checkout
+and runs the daemon from it. It keeps working. To move it to `current`:
+
+1. Run `~/Code/pandora/bin/pandora upgrade`. It installs HEAD and re-points
+   `~/.local/bin/pandora` and `~/.local/bin/pnpm`. It does not restart a
+   daemon whose plist runs the checkout; it says so and exits 1.
+2. Run `pandora ps`. Wait until no local run is `running` or `queued` and no
+   remote run is `queued`, `freezing`, `shipping` or `submitting`.
+3. Run `pandora daemon --install`. The plist then runs `current`, and the
+   daemon restarts.
+4. Run `pandora enroll <repo>` for each enrolled repository. The
+   registration's `home` becomes `current`, and the daemon writes `current`
+   into each claim cache it refreshes.
+5. Run `pandora doctor`. The `install`, `daemon` and `client home` lines must
+   not warn.
 
 ## The worker
 
@@ -808,7 +919,7 @@ Known caveats:
 |---|---|
 | `bin/pandora`, `bin/pnpm` | The two POSIX launchers. `pnpm` is the shim; its non-enrolled and fresh-cache paths fork nothing. |
 | `pandora/cli.py`, `errors.py`, `exits.py` | The one `pandora` command, the typed exceptions and the exit table. |
-| `pandora/client/` | Runs on the Mac: the daemon, the shim client, enrollment, the local lane, fallback, placement, write-back settlement, health, stats, hints, `doctor`. |
+| `pandora/client/` | Runs on the Mac: the daemon, the shim client, enrollment, the local lane, fallback, placement, write-back settlement, health, stats, hints, `doctor`, `upgrade` (`install.py`). |
 | `pandora/config/` | Runs on the Mac: the `pandora.toml` loader and the argv classifier. |
 | `pandora/snapshot/` | Runs on the Mac: the manifest freeze and the transfer into the worker's source cache. |
 | `pandora/engine/` | Runs on the worker: the ledger, admission, scheduler, per-run supervisor, fan-out, retry, write-back proposal and turbo cache server. |
@@ -821,7 +932,9 @@ Known caveats:
 | `experiments/` | Retained prototypes and the v0.1 runtime. Nothing in v0.2 imports from them. |
 
 The client ships the worker half as a content-addressed engine bundle over SSH
-on first use. A new checkout reaches the worker's runner on the next run. The
+on first use, from the version the daemon or the `pandora worker` verb runs. A
+new version reaches the worker's runner on the first run after the daemon
+restarts into it. The
 turbo cache server keeps the bundle it started with until its unit restarts;
 `provision` restarts it when the unit file changes.
 
