@@ -393,17 +393,32 @@ class AgainstARealDaemon(DaemonCase):
         from unittest import mock
         from pandora.engine import bundle
         import json as json_module
-        digest = bundle.code_digest()
-        self.assertEqual(json_module.loads((self.state / 'daemon.json').read_text())['code'],
-                         digest)
+        written = json_module.loads((self.state / 'daemon.json').read_text())
+        self.assertIn('client/daemon.py', written['code_modules'])
+        self.assertEqual(written['code'], bundle.code_digest(names=written['code_modules']))
         item, pong = doctor.check_daemon(self.daemon.socket_path, None)
-        self.assertEqual((pong['code'], item['status']), (digest, 'ok'))
+        self.assertEqual((pong['code'], item['status']), (written['code'], 'ok'))
         # The checkout moved on after the daemon started.
         with mock.patch.object(doctor.bundle, 'code_digest', return_value='0' * 64):
             item, _pong = doctor.check_daemon(self.daemon.socket_path, None)
         self.assertEqual(item['status'], 'warn')
-        self.assertIn('daemon code differs from the checkout; run `pandora daemon --restart`',
-                      item['detail'])
+        self.assertIn('daemon code differs from the checkout. Restarting ends running local '
+                      'runs; check `pandora ps` first', item['detail'])
+
+    def test_only_modules_the_daemon_loads_count(self):
+        # A change to the worker half or the canary is no reason to restart the
+        # daemon, and a restart ends local runs. A fresh interpreter, because
+        # this test process has imported everything.
+        import json as json_module
+        import sys as system
+        out = subprocess.run(
+            [system.executable, '-c', 'import json, pandora.client.daemon; '
+             'from pandora.engine import bundle; print(json.dumps(bundle.loaded_modules()))'],
+            cwd=str(HERE), capture_output=True, text=True, check=True).stdout
+        names = json_module.loads(out)
+        self.assertIn('client/daemon.py', names)
+        self.assertNotIn('worker/canary.py', names)
+        self.assertNotIn('client/doctor.py', names)
 
     def test_a_worker_the_daemon_knows_is_down_fails(self):
         from pandora.errors import WorkerUnreachable

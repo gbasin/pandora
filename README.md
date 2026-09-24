@@ -179,7 +179,9 @@ interpreter that ran the install. If a hand-started daemon already holds the
 lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
 
 After you update the checkout, restart the daemon. It runs the code it started
-with. `pandora doctor` warns when the daemon's code differs from the checkout.
+with. `pandora doctor` warns when a module the daemon loaded differs from the
+same file in the checkout. A change to a module the daemon never loads, such as
+the worker half, is not a reason to restart.
 
 Check that a restart is safe first. Run `pandora ps`. No local run may show
 `running`. No remote run may show `queued`, `freezing`, `shipping` or

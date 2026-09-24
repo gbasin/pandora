@@ -220,14 +220,17 @@ def check_daemon(sock_path, launcher_home):
                      **facts), answer
     code = answer.get('code')
     try:
-        mine = bundle.code_digest(Path(expected) / 'pandora')
+        # The files the daemon says it loaded, as they are in the checkout now.
+        mine = (bundle.code_digest(Path(expected) / 'pandora', names=answer['code_modules'])
+                if answer.get('code_modules') else None)
     except OSError:
         mine = None
     facts.update(code=code, client_code=mine)
     if code and mine and code != mine:
         # Same checkout, different bytes: it was updated after the daemon started.
-        return check('daemon', WARN, '%s; daemon code differs from the checkout; run '
-                     '`pandora daemon --restart`' % detail, **facts), answer
+        return check('daemon', WARN, '%s; daemon code differs from the checkout. '
+                     'Restarting ends running local runs; check `pandora ps` first, then '
+                     'run `pandora daemon --restart`' % detail, **facts), answer
     return check('daemon', OK, detail + ', same package as the client', **facts), answer
 
 

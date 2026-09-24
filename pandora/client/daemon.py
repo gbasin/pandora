@@ -52,9 +52,6 @@ from .worker import Worker
 # `pong` so `pandora doctor` can tell a daemon started from one checkout from a
 # launcher that resolves to another.
 PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
-# What this daemon imported, as a digest. The checkout can change under a running
-# daemon; `pandora doctor` compares this with the checkout's own.
-CODE_DIGEST = bundle.code_digest()
 # What the caller is told when a submission may have started on the worker and
 # nobody can say. The next action, not a diagnosis: a blind retry could be the
 # second copy of a command that is already running.
@@ -413,6 +410,7 @@ class Daemon:
         self.adopting = threading.Lock()   # one takeover per orphaned row
         self.workers = {}
         self.workers_lock = threading.Lock()
+        self.code, self.code_modules = None, []
         self.worker_factory = Worker
         # One local queue per daemon, built once: its learned peaks live in a
         # SQLite file beside the runs, so a restart does not forget what a job
@@ -732,6 +730,11 @@ class Daemon:
         run.finish(INFRA, state='infra_failed')
 
     def start(self):
+        # What this daemon imported, by the time it serves anything: the checkout
+        # can change under it, and `pandora doctor` digests these same files
+        # there to tell a daemon that needs `--restart`.
+        self.code_modules = bundle.loaded_modules()
+        self.code = bundle.code_digest(names=self.code_modules)
         self.acquire_lock()
         (self.state / 'runs').mkdir(exist_ok=True)
         self.clear_stale_socket()
@@ -743,7 +746,8 @@ class Daemon:
         (self.state / 'daemon.json').write_text(json.dumps(
             {'pid': os.getpid(), 'version': VERSION, 'socket': str(self.socket_path),
              'worker': self.config['worker']['host'], 'started': now(),
-             'home': PACKAGE_HOME, 'code': CODE_DIGEST}) + '\n')
+             'home': PACKAGE_HOME, 'code': self.code,
+             'code_modules': self.code_modules}) + '\n')
         if self.config['worker']['host']:
             self.health.start()
         return self
@@ -823,7 +827,7 @@ class Daemon:
                                'python_version': '%d.%d.%d' % sys.version_info[:3],
                                'worker': self.config['worker']['host'],
                                'runs': len(self.runs), 'home': PACKAGE_HOME,
-                               'code': CODE_DIGEST,
+                               'code': self.code, 'code_modules': self.code_modules,
                                # The cached reading, never a poll: `pandora doctor`
                                # asks this, and a doctor must not change anything.
                                'health': self.health.state()}))
@@ -1759,7 +1763,7 @@ def main(argv=None):
         os.write(args.ready_fd, b'1')
     log('daemon on %s, worker %s, pid %d, code %s'
         % (daemon.socket_path, daemon.config['worker']['host'] or '(none)', os.getpid(),
-           CODE_DIGEST[:12]))
+           daemon.code[:12]))
     try:
         daemon.serve()
     except KeyboardInterrupt:

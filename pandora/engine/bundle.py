@@ -105,18 +105,39 @@ def _pack(root, names):
     return hashlib.sha256(text.encode()).hexdigest(), text
 
 
-def code_digest(source_root=None):
-    """One digest of every module in the package, client half included.
+def loaded_modules(source_root=None):
+    """The package's modules this process has imported, as package-relative paths."""
+    import sys
+    root = Path(source_root or Path(__file__).resolve().parents[1]).resolve()
+    names = set()
+    for module in list(sys.modules.values()):
+        path = getattr(module, '__file__', None)
+        if not path or not path.endswith('.py'):
+            continue
+        try:
+            names.add(str(Path(path).resolve().relative_to(root)))
+        except ValueError:
+            continue
+    return sorted(names)
 
-    The same packing as the engine bundle, over `pandora/**/*.py` less the
-    tests, which never run in the daemon. A daemon keeps the code it imported;
-    comparing this with the checkout's is how `doctor` sees a daemon that needs
-    `--restart`.
+
+def code_digest(source_root=None, names=None):
+    """One digest over the named modules of the package, the same packing as the bundle.
+
+    A daemon keeps the code it imported, so it names the modules it loaded and
+    `doctor` digests those same files in the checkout: a change to a module the
+    daemon never imports (the worker half, the canary) is not a reason to
+    restart it. A module the checkout no longer has counts as a difference.
     """
     root = Path(source_root or Path(__file__).resolve().parents[1])
-    names = sorted(str(path.relative_to(root)) for path in root.rglob('*.py')
-                   if 'tests' not in path.relative_to(root).parts[:1])
-    return _pack(root, names)[0]
+    names = loaded_modules(root) if names is None else sorted(names)
+    files = {}
+    for name in names:
+        path = root / name
+        files[name] = (base64.b64encode(path.read_bytes()).decode() if path.is_file()
+                       else None)
+    text = json.dumps(files, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def ensure(link, root, *, source_root=None):
