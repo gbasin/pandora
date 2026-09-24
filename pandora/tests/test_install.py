@@ -269,6 +269,32 @@ class Launchers(Case):
         self.assertIn('ln -s %s' % (self.data / 'current' / 'bin' / 'pnpm'), lines[1])
 
 
+class PhysicalHome(Case):
+    def test_the_launcher_imports_from_the_version_not_through_current(self):
+        # A process that starts through `current` must keep importing from the
+        # version it started with after the next flip, so its PYTHONPATH is the
+        # version directory itself. The "interpreter" prints what it was given.
+        import shutil
+        version = self.data / 'versions' / 'v1'
+        (version / 'pandora').mkdir(parents=True)
+        (version / 'pandora' / 'cli.py').write_text('')
+        shutil.copytree(HERE / 'bin', version / 'bin')
+        install.flip(self.data, 'v1')
+        bindir = self.root / 'bin'
+        bindir.mkdir()
+        (bindir / 'pandora').symlink_to(self.data / 'current' / 'bin' / 'pandora')
+        python = self.root / 'python'
+        python.write_text('#!/bin/sh\nprintf "%s\\n" "$PYTHONPATH"\n')
+        python.chmod(0o755)
+        env = {key: value for key, value in os.environ.items()
+               if key not in ('PYTHONPATH', 'PANDORA_HOME')}
+        env.update(PATH='%s:/usr/bin:/bin' % bindir, PANDORA_PYTHON=str(python))
+        proc = subprocess.run([str(bindir / 'pandora'), 'ps'], cwd='/', env=env,
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), str(version))
+
+
 ROWS = [
     {'id': 'r-local-run', 'lane': 'local', 'state': 'running', 'argv': ['check']},
     {'id': 'r-local-q', 'lane': 'local', 'state': 'queued', 'argv': ['test']},

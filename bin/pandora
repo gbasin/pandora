@@ -21,6 +21,10 @@ while [ -L "$self" ] && [ "$hops" -lt 40 ]; do
 done
 selfdir=${self%/*}
 home=${PANDORA_HOME:-$selfdir/..}
+# The physical directory: after `pandora upgrade` the script sits under the
+# `current` symlink, which the next upgrade flips, and a daemon that imports a
+# module hours later must find it in the version it started from.
+if physical=$(cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
 PYTHONPATH=$home${PYTHONPATH:+:$PYTHONPATH}
 export PYTHONPATH
 exec "${PANDORA_PYTHON:-python3}" -B -m pandora.cli "$@"

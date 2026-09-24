@@ -259,6 +259,14 @@ if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
     home=${target%/*}/..
 fi
 home=${PANDORA_HOME:-$home}
+# Pinned to the physical directory when Python will start, so a client that
+# outlives a `pandora upgrade` keeps importing from the version it began with
+# (`home` is usually `<data>/current`, which the upgrade flips). One subshell,
+# only on the paths that already start Python.
+if [ -n "$PANDORA_OFF" ] || { [ -n "$sock" ] && { [ "$claimed" = 1 ] || [ "$heavy" = 1 ] \
+        || [ -n "$PANDORA_WHERE" ]; }; }; then
+    if physical=$(cd -P -- "$home" 2>/dev/null && pwd); then home=$physical; fi
+fi
 
 if [ -n "$PANDORA_OFF" ]; then
     # The kill switch must never fail: without the logger or an interpreter to
