@@ -164,7 +164,6 @@ keyed=$whole
 while IFS=' ' read -r key rest; do
     case $key in
         sock) sock=$rest ;;
-        home) home=$rest ;;
         subdirectory) scope=$rest ;;
         derived) derived=$rest ;;
         config) config=$rest ;;
@@ -246,11 +245,12 @@ python=${PANDORA_PYTHON:-python3}
 # switch's logger has always run on one, and must not start failing.
 boot='import runpy, sys; sys.path[:1] == [""] and sys.path.pop(0); del sys.argv[0]; runpy._run_module_as_main(sys.argv[0])'
 # The package lives beside the *file* this shim is, which is not beside the
-# symlink on PATH that reached it. The daemon and `pandora enroll` write the
-# answer into every file above as `home`, so this walk -- one `readlink` fork
-# per hop -- runs only for a v0.2 marker that has none, and never on the
-# non-enrolled path above.
-if [ -z "$PANDORA_HOME" ] && [ -z "$home" ]; then
+# symlink on PATH that reached it: the shim runs the client from its own
+# checkout, never from one a file names. (Files written before this carried a
+# `home` line; it is ignored, and the client says so.) The walk costs one
+# `readlink` fork per hop, and runs only on a path that starts Python anyway,
+# never on the non-enrolled or fresh-unclaimed paths above.
+if [ -z "$PANDORA_HOME" ]; then
     target=$self
     case $target in */*) ;; *) target=./$target ;; esac
     hops=0

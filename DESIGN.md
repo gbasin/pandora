@@ -238,6 +238,42 @@ Deferred: learned admission, automatic command classification, universal shell
 rewriting, continuous sync, general source write-back, microVMs, multi-host
 scheduling, native iOS, arbitrary journey stacks, and replacement of PR checks.
 
+## pandora.toml is the contract
+
+Added 2026-09-24, after two days in which a stale enrollment marker let 14
+claimed forms run unmanaged and a pinned client home kept three code versions
+live at once. These rules hold for the machine-wide shim and daemon that
+replaced the pilot.
+
+- **The file is the truth; everything else is a cache of it.** A worktree's
+  claim cache is derived from that worktree's own `pandora.toml`, in the
+  worktree's own Git directory, so two worktrees on branches with different
+  files never share one and never rewrite each other's. The shim trusts a cache
+  by date with shell builtins. Every claimed command reaches the daemon, which
+  derives the cache again from the file's content; when the claims differ it
+  rewrites the cache and the caller sees one line, `pandora: claim cache
+  refreshed from pandora.toml`. The cache also records a SHA-256 digest of the
+  file, so `pandora doctor` finds a file replaced by one with an older date.
+- **Enroll is consent, not configuration.** It records once per repository that
+  Pandora may route it. Nothing about routing is re-read at enroll time that is
+  not re-read on the next command.
+- **No file names a client home.** The shim runs the client from the checkout it
+  is itself in; the daemon runs its own. A file that pins another checkout is how
+  one daemon, one pinned client and one updated checkout came to run three code
+  versions.
+- **A file the code does not understand is refused, not ignored.** An unknown
+  key or value (a file written for newer code, or a mistake) refuses each claimed
+  command with exit 70, the key, the value and the fix: `git -C <daemon
+  checkout> pull && pandora daemon --restart`, after `pandora ps` is idle. The
+  cache keeps the file's claimed forms so those commands reach that refusal
+  instead of running unmanaged. User-facing text carries no version numbers: the
+  fix is the same whichever side is older.
+- **Installed and not answering is broken, not absent.** Where the client
+  configuration exists, a claimed command waits five seconds for the daemon
+  (a restart) and then exits 70 with the doctor hint. Only where Pandora was
+  never installed does no daemon mean no Pandora, and the command passes
+  through. `PANDORA_OFF=1` bypasses both.
+
 ## References
 
 - [Crabbox static SSH](https://crabbox.sh/providers/ssh.html)

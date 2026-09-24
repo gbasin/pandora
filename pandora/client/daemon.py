@@ -34,12 +34,12 @@ from ..config import classify as classifier
 from ..config import loader
 from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, PandoraError,
                       Refused, SnapshotError, TransferError, ValidationRejected,
-                      WorkerUnreachable)
+                      WorkerUnreachable, UnknownSchema)
 from ..engine import bundle
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
 from . import attribution
-from . import enrollment, envfilter, fallback as policy, hints, install, placement, progress, settings
+from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import writeback as writebacks
 from .health import Monitor
@@ -399,6 +399,31 @@ class Run:
             return self.log.stat().st_size
         except OSError:
             return 0
+
+
+def shown(value):
+    """A TOML value as a reader would write it, short."""
+    try:
+        text = json.dumps(value, default=str)
+    except (TypeError, ValueError):
+        text = repr(value)
+    return text if len(text) <= 80 else text[:77] + '...'
+
+
+def not_understood(error, home):
+    """The refusal for a pandora.toml this code cannot read: the key, the value, the fix.
+
+    No version numbers: the file is the contract, and the fix is the same
+    whichever side is older.
+    """
+    what = error.key or 'a key'
+    if error.value is not None:
+        what = '%s = %s' % (what, shown(error.value))
+    return ('%s sets %s, which this daemon does not understand (%s). If the file is right, '
+            'the daemon runs older code than the file needs: when `pandora ps` shows nothing '
+            'running, run `git -C %s pull && pandora daemon --restart`. If it is a mistake, '
+            'fix the file. Nothing ran.'
+            % (error.path or 'pandora.toml', what, str(error).split(': ', 1)[-1], home))
 
 
 def submitted_by(request):
@@ -873,7 +898,8 @@ class Daemon:
     # What each refusal costs the caller. The client no longer invents an exit
     # code for a daemon verdict, so the verdict has to carry one.
     EXITS = {'queue-timeout': STALE, 'busy': STALE, 'version': INFRA,
-             'unauthorized': INFRA, 'local-paused': INFRA, 'fallback-refused': INFRA}
+             'unauthorized': INFRA, 'local-paused': INFRA, 'fallback-refused': INFRA,
+             'config-unknown': INFRA}
 
     def deny(self, conn, code, message, exit=None):
         conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code, 'msg': message,
@@ -890,8 +916,12 @@ class Daemon:
         if first is None:
             return
         if first.get('v') != VERSION:
-            self.deny(conn, 'version', 'daemon speaks protocol v%d, client sent v%r'
-                      % (VERSION, first.get('v')))
+            # No version numbers: what the caller can do about it is the same
+            # whichever side is older, and it is this.
+            self.deny(conn, 'version', 'this client and the daemon run different Pandora '
+                      'code. When `pandora ps` shows nothing running: `git -C %s pull && '
+                      'pandora daemon --restart`, and update the checkout the client runs '
+                      'from if it is another' % PACKAGE_HOME)
             return
         op = first.get('op')
         if op == 'ping':
@@ -931,13 +961,15 @@ class Daemon:
 
     # -- the routed path ---------------------------------------------------
 
-    def plan_for(self, request):
+    def plan_for(self, request, say=None):
         """Classify one request. Raises the pre-accept refusals; returns a plan.
 
         The worktree, not the enrollment's root: one enrollment covers every
         worktree of a repository, and the command was typed in exactly one of
         them. The *invocation* directory inside that worktree is what decides
         whether the job can be re-rooted -- see `classify.path_like`.
+        `say` receives one line for the caller when this worktree's claim cache
+        was just rewritten with other claims.
         """
         cwd = request.get('cwd') or ''
         repo = settings.enrollment_for(self.config, cwd)
@@ -946,9 +978,19 @@ class Daemon:
         if repo is None:
             raise NotClaimed('cwd is not inside an enrolled repository')
         root = Path(enrollment.worktree_root(cwd) or repo['root'])
-        self.write_claims(root, repo)
+        text, refreshed = self.write_claims(root, repo)
+        if refreshed and say is not None:
+            say('claim cache refreshed from %s'
+                % enrollment.refreshed_from(enrollment.parse(text)))
         try:
             config = self.repo_config(repo, root)
+        except UnknownSchema as error:
+            # Not a passthrough: the file claims this command in words this
+            # code cannot read, and running it here unmanaged is how the owner
+            # lost 14 forms for two days. Refused, with the key and the fix.
+            refusal = Refused(not_understood(error, PACKAGE_HOME))
+            refusal.code, refusal.exit = 'config-unknown', INFRA
+            raise refusal from None
         except ConfigError as error:
             raise NotClaimed('no usable config in this worktree: %s' % error) from None
         try:
@@ -992,14 +1034,12 @@ class Daemon:
         shim at the next claimed command, or at the first command the shim
         finds stale. Rewritten only when the text or its date differs. Never a
         verdict: a cache that cannot be written leaves the shim on the slow
-        path, which costs a Python start and routes correctly. Returns the text.
+        path, which costs a Python start and routes correctly. Returns (the
+        text, whether an existing cache's claims were replaced).
         """
         text, sources = enrollment.derive(
             root, repo, socket_path=str(self.socket_path),
             client=str(settings.path_of(self.config_path)),
-            # `current` once a version is installed, never the version it names
-            # today: prune removes that one, and every cache would name nothing.
-            home=install.package_home(running=PACKAGE_HOME),
             load=lambda where, entry: self.repo_config(entry, Path(where)))
         # Only where the shim already looks: `pandora unenroll` removed the
         # registration and the marker, and a `pandora run` afterward must not
@@ -1011,7 +1051,7 @@ class Daemon:
             log('claims: wrote %s' % enrollment.cache_path(root))
         elif why and why != 'not enrolled' and why != 'not inside a repository':
             log('claims: not writing %s: %s' % (enrollment.cache_path(root), why))
-        return text
+        return text, written == enrollment.CHANGED
 
     def claims(self, request):
         """The shim's slow path: refresh this worktree's cache, then classify as the shim would.
@@ -1027,14 +1067,17 @@ class Daemon:
         if root is None:
             return {'claimed': False, 'heavy': False, 'why': 'not inside a worktree'}
         repo = settings.enrollment_for(self.config, cwd) or self.enrollment_by_git(cwd)
-        text = self.write_claims(Path(root), repo)
+        text, refreshed = self.write_claims(Path(root), repo)
         parsed = enrollment.parse(text)
         claimed = enrollment.claimed(argv, parsed)
         if claimed and enrollment.claims_nothing_here(cwd, parsed):
             claimed = False
-        return {'claimed': claimed,
-                'heavy': not claimed and enrollment.heavy(argv, parsed),
-                'cache': str(enrollment.cache_path(root))}
+        answer = {'claimed': claimed,
+                  'heavy': not claimed and enrollment.heavy(argv, parsed),
+                  'cache': str(enrollment.cache_path(root))}
+        if refreshed:
+            answer['refreshed'] = enrollment.refreshed_from(parsed)
+        return answer
 
     def enrollment_by_git(self, cwd):
         """A worktree of an enrolled repository is enrolled.
@@ -1144,7 +1187,8 @@ class Daemon:
                       exit=INFRA)
             return
         try:
-            repo, config, verdict = self.plan_for(request)
+            repo, config, verdict = self.plan_for(request,
+                                                  say=lambda line: self.tell(conn, line))
         except NotClaimed as error:
             # Not a fallback and not a refusal: Pandora has no opinion about
             # this invocation, so the client runs it as if the shim were absent.

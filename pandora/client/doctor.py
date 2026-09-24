@@ -226,20 +226,22 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
     try:
         answer = ping(sock_path)
     except FileNotFoundError:
-        return check('daemon', FAIL, 'nothing at %s; start it with `pandora daemon` (until '
-                     'then claimed commands run here unmanaged, as if Pandora were not '
-                     'installed)' % sock_path), None
+        return check('daemon', FAIL, 'nothing at %s; start it with `pandora daemon --install` '
+                     '(until then a claimed command exits 70 where the client configuration '
+                     'exists, and runs here unmanaged where it does not)' % sock_path), None
     except ConnectionRefusedError:
         return check('daemon', FAIL, '%s exists but nobody listens: a daemon that died. '
-                     'Start it with `pandora daemon`' % sock_path), None
+                     'Start it with `pandora daemon --install`, or `pandora daemon --restart` '
+                     'when it is installed; until then a claimed command exits 70'
+                     % sock_path), None
     except (OSError, ValueError) as error:
         return check('daemon', FAIL, 'no answer on %s: %s' % (sock_path, error)), None
     if answer.get('t') == 'error':
         return check('daemon', FAIL, 'the daemon on %s refused: %s'
                      % (sock_path, answer.get('msg'))), None
     home = answer.get('home')
-    detail = 'pid %s on %s, protocol v%s, worker %s' % (
-        answer.get('pid'), sock_path, answer.get('v'), answer.get('worker') or '(none)')
+    detail = 'pid %s on %s, worker %s' % (
+        answer.get('pid'), sock_path, answer.get('worker') or '(none)')
     facts = {'pid': answer.get('pid'), 'socket': str(sock_path), 'home': home}
     expected = launcher_home or PACKAGE_HOME
     if not home:
@@ -380,7 +382,7 @@ def check_repository(cwd, config, sock_path, data=None):
                      % (parsed.get('repo'), registration), registration=str(registration))]
     elif legacy.is_file():
         out = [check('repository', WARN,
-                     'enrolled by the v0.2 marker %s, which a worktree with no claim cache '
+                     'enrolled by the old marker %s, which a worktree with no claim cache '
                      'routes by as it stands. Run `pandora enroll %s` once: it registers the '
                      'repository and each worktree then routes by its own %s'
                      % (legacy, root or cwd, FILENAME), marker=str(legacy))]
@@ -390,34 +392,16 @@ def check_repository(cwd, config, sock_path, data=None):
                      'not route. Run `pandora enroll %s`' % (registration, root or cwd))]
     out += check_caches(cwd, root, common, kind)
     home = parsed.get('home')
-    now = install.installed(data) if data is not None else None
-    if home and not (Path(home) / 'pandora' / 'client' / 'shim.py').is_file():
-        # A cache is safe to delete: the next command writes it again. The
-        # registration and the marker are not: deleting either unenrolls.
-        fix = ('delete %s; the next command writes it again' % source if kind == 'cache' else
-               'run `pandora enroll %s` from the checkout you mean' % (root or cwd))
-        out.append(check('client home', FAIL,
-                         '%s says the client lives in %s, which has no pandora package (a '
-                         'removed checkout?). Claimed commands cannot start the client; %s'
-                         % (source, home, fix), home=home))
-    elif home and now and not install.through_current(home, data):
-        # A checkout, or a version directory by its own name: either way the
-        # next upgrade leaves claimed commands behind.
-        fix = ('a daemon from before this release, or the client with no daemon, wrote it; '
-               'delete %s and the next command writes it again' % source if kind == 'cache' else
-               'run `pandora enroll %s`' % (root or cwd))
-        out.append(check('client home', WARN,
-                         '%s pins the client to %s, not %s, so claimed commands do not follow '
-                         'an upgrade; %s' % (source, home, now['link'], fix), home=home))
-    elif home and os.path.realpath(home) != os.path.realpath(PACKAGE_HOME):
-        # Claimed commands start the client from the file's `home`, whatever
-        # checkout this doctor runs from; three code versions were live at once
-        # on 2026-09-24 this way.
-        out.append(check('client home', WARN,
-                         '%s pins the client to %s, but this doctor runs %s; claimed commands '
-                         'run that code. The daemon writes its own checkout there, so run the '
-                         'daemon from the checkout you mean' % (source, home, PACKAGE_HOME),
-                         home=home))
+    if home:
+        # Read for one release, never acted on: the shim runs the client from
+        # its own checkout, and three code versions were live at once on
+        # 2026-09-24 because a file pinned another.
+        fix = ('the next claimed command here rewrites it without the line' if kind == 'cache'
+               else '`pandora enroll %s` rewrites it without the line' % (root or cwd))
+        out.append(check('client home', INFO,
+                         '%s names %s as the client home, which is no longer read: claimed '
+                         'commands run the client from the checkout the shim is in. %s'
+                         % (source, home, fix[0].upper() + fix[1:]), home=home))
     if parsed.get('sock') and os.path.realpath(parsed['sock']) != os.path.realpath(sock_path):
         out.append(check('client socket', WARN,
                          '%s routes to %s but this doctor looked at %s; the shim uses the file'
@@ -466,7 +450,7 @@ def check_caches(cwd, root, common, kind):
                      'refreshes it' % (why, 'command here' if seen else 'claimed command'),
                      cache=str(cache))
     elif kind == 'marker':
-        here = check('claim cache', INFO, 'none yet; this worktree routes by the v0.2 marker '
+        here = check('claim cache', INFO, 'none yet; this worktree routes by the old marker '
                      'until the next claimed command writes %s' % cache, cache=str(cache))
     else:
         here = check('claim cache', WARN, 'none yet for this worktree; the next command '

@@ -149,11 +149,13 @@ class ThroughTheShim(unittest.TestCase):
         for name in ('PANDORA_OFF', 'PANDORA_ROUTE_DEPTH', 'PANDORA_HOME', 'PANDORA_WHERE',
                      'PANDORA_PYTHON'):
             self.env.pop(name, None)
+        # The shim runs the client from its own checkout; this points it at the
+        # stand-in package instead. (Files once named it with a `home` line.)
+        self.env['PANDORA_HOME'] = str(self.package)
 
     def write(self, path, claims, **extra):
         text = enrollment.render(socket_path=str(self.root / 'client.sock'), repo='demo',
-                                 claims=claims, heavy=enrollment.heavy_forms(claims),
-                                 home=str(self.package), **extra)
+                                 claims=claims, heavy=enrollment.heavy_forms(claims), **extra)
         Path(path).write_text(text)
         return Path(path)
 
@@ -313,7 +315,7 @@ class SlowPathAgainstARealDaemon(DaemonCase):
         super().setUp()
         (self.repo / '.git').mkdir(exist_ok=True)
         (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
-            socket_path=str(self.daemon.socket_path), repo='demo', home=str(HERE)))
+            socket_path=str(self.daemon.socket_path), repo='demo'))
         age(self.root / 'config.toml', 120)
         age(self.repo / 'pandora.toml', 60)
         self.cache = self.repo / '.git' / 'pandora-claims'
@@ -362,11 +364,12 @@ class SlowPathAgainstARealDaemon(DaemonCase):
 
     def test_a_stale_cache_is_rewritten_from_the_changed_file(self):
         self.cache.write_text(enrollment.render(
-            socket_path=str(self.daemon.socket_path), repo='demo', claims=[['old']],
-            home=str(HERE)))
+            socket_path=str(self.daemon.socket_path), repo='demo', claims=[['old']]))
         age(self.cache, 90)                     # older than pandora.toml: stale
         proc = self.pnpm('old')
-        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, 'real old\n', ''))
+        # One line: the claims changed, so the caller hears it once.
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
+                         (0, 'real old\n', 'pandora: claim cache refreshed from pandora.toml\n'))
         cache = enrollment.parse(self.cache.read_text())
         self.assertIn(['unit'], cache['claim'])
         self.assertNotIn(['old'], cache['claim'])
@@ -396,33 +399,24 @@ class SlowPathAgainstARealDaemon(DaemonCase):
         self.assertEqual(enrollment.cache_state(self.repo, self.cache)[0], 'fresh')
         self.assertIn(['unit'], enrollment.parse(self.cache.read_text())['claim'])
         self.cache.unlink()
+        # The client configuration exists, so the daemon is installed here and
+        # broken: a claimed command exits 70 rather than run unmanaged.
         proc = self.pnpm('unit')
-        self.assertEqual((proc.returncode, proc.stdout), (0, 'real unit\n'))
-        self.assertIn('as if Pandora were not installed', proc.stderr)
-        [row] = self.rows()
-        self.assertEqual((row['reason'], row['argv']), ('daemon-unreachable', ['unit']))
+        self.assertEqual((proc.returncode, proc.stdout), (70, ''))
+        self.assertIn('pandora doctor', proc.stderr)
+        self.assertEqual(self.rows(), [])
 
-    def test_with_no_daemon_the_client_writes_current_as_the_cache_home(self):
-        # The client derives the cache itself here; naming its own version
-        # directory would strand the worktree once prune removes it.
-        from pandora.client import install
-        data = install.data_root()
-        version = data / 'versions' / 'v1'
-        (version / 'pandora').mkdir(parents=True, exist_ok=True)
-        (version / 'pandora' / 'cli.py').write_text('')
-        install.flip(data, 'v1')
-        self.addCleanup(lambda: os.unlink(data / 'current'))
+    def test_with_no_daemon_the_client_writes_no_cache_home(self):
+        # The shim finds the client beside itself; a file that named one could
+        # strand the worktree once that checkout or version was removed.
         self.stop_daemon()
         proc = self.pnpm('why')
         self.assertEqual((proc.returncode, proc.stdout), (0, 'real why\n'), proc.stderr)
-        self.assertEqual(enrollment.parse(self.cache.read_text())['home'], str(data / 'current'))
+        self.assertIsNone(enrollment.parse(self.cache.read_text())['home'])
 
     def test_a_home_with_no_client_runs_the_command_here(self):
         # A removed checkout or a pruned version never blocks pnpm.
-        (self.repo / '.git' / 'pandora-repo').write_text(enrollment.registration_text(
-            socket_path=str(self.daemon.socket_path), repo='demo',
-            home=str(self.root / 'pruned')))
-        proc = self.pnpm('unit')
+        proc = self.pnpm('unit', PANDORA_HOME=str(self.root / 'pruned'))
         self.assertEqual((proc.returncode, proc.stdout), (0, 'real unit\n'), proc.stderr)
         self.assertIn('no client in %s; running here unrouted' % (self.root / 'pruned'),
                       proc.stderr)
@@ -481,7 +475,7 @@ class EnrollOnce(unittest.TestCase):
         self.assertTrue(text.startswith('# mine\n[client]\n'))
         self.assertIn('[[repos]]\nname = "demo"\nroot = "%s"\n' % self.repo, text)
         self.assertIn('added [[repos]] demo', err)
-        self.assertIn('removed the v0.2 marker', err)
+        self.assertIn('removed the old marker', err)
 
     def test_enrolling_again_adds_nothing_and_a_changed_toml_needs_no_enroll(self):
         self.pandora('enroll', str(self.repo))

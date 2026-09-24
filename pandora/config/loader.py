@@ -37,7 +37,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from ..errors import ConfigError
+from ..errors import ConfigError, UnknownSchema
 
 VERSION = 1
 NAME = re.compile(r'[a-z][a-z0-9-]*\Z')
@@ -80,9 +80,10 @@ def _keys(value, where, required=(), optional=()):
     allowed = set(required) | set(optional)
     unknown = sorted(set(value) - allowed)
     if unknown:
-        raise ConfigError('%s has unknown key%s %s; allowed: %s' % (
+        key = unknown[0] if where == 'configuration' else '%s.%s' % (where, unknown[0])
+        raise UnknownSchema('%s has unknown key%s %s; allowed: %s' % (
             where, '' if len(unknown) == 1 else 's', ', '.join(unknown),
-            ', '.join(sorted(allowed))))
+            ', '.join(sorted(allowed))), key=key, value=value[unknown[0]])
     missing = sorted(set(required) - set(value))
     if missing:
         raise ConfigError('%s is missing %s' % (where, ', '.join(missing)))
@@ -134,7 +135,8 @@ def _names(value, where):
 
 def _choice(value, where, allowed):
     if value not in allowed:
-        raise ConfigError('%s must be one of %s, not %r' % (where, ', '.join(allowed), value))
+        raise UnknownSchema('%s must be one of %s, not %r' % (where, ', '.join(allowed), value),
+                            key=where, value=value)
     return value
 
 
@@ -611,7 +613,8 @@ def validate(value):
     _keys(value, 'configuration', {'version', 'repo', 'worker', 'jobs'},
           {'env', 'secrets', 'fallback', 'feedback', 'matching'})
     if type(value['version']) is not int or value['version'] != VERSION:
-        raise ConfigError('configuration version must be %d' % VERSION)
+        raise UnknownSchema('configuration version must be %d' % VERSION, key='version',
+                            value=value['version'])
 
     repo = _keys(value['repo'], 'repo', {'name', 'entrypoints'}, {'root_markers'})
     matching = _keys(value.get('matching', {}), 'matching', (), {'strip_prefixes', 'subdirectory'})
@@ -706,10 +709,49 @@ def load(path):
         raise ConfigError('cannot read %s: %s' % (path, error)) from None
     try:
         config = validate(raw)
+    except UnknownSchema as error:
+        wrapped = UnknownSchema('%s: %s' % (path, error), key=error.key, value=error.value)
+        wrapped.path = str(path)
+        raise wrapped from None
     except ConfigError as error:
         raise ConfigError('%s: %s' % (path, error)) from None
     config['source'] = str(path)
     return config
+
+
+def claimed_forms(path):
+    """What a file claims, read without validating it: {strip, claims, subdirectory}.
+
+    For a file this code refuses as `UnknownSchema`: its claims still go in the
+    claim cache, so a claimed command reaches the daemon and is refused with
+    the reason, rather than the shim running it here as if nothing claimed it.
+    Empty lists, and no subdirectory mode, when even that cannot be read.
+    """
+    found = {'strip': [], 'claims': [], 'subdirectory': None}
+    try:
+        raw = tomllib.loads(Path(path).read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return found
+
+    def words(item):
+        if isinstance(item, list) and item and all(isinstance(word, str) for word in item):
+            return list(item)
+        return None
+
+    def listed(item):
+        return item if isinstance(item, list) else []
+    matching = raw.get('matching') if isinstance(raw.get('matching'), dict) else {}
+    found['strip'] = [prefix for prefix in map(words, listed(matching.get('strip_prefixes')))
+                      if prefix]
+    if matching.get('subdirectory') in ('reroot', 'local', 'reject', 'passthrough'):
+        found['subdirectory'] = {'local': 'reroot'}.get(matching['subdirectory'],
+                                                        matching['subdirectory'])
+    for job in listed(raw.get('jobs')):
+        for form in listed(job.get('forms') if isinstance(job, dict) else None):
+            prefix = words(form.get('prefix')) if isinstance(form, dict) else None
+            if prefix and prefix not in found['claims']:
+                found['claims'].append(prefix)
+    return found
 
 
 def resolve(repo_root, fallback_path=None):

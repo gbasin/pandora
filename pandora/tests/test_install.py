@@ -431,7 +431,7 @@ class WrittenHomes(Case):
         self.assertEqual(launchd.agent_program('com.pandora.daemon', self.home), program)
         self.assertIn('`pandora upgrade`', self.said[-1])
 
-    def test_enroll_writes_current_as_the_client_home(self):
+    def test_enroll_writes_no_client_home(self):
         from pandora import cli
         from pandora.client import enrollment
         from pandora.tests.test_config import MINIMAL
@@ -449,9 +449,10 @@ class WrittenHomes(Case):
             code = cli.main(['--state', str(self.state), '--config', str(config),
                              'enroll', str(repo)])
         self.assertEqual(code, 0)
+        # The shim runs the client from where it is linked, which `pandora
+        # upgrade` points through `current`; no file names a home to go stale.
         for path in (repo / '.git' / enrollment.REGISTRATION, enrollment.cache_path(repo)):
-            self.assertEqual(enrollment.parse(path.read_text())['home'], str(data / 'current'),
-                             path)
+            self.assertIsNone(enrollment.parse(path.read_text())['home'], path)
 
 
 class Doctor(Case):
@@ -559,52 +560,22 @@ class Doctor(Case):
         self.assertIn('daemon runs the checkout %s, current is %s. `pandora daemon --install`'
                       % (self.repo, self.version['name']), item['detail'])
 
-    def test_a_client_home_outside_current_warns(self):
+    def test_a_client_home_line_is_information_whatever_it_names(self):
         from pandora.client import doctor, enrollment
         target = self.root / 'target'
         target.mkdir()
         git(target, 'init', '-q')
         registration = target / '.git' / enrollment.REGISTRATION
-        for home, warned in ((self.repo, True), (self.version['path'], True),
-                             (self.data / 'current', False)):
-            registration.write_text(enrollment.registration_text(
-                socket_path=str(self.state / 'client.sock'), repo='demo', home=str(home)))
+        text = enrollment.registration_text(socket_path=str(self.state / 'client.sock'),
+                                            repo='demo')
+        for home in (self.repo, self.version['path'], self.data / 'current',
+                     self.data / 'versions' / 'gone'):
+            registration.write_text(text.replace('repo demo\n', 'repo demo\nhome %s\n' % home))
             items = {item['name']: item for item in
                      doctor.check_repository(str(target), None, self.state / 'client.sock',
                                              self.data)}
-            upgrade_rows = [item for item in items.values()
-                            if 'not follow an upgrade' in item['detail']]
-            if warned:
-                self.assertEqual(items['client home']['status'], 'warn', home)
-                self.assertIn('pins the client to %s, not %s, so claimed commands do not '
-                              'follow an upgrade; run `pandora enroll'
-                              % (home, self.data / 'current'), items['client home']['detail'])
-            else:
-                self.assertEqual(upgrade_rows, [])
-        # A cache the daemon wrote: the fix is the daemon's, and deleting the cache.
-        registration.write_text(enrollment.registration_text(
-            socket_path=str(self.state / 'client.sock'), repo='demo',
-            home=str(self.data / 'current')))
-        enrollment.cache_path(target).write_text(enrollment.render(
-            socket_path=str(self.state / 'client.sock'), repo='demo', claims=[['unit']],
-            home=str(self.repo)))
-        items = {item['name']: item for item in
-                 doctor.check_repository(str(target), None, self.state / 'client.sock',
-                                         self.data)}
-        self.assertIn('a daemon from before this release, or the client with no daemon, wrote '
-                      'it; delete %s and the next command writes it again'
-                      % enrollment.cache_path(target), items['client home']['detail'])
-        # A cache naming a pruned version: fail, and the same one-step fix.
-        enrollment.cache_path(target).write_text(enrollment.render(
-            socket_path=str(self.state / 'client.sock'), repo='demo', claims=[['unit']],
-            home=str(self.data / 'versions' / 'gone')))
-        items = {item['name']: item for item in
-                 doctor.check_repository(str(target), None, self.state / 'client.sock',
-                                         self.data)}
-        self.assertEqual(items['client home']['status'], 'fail')
-        self.assertTrue(items['client home']['detail'].endswith(
-            'delete %s; the next command writes it again' % enrollment.cache_path(target)))
-
+            self.assertEqual(items['client home']['status'], 'info', home)
+            self.assertIn('no longer read', items['client home']['detail'])
 
 ROWS = [
     {'id': 'r-local-run', 'lane': 'local', 'state': 'running', 'argv': ['check']},
