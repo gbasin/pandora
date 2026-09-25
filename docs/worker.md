@@ -26,8 +26,10 @@ pinned version. Docker runs only inside each run's instance.
 
 ## Provision
 
-Copy [`scripts/versions.toml`](../scripts/versions.toml) to a file for this
-worker. Set `device` to the spare block device. Pin `incus` and `incus-client`
+Copy [`scripts/versions.toml`](../scripts/versions.toml) to
+`deploy/workers/<name>.toml` and commit it: the manifest is the one file that
+reproduces the worker, and this repository is public, so keep no IPs or
+hostnames in it. Live example: `deploy/workers/pandora-rbx.toml`. Set `device` to the spare block device. Pin `incus` and `incus-client`
 to exact dpkg versions. Set `run_disk_gib`, the per-run root quota. The quota
 counts bytes the run shares with its golden, so a 12 GiB quota over a 4 GiB
 golden leaves the run about 8 GiB of its own writes.
