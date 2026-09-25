@@ -732,8 +732,11 @@ Known caveats:
   update.
 * Not yet run against the live worker: `pandora resolve` on a real conflict, the
   infrastructure retry on a real failure, a remote cancel with a non-default
-  signal, a tier-1 sharded job, a real `--device` pool, `gc` with per-family
-  ranking and `--protect`, and the canary derived from `[worker.canary]`.
+  signal, a tier-1 sharded job, `gc` with per-family ranking and `--protect`.
+* Run against the live worker on 2026-09-25: a real `--device` pool (the RISE-L
+  worker's pool is btrfs on a raw NVMe; see #149 for the stdin fix it needed)
+  and the canary derived from `[worker.canary]` (pass, 97 s; the 60 s bound on
+  the OOM verdict is marginal on fast NVMe, #150).
 
 
 ## Layout
