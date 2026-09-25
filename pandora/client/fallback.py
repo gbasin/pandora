@@ -13,6 +13,8 @@ has one answer for every cause:
 * a job may declare ``fallback = "local"`` or ``"refuse"``;
 * a job that declares nothing is decided by its size class -- ``small`` and
   ``medium`` fall back, ``large`` and ``xlarge`` do not;
+* a ``local`` verdict only stands when the local lane can take the job at all
+  (``placement.why_not_local``); a sharded job refuses at any size;
 * a busy worker (``admission-refused``, ``queue-timeout``) is never a reason,
   at any size or declaration: the worker queues, and the queue is the answer;
 * anything that writes back (``--update``) never falls back, at any size,
@@ -61,6 +63,9 @@ NEVER_LOCAL = ('admission-refused', 'queue-timeout')
 QUEUE_STEP = 'Retry, or run it in the local queue with PANDORA_WHERE=local.'
 LAST_RESORT = ('Retry. As a last resort, PANDORA_OFF=1 runs it here with no Pandora at '
                'all, outside the queue.')
+# A write-back run has no lane here at all: the files are the worker's to
+# write, so neither the local queue nor PANDORA_OFF is a next step for it.
+WORKER_STEP = 'Retry when the worker is reachable.'
 
 
 def next_step(local_lane):
@@ -77,9 +82,12 @@ def decide(*, cause, size='large', writeback=False, declared=None, notice=None,
     repository both said nothing. `size` is the job's declared class, and the
     conservative default is `large`: a caller that cannot say how big a job is
     has not earned the right to run it here. `local_lane` says whether the job
-    could run in the local lane if asked; it changes only the refusal's next step.
+    could run in the local lane if asked (`placement.why_not_local` is None).
+    It is a gate, not a hint: a `local` verdict the lane cannot take -- a
+    sharded job, say -- is a refusal, because falling back into a lane that
+    cannot run the job correctly is not a fallback at all.
     """
-    step = next_step(local_lane)
+    step = WORKER_STEP if writeback else next_step(local_lane)
     if cause not in CAUSES:
         return {'action': 'refuse', 'reason': 'unknown fallback cause %r. %s' % (cause, step)}
     if cause in NEVER_LOCAL:
@@ -102,6 +110,10 @@ def decide(*, cause, size='large', writeback=False, declared=None, notice=None,
         action = 'local' if size in LOCAL_SIZES else 'refuse'
         why = 'the job is size %s and declares no fallback' % size
     if action == 'local':
+        if not local_lane:
+            return {'action': 'refuse',
+                    'reason': '%s, but it cannot run in the local lane, so it is not moved '
+                              'to this Mac automatically. %s' % (why, step)}
         return {'action': 'local', 'reason': notice or ('%s, so it runs in the local lane' % why)}
     return {'action': 'refuse',
             'reason': '%s, so it is not moved to this Mac automatically. %s' % (why, step)}

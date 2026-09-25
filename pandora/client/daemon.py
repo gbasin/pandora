@@ -1681,7 +1681,7 @@ class Daemon:
             threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
             return
         if waited is not None and waited['verdict'] != 'admitted':
-            self.close_queued(conn, run, submission.run_id, waited, job)
+            self.close_queued(conn, run, submission.run_id, waited, job, plan)
             return
         if (left or not client_alive(conn)) and not detached:
             # The caller left before `accepted`, so it may already be running
@@ -1868,7 +1868,7 @@ class Daemon:
         except OSError:
             beat.gone.set()
 
-    def close_queued(self, conn, run, remote, waited, job):
+    def close_queued(self, conn, run, remote, waited, job, plan):
         """End a row the worker queue never admitted, in the words of why."""
         verdict = waited['verdict']
         run.remote, run.queue = remote, None
@@ -1924,7 +1924,8 @@ class Daemon:
                       place.get('position', '?'), place.get('running', '?')))
         message = ('queue-timeout (%s); nothing ran, and a full worker is never a reason '
                    'to run it on this Mac. %s' % (
-                       detail, policy.next_step(placement.why_not_local(job) is None)))
+                       detail, policy.WORKER_STEP if placement.writes_back(plan)
+                       else policy.next_step(placement.why_not_local(job, plan) is None)))
         run.refusal = {'cause': 'queue-timeout', 'detail': detail}
         run.reason = 'queue-timeout'
         run.note(message)
@@ -1974,20 +1975,20 @@ class Daemon:
             refuse('the daemon is stopping; nothing ran. Re-run it.', 'daemon-stopping')
             return
         # Whether an explicit PANDORA_WHERE=local could take this job: what the
-        # refusal steers to instead of an unmanaged PANDORA_OFF run.
-        local_lane = placement.why_not_local(job) is None
+        # refusal steers to instead of an unmanaged PANDORA_OFF run. A
+        # write-back job has no lane here at all, so its only next step is the
+        # worker it was meant for.
+        local_lane = placement.why_not_local(job, plan) is None
+        writeback = placement.writes_back(plan)
         if (request.get('placement') or {}).get('override') == 'remote':
             # The caller said where. Running it here instead would be the one
             # answer they ruled out, so the fallback lane is not consulted.
+            step = (policy.WORKER_STEP if writeback
+                    else policy.QUEUE_STEP if local_lane else 'Retry.')
             refuse('%s (%s): --remote was asked for, so this is not run on '
-                   'this Mac. %s' % (cause, detail,
-                                     'Retry, or run it in the local queue with '
-                                     'PANDORA_WHERE=local.' if local_lane else 'Retry.'),
-                   'placement-unavailable')
+                   'this Mac. %s' % (cause, detail, step), 'placement-unavailable')
             return
-        verdict = policy.decide(cause=cause, size=plan['size'],
-                                writeback=bool(plan['options'].get('update'))
-                                          or plan.get('writeback'),
+        verdict = policy.decide(cause=cause, size=plan['size'], writeback=writeback,
                                 declared=job['fallback'],
                                 notice=(job['fallback'] or {}).get('notice'),
                                 local_lane=local_lane)

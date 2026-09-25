@@ -511,10 +511,11 @@ def main(argv=None):
     def no_daemon(cause, message):
         """The daemon is not there: run the command as if Pandora were absent.
 
-        Only two requests cannot be honored without a daemon and are refused:
-        `--detach` (there is no run id to print) and an explicit remote
-        placement (only the daemon reaches the worker). Everything else is a
-        passthrough with one line on stderr.
+        Only three requests cannot be honored without a daemon and are refused:
+        `--detach` (there is no run id to print), an explicit remote placement
+        (only the daemon reaches the worker), and `--update` (write-back is the
+        worker's half of the run; a local run would write the files with none
+        of the checks). Everything else is a passthrough with one line on stderr.
         """
         if args.detach:
             # Detaching needs a run id, and only the daemon issues them. A
@@ -541,6 +542,14 @@ def main(argv=None):
             notice('%s; --remote was asked for and only the daemon can send it to the '
                    'worker, so nothing was run. Start the daemon, or drop the override.'
                    % message)
+            return INFRA
+        if updating:
+            # Write-back is half the run and it is the worker's half: with no
+            # daemon there is no run at all, and running it here would write
+            # the files in place with none of the stale or conflict checks.
+            # Same refusal `pass_through` gives.
+            notice('%s; --update asks the worker to write files back, and without the '
+                   'daemon there is no run to do that, so nothing was run' % message)
             return INFRA
         # No daemon is the same situation as no Pandora: the command runs here
         # as it would on a machine that never installed the shim. It is a

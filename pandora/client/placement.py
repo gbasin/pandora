@@ -44,7 +44,15 @@ def refuse(message):
     return error
 
 
-def why_not_local(job):
+def writes_back(plan):
+    """True when this invocation carries write-back intent: the plan has armed
+    write-back outputs, or the job's update option was typed. The one question
+    asked wherever "is this a write-back run" is decided."""
+    plan = plan or {}
+    return bool(plan.get('writeback') or (plan.get('options') or {}).get('update'))
+
+
+def why_not_local(job, plan=None):
     """The reason a job's run step cannot run on this Mac, or None.
 
     A sharded job is a fan-out across worker instances. With a `plan` step, the
@@ -54,11 +62,20 @@ def why_not_local(job):
     Mac" is the 2026-09-22 accident with a flag on it. Either way the loader
     already refuses `shards` with `where = "local"`, and an override must not be
     a way around a rule the configuration itself cannot state.
+
+    A run that writes back is refused for the same shape of reason: the
+    proposal, the staleness check and the conflict report are the engine's, and
+    a local run has none of them -- it would write the files in place with no
+    check at all, which is write-back in name only. `plan` carries the intent;
+    callers without one get only the job-level checks.
     """
     if job.get('shards'):
         return ('jobs.%s is sharded across worker instances%s, so it cannot run in the '
                 'local lane' % (job['id'], ' and its run step uses what the worker\'s plan '
                                 'step built' if job['shards'].get('plan') else ''))
+    if writes_back(plan):
+        return ('jobs.%s is asked to write files back, and write-back happens only on the '
+                'worker, so it cannot run in the local lane' % job['id'])
     return None
 
 
@@ -96,10 +113,13 @@ def decide(job, plan, override):
     where = override or declared
     changed = where != declared
     if changed and where == 'local':
-        problem = why_not_local(job)
+        problem = why_not_local(job, plan)
         if problem:
-            raise refuse('%s. Drop --local/PANDORA_WHERE. As a last resort, PANDORA_OFF=1 '
-                         'runs it here with no Pandora at all, outside the queue.' % problem)
+            advice = (' Retry it without the override.'
+                      if writes_back(plan) else
+                      ' As a last resort, PANDORA_OFF=1 runs it here with no Pandora at all, '
+                      'outside the queue.')
+            raise refuse('%s. Drop --local/PANDORA_WHERE.%s' % (problem, advice))
         plan = dict(plan, where='local')
     elif changed and where == 'remote':
         problem = why_not_remote(job)
