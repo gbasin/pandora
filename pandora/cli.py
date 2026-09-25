@@ -781,6 +781,8 @@ def render_result(run_id, result):
                                              ', ' + record['why'] if record.get('why') else ''))
         for path in record.get('written') or []:
             lines.append('    wrote %s' % path)
+        for path in record.get('unwritten') or []:
+            lines.append('    not written %s' % path)
         for item in record.get('conflicts') or []:
             lines.append('    %s: yours kept; proposed %s/%s'
                          % (item['path'], record.get('proposed'), item['path']))

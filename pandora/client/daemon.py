@@ -2340,16 +2340,28 @@ class Daemon:
         """Bring outputs back, report what is missing, then exit as the run did."""
         worker = self.worker_for(repo)
         try:
-            collected = worker.collect(run.remote, plan, worktree=run.worktree())
+            collected = worker.collect(
+                run.remote, plan, worktree=run.worktree(),
+                declared=(result.get('evidence') or {}).get('collected'))
         except (TransferError, WorkerUnreachable) as error:
             run.note('could not bring outputs back: %s' % error)
-            collected = {'fetched': False, 'missing': []}
+            collected = {'paths': [path for output in plan.get('outputs') or []
+                                   if output.get('kind') == 'artifacts'
+                                   for path in output['paths']],
+                         'fetched': False, 'missing': []}
         for path in collected.get('missing', []):
             # `missing` is a verdict of its own. It is not zero failures.
             run.note('declared output %s is missing from the run' % path)
         result['outputs'] = collected
         code = result.get('cli_exit', 70)
-        if result['outcome'] != 'passed' and code == 0:
+        if result['outcome'] in ('passed', 'command_failed') and (
+                collected.get('missing') or
+                (collected.get('paths') and not collected.get('fetched'))):
+            # Declared outputs did not all come home, so the command's own
+            # exit cannot stand: a 0 here would be a fabricated pass, and any
+            # other code would be a verdict on a run we cannot fully show.
+            code = INFRA
+        elif result['outcome'] != 'passed' and code == 0:
             # Belt and braces: a zero from a non-passing run would be a
             # fabricated pass, which is the one thing that must never happen.
             code = 70

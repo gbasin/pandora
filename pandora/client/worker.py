@@ -387,17 +387,28 @@ class Worker:
                 return None, offset
             time.sleep(POLL_BUSY if chunk else POLL_IDLE)
 
-    def collect(self, run_id, plan, *, worktree):
-        """Bring declared artifacts back to their worktree-relative locations."""
+    def collect(self, run_id, plan, *, worktree, declared=None):
+        """Bring declared artifacts back to their worktree-relative locations.
+
+        `declared` is the engine's record of what this run produced
+        (`evidence.collected` in the result). A path it does not call
+        `present` counts as missing even when a file already sits there --
+        that file is an older run's leftover, not this run's output. Runs
+        whose result carries no such record (a fan-out parent, or a run lost
+        before collect) fall back to what the worktree says.
+        """
         paths = [path for output in plan['outputs'] if output['kind'] == 'artifacts'
                  for path in output['paths']]
         if not paths:
             return {'paths': [], 'fetched': False}
         remote = '%s/runs/%s/outputs' % (self.root(), run_id)
         transfer.fetch(self.link, remote, worktree, timeout=900)
-        present = [path for path in paths if (Path(worktree) / path).exists()]
+        present = [path for path in paths
+                   if (declared is None or declared.get(path) == 'present')
+                   and (Path(worktree) / path).exists()]
         return {'paths': paths, 'present': present,
-                'missing': [path for path in paths if path not in present], 'fetched': True}
+                'missing': [path for path in paths if path not in present],
+                'fetched': True}
 
     def fetch_writeback(self, run_id, into):
         """Bring a run's write-back proposal into `into`, never into the worktree.
