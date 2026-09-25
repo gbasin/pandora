@@ -148,11 +148,14 @@ canary cannot see, because a canary runs on a machine that is already up.
    `pandora worker --host <old> gc --dry-run` first to see what is live, then
    set the floor above the pool's free space so admission closes:
    `ssh <old> 'echo 999 > ~/pandora-engine/disk_floor'`.
-   Submissions now answer `disk-floor` with the arithmetic, and the client
-   falls back to a local run.
-3. Wait for the running attempts to finish. Poll
-   `pandora worker --host <old> stats` until `held_mib` is 0 and `running` is
-   empty.
+   Submissions now answer `disk-floor` with the arithmetic. The client treats
+   that refusal as `engine-error`, and the
+   [fallback table](../README.md#fallback) decides what happens next. With no
+   declared `fallback`, a `small` or `medium` job runs in the local lane and a
+   `large` or `xlarge` job exits 70.
+3. Wait for the running and queued attempts to finish. Poll
+   `pandora worker --host <old> stats` until `held_mib` is 0, `queued` is 0 and
+   `running` is empty.
 4. Point the client at the new worker. Edit `[worker] host` in
    `~/.config/pandora/config.toml`.
 5. Restart the client daemon. Run `pandora daemon --restart` if launchd runs it

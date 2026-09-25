@@ -1,46 +1,118 @@
 # Pandora
 
-Pandora runs a repository's heavy validation on a Linux worker while coding
-agents, source edits and Git worktrees stay on the Mac. An agent types the
-command it already types (`pnpm check`, `pnpm journey S0-01`). A POSIX `pnpm`
-shim first on PATH asks a per-user daemon whether the repository claims that
-command. A claimed command is frozen, shipped, admitted on memory and run in a
-fresh Incus instance cloned from the repository's golden image, or in the
-daemon's local lane when the job belongs on the Mac. Declared results come home
-before the command exits, with the command's own exit code. An unclaimed command
-runs as if Pandora were not installed. The repository declares what it owns in
-`pandora.toml`; the Mac declares where the worker is in
-`~/.config/pandora/config.toml`.
+Several coding agents work in one repository on one Mac. Each works in its own
+worktree, and each runs the same heavy validation: type checks, test suites,
+browser journeys that boot a database and a stack. Nothing coordinates them.
+Ten agents means ten stacks, swap, and results nobody trusts.
 
-The invariants, as `pandora --help` states them:
+Pandora is a scheduler for that machine. Agents keep typing the commands they
+type today. Pandora decides where each one runs. A broad suite runs in a fresh
+Linux instance on a shared worker. A focused one runs in a memory-capped queue
+on the Mac. Either way, the results land back in the worktree before the
+command returns, with the command's own exit code.
 
-* Same cwd, environment and exit code as a local run; `$?` and traps behave.
-* Declared results are in your worktree before the command exits. A missing
-  report is reported as missing, never as zero failures.
-* Run from the repository root. Below it, `[matching] subdirectory` decides.
-  `reroot` (the default) runs a routed command from the root, and refuses one
-  whose arguments name a path (exit 64) rather than run it locally. `reject`
-  refuses every routed command. `passthrough` claims nothing there, so the
-  command runs as if Pandora were not installed.
-* Exit codes that are not the command's own: 70 infrastructure failure, never a
-  test verdict; 75 busy or stale; 124 `--max-wait` elapsed and the run was not
-  stopped; 130 canceled.
-* `--update` runs on the worker, never here. Its files come back only from a
-  passing run (every shard) over a tree you did not edit meanwhile; otherwise
-  exit 75, your files untouched, and the next step printed.
-* `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
-  the queue and the stats; 64 if the job cannot run there, never a fallback.
-  `PANDORA_OFF=1 <command>` runs it here with no Pandora at all: a last resort,
-  never a way around the queue or a memory-pressure refusal.
-* Pandora's own lines go to stderr as `pandora: ...`. The last one may be
-  `pandora: hint: ...`: the next action, derived from evidence.
-* Each worktree routes by its own `pandora.toml`. An edit takes effect on the
-  next command in that worktree, at the cost of one Python start. Enrolling a
-  repository is consent, given once; never again after a change.
+## Mechanism
 
-v0.2 is proved against one repository (eichler), one worker (4 vCPU, 15.6 GiB,
-x86_64 Ubuntu 26.04) and one Mac. Read [Operating limits](#operating-limits)
-before you rely on it.
+* **Shim.** A POSIX `pnpm` shim sits first on PATH. It reads the worktree's
+  claim cache with shell builtins. A command the repository does not claim goes
+  to the real `pnpm` at once, as if Pandora were not installed.
+* **Daemon.** A claimed command goes to a per-user daemon on the Mac, over a
+  Unix socket. The daemon holds the local queue, the memory budget and the
+  record of every run.
+* **Claims.** The repository declares in `pandora.toml`, at its root, which
+  commands it owns and how to run them. Each worktree's claim cache is derived
+  from that worktree's own `pandora.toml`. The Mac declares where the worker is
+  in `~/.config/pandora/config.toml`.
+* **Placement.** Each job runs on the worker or in the daemon's local lane. The
+  job's declaration decides. `PANDORA_WHERE` moves one run to the other lane.
+* **Worker.** A remote run is frozen, shipped into the worker's
+  content-addressed source cache, and admitted against the worker's memory
+  budget. It then runs in a fresh Incus system container cloned from the
+  repository's golden image. The golden holds the toolchain and the installed
+  dependencies, so a run does not install them again.
+* **Write-back.** Declared reports and artifacts are in the worktree before the
+  command exits. An armed option, such as `--update`, may also rewrite declared
+  source files. It does so only after a passing run over a tree nobody edited
+  meanwhile.
+* **Exit codes.** The command exits with its own code. Pandora adds a few of
+  its own: 64 when the command cannot run as typed, 70 for an infrastructure
+  failure, 75 for busy or stale, 124 when `--max-wait` elapsed, and 130 for
+  canceled. None of them is a test verdict.
+
+```mermaid
+flowchart LR
+    agent["Coding agent in a worktree<br/>types pnpm check"] --> shim["pnpm shim<br/>first on PATH"]
+    shim -- "not claimed" --> real["real pnpm,<br/>on the Mac"]
+    shim -- "claimed" --> daemon["Pandora daemon<br/>one per user"]
+    toml[/"pandora.toml<br/>what the repository claims"/] --> daemon
+    cfg[/"~/.config/pandora/config.toml<br/>where the worker is"/] --> daemon
+    daemon -- "focused job" --> local["Local lane<br/>memory-capped queue on the Mac"]
+    daemon -- "broad suite:<br/>freeze, ship, admit" --> worker["Linux worker<br/>fresh Incus instance<br/>cloned from the golden image"]
+    local --> home["Worktree<br/>results home, the command's own exit code"]
+    worker -- "output, results" --> home
+```
+
+Pandora v0.2 is proved against one repository (eichler), one worker (4 vCPU,
+15.6 GiB, x86_64 Ubuntu 26.04) and one Mac. Read
+[Operating limits](#operating-limits) before you rely on it.
+
+## Reading guide
+
+| Task | Section |
+|---|---|
+| Install Pandora on a Mac | [Install on a Mac](#install-on-a-mac), then [Upgrade](#upgrade) |
+| Set up, prove or share the worker | [The worker](#the-worker), [Sharing a worker](#sharing-a-worker), [`docs/worker-rebuild.md`](docs/worker-rebuild.md) |
+| Declare what a repository routes | [The repository side](#the-repository-side) |
+| Act on an exit code, a variable or a verb, as an agent | [What agents type](#what-agents-type), [`docs/agents-paragraphs.md`](docs/agents-paragraphs.md) |
+| Judge the design and its limits | [DESIGN.md](DESIGN.md), [Operating limits](#operating-limits) |
+
+## Contents
+
+* [Install on a Mac](#install-on-a-mac)
+  * [Prerequisites](#prerequisites)
+  * [1. Clone the checkout and install a version](#1-clone-the-checkout-and-install-a-version)
+  * [2. Put the launchers first on PATH](#2-put-the-launchers-first-on-path)
+  * [3. Write the client configuration](#3-write-the-client-configuration)
+  * [4. Start the daemon](#4-start-the-daemon)
+  * [5. Enroll each repository](#5-enroll-each-repository)
+  * [6. Prove the install](#6-prove-the-install)
+* [Upgrade](#upgrade)
+  * [Migration from a checkout install](#migration-from-a-checkout-install)
+* [The daemon](#the-daemon)
+  * [Restart and drain](#restart-and-drain)
+  * [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
+  * [Removal and manual start](#removal-and-manual-start)
+* [Enrollment and claim caches](#enrollment-and-claim-caches)
+  * [Claim caches](#claim-caches)
+  * [Migration from the old marker](#migration-from-the-old-marker)
+  * [Unenrollment](#unenrollment)
+  * [Old spellings](#old-spellings)
+* [The worker](#the-worker)
+  * [Requirements](#requirements)
+  * [Provision](#provision)
+  * [Canary](#canary)
+  * [Sharing a worker](#sharing-a-worker)
+  * [Maintenance](#maintenance)
+* [The repository side](#the-repository-side)
+  * [Ownership](#ownership)
+  * [Top-level tables](#top-level-tables)
+  * [Source preparation](#source-preparation)
+  * [Job keys](#job-keys)
+* [What agents type](#what-agents-type)
+  * [Invariants](#invariants)
+  * [Exit codes](#exit-codes)
+  * [Variables](#variables)
+  * [Verbs](#verbs)
+  * [Caller output](#caller-output)
+* [Behavior tables](#behavior-tables)
+  * [Fallback](#fallback)
+  * [Queueing](#queueing)
+  * [Write-back (`--update`)](#write-back---update)
+  * [One automatic infrastructure retry](#one-automatic-infrastructure-retry)
+  * [Placement override refusals](#placement-override-refusals)
+* [Operating limits](#operating-limits)
+* [Layout](#layout)
+* [History](#history)
 
 ## Install on a Mac
 
@@ -51,7 +123,7 @@ configuration file, the daemon, one enrollment per repository, done once, and
 
 ### Prerequisites
 
-* macOS. The daemon has run only on macOS; its Linux peer-credential branch is
+* macOS. The daemon has run only on macOS. Its Linux peer-credential branch is
   untested.
 * Python 3.11 or later as `python3` on PATH. Pandora imports `tomllib`.
   `/usr/bin/python3` on macOS is 3.9 and cannot run it. To use another
@@ -59,7 +131,7 @@ configuration file, the daemon, one enrollment per repository, done once, and
 * Git, rsync and OpenSSH.
 * The real `pnpm` on PATH. The shim finds it by walking PATH past itself.
 * An SSH key that logs in to the worker without a prompt. Pandora uses your SSH
-  configuration. The daemon keeps one control master per worker; `pandora
+  configuration. The daemon keeps one control master per worker. `pandora
   worker` verbs share another, never close it, and leave it to expire after ten
   idle minutes, so no verb cuts off the daemon's or another verb's transfers.
 * A provisioned worker. See [The worker](#the-worker).
@@ -70,13 +142,8 @@ configuration file, the daemon, one enrollment per repository, done once, and
 git clone https://github.com/gbasin/pandora.git ~/Code/pandora
 ```
 
-Check out the v0.2 line. Until it merges to `main`, that is `v0.2/assembly`.
-
-```sh
-git -C ~/Code/pandora checkout v0.2/assembly
-```
-
-Install the checkout's HEAD as the version Pandora runs.
+The clone is on `main`, the current line. Install its HEAD as the version
+Pandora runs.
 
 ```sh
 ~/Code/pandora/bin/pandora upgrade
@@ -84,8 +151,8 @@ Install the checkout's HEAD as the version Pandora runs.
 
 `upgrade` copies the committed tree into
 `~/.local/share/pandora/versions/<commit>/` and points
-`~/.local/share/pandora/current` at it. The launchers, the daemon and the
-claim caches all run from `current`, never from the checkout. Pulling,
+`~/.local/share/pandora/current` at it. The launchers and the daemon run from
+`current`, never from the checkout. Pulling,
 editing or switching branches in the checkout changes nothing live until the
 next `pandora upgrade`. See [Upgrade](#upgrade). If `XDG_DATA_HOME` is set,
 the directory is `$XDG_DATA_HOME/pandora` instead.
@@ -111,9 +178,11 @@ Create the shim marker beside them.
 touch ~/.local/bin/.pandora-shim
 ```
 
-The marker tells a repository's own job runner which PATH entry holds a command
-shim, so that a child process it spawns does not route a second time. Eichler's
-`tools/validation/state.mjs` reads it. `pandora doctor` checks for it.
+The marker names the PATH entry that holds a command shim. A repository's own
+job runner can read it, so that a child process the runner spawns does not route
+a second time. The depth guard, `PANDORA_ROUTE_DEPTH`, stops that re-entry
+without it. `pandora doctor` warns when the marker is missing beside the shim,
+or when it sits in another PATH directory.
 
 `~/.local/bin` must come before the directory of the real `pnpm` in every shell
 an agent uses. That includes non-interactive shells, such as the Claude Code
@@ -180,7 +249,7 @@ The optional keys and their defaults:
 | `[local.pause]` | `enabled`, `sample_seconds`, `swap_growth_mib_per_minute`, `psi_full_avg10`, `free_percent`, `load_per_cpu`, `max_wait_seconds` | `true`, 3, 256, 20.0, 5.0, 8.0, 300 | The gate that stops new local jobs on a Mac under memory pressure. A job held past `max_wait_seconds` exits 70 and never runs. |
 
 `pandora/client/settings.py` documents every key. It also accepts `[worker]
-budget_mib` and `[client] max_wait_seconds`; nothing in v0.2 reads them.
+budget_mib` and `[client] max_wait_seconds`. Nothing reads them.
 
 ### 4. Start the daemon
 
@@ -196,149 +265,42 @@ pandora daemon --install
 The command writes `~/Library/LaunchAgents/com.pandora.daemon.plist`, loads it,
 and prints the launchd state line. When launchd already runs the daemon, the
 command drains it first, the same way `pandora daemon --restart` does (see
-below; `--wait`, `--now` and `--idle-cancel` work the same). It then boots
+[Restart and drain](#restart-and-drain). `--wait`, `--now` and `--idle-cancel`
+work the same). It then boots
 the old job out, waits until `launchctl print` says "Could not find service",
 runs `launchctl enable` and bootstraps the new plist, and waits until launchd
 lists the new job with a new pid. The wait for the old job and the bootstrap
-retries share 300 s, with a progress line every 15 s; the new pid has 30 s
+retries share 300 s, with a progress line every 15 s. The new pid has 30 s
 of its own. When a step fails, the command says what to run, and exits 1:
 the `launchctl bootstrap` command once `launchctl print` says "Could not find
 service", or `launchctl kickstart` and the log when the job is loaded but
 its daemon does not start. Ctrl-C, SIGHUP or SIGTERM after the bootout still
 bootstraps the new plist before the command exits.
 
-Every line in `daemon.log` starts with a UTC time. The log records worker health changes, each transfer's start, end or
-failure (run, worktree, input id, files, MiB, rsync exit, elapsed), each
+Every line in `daemon.log` starts with a UTC time. The log records worker
+health changes, each transfer's start, end or failure (run, worktree, input id, files, MiB, rsync exit, elapsed), each
 refusal with its cause, and what a restart decided about each live run. A
 failed transfer also leaves rsync's whole stderr in
 `<state>/runs/<id>/transfer.stderr`. The plist pins `PANDORA_PYTHON` to the
 interpreter that ran the install. If a hand-started daemon already holds the
-lock, the install refuses; stop that daemon first with `pandora daemon --stop`.
+lock, the install refuses. Stop that daemon first with `pandora daemon --stop`.
 
 The plist sets `ProcessType` to `Interactive`. Every agent's command waits on
 the daemon, so it must be scheduled on a loaded Mac. `Background`, the earlier
 value, is Apple's class for batch work: low CPU, I/O and network priority, and
 the first target of memory pressure. At load 90 it left the daemon unanswered
-for 66 s. The daemon also runs its accept loop at user-interactive QoS; the
+for 66 s. The daemon also runs its accept loop at user-interactive QoS. The
 threads that serve each connection run at the default. There is no `Nice` key,
 because a negative nice needs root. `pandora doctor` warns when the installed
 plist still says `Background` or sets no `ProcessType`. Run `pandora daemon
 --install` to rewrite it. It drains the daemon before it restarts it.
 
 The daemon runs the version it started with. `pandora upgrade` restarts it into
-a new version when no run would be lost; see [Upgrade](#upgrade). On an
-install that runs the checkout, restart it after you update the checkout.
+a new version when no run would be lost. See [Upgrade](#upgrade). On an
+older install that runs the checkout, restart it after you update the checkout.
 `pandora doctor` then warns when a module the daemon loaded differs from the
 same file in the checkout. A change to a module the daemon never loads, such
 as the worker half, is not a reason to restart.
-
-You do not need a quiet moment. A restart drains the daemon first.
-
-```sh
-pandora daemon --restart
-```
-
-1. The daemon stops admitting runs. It writes `<state>/draining` with the
-   time and the pid that asked. `pandora ps` shows `daemon: draining` on its
-   first line.
-2. The restart waits for the runs a restart would end: a local run that is
-   executing, and a remote run not yet accepted (`queued`, `freezing`,
-   `shipping`, `submitting`). It prints the list each time the list changes.
-   An accepted remote run does not block it.
-3. When the list is empty, launchd restarts the daemon (`launchctl kickstart
-   -k`). The new daemon settles every row, then removes the marker.
-
-The wait is `--wait` seconds, 300 by default. When it runs out, the daemon
-admits runs again, nothing is restarted, and the command exits 75 with the
-runs that still block. Retry later, or add `--now`: with `--now` the restart
-goes ahead when the wait runs out, and the table below applies to what is
-still running. A kickstart that fails, Ctrl-C, SIGHUP or SIGTERM also ends
-the drain. Under steady traffic, a restart costs at most the drain wait. A
-daemon from before the drain is waited on through `pandora ps`, without
-holding new commands; if a run starts as the restart is prepared, it waits
-again.
-
-A local run that does nothing does not hold the drain. The daemon samples
-each local run's process tree every second. A run whose processes together
-use less than 1 s of CPU, start or end no process, and write no output for
-`--idle-cancel` seconds (600 by default; 0 turns it off) is canceled. The
-restart prints `canceling <id>: no CPU progress and no output for <time>`,
-the run's log and its caller get the same reason, and the run ends with exit
-130. The daemon checks the run again before it cancels it, so a run that
-started to progress since the last poll keeps running. A run that `ps` cannot
-measure is never idle. While the restart waits, each blocker line shows
-`idle <time>` once a run has not progressed for a minute, and `pandora ps
---json` shows `cpu_seconds`, `last_active` and `idle_seconds` for each local
-run that is executing. A run whose work is done by processes outside its
-tree, for example in a Docker container, with no output, looks idle. Use
-`--idle-cancel 0` when such a run must not be canceled. `pandora upgrade` and
-`pandora daemon --install` apply the same rule and take the same option.
-
-The drain is a lease. `--restart` renews it every second. A daemon that hears
-nothing for 30 s ends the drain itself and admits runs again, so a restart
-killed with SIGKILL, or by a tool timeout, holds commands for at most 30 s. If
-the drain cannot be ended at the end of a failed wait, `--restart` says so and
-the lease ends it.
-
-`--restart` refuses before it drains when launchd does not run the daemon that
-holds `daemon.lock`: a kickstart would not reach that daemon. A socket that
-refuses connections while a daemon holds the lock is a daemon that does not
-answer, not a missing one: `--restart` exits 75 without `--now`.
-
-What a client sees during the drain and the restart:
-
-* A new claimed command prints `pandora: daemon is restarting; waiting` once.
-  Nothing has run. It asks again every 2 seconds and is submitted as usual
-  when the new daemon answers.
-* A local run that was still queued is withdrawn and submitted again in the
-  same way. It loses its place in the queue.
-* A command the claim cache does not claim is not held: it runs at once.
-* While no daemon listens, the client keeps asking only while the marker is
-  younger than its wait. With no fresh marker, the rules in [When the daemon
-  is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
-  apply. A connection the stopping daemon closes before it answers is asked
-  again, when the drain began before the command was sent.
-* A client waits at most `PANDORA_DRAIN_WAIT` seconds, 660 by default: the
-  longest restart wait (`pandora upgrade`, 600 s) and a minute for the restart.
-  When the wait runs out, the command exits 75 and nothing ran: "still
-  draining" when the daemon still answers `draining`, "did not come back" when
-  no daemon listens. Retry. It never runs unmanaged during a drain.
-* `pandora wait`, `ps`, `logs`, `result` and `cancel` work during the drain.
-
-A marker older than 15 minutes is a restart that never finished. Clients
-ignore it and `pandora doctor` warns about it. Any daemon that starts removes
-it.
-
-The new daemon may start before the old one has let go of `daemon.lock`. It
-waits up to 120 s for the lock and logs `waiting for pid N to stop`.
-
-The client code that answers `draining` is new in this release. A client from
-before it reads the frame as a closed connection and exits 70, "execution is
-uncertain". So on an install that runs the checkout, update the checkout first
-and restart the daemon second: the shim runs the checkout's client code at
-once. `pandora upgrade` moves `current` before the restart for the same reason.
-
-What a restart does to each run:
-
-| Run | After the restart |
-|---|---|
-| Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
-| Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
-| Local, executing | The drain waits for it to finish. With `--now` after the wait: it ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
-| Local, queued | Ends `withdrawn` when the drain starts. Its client submits it again to the next daemon. |
-| A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait, then exit 70 (see [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)). |
-
-A client attached to a run that ends this way exits 70. It does not wait.
-`kill -USR1 <daemon pid>` writes every thread's stack to the daemon log, for a
-run that looks stuck while the daemon is still driving it.
-
-`pandora daemon --uninstall` unloads the agent and deletes the plist. A remote
-run continues on the worker while no daemon runs, as after a restart.
-
-To run the daemon by hand instead, for example on a machine where launchd is not
-wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
-foreground or under `nohup`. `pandora doctor` then warns that nothing restarts
-it.
 
 ### 5. Enroll each repository
 
@@ -365,7 +327,7 @@ three things:
    repository has none. It only appends, and it puts the file back if the
    result does not load. It leaves an existing entry as it is and prints the
    block it would have written, if that differs. It refuses (exit 1) when an
-   entry with the same name belongs to another repository; use `--name`.
+   entry with the same name belongs to another repository. Use `--name`.
 2. It writes `pandora-repo` into the Git common directory. This registration
    covers every worktree of the repository, including worktrees created later.
 3. It writes the claim cache of the worktree you enrolled from, derived from
@@ -373,93 +335,8 @@ three things:
    same.
 
 It also removes the old marker, `<common>/pandora-enrolled`, if there is one.
-
-Each worktree has its own claim cache, `pandora-claims`, in the worktree's own
-Git directory (`git rev-parse --git-dir`): `<common>/worktrees/<name>/` for a
-linked worktree, `<common>/` for the main one. The daemon writes it from that
-worktree's `pandora.toml`, whenever it classifies a command from that worktree.
-The shim reads it with shell builtins and forks nothing. A worktree on a branch
-with a different `pandora.toml` routes by its own file.
-
-The cache is a cache of `pandora.toml` and checks itself. You do not enroll
-again after a change to the file. The shim compares dates: a cache older than
-the worktree's `pandora.toml`, the `--config` file it came from, or the client
-configuration is stale. On a stale or missing cache the shim starts Python
-once. The daemon rewrites the cache and says whether the command is claimed.
-The command then routes, or runs as if Pandora were not installed. Every
-claimed command also reaches the daemon, which derives the cache again from the
-file's content, so a file replaced by one with an older date is caught there.
-Whenever a rewrite changes the claims, the caller sees one line:
-
-```
-pandora: claim cache refreshed from pandora.toml
-```
-
-The next command reads the new cache. Until a claimed command runs, `pandora
-doctor` reports a cache whose file changed without a newer date: the cache
-records the file's SHA-256 digest. Without a daemon, the client derives the
-cache itself from the worktree's `pandora.toml` and writes it. With
-`PANDORA_OFF=1` and no fresh cache, the passthrough logger decides the same way
-and logs only a claimed command.
-
-Two worktrees on branches with different `pandora.toml` files do not share a
-cache. Each cache is in its own worktree's Git directory, so neither rewrites
-the other's.
-
-The shim runs the client from where it is itself installed: the file the `pnpm`
-link on PATH resolves to. After `pandora upgrade` that link goes through
-`~/.local/share/pandora/current`, so the shim follows every upgrade, and it
-imports from the version directory `current` names when the command starts. No
-file names a client home. A cache or registration written before this change
-can still have a `home` line. The line is read and ignored. A claimed command
-says so when the line names another package. The daemon's next rewrite drops it
-from a cache; `pandora enroll <root>` drops it from the registration. A shim
-link that still points into a checkout runs that checkout's code; `pandora
-doctor` warns about it, and `pandora upgrade` prints the `ln -sf` that fixes it.
-
-To move from the old marker, update the checkout, restart the daemon (`pandora daemon
---restart`), then run `pandora enroll <root>`
-once per repository. Restart first: a daemon from before claim caches answers
-the shim's question with "unknown op", so every command in a worktree without a
-cache pays a Python start and two daemon round trips. `enroll` asks the daemon
-and warns when it does not know the question. Until you enroll again the shim
-reads the old marker in each worktree that has no cache, and the marker can be
-stale. The daemon writes a worktree's cache on its first claimed command; from
-then on that worktree routes by its own `pandora.toml`. The old marker is read
-for one more release.
-
-### When the daemon is installed but does not answer
-
-A claimed command that finds no daemon on the socket, or a socket that
-refuses it, takes one of three paths, in this order:
-
-1. A fresh `<state>/draining` marker: a restart is in progress. The command
-   waits for the new daemon, up to `PANDORA_DRAIN_WAIT`, then exits 75 with
-   "did not come back". Nothing runs.
-2. No fresh marker, and the client configuration, `~/.config/pandora/config.toml`,
-   exists: the daemon was installed on this Mac. The command waits up to five
-   seconds, which covers a restart without a drain. Then it exits 70 and prints
-   ``pandora: hint: run `pandora doctor` ``. Nothing runs.
-3. No fresh marker and no client configuration: Pandora was never installed
-   here. A claimed command in an enrolled clone runs here as if Pandora were
-   not installed, with one notice and a row in `<state>/passthrough.jsonl`.
-
-`PANDORA_OFF=1` bypasses all three: the command runs here with no Pandora.
-
-To stop routing a repository, unenroll it.
-
-```sh
-pandora unenroll ~/Code/eichler
-```
-
-`unenroll` removes the registration, the old marker and every worktree's claim
-cache it finds under the Git common directory. It leaves the `[[repos]]` entry
-in the client configuration and says so. Remove that entry too: `pandora run`
-still routes while it is there.
-
-`pandora enrol` and `pandora unenrol`, the old spellings, still work for one
-release. Each prints a one-line deprecation notice on stderr and then runs
-`enroll` or `unenroll`. Change scripts to the new spelling.
+[Claim caches](#claim-caches) explains how each worktree then routes by its own
+`pandora.toml`. [Unenrollment](#unenrollment) stops routing a repository.
 
 ### 6. Prove the install
 
@@ -560,7 +437,7 @@ pandora upgrade
 7. It re-points `pandora` and the shim on PATH through `current`, when they
    are symlinks into the checkout it upgrades or into a version directory,
    and the data directory is the default `~/.local/share/pandora`. With
-   another data directory it prints the `ln -sf` to run; `--relink` moves the
+   another data directory it prints the `ln -sf` to run. `--relink` moves the
    links anyway. It reports a copy or a missing launcher and leaves it.
 8. It deletes old versions. It keeps the three most recently installed
    (`--keep N`, at least 2), `current`, the version before it, and the
@@ -576,7 +453,7 @@ its version until it restarts, and `pandora doctor` warns meanwhile.
 
 It prints the new version with its tree digest, `current` before and after,
 and the daemon's version before and after the restart. `--from <checkout>`
-names the checkout; the default is the checkout the current version came
+names the checkout. The default is the checkout the current version came
 from.
 
 | Exit | Meaning |
@@ -601,14 +478,14 @@ The directories, under `$XDG_DATA_HOME/pandora`, else `~/.local/share/pandora`:
 | Path | What it is |
 |---|---|
 | `versions/<commit>/` | One installed tree. Written once, then never changed. `.pandora-version` in it records the commit, the source checkout and the tree digest. |
-| `current` | A relative symlink to one version. The plist, the launchers on PATH, the registration and the claim caches name paths through it, so none of them goes stale. |
+| `current` | A relative symlink to one version. The plist and the links on PATH name paths through it, so neither goes stale when it moves. The registration and the claim caches name no client code at all. |
 
 The launchers resolve `current` when they start, and start Python without the
 working directory on its path. A daemon or a claimed command keeps importing
 from the version it started with, even after `current` moves, and a command
 typed inside a Pandora checkout still runs the installed version.
 
-### Move an install that runs the checkout
+### Migration from a checkout install
 
 An install from before `pandora upgrade` links the launchers into the checkout
 and runs the daemon from it. It keeps working. To move it to `current`:
@@ -626,6 +503,222 @@ and runs the daemon from it. It keeps working. To move it to `current`:
    rewrites the registration without the line. The next claimed command in a
    worktree rewrites that worktree's cache without it.
 
+## The daemon
+
+This section covers restarts, a daemon that does not answer, and removal.
+
+### Restart and drain
+
+You do not need a quiet moment. A restart drains the daemon first.
+
+```sh
+pandora daemon --restart
+```
+
+1. The daemon stops admitting runs. It writes `<state>/draining` with the
+   time and the pid that asked. `pandora ps` shows `daemon: draining` on its
+   first line.
+2. The restart waits for the runs a restart would end: a local run that is
+   executing, and a remote run not yet accepted (`queued`, `freezing`,
+   `shipping`, `submitting`). It prints the list each time the list changes.
+   An accepted remote run does not block it.
+3. When the list is empty, launchd restarts the daemon (`launchctl kickstart
+   -k`). The new daemon settles every row, then removes the marker.
+
+The wait is `--wait` seconds, 300 by default. When it runs out, the daemon
+admits runs again, nothing is restarted, and the command exits 75 with the
+runs that still block. Retry later, or add `--now`: with `--now` the restart
+goes ahead when the wait runs out, and the table below applies to what is
+still running. A kickstart that fails, Ctrl-C, SIGHUP or SIGTERM also ends
+the drain. Under steady traffic, a restart costs at most the drain wait. A
+daemon from before the drain is waited on through `pandora ps`, without
+holding new commands. If a run starts as the restart is prepared, it waits
+again.
+
+A local run that does nothing does not hold the drain. The daemon samples
+each local run's process tree every second. A run whose processes together
+use less than 1 s of CPU, start or end no process, and write no output for
+`--idle-cancel` seconds (600 by default, and 0 turns it off) is canceled. The
+restart prints `canceling <id>: no CPU progress and no output for <time>`,
+the run's log and its caller get the same reason, and the run ends with exit
+130. The daemon checks the run again before it cancels it, so a run that
+started to progress since the last poll keeps running. A run that `ps` cannot
+measure is never idle. While the restart waits, each blocker line shows
+`idle <time>` once a run has not progressed for a minute, and `pandora ps
+--json` shows `cpu_seconds`, `last_active` and `idle_seconds` for each local
+run that is executing. A run whose work is done by processes outside its
+tree, for example in a Docker container, with no output, looks idle. Use
+`--idle-cancel 0` when such a run must not be canceled. `pandora upgrade` and
+`pandora daemon --install` apply the same rule and take the same option.
+
+The drain is a lease. `--restart` renews it every second. A daemon that hears
+nothing for 30 s ends the drain itself and admits runs again, so a restart
+killed with SIGKILL, or by a tool timeout, holds commands for at most 30 s. If
+the drain cannot be ended at the end of a failed wait, `--restart` says so and
+the lease ends it.
+
+`--restart` refuses before it drains when launchd does not run the daemon that
+holds `daemon.lock`: a kickstart would not reach that daemon. A socket that
+refuses connections while a daemon holds the lock is a daemon that does not
+answer, not a missing one: `--restart` exits 75 without `--now`.
+
+What a client sees during the drain and the restart:
+
+* A new claimed command prints `pandora: daemon is restarting; waiting` once.
+  Nothing has run. It asks again every 2 seconds and is submitted as usual
+  when the new daemon answers.
+* A local run that was still queued is withdrawn and submitted again in the
+  same way. It loses its place in the queue.
+* A command the claim cache does not claim is not held: it runs at once.
+* While no daemon listens, the client keeps asking only while the marker is
+  younger than its wait. With no fresh marker, the rules in [When the daemon
+  is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
+  apply. A connection the stopping daemon closes before it answers is asked
+  again, when the drain began before the command was sent.
+* A client waits at most `PANDORA_DRAIN_WAIT` seconds, 660 by default: the
+  longest restart wait (`pandora upgrade`, 600 s) and a minute for the restart.
+  When the wait runs out, the command exits 75 and nothing ran: "still
+  draining" when the daemon still answers `draining`, "did not come back" when
+  no daemon listens. Retry. It never runs unmanaged during a drain.
+* `pandora wait`, `ps`, `logs`, `result` and `cancel` work during the drain.
+
+A marker older than 15 minutes is a restart that never finished. Clients
+ignore it and `pandora doctor` warns about it. Any daemon that starts removes
+it.
+
+The new daemon may start before the old one has let go of `daemon.lock`. It
+waits up to 120 s for the lock and logs `waiting for pid N to stop`.
+
+A client older than the drain protocol reads the `draining` frame as a closed
+connection and exits 70, "execution is uncertain". So on an older install that
+runs the checkout, update the checkout first and restart the daemon second: the
+shim runs the checkout's client code at once. `pandora upgrade` moves `current`
+before the restart for the same reason.
+
+What a restart does to each run:
+
+| Run | After the restart |
+|---|---|
+| Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
+| Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
+| Local, executing | The drain waits for it to finish. With `--now` after the wait: it ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
+| Local, queued | Ends `withdrawn` when the drain starts. Its client submits it again to the next daemon. |
+| A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait, then exit 70 (see [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)). |
+
+A client attached to a run that ends this way exits 70. It does not wait.
+`kill -USR1 <daemon pid>` writes every thread's stack to the daemon log, for a
+run that looks stuck while the daemon is still driving it.
+
+### When the daemon is installed but does not answer
+
+A claimed command that finds no daemon on the socket, or a socket that
+refuses it, takes one of three paths, in this order:
+
+1. A fresh `<state>/draining` marker: a restart is in progress. The command
+   waits for the new daemon, up to `PANDORA_DRAIN_WAIT`, then exits 75 with
+   "did not come back". Nothing runs.
+2. No fresh marker, and the client configuration, `~/.config/pandora/config.toml`,
+   exists: the daemon was installed on this Mac. The command waits up to five
+   seconds, which covers a restart without a drain. Then it exits 70 and prints
+   ``pandora: hint: run `pandora doctor` ``. Nothing runs.
+3. No fresh marker and no client configuration: Pandora was never installed
+   here. A claimed command in an enrolled clone runs here as if Pandora were
+   not installed, with one notice and a row in `<state>/passthrough.jsonl`.
+
+`PANDORA_OFF=1` bypasses all three: the command runs here with no Pandora.
+
+### Removal and manual start
+
+`pandora daemon --uninstall` unloads the agent and deletes the plist. A remote
+run continues on the worker while no daemon runs, as after a restart.
+
+To run the daemon by hand instead, for example on a machine where launchd is not
+wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
+foreground or under `nohup`. `pandora doctor` then warns that nothing restarts
+it.
+
+## Enrollment and claim caches
+
+### Claim caches
+
+Each worktree has its own claim cache, `pandora-claims`, in the worktree's own
+Git directory (`git rev-parse --git-dir`): `<common>/worktrees/<name>/` for a
+linked worktree, `<common>/` for the main one. The daemon writes it from that
+worktree's `pandora.toml`, whenever it classifies a command from that worktree.
+The shim reads it with shell builtins and forks nothing. A worktree on a branch
+with a different `pandora.toml` routes by its own file.
+
+The cache is a cache of `pandora.toml` and checks itself. You do not enroll
+again after a change to the file. The shim compares dates: a cache older than
+the worktree's `pandora.toml`, the `--config` file it came from, or the client
+configuration is stale. On a stale or missing cache the shim starts Python
+once. The daemon rewrites the cache and says whether the command is claimed.
+The command then routes, or runs as if Pandora were not installed. Every
+claimed command also reaches the daemon, which derives the cache again from the
+file's content, so a file replaced by one with an older date is caught there.
+Whenever a rewrite changes the claims, the caller sees one line:
+
+```
+pandora: claim cache refreshed from pandora.toml
+```
+
+The next command reads the new cache. Until a claimed command runs, `pandora
+doctor` reports a cache whose file changed without a newer date: the cache
+records the file's SHA-256 digest. Without a daemon, the client derives the
+cache itself from the worktree's `pandora.toml` and writes it. With
+`PANDORA_OFF=1` and no fresh cache, the passthrough logger decides the same way
+and logs only a claimed command.
+
+Two worktrees on branches with different `pandora.toml` files do not share a
+cache. Each cache is in its own worktree's Git directory, so neither rewrites
+the other's.
+
+The shim runs the client from where it is itself installed: the file the `pnpm`
+link on PATH resolves to. After `pandora upgrade` that link goes through
+`~/.local/share/pandora/current`, so the shim follows every upgrade, and it
+imports from the version directory `current` names when the command starts. No
+file names a client home. An older cache or registration can still have a
+`home` line. Routing never uses it. A claimed command prints one notice when
+the line names another package, and `pandora doctor` shows a `client home`
+`info` row. The daemon's next rewrite drops the line from a cache. `pandora
+enroll <root>` drops it from the registration. A shim link that still points
+into a checkout runs that checkout's code. `pandora doctor` warns about it, and
+`pandora upgrade` prints the `ln -sf` that fixes it.
+
+### Migration from the old marker
+
+To move from the old marker, bring the daemon up to the new version first.
+Run `pandora upgrade`. On an install that still runs the checkout, follow
+[Migration from a checkout install](#migration-from-a-checkout-install)
+instead. Then run `pandora enroll <root>` once per repository. The daemon comes
+first because a daemon from before claim caches answers the shim's question
+with "unknown op". Every command in a worktree without a cache then pays a
+Python start and two daemon round trips. `enroll` asks the daemon
+and warns when it does not know the question. Until you enroll again the shim
+reads the old marker in each worktree that has no cache, and the marker can be
+stale. The daemon writes a worktree's cache on its first claimed command. From
+then on that worktree routes by its own `pandora.toml`. The old marker is read
+for one more release.
+
+### Unenrollment
+
+To stop routing a repository, unenroll it.
+
+```sh
+pandora unenroll ~/Code/eichler
+```
+
+`unenroll` removes the registration, the old marker and every worktree's claim
+cache it finds under the Git common directory. It leaves the `[[repos]]` entry
+in the client configuration and says so. Remove that entry too: `pandora run`
+still routes while it is there.
+
+### Old spellings
+
+`pandora enrol` and `pandora unenrol`, the old British spellings, are hidden
+aliases for one release. Each prints a one-line deprecation notice on stderr and then runs
+`enroll` or `unenroll`. Change scripts to the new spelling.
+
 ## The worker
 
 A worker is a disposable Linux machine. Nothing on it is the only copy of
@@ -634,7 +727,7 @@ golden rebuilds from its toolchain description. Rebuild a worker rather than
 repair it. [`docs/worker-rebuild.md`](docs/worker-rebuild.md) is the full
 procedure, with cut-over and upgrade cadence.
 
-### What it needs
+### Requirements
 
 * x86_64 Ubuntu 26.04, at least 4 vCPU, 15 GiB of memory and 96 GB of disk.
 * A spare block device of at least 40 GB for the Incus storage pool. Without
@@ -668,7 +761,7 @@ writes the manifest. Every step reports `present`, `created`, `changed` or
 
 Use `--loop-file 18G` instead of `device` only when there is no spare device.
 
-### Prove it with the canary
+### Canary
 
 The canary is the health gate: about 26 checks in about 100 seconds. It reads
 every enrolled repository's `pandora.toml` through the daemon's loader and
@@ -696,7 +789,7 @@ pandora worker canary --mark
   worktree first, or pass `--source <a tree on the worker>`.
 * `--journey F` and `--surfaces F` are overrides for a worker no repository is
   enrolled against yet. Each names a toolchain JSON file with the `[worker]`
-  keys. A path that exists on the Mac is shipped; any other path is read on the
+  keys. A path that exists on the Mac is shipped. Any other path is read on the
   worker.
 * `--mark` writes the ready state from the verdict. Without it the canary only
   reports.
@@ -731,7 +824,7 @@ What holds between clients:
   source cache and the turbo cache are content-addressed and written by
   temporary file and rename, so two writers of one entry leave one whole entry.
 * A request id held by one client is never attached to by another. The engine
-  refuses the second submission as `request-collision`; nothing starts.
+  refuses the second submission as `request-collision`, and nothing starts.
 * One memory budget covers every client's runs. Admission counts them all.
 * `cancel`, `lookup` and the automatic retry act only on the calling client's
   runs. Another client's run is refused as `not-yours`. A run submitted before
@@ -755,7 +848,7 @@ Where the name shows:
 * `pandora stats` names this client on its first line and lists every client the
   worker has seen, with runs and live runs.
 
-### Keep it
+### Maintenance
 
 Sweep leaked instances, leaked volumes and old goldens once a week. Read the
 dry run first.
@@ -775,13 +868,13 @@ comes from `golden_keep` in the versions manifest, which is 2.
 
 `gc` never removes these goldens, whatever `--keep` says:
 
-* one a live attempt needs;
-* one whose fingerprint an enrolled repository's `pandora.toml` names. The
+* One a live attempt needs.
+* One whose fingerprint an enrolled repository's `pandora.toml` names. The
   client computes these from `[[repos]]` and passes each as `--protect`. The
   receipt says `kept ... named by <repo> pandora.toml`. An enrolled
-  configuration that does not load stops `gc` before it asks the worker;
-* one named by `--protect FINGERPRINT` on the command line;
-* a pinned one. Remove a pinned golden by hand.
+  configuration that does not load stops `gc` before it asks the worker.
+* One named by `--protect FINGERPRINT` on the command line.
+* A pinned one. Remove a pinned golden by hand.
 
 `gc` writes a receipt under `~/pandora/worker/receipts/` on the worker.
 
@@ -809,9 +902,11 @@ The file is the contract between the repository and the daemon. When the
 running daemon does not understand a key or a value, for example a daemon
 started before `subdirectory = "passthrough"` existed, each claimed command is
 refused with exit 70 and nothing runs. The refusal names the key and the value
-and gives the fix: when `pandora ps` shows nothing running, `git -C <the
-daemon's checkout> pull && pandora daemon --restart`. If the key is a mistake,
-fix the file. The claim cache keeps the file's claimed forms meanwhile, so these
+and gives the fix. On an installed version the fix is `git -C <source
+checkout> pull && pandora upgrade`, which restarts the daemon at a safe moment.
+On an older install that runs the checkout it is `git -C <checkout> pull &&
+pandora daemon --restart`, once `pandora ps` shows nothing running. If the key
+is a mistake, fix the file. The claim cache keeps the file's claimed forms meanwhile, so these
 commands reach the refusal instead of running unmanaged. A file that is not
 valid TOML, or that the daemon cannot read, claims nothing, and every command
 runs as if Pandora were not installed. The reference is
@@ -820,7 +915,7 @@ with the sharded surface job in
 [`eichler-surfaces.pandora.toml`](pandora/config/examples/eichler-surfaces.pandora.toml).
 Both carry the reasoning behind each value as comments.
 
-### Who owns what
+### Ownership
 
 The repository owns the runner. It decides what a suite is, which arguments are
 legal, how a suite is cut into shards, and what it writes. Pandora never parses
@@ -832,9 +927,9 @@ content-addressed source cache, admits the run against a memory budget, clones
 an instance, streams the output, brings the declared paths home, and exits with
 the command's code.
 
-Sharding has two tiers. A tier-1 job appends a shard flag and runs N instances;
-its result says `unverified`, because nothing describes the partition. A tier-2
-job also declares a `plan` step that builds once and lists the partition; the
+Sharding has two tiers. A tier-1 job appends a shard flag and runs N instances.
+Its result says `unverified`, because nothing describes the partition. A tier-2
+job also declares a `plan` step that builds once and lists the partition. The
 run is `verified` only when every shard filed a report and the observed test ids
 equal the planned partition exactly.
 
@@ -861,7 +956,7 @@ remote and armed writeback requests are refused instead.
 A connection lost after sending a submission has an uncertain outcome. The
 client exits 70 without replaying locally. Check `pandora ps` before retrying.
 
-### Preparing transferred source
+### Source preparation
 
 Set `prepare_command` under `[worker]` when a repository needs to refresh
 dependencies after each source transfer. It is a shell command string, for
@@ -872,12 +967,12 @@ local lane does not run it.
 
 The hook receives the run's environment and uses the same memory ceiling,
 wall-time limit and cancellation supervision as a remote command. Its output
-appears in the run log. A failed hook stops the job; the result records the
+appears in the run log. A failed hook stops the job, and the result records the
 preparation outcome and exit in `evidence.preparation`. A nonzero exit gives
 an infrastructure result with CLI exit 70, not the job command's exit. A
 cancel gives CLI exit 130. The clone is destroyed after either result.
 
-### What a job declares
+### Job keys
 
 | Key | Meaning |
 |---|---|
@@ -902,13 +997,46 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `timeout_minutes` | Wall-clock limit, 1 to 1440. Default 30. |
 
 A write-back path may glob only its last component, below a directory:
-`fixtures/*.ledger.jsonl` loads; `*.json` and `fixtures/**/x.json` are refused.
+`fixtures/*.ledger.jsonl` loads. `*.json` and `fixtures/**/x.json` are refused.
 
 ## What agents type
 
 Nothing new. An agent keeps typing the commands it types today, from the
-repository root. [`docs/agents-paragraphs.md`](docs/agents-paragraphs.md) is the
-final text for a repository's `AGENTS.md` and its validation notes.
+repository root. [`docs/agents-paragraphs.md`](docs/agents-paragraphs.md) holds
+the paragraphs a repository may copy into its own agent instructions.
+
+### Invariants
+
+The invariants, as `pandora --help` states them:
+
+* Same cwd, environment and exit code as a local run. `$?` and traps behave.
+* Declared results are in your worktree before the command exits. A missing
+  report is reported as missing, never as zero failures.
+* Run from the repository root. Below it, `[matching] subdirectory` decides.
+  `reroot` (the default) runs a routed command from the root, and refuses one
+  whose arguments name a path (exit 64) rather than run it locally. `reject`
+  refuses every routed command. `passthrough` claims nothing there, so the
+  command runs as if Pandora were not installed.
+* Exit codes that are not the command's own:
+  * 70: infrastructure failure, never a test verdict. It includes a daemon
+    installed here that does not answer within 5 s. Nothing ran. Run
+    `pandora doctor`.
+  * 75: busy or stale.
+  * 124: `--max-wait` elapsed, and the run was not stopped.
+  * 130: canceled.
+* `--update` runs on the worker, never here. Its files come back only from a
+  passing run (every shard) over a tree you did not edit meanwhile. Otherwise it
+  exits 75, with your files untouched, and the next step printed.
+* `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
+  the queue and the stats. It exits 64 if the job cannot run there, and never
+  falls back.
+  `PANDORA_OFF=1 <command>` runs it here with no Pandora at all: a last resort,
+  never a way around the queue or a memory-pressure refusal.
+* Pandora's own lines go to stderr as `pandora: ...`. The last one may be
+  `pandora: hint: ...`: the next action, derived from evidence.
+* Each worktree routes by its own `pandora.toml`. An edit takes effect on the
+  next command in that worktree, at the cost of one Python start. Enrolling a
+  repository is consent, given once, and never again after a change.
 
 ### Exit codes
 
@@ -950,23 +1078,24 @@ final text for a repository's `AGENTS.md` and its validation notes.
 `ps` reads the daemon's published status without probing the host or worker.
 Pressure is sampled when local admission needs it. Its age can therefore grow
 while the local lane is idle. The daemon retains up to 200 completed rows for
-status and rebuilds that view at startup; older results remain available by
+status and rebuilds that view at startup. Older results remain available by
 run ID. `ps` allows two seconds for a daemon response. An unavailable or
 unresponsive daemon returns exit 70 and reports run status as unknown. JSON
-sets `daemon.responding` to false; its empty `runs` list does not mean idle.
+sets `daemon.responding` to false. Its empty `runs` list does not mean idle.
 No historical files are read as a fallback.
 
 Ctrl-C on a routed command cancels it. Killing the shim (for example, when an
-agent's tool call times out) does not; the run continues, and `pandora wait
+agent's tool call times out) does not. The run continues, and `pandora wait
 <id>` finishes it.
 
-### What the caller sees
+### Caller output
 
 Pandora's lines go to stderr and start with `pandora:`. The command's own
 output stays on stdout. A remote run prints progress lines: `syncing N files`
-on a source-cache miss (also kept in the run's log for `pandora logs`), `instance ready in N s`, `running (typical 4m10s for
-check; cpus hint 2)` once three earlier runs exist, queue lines for the worker
-queue, shards and the local lane, and a retry line when one happens. The last line may be a hint:
+on a source-cache miss (also kept in the run's log for `pandora logs`),
+`instance ready in N s`, `running (typical 4m10s for check; cpus hint 2)` once
+three earlier runs exist, queue lines for the worker queue, shards and the
+local lane, and a retry line when one happens. The last line may be a hint:
 
 ```
 pandora: hint: review `git diff` of 1 updated files, then validate without --update
@@ -991,7 +1120,7 @@ here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
-| `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` | local lane | refuse, 70 | refuse, 70 |
+| `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` (any other engine refusal, such as the disk floor) | local lane | refuse, 70 | refuse, 70 |
 | the worker is full (memory or slots) | queues on the worker; 70 after the bound (`queue-timeout`) | queues; 70 after the bound | queues; 70 after the bound |
 | `admission-refused`: the reservation is larger than the worker's whole budget | refuse, 70 | refuse, 70 | refuse, 70 |
 | `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
@@ -1019,7 +1148,7 @@ bypass it.
 
 ### Queueing
 
-A full worker queues a run; it does not refuse it. When the worker's memory or
+A full worker queues a run. It does not refuse it. When the worker's memory or
 its run slots (8 at once) are full, the run waits in the worker's queue
 before `accepted`. The
 caller sees `pandora: queued on the worker behind 3 runs (position 2), ~4m10s;
@@ -1037,13 +1166,14 @@ worker, from admission to finish. With fewer than 3 such runs, the bound is
 It never falls back and is never retried. `pandora cancel` withdraws a queued
 run. A daemon restart that drains withdraws it too, and the caller submits it
 again at the back of the queue. A daemon that crashes leaves the run queued on
-the worker; the next daemon follows it. The disk floor and a reservation larger
-than the worker's whole budget still refuse at once with exit 70, because
-waiting cannot fix them.
+the worker, and the next daemon follows it. A reservation larger than the worker's
+whole budget still refuses at once with exit 70, because waiting cannot fix it.
+The disk floor also refuses at once. The client treats that refusal as
+`engine-error`, so the [Fallback](#fallback) table decides.
 
-`pandora run --detach` returns at the first queue line with the run id; the run
+`pandora run --detach` returns at the first queue line with the run id. The run
 stays queued. `pandora wait <id>` follows it through the queue. A drained
-restart does not withdraw a detached run; the next daemon follows it.
+restart does not withdraw a detached run. The next daemon follows it.
 
 ### Write-back (`--update`)
 
@@ -1100,8 +1230,8 @@ runs locally.
 
 `oom`, `timed_out`, `cancelled` and `command_failed` are verdicts and are never
 retried. A run that failed and then passed on the same input, argv, environment
-and cwd is recorded as a flaky pair, per shard for fan-outs. Nothing re-runs;
-the hint and `pandora stats` report it.
+and cwd is recorded as a flaky pair, per shard for fan-outs. Nothing re-runs.
+The hint and `pandora stats` report it.
 
 ### Placement override refusals
 
@@ -1124,7 +1254,7 @@ Nothing runs.
 
 Measured on one worker (4 vCPU EPYC-Milan, 15.6 GiB, Incus 6.0.5, an 18 GiB
 loop-file pool) and one M1 Pro Mac with 16 GiB shared with many agents. Local
-numbers were taken under that load; they are not a quiet-machine baseline.
+numbers were taken under that load. They are not a quiet-machine baseline.
 
 | Workload | Remote | Local | Source |
 |---|---|---|---|
@@ -1148,11 +1278,15 @@ Sizes that matter:
   (4 GiB).
 * A cold `pnpm check` with typecheck at `--concurrency=$PANDORA_CPUS` peaks at
   6.5 GiB and needs `size = "large"`. Warm runs peak near 2 GiB. The example
-  configuration still says `medium`; eichler's own `pandora.toml` says `large`.
-* Journeys peak at 3-4.5 GiB; surface shards at about 2.5 GiB.
+  configuration still says `medium`. Eichler's own `pandora.toml` says `large`.
+* Journeys peak at 3-4.5 GiB. Surface shards peak at about 2.5 GiB.
 * The source cache grows with every fresh worktree, because `--link-dest`
-  deduplicates only on equal mtimes. It grew from 1.2 to 2.3 GiB in one
-  afternoon. `gc` has no source-cache rule yet.
+  deduplicates only on equal mtimes. Before it was collected, it grew from 1.2
+  to 2.3 GiB in one afternoon. The engine now deletes a snapshot that no live
+  run needs, that is not the `latest` link-dest base, and that is older than
+  an hour. It keeps the newest 4 such snapshots per repository. It runs this
+  collection at most every 5 minutes on the health poll, and `pandora worker
+  retain` runs it too. `pandora worker gc` does not.
 * The turbo cache is bounded at 4 GiB. Eichler's `check` uses about 1 MiB of it.
 
 Known caveats:
@@ -1167,7 +1301,7 @@ Known caveats:
   write-back re-freezes. Do not edit a worktree while a remote validation runs.
 * One remote run per worktree is not enforced. Only the local lane holds a
   worktree lock.
-* Neither golden is pinned. `pandora worker pins` resolves the inputs; the live
+* Neither golden is pinned. `pandora worker pins` resolves the inputs. The live
   goldens have not been rebuilt with them.
 * The `--update` proposal for `S0-01` rewrote all 295 lines of its fixture
   although the plain run passed. Review `git diff` before you commit a worker
@@ -1191,16 +1325,15 @@ Known caveats:
 | `pandora/worker/` | Both halves: `provision`, `versions`, `remote` and `cli` run on the Mac; `service`, `canary`, `gc`, `goldens`, `facts` and `pins` run on the worker. |
 | `pandora/tests/` | `python3 -m unittest discover -s pandora`. |
 | `scripts/versions.toml` | The worker's package pins. |
-| `docs/` | Final text for a repository's agent instructions, and the worker rebuild procedure. |
+| `docs/` | The paragraphs a repository may copy into its agent instructions, and the worker rebuild procedure. |
 | `notes/` | Dated measurement and decision logs. The `v0.2-*` notes are the evidence for this README. |
 | `experiments/` | Retained prototypes and the v0.1 runtime. Nothing in v0.2 imports from them. |
 
 The client ships the worker half as a content-addressed engine bundle over SSH
 on first use, from the version the daemon or the `pandora worker` verb runs. A
 new version reaches the worker's runner on the first run after the daemon
-restarts into it. The
-turbo cache server keeps the bundle it started with until its unit restarts;
-`provision` restarts it when the unit file changes.
+restarts into it. The turbo cache server keeps the bundle it started with until
+its unit restarts. `provision` restarts it when the unit file changes.
 
 ## History
 
@@ -1215,5 +1348,6 @@ Docker profile is not carried over.
 * [v0.1.1 contract](notes/v0.1.1-contract.md) and its
   [validation evidence](notes/v0.1.1-validation-2026-09-21.md),
   [issue #64](https://github.com/gbasin/pandora/issues/64).
-* [DESIGN.md](DESIGN.md) is the superseded design rationale for the original
-  SSH pilot.
+* [DESIGN.md](DESIGN.md) holds the superseded design rationale for the
+  original SSH pilot, and the current rules that make `pandora.toml` the
+  contract.
