@@ -40,7 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
-  pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...]
+  pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update]
 """
 import argparse
 import json
@@ -846,6 +846,29 @@ def cmd_doctor(args):
     return 0 if report['ok'] else 1
 
 
+def cmd_selftest(args):
+    """One real submission through the whole path, proving this checkout end to end.
+
+    `client/selftest.py` owns the details; the summary is timings for CI
+    planning: the caller-side pre-accept phases and the engine's own durations.
+    """
+    from .client import selftest
+    try:
+        report, code = selftest.run(state=args.state, config_path=args.config,
+                                    host=args.host, update=args.update,
+                                    keep=args.keep, timeout=args.timeout)
+    except selftest.SelftestError as error:
+        if args.json and error.report is not None:
+            print(json.dumps(error.report, indent=1, sort_keys=True))
+        notice(str(error))
+        return error.exit
+    if args.json:
+        print(json.dumps(report, indent=1, sort_keys=True))
+    else:
+        print(selftest.render(report))
+    return code
+
+
 def cmd_stats(args):
     """One report, whether or not the daemon is up.
 
@@ -1024,6 +1047,37 @@ def main(argv=None):
                        help='a window: 24h, 7d, 90m, or a number of seconds. Default: all')
     stats.add_argument('--json', action='store_true')
     stats.set_defaults(func=cmd_stats)
+
+    selftest = sub.add_parser(
+        'selftest', help='one real submission through the whole routed path on the '
+                         'real worker -- shim, an isolated test daemon, SSH, engine, '
+                         'incus, receipt. It costs one small incus run; it never '
+                         'touches the live daemon, config or state',
+        description='Drive the production path once, end to end: enroll a scratch '
+                    'repository for a test daemon on a scratch socket, type `pnpm '
+                    'selftest` through the real shim, and assert the receipt. It '
+                    'costs one small incus run on the real worker. The worker host '
+                    'and the toolchain come from the client configuration '
+                    '`--config` names (the enrolled repository\'s `[worker]` table '
+                    'is borrowed so the run clones a golden the worker already '
+                    'has). The run is recorded on the worker as client `e2e-<host>`. '
+                    'Exit 0 the path worked, 1 a run failed, 70 the path could not '
+                    'be exercised.')
+    selftest.add_argument('--update', action='store_true',
+                          help='a second submission, `pnpm selftest --update`, whose '
+                               'declared write-back file must land in the scratch '
+                               'worktree')
+    selftest.add_argument('--host', default=None,
+                          help='the worker to submit to (default: [worker] host in '
+                               'the client configuration)')
+    selftest.add_argument('--timeout', type=float, default=900.0, metavar='SECONDS',
+                          help='how long one submission may take (default 900; a '
+                               'golden build can take minutes)')
+    selftest.add_argument('--keep', action='store_true',
+                          help='keep the scratch state directory and repository for '
+                               'debugging (default: removed)')
+    selftest.add_argument('--json', action='store_true')
+    selftest.set_defaults(func=cmd_selftest)
 
     # `pandora worker ...` is about the machine rather than the run, and it has
     # to work on a host no client has adopted yet, so it owns its own parser.

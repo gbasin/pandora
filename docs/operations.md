@@ -323,6 +323,25 @@ The version lines warn in these cases:
 A checkout that has moved on since the last upgrade is not a warning. The
 `install` line notes its commit.
 
+`pandora doctor` is read-only. The deeper proof is one real submission:
+
+```sh
+pandora selftest
+```
+
+It runs the production path once, end to end, without touching the live
+daemon, configuration or state: a scratch git repository is enrolled for a
+test daemon on a scratch socket, `pnpm selftest` goes through the real shim,
+the daemon freezes and ships the worktree, and the engine runs it in a fresh
+incus instance on the real worker -- the same worker `[worker] host` names,
+recorded as client `e2e-<host>`. It costs one small incus run because the
+scratch repository borrows an enrolled repository's `[worker]` toolchain, so
+the run clones a golden the worker already has. Everything the test owns lives
+under one temporary directory and is removed on exit (`--keep` keeps it);
+`--update` adds a second run whose write-back must land. The summary is the
+phase timings the caller paid and the engine measured. Exit 0 means the whole
+path worked; 70 means it could not be exercised, with the reason.
+
 
 ## Upgrade
 
