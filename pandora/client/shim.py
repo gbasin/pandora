@@ -132,7 +132,12 @@ def connect(path, timeout=HANDSHAKE_SECONDS):
 
 
 def handshake(sock, request, reader=None):
-    """Send the request; return (reader, accepted-or-error frame, or None)."""
+    """Send the request; return (reader, accepted-or-error frame, or None).
+
+    A detached request also returns on the first worker-queue notice: the run
+    has an id and the worker holds it, and `pandora wait <id>` follows it
+    through the queue from there.
+    """
     sock.sendall(dump(request))
     reader = reader or Reader(sock)
     while True:
@@ -144,6 +149,8 @@ def handshake(sock, request, reader=None):
         if frame.get('t') == 'notice':
             # Said before anything ran: a fallback, a re-root, a paused lane.
             notice(frame.get('msg') or '')
+            if request.get('detach') and frame.get('queued') and frame.get('run'):
+                return reader, frame
             continue
         if frame.get('t') == 'queued':
             sock.settimeout(None)       # admitted to a queue: wait as long as it takes
@@ -617,6 +624,10 @@ def main(argv=None):
         return pass_through('claimed only at the worktree root; not routed')
 
     request = build_request(command, where=where)
+    if args.detach:
+        # The daemon then keeps a run queued on the worker after this process
+        # has gone, instead of withdrawing it as it would for a caller that left.
+        request['detach'] = True
     grace = None
     while True:
         try:
@@ -689,6 +700,12 @@ def main(argv=None):
             notice(message)
         return int(frame.get('exit') or 1)
 
+    if frame.get('t') == 'notice':
+        # Detached while queued on the worker: the id is the only stdout.
+        sock.close()
+        sys.stdout.write(frame['run'] + '\n')
+        sys.stdout.flush()
+        return 0
     remote = frame.get('remote')
     extra = []
     # A tree digest, not the command: `journey S0-01 --update` is "the same

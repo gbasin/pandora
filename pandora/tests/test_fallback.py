@@ -219,9 +219,30 @@ class OneFallbackPath(DaemonCase):
         ('snapshot-failed', SnapshotError('the tree moved under the freeze')),
         ('transfer-failed', TransferError('rsync died')),
         ('engine-error', EngineError(json.dumps({'code': 'rejected', 'detail': None}))),
+    ]
+    # A busy worker, not a broken path to it: never a fallback (2026-09-24).
+    BUSY = [
         ('queue-timeout', EngineError(json.dumps({'code': 'queue-timeout'}))),
         ('admission-refused', EngineError(json.dumps({'code': 'admission-refused'}))),
     ]
+
+    def test_a_busy_worker_never_moves_even_a_small_job_here(self):
+        for cause, error in self.BUSY:
+            with self.subTest(cause=cause):
+                self.marker.unlink(missing_ok=True)
+                FakeWorker.raises = error
+                answer = self.call(['pnpm', 'unit'])
+                self.assertEqual(answer.exit, 70)
+                self.assertIsNone(answer.accepted)
+                self.assertIn(cause, answer.error['msg'])
+                self.assertIn('busy', answer.error['msg'])
+                self.assertFalse(self.marker.exists())
+
+    def test_a_busy_worker_refuses_even_a_job_that_declares_local(self):
+        FakeWorker.raises = EngineError(json.dumps({'code': 'admission-refused'}))
+        answer = self.call(['pnpm', 'insist'])
+        self.assertEqual(answer.exit, 70)
+        self.assertFalse(self.marker.exists())
 
     def test_every_cause_admits_a_small_job_into_the_local_lane(self):
         for cause, error in self.CAUSES:
@@ -298,7 +319,7 @@ class OneFallbackPath(DaemonCase):
         self.assertEqual(self.marker.read_text().strip(), 'ran-insist')
 
     def test_a_declared_cause_list_refuses_every_other_cause(self):
-        FakeWorker.raises = EngineError(json.dumps({'code': 'admission-refused'}))
+        FakeWorker.raises = TransferError('rsync died')
         answer = self.call(['pnpm', 'picky'])
         self.assertEqual(answer.exit, 70)
         self.assertIn('worker-unreachable', answer.error['msg'])
@@ -916,8 +937,8 @@ class NoRowStaysQueued(DaemonCase):
         self.assertEqual(len(rows), 1, rows)
         self.assertEqual((rows[0]['state'], rows[0]['exit_code']), ('refused', 70))
 
-    def test_an_admission_refusal_that_falls_back_names_the_local_run(self):
-        FakeWorker.raises = EngineError(json.dumps({'code': 'admission-refused'}))
+    def test_a_refusal_that_falls_back_names_the_local_run(self):
+        FakeWorker.raises = TransferError('rsync died')
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.exit, 0, answer.error)
         local = answer.accepted['run']
@@ -932,7 +953,7 @@ class NoRowStaysQueued(DaemonCase):
         from pandora.client import stats
         report = stats.build(self.state)
         self.assertEqual(report['runs'], 1)
-        self.assertEqual(report['fallbacks'], [{'reason': 'admission-refused', 'count': 1}])
+        self.assertEqual(report['fallbacks'], [{'reason': 'transfer-failed', 'count': 1}])
 
     def test_an_explicit_remote_request_ends_refused(self):
         FakeWorker.raises = WorkerUnreachable('down')
@@ -1287,10 +1308,18 @@ class Policy(unittest.TestCase):
     def test_a_declaration_beats_the_size_both_ways(self):
         big = {'action': 'local', 'on': list(policy.CAUSES)}
         small = {'action': 'refuse', 'on': list(policy.CAUSES)}
-        self.assertEqual(policy.decide(cause='queue-timeout', size='large',
+        self.assertEqual(policy.decide(cause='transfer-failed', size='large',
                                        declared=big)['action'], 'local')
-        self.assertEqual(policy.decide(cause='queue-timeout', size='small',
+        self.assertEqual(policy.decide(cause='transfer-failed', size='small',
                                        declared=small)['action'], 'refuse')
+
+    def test_a_busy_worker_outranks_size_and_declaration(self):
+        big = {'action': 'local', 'on': list(policy.CAUSES)}
+        for cause in ('admission-refused', 'queue-timeout'):
+            for kwargs in ({'size': 'small'}, {'size': 'large', 'declared': big}):
+                verdict = policy.decide(cause=cause, **kwargs)
+                self.assertEqual(verdict['action'], 'refuse', (cause, kwargs))
+                self.assertIn('PANDORA_WHERE=local', verdict['reason'])
 
     def test_every_cause_the_loader_knows_is_a_cause_this_module_knows(self):
         from pandora.config import loader

@@ -13,6 +13,8 @@ has one answer for every cause:
 * a job may declare ``fallback = "local"`` or ``"refuse"``;
 * a job that declares nothing is decided by its size class -- ``small`` and
   ``medium`` fall back, ``large`` and ``xlarge`` do not;
+* a busy worker (``admission-refused``, ``queue-timeout``) is never a reason,
+  at any size or declaration: the worker queues, and the queue is the answer;
 * anything that writes back (``--update``) never falls back, at any size,
   because a local run would write files the worker should have written.
 
@@ -46,6 +48,13 @@ CAUSES = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
 # a stall. The line is drawn here because `large` is what eichler calls a
 # browser suite and a full `check`, and both of them are what killed the Mac.
 LOCAL_SIZES = ('small', 'medium')
+# Causes that name a *busy* worker rather than a broken path to it (ruled
+# 2026-09-24). A full worker queues the run; a queue that did not admit it in
+# time, or a worker with every slot taken, is not a reason to put the same job
+# on this Mac, where it competes with the agents that are busy for the same
+# reason. They stay in `CAUSES` so a `pandora.toml` naming them still loads,
+# and they refuse whatever it declares.
+NEVER_LOCAL = ('admission-refused', 'queue-timeout')
 
 
 # What a refusal tells the caller to do next. On 2026-09-24 a refusal that said
@@ -77,6 +86,10 @@ def decide(*, cause, size='large', writeback=False, declared=None, notice=None,
     step = next_step(local_lane)
     if cause not in CAUSES:
         return {'action': 'refuse', 'reason': 'unknown fallback cause %r. %s' % (cause, step)}
+    if cause in NEVER_LOCAL:
+        return {'action': 'refuse',
+                'reason': 'the worker is busy, not unreachable, and a busy worker is waited '
+                          'for rather than moved to this Mac. %s' % step}
     if writeback:
         return {'action': 'refuse',
                 'reason': 'a write-back run is never moved to this Mac automatically, because '

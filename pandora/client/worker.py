@@ -48,8 +48,15 @@ class Submission:
     """What the worker acknowledged, and what it took to get there."""
 
     def __init__(self, run_id, *, admission=None, duplicate=False, same_tree_as=None,
-                 input_id='', durations=None, source=None, shipped=(), writeback=None):
+                 input_id='', durations=None, source=None, shipped=(), writeback=None,
+                 state='admitted', queued=None):
         self.run_id = run_id
+        # `queued` when the worker was full: the engine holds the row in its
+        # queue (`engine.waitlist`) and nothing has been admitted, so this is
+        # not yet `accepted`. `queued` is its place: position, ahead, running,
+        # eta_seconds, bound_seconds.
+        self.state = state
+        self.queued = queued
         self.admission = admission or {}
         self.duplicate = duplicate
         # The engine's `same_input_as`: the previous attempt over the same tree
@@ -220,6 +227,8 @@ class Worker:
         return Submission(answer['run_id'], admission=answer.get('admission'),
                           duplicate=answer.get('duplicate', False),
                           same_tree_as=answer.get('same_input_as'),
+                          state=answer.get('state') or 'admitted',
+                          queued=answer.get('queued'),
                           input_id=input_id, durations=marks, source=source,
                           shipped=(record['path'] for record in manifest),
                           writeback=(writebacks.context(manifest, plan, worktree=worktree,
@@ -263,9 +272,12 @@ class Worker:
                 raise error
             raise WorkerUnreachable('submit timed out after %ss' % error.timeout) from error
         if found.get('spawned'):
+            # Spawned, or held by the engine's queue waiter: either way the
+            # engine owns it, so the caller attaches (and waits, if queued).
             return {'ok': True, 'duplicate': True, 'run_id': found['run_id'],
                     'state': found.get('state'), 'same_input_as': found.get('same_input_as'),
-                    'admission': found.get('admission') or {}, 'recovered': str(error)}
+                    'admission': found.get('admission') or {}, 'recovered': str(error),
+                    'queued': {} if found.get('queued') else None}
         if found.get('state') == 'finished':
             return {'ok': False, 'code': found.get('cause') or 'rejected',
                     'admission': found.get('admission')}
@@ -304,6 +316,15 @@ class Worker:
 
     def cancel(self, run_id):
         return self.engine(['cancel', '--run', run_id] + self.as_client(), timeout=60)
+
+    def withdraw(self, run_id):
+        """Take a row out of the worker queue if it is still there.
+
+        `withdrawn: true` when it was: nothing ran. `false` when admission won
+        the race; the run is then left alone, to be followed like any other.
+        """
+        return self.engine(['cancel', '--run', run_id, '--queued-only'] + self.as_client(),
+                           timeout=60)
 
     def as_client(self):
         """`--client NAME` for an engine verb scoped to this client, or nothing."""

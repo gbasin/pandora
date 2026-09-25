@@ -36,6 +36,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
                       Refused, SnapshotError, TransferError, ValidationRejected,
                       WorkerUnreachable, UnknownSchema)
 from ..engine import bundle
+from ..engine import history as engine_history
 from ..engine import retry as retries
 from ..exits import CANCELED, INFRA, STALE
 from . import attribution, runindex
@@ -215,6 +216,9 @@ class Run:
         # cannot measure it: such a run is never called idle.
         self.cpu_seconds = None
         self.active_at = None
+        # Where a remote run stands in the worker's queue before `accepted`
+        # ({position, ahead, running, eta_seconds, bound_seconds}), for `ps`.
+        self.queue = None
 
     def save(self):
         with self.close_lock:
@@ -241,6 +245,8 @@ class Run:
                    'writeback': bool(self.request.get('writeback'))}
         if self.fell_back_to:
             payload['fell_back_to'] = self.fell_back_to
+        if self.queue:
+            payload['queue'] = self.queue
         if self.refusal:
             payload['refusal'] = self.refusal
         if self.pgid:
@@ -439,6 +445,16 @@ class Run:
             return self.log.stat().st_size
         except OSError:
             return 0
+
+
+def stopped(call, *args):
+    """True when an engine `cancel` confirmed the run is withdrawn, stopping or over."""
+    try:
+        answer = call(*args)
+    except (PandoraError, OSError):
+        return False
+    return bool(isinstance(answer, dict) and answer.get('ok')
+                and (answer.get('withdrawn') or answer.get('requested') or answer.get('already')))
 
 
 def shown(value):
@@ -1570,6 +1586,7 @@ class Daemon:
             # The live caller hears it as a notice; the log keeps it for `logs`.
             run.said(text)
             beat.say(text)
+        waited = None
         try:
             try:
                 worker = self.worker_for(repo)
@@ -1578,6 +1595,10 @@ class Daemon:
                     control=request, progress=said, phase=entered,
                     log=lambda text: log('run %s (%s): %s' % (run.id, worktree, text)),
                     transfer_stderr=run.dir / 'transfer.stderr')
+                if getattr(submission, 'state', None) == 'queued':
+                    # The worker is full and holds the run in its queue. Still
+                    # before `accepted`, still beating, and never a fallback.
+                    waited = self.wait_in_worker_queue(conn, run, worker, submission, beat)
             except Exception as error:
                 # What each step cost up to the failure, the failing one included.
                 run.pre_accept = dict(getattr(error, 'pre_accept', None) or run.pre_accept)
@@ -1626,7 +1647,21 @@ class Daemon:
                            cause, str(error), checked, origin=run)
             return
 
-        if left or not client_alive(conn):
+        detached = bool(run.request.get('detach')) and waited is not None
+        if waited is not None and waited['verdict'] == 'handed-over':
+            # A detached run a restart found still queued: followed from here
+            # like an accepted one -- through the queue, then its run -- and
+            # the next daemon re-attaches to it, since the row names its remote.
+            run.remote, run.state, run.queue = submission.run_id, 'running', None
+            run.save()
+            with self.runs_lock:
+                self.runs[run.id] = run
+            threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
+            return
+        if waited is not None and waited['verdict'] != 'admitted':
+            self.close_queued(conn, run, submission.run_id, waited, job)
+            return
+        if (left or not client_alive(conn)) and not detached:
             # The caller left before `accepted`, so it may already be running
             # this command some other way. The worker must not run it too.
             try:
@@ -1651,17 +1686,229 @@ class Daemon:
             self.runs[run.id] = run
         # Only now has the worker acknowledged anything. Past this frame the
         # client will never run the command locally.
-        conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id,
-                           'remote': submission.run_id, 'input_id': submission.input_id,
-                           'same_tree_as': submission.same_tree_as,
-                           'reservation_mib': (submission.admission or {}).get('reservation_mib'),
-                           'cpus_hint': (submission.admission or {}).get('cpus_hint'),
-                           'source_reused': submission.source.get('reused'),
-                           'durations': submission.durations}))
+        try:
+            conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id,
+                               'remote': submission.run_id, 'input_id': submission.input_id,
+                               'same_tree_as': submission.same_tree_as,
+                               'reservation_mib': (submission.admission or {}).get(
+                                   'reservation_mib'),
+                               'cpus_hint': (submission.admission or {}).get('cpus_hint'),
+                               'source_reused': submission.source.get('reused'),
+                               'durations': submission.durations}))
+        except OSError:
+            if not detached:
+                raise
+            # A detached caller left at `queued`; `pandora wait` follows the run.
         if checked.get('ran') is False and checked.get('reason') != 'no validator declared':
             run.note(checked['reason'] + '; the arguments were not pre-checked')
         threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
         self.stream(conn, reader, run, 0)
+
+    # -- the worker queue, before `accepted` ------------------------------
+
+    # How often the engine is asked where a queued run stands, how often the
+    # caller is told (the shard queue's rhythm: once, then at most a minute
+    # apart), and how many failed asks in a row make the answer uncertain.
+    QUEUE_POLL = 2.0
+    QUEUE_SAY_EVERY = 60.0
+    QUEUE_FAILURES = 6
+
+    def wait_in_worker_queue(self, conn, run, worker, submission, beat):
+        """Hold a pre-accept row while the worker's queue holds its run.
+
+        The engine does the waiting (`engine.waitlist`); this only watches, so
+        the row survives this daemon. The caller hears a `notice` frame with a
+        `queued` place -- once, then at most every `QUEUE_SAY_EVERY` -- and the
+        heartbeat keeps beating underneath, so the shim's silence rule never
+        mistakes a long queue for a hung daemon. Nothing here is a fallback: the
+        run is the worker's, and `accepted` follows admission.
+
+        Returns {'verdict', ...}: `admitted` (send `accepted`), `left` (the
+        caller went away; withdrawn), `canceled`, `drained` or `stopping`
+        (withdrawn for a restart; nothing ran), `timeout` (the engine's bound
+        passed: `queue-timeout`, with the engine's result). Raises
+        `ExecutionUncertain` when the engine cannot be asked about the run.
+        """
+        remote = submission.run_id
+        place = dict(submission.queued or {})
+        # `pandora run --detach`: the caller takes the id at the first queue
+        # line and leaves. Its leaving is not a withdrawal (owner's call).
+        detached = bool(run.request.get('detach'))
+        run.phase, run.queue = 'queued', place
+        run.save()
+        log('run %s queued on the worker as %s (position %s)'
+            % (run.id, remote, place.get('position', '?')))
+        said_at, failures, started = None, 0, time.monotonic()
+        while True:
+            if said_at is None or time.monotonic() - said_at >= self.QUEUE_SAY_EVERY:
+                self.say_queued(conn, run, beat, place, first=said_at is None)
+                said_at = time.monotonic()
+            if (beat.gone.is_set() or not client_alive(conn)) and not detached:
+                return {'verdict': 'left', 'confirmed': stopped(worker.cancel, remote)}
+            if run.canceled.is_set():
+                return {'verdict': 'canceled', 'confirmed': stopped(worker.cancel, remote)}
+            if (self.draining or self.stopping.is_set()) and detached:
+                # Nobody is waiting on this socket to resubmit it: keep its
+                # place, and let this daemon or the next follow it.
+                return {'verdict': 'handed-over'}
+            if self.draining or self.stopping.is_set():
+                # A restart takes the row out of the queue rather than wait up
+                # to half an hour for it: nothing ran, and the caller asks again.
+                answer = self.quietly(worker.withdraw, remote) or {}
+                if answer.get('withdrawn'):
+                    return {'verdict': 'drained' if self.draining else 'stopping'}
+            try:
+                row = worker.status(remote)
+                failures = 0
+            except (WorkerUnreachable, EngineError, OSError) as error:
+                failures += 1
+                if failures >= self.QUEUE_FAILURES:
+                    # Giving up must not leave the row for the waiter to admit
+                    # and run with nobody following: withdraw it, and call the
+                    # answer uncertain only when the withdrawal is unconfirmed.
+                    answer = self.quietly(worker.withdraw, remote)
+                    if answer and answer.get('ok') and answer.get('withdrawn'):
+                        return {'verdict': 'lost', 'detail': str(error)}
+                    if not (answer and answer.get('ok')):
+                        raise ExecutionUncertain(
+                            'run %s was queued on the worker as %s, the worker stopped '
+                            'answering (%s), and it could not be withdrawn'
+                            % (run.id, remote, error)) from error
+                    failures = 0             # admission won the race: follow it
+                    continue
+                run.canceled.wait(self.QUEUE_POLL)
+                continue
+            if not row.get('ok'):
+                raise ExecutionUncertain('the engine no longer knows queued run %s' % remote)
+            state = row.get('state')
+            if state == 'queued':
+                fresh = row.get('queue') or place
+                if fresh.get('position') != place.get('position'):
+                    run.queue = fresh
+                    run.save()
+                place = fresh
+                run.canceled.wait(self.QUEUE_POLL)
+                continue
+            if state == 'finished':
+                answer = self.quietly(worker.result, remote) or {}
+                result = answer.get('result') if answer.get('ok') else None
+                evidence = (result or {}).get('evidence') or {}
+                if evidence.get('cause') == 'queue-timeout':
+                    return {'verdict': 'timeout', 'result': result,
+                            'place': evidence.get('queue') or place}
+                if evidence.get('withdrawn'):
+                    return {'verdict': 'canceled', 'result': result}
+            # Admitted -- or admitted and already finished, which ran: either
+            # way it is followed like any accepted run from here.
+            submission.admission = {'reservation_mib': row.get('reservation_mib'),
+                                    'cpus_hint': row.get('cpus_hint'),
+                                    'size_class': row.get('size_class')}
+            run.queue = None
+            log('run %s admitted on the worker after %.1f s in its queue'
+                % (run.id, time.monotonic() - started))
+            return {'verdict': 'admitted', 'place': place}
+
+    @staticmethod
+    def quietly(call, *args):
+        """One engine call whose failure changes nothing about what happens next."""
+        try:
+            return call(*args)
+        except (PandoraError, OSError):
+            return None
+
+    def say_queued(self, conn, run, beat, place, *, first):
+        """`queued on the worker behind 3 runs (position 2), ~4m10s; gives up after 10m00s`.
+
+        A `notice` frame -- the pre-accept kind every client already prints --
+        carrying the place as data beside the sentence. Sent under the
+        heartbeat's lock so two frames never interleave on the socket.
+        """
+        behind = int(place.get('running') or 0) + int(place.get('ahead') or 0)
+        count = '%d run%s' % (behind, '' if behind == 1 else 's')
+        position = place.get('position') or 1
+        if first:
+            eta, bound = place.get('eta_seconds'), place.get('bound_seconds')
+            text = 'queued on the worker behind %s (position %d)%s%s' % (
+                count, position,
+                ', ~%s' % engine_history.fmt_seconds(eta) if eta is not None else '',
+                '; gives up after %s' % engine_history.fmt_seconds(bound) if bound else '')
+        else:
+            text = 'still queued behind %s (position %d)' % (count, position)
+        run.said(text)
+        if beat.stopped.is_set():
+            return
+        frame = {'v': VERSION, 't': 'notice', 'msg': text, 'run': run.id,
+                 'queued': {key: place.get(key) for key in
+                            ('position', 'ahead', 'running', 'eta_seconds', 'bound_seconds')}}
+        try:
+            with beat.sending:
+                conn.sendall(dump(frame))
+        except OSError:
+            beat.gone.set()
+
+    def close_queued(self, conn, run, remote, waited, job):
+        """End a row the worker queue never admitted, in the words of why."""
+        verdict = waited['verdict']
+        run.remote, run.queue = remote, None
+        if verdict in ('left', 'canceled') and not waited.get('confirmed'):
+            # The engine did not confirm the withdrawal or the stop: the run
+            # may still be admitted and executed there.
+            run.note('the run was queued on the worker as %s and stopping it there was not '
+                     'confirmed; %s' % (remote, UNCERTAIN))
+            log('run %s: withdrawal of queued %s unconfirmed' % (run.id, remote))
+            run.finish(INFRA, state='infra_failed')
+            try:
+                self.deny(conn, 'execution-uncertain', 'stopping queued run %s on the worker '
+                          'was not confirmed; %s' % (remote, UNCERTAIN), exit=INFRA)
+            except OSError:
+                pass
+            return
+        if verdict == 'lost':
+            message = ('the worker stopped answering while the run was queued there (%s); it '
+                       'was withdrawn and nothing ran. Retry.' % waited.get('detail'))
+            run.refusal = {'cause': 'worker-unreachable', 'detail': waited.get('detail')}
+            run.note(message)
+            run.finish(INFRA, state='infra_failed')
+            self.deny(conn, 'worker-unreachable', message, exit=INFRA)
+            return
+        if verdict == 'left':
+            run.note('the caller left while the run was queued on the worker; withdrawn, '
+                     'nothing ran')
+            run.finish(INFRA, state='withdrawn')
+            return
+        if verdict == 'canceled':
+            if not run.done.is_set():
+                run.note('canceled while queued on the worker; nothing ran')
+                run.finish(CANCELED, state='cancelled', result=waited.get('result'))
+            self.answer_closed(conn, run)
+            return
+        if verdict in ('drained', 'stopping'):
+            run.note('the daemon began a restart while this run was queued on the worker; '
+                     'withdrawn, nothing ran, and the client submits it again')
+            run.finish(INFRA, state='withdrawn')
+            if verdict == 'drained':
+                self.answer_draining(conn)
+            else:
+                self.deny(conn, 'daemon-stopping', 'the daemon is stopping; this run was '
+                          'withdrawn from the worker queue and nothing ran. Re-run it.',
+                          exit=INFRA)
+            return
+        # `timeout`: the engine's bound for this job passed. Exit 70, and never a
+        # fallback -- the rule of 2026-09-24 is that a full worker is waited for.
+        place = waited.get('place') or {}
+        detail = ('waited %s in the worker queue (position %s, %s running), the bound '
+                  "this job's recent runs set" % (
+                      engine_history.fmt_seconds(place.get('waited_seconds') or 0),
+                      place.get('position', '?'), place.get('running', '?')))
+        message = ('queue-timeout (%s); nothing ran, and a full worker is never a reason '
+                   'to run it on this Mac. %s' % (
+                       detail, policy.next_step(placement.why_not_local(job) is None)))
+        run.refusal = {'cause': 'queue-timeout', 'detail': detail}
+        run.reason = 'queue-timeout'
+        run.note(message)
+        log('run %s: queue-timeout on the worker as %s: %s' % (run.id, remote, detail))
+        run.finish(INFRA, state='infra_failed', result=waited.get('result'))
+        self.deny(conn, 'queue-timeout', message, exit=INFRA)
 
     # -- the one fallback path ---------------------------------------------
 

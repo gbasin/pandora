@@ -31,7 +31,7 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
                                   InstanceLost, Limits, PrepareFailed, Result, Toolchain, Usage)
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_for
-from .scheduler import Scheduler, gate
+from .scheduler import Scheduler, gate, size_line
 from . import admission, history, retry, turbocache, writeback
 
 RESULT_VERSION = 2
@@ -116,6 +116,10 @@ def supervise(root, run_id, *, driver=None):
         raise SystemExit('no attempt %s' % run_id)
     if row['state'] == 'finished':
         return json.loads(paths.result(run_id).read_text())
+    if row['state'] == 'queued':
+        # Only a waiter admits a queued row (`waitlist`). A supervisor that
+        # started one anyway would run a command the scheduler never made room for.
+        raise SystemExit('attempt %s is queued, not admitted' % run_id)
     if (row['role'] or 'single') == 'parent':
         # A parent owns instances only through its children. Imported here
         # rather than at the top because the fan-out is written in terms of
@@ -142,6 +146,10 @@ def supervise(root, run_id, *, driver=None):
                     cancel_signal=cancel.get('signal') or 'SIGKILL',
                     cancel_grace_ms=int(cancel.get('grace_ms') or 0))
     durations, marks = {}, time.monotonic()
+    if row['queued_at'] and row['admitted_at']:
+        # Time spent in the worker queue, kept with the other phases so `result`
+        # and `stats` can say what a run waited for without the ledger.
+        durations['queue'] = round(row['admitted_at'] - row['queued_at'], 2)
     log_handle = paths.log(run_id).open('a', buffering=1)
     instance = None
     outcome, layer, exit_code, evidence = 'infra_failed', 'engine', None, {}
@@ -355,19 +363,37 @@ def supervise(root, run_id, *, driver=None):
         # A destroy that did not come back clean turned a pass into a failure
         # after the proposal was made. The proposal goes with the pass.
         proposal = writeback.incomplete('the run did not pass, so it proposes nothing', None)
+    learned = None
+    if peak_mib > 0:
+        # Learned before the row finishes, not after: a class change is said on
+        # this run's stderr, and a client stops reading the log once the row
+        # says `finished`. Never fatal: a run whose learning failed still gets
+        # its verdict, or it would stay `running` forever.
+        try:
+            with gate(paths.root):
+                store = admission.Store(str(paths.peaks))
+                try:
+                    scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
+                    learned = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
+                finally:
+                    store.close()
+        except Exception as error:                  # noqa: BLE001 - recorded, never fatal
+            evidence['learn_error'] = '%s: %s' % (type(error).__name__, error)
+            learned = None
+        line = size_line((learned or {}).get('size_change'))
+        if line:
+            try:
+                with paths.log(run_id).open('a') as handle:
+                    handle.write('pandora: ' + line + '\n')
+            except OSError:
+                pass
+    extra = {'writeback': proposal} if proposal is not None else {}
+    if learned is not None:
+        extra['learned'] = learned
     result_json = write_result(paths, ledger, run_id, outcome=outcome, layer=layer,
                                exit_code=exit_code, peak_mib=peak_mib,
                                durations=durations, evidence=evidence, receipt=receipt_dict,
-                               extra={'writeback': proposal} if proposal is not None else None)
-    with gate(paths.root):
-        store = admission.Store(str(paths.peaks))
-        try:
-            scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
-            if peak_mib > 0:
-                result_json['learned'] = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
-                write_json(paths.result(run_id), result_json)
-        finally:
-            store.close()
+                               extra=extra or None)
     ledger.close()
     return result_json
 
@@ -486,6 +512,10 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         'outcome': outcome,
         'layer': layer,
         'size_class': item['size_class'],
+        # What `pandora.toml` declared, and the class the run was admitted in:
+        # they differ once the worker has learned the job's size (`learn`).
+        'size_declared': item.get('size_declared') or item['size_class'],
+        'size_used': item['size_class'],
         'reservation_mib': item['reservation_mib'],
         'ceiling_mib': item['ceiling_mib'],
         'cpus_hint': item['cpus_hint'],
@@ -589,15 +619,24 @@ def read_text(path):
 
 def spawn(root, run_id, *, python=None):
     """Start the supervisor detached, so the SSH call that asked for it can end."""
+    return detach(root, run_id, 'supervise', python=python)
+
+
+def spawn_waiter(root, run_id, *, python=None):
+    """Start a queued row's waiter detached (`waitlist.wait`). Same shape, other verb."""
+    return detach(root, run_id, 'wait', python=python)
+
+
+def detach(root, run_id, verb, *, python=None):
     paths = Paths(root).ensure()
     attempt = paths.attempt(run_id)
     attempt.mkdir(parents=True, exist_ok=True)
-    stderr = (attempt / 'supervisor.err').open('a')
+    stderr = (attempt / ('supervisor.err' if verb == 'supervise' else verb + '.err')).open('a')
     proc = subprocess.Popen(
         # `--root` is a parser-level option, so it must precede the subcommand;
         # after it, argparse hands the whole thing to the subparser and refuses.
         [python or 'python3', '-m', 'pandora.engine.service',
-         '--root', str(paths.root), 'supervise', '--run', run_id],
+         '--root', str(paths.root), verb, '--run', run_id],
         stdin=subprocess.DEVNULL, stdout=stderr, stderr=stderr,
         start_new_session=True, cwd=str(Path(__file__).resolve().parents[2]))
     stderr.close()
@@ -621,6 +660,26 @@ def reconcile(root, *, driver=None):
         if pid and alive(pid):
             adopted.append(row['run_id'])
             continue
+        if (row['state'] == 'queued' and row['queued_at'] and not pid
+                and (row['role'] or 'single') == 'single' and row['queue_deadline']):
+            # A queued run has started nothing, so a waiter that died with the
+            # engine is simply started again: same row, same place in the
+            # queue, same deadline. The waiter expires it if the bound passed.
+            # Only a row `submit` queued: a waiting shard belongs to its
+            # parent's loop, and a waiter of its own would admit it twice.
+            waiter = row['waiter_pid']
+            if not (waiter and alive(waiter)):
+                ledger.update(row['run_id'], waiter_pid=spawn_waiter(paths.root, row['run_id']))
+            adopted.append(row['run_id'])
+            continue
+        if row['state'] == 'queued' and row['parent']:
+            # A shard or plan step not yet admitted: nothing of it ran, and its
+            # parent's loop is what admits it. While that parent lives, the row
+            # is the parent's, not an orphan.
+            owner = ledger.get(row['parent'])
+            if owner is not None and owner['supervisor_pid'] and alive(owner['supervisor_pid']):
+                adopted.append(row['run_id'])
+                continue
         evidence = {'reason': 'supervisor %s gone at engine restart' % (pid or 'never recorded'),
                     'cause': 'supervisor-gone'}
         receipt = None

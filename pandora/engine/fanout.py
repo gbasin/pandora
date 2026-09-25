@@ -207,7 +207,7 @@ def free_lanes(paths, ledger, plan):
         try:
             scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
             reserve, _, _, _ = scheduler.reservation(plan['repo'], plan['job'],
-                                                     plan['size_class'])
+                                                     plan['size_class'], 'shard')
             spare = scheduler.budget_mib - scheduler.held_mib()
             by_memory = spare // max(1, reserve)
             by_slots = scheduler.max_running - len(scheduler.live_rows())
@@ -278,18 +278,31 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
     """
     deadline = deadline or (time.monotonic() + ADMIT_SECONDS)
     said = None
+    joined = None
     while True:
         with gate(paths.root):
             store = admission.Store(str(paths.peaks))
             try:
                 scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
-                verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size_class'])
+                verdict = scheduler.admit(run_id, plan['repo'], plan['job'],
+                                          plan.get('size_declared') or plan['size_class'])
                 if verdict['admitted']:
                     pid = runner.spawn(paths.root, run_id)
                     ledger.update(run_id, supervisor_pid=pid)
                     return verdict
+                if verdict['reason'] == 'state':
+                    # Not queued any more: something else admitted or closed it.
+                    # Spawning here would be a second supervisor; the poll that
+                    # follows reads whatever became of it.
+                    return verdict
+                # The shard stands in the worker's one queue (`waitlist`), in
+                # arrival order with every plain run, from its first refusal.
+                # Re-stamping the same `queued_at` each pass is its heartbeat.
+                joined = joined or time.time()
+                ledger.update(run_id, queued_at=joined)
                 ahead = [row for row in scheduler.live_rows() if row['run_id'] != run_id
                          and row['state'] in ('admitted', 'running', 'collecting')]
+                ahead += scheduler.ahead_of(run_id)
             finally:
                 store.close()
         if time.monotonic() > deadline:

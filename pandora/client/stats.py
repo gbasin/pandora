@@ -17,9 +17,10 @@ Two honesty notes that the renderer says out loud rather than hiding:
 
 * **Queue wait** is the wall clock from the request reaching the daemon to the
   `accepted` frame. For a local run that is the admission wait. For a remote one
-  it is freeze plus ship plus submit -- the engine admits synchronously and
-  refuses rather than queues -- so it is a *pre-accept* wait rather than time
-  spent in a queue, and it is labeled that way.
+  it is freeze plus ship plus submit plus any time in the worker's queue, so it
+  is labeled a *pre-accept* wait. The worker queue alone is reported apart, from
+  the engine's own `durations.queue`, with the runs that waited out their bound
+  (`queue-timeout`).
 * **Execute** is the command's own time: the engine's `durations.execute` for a
   remote run, the whole supervised wall for a local one. They are not the same
   measurement and they are not summed together.
@@ -139,6 +140,7 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     oom = 0
     retried = {'runs': 0, 'recovered': 0, 'causes': {}}
     flaky = {'pairs': 0, 'shard_pairs': 0}
+    queued, queue_timeouts = [], 0
     overrides = overrides_from(runs, passthrough)
     for meta, result in runs:
         lane = meta.get('lane') or 'remote'
@@ -151,6 +153,12 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         seconds = execute_seconds(meta, result)
         if seconds is not None:
             executes.setdefault((job, lane), []).append(seconds)
+        waited = (result.get('durations') or {}).get('queue')
+        if lane != 'local' and isinstance(waited, (int, float)):
+            queued.append(float(waited))
+        if ((result.get('evidence') or {}).get('cause') == 'queue-timeout'
+                or (meta.get('refusal') or {}).get('cause') == 'queue-timeout'):
+            queue_timeouts += 1
         if meta.get('reason', '').startswith('fallback:'):
             cause = meta['reason'].split(':', 1)[1]
             fallbacks[cause] = fallbacks.get(cause, 0) + 1
@@ -182,6 +190,9 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
                    for (job, lane, outcome), count in
                    sorted(by_job.items(), key=lambda item: (-item[1], item[0]))],
         'queue_wait_seconds': {lane: spread(values) for lane, values in waits.items()},
+        # Time in the worker's own queue (runs that waited there only), and the
+        # runs that waited out their bound and ended `queue-timeout`, exit 70.
+        'worker_queue': {'wait_seconds': spread(queued), 'timeouts': queue_timeouts},
         'execute_seconds': [dict({'job': job, 'lane': lane}, **spread(values))
                             for (job, lane), values in
                             sorted(executes.items(), key=lambda item: -sum(item[1]))],
@@ -313,12 +324,17 @@ def render(report):
     waits = report['queue_wait_seconds']
     if any(waits[lane]['n'] for lane in waits):
         lines.append('')
-        lines.append('pre-accept wait (request to accepted; the engine admits, it does not queue)')
+        lines.append('pre-accept wait (request to accepted, any queue included)')
         for lane in sorted(waits):
             item = waits[lane]
             if item['n']:
                 lines.append('  %-6s p50 %6.2fs  p95 %6.2fs  (%d)'
                              % (lane, item['p50'], item['p95'], item['n']))
+    worker_queue = report.get('worker_queue') or {}
+    if (worker_queue.get('wait_seconds') or {}).get('n') or worker_queue.get('timeouts'):
+        item = worker_queue['wait_seconds']
+        lines.append('worker queue: p50 %.2fs  p95 %.2fs  (%d waited), %d queue-timeout(s)'
+                     % (item['p50'], item['p95'], item['n'], worker_queue['timeouts']))
     if report['execute_seconds']:
         lines.append('')
         lines.append('%-22s %-6s %8s %8s %6s' % ('execute', 'lane', 'p50 s', 'p95 s', 'runs'))

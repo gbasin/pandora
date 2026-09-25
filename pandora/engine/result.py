@@ -69,8 +69,20 @@ def oom(facts):
         return ('watchdog killed for file-cache thrash; likely a large build or install '
                 '-- declare size large for job %s (peak %d MiB of a %d MiB ceiling)'
                 % (job, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib'))))
+    declared, used = facts.get('size_declared'), facts.get('size_used')
+    if declared in ORDER and used in ORDER and ORDER.index(declared) > ORDER.index(used):
+        # The worker had learned a smaller class than the repository declared,
+        # and the oom resets it: nothing in pandora.toml needs to change.
+        return ('the learned class for job %s was %s (peak %d MiB of a %d MiB ceiling); '
+                'declared %s applies again from the next run'
+                % (job, used, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib')),
+                   declared))
     return ('raise the size class for job %s (peak %d MiB of a %d MiB ceiling)'
             % (job, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib'))))
+
+
+# Size classes, smallest first (`admission.CLASSES`), for the oom rule.
+ORDER = ('small', 'medium', 'large', 'xlarge')
 
 
 def timed_out(facts):
@@ -226,6 +238,8 @@ def facts_from_result(result, **extra):
         'peak_mib': result.get('peak_mib'),
         'ceiling_mib': result.get('ceiling_mib'),
         'reservation_mib': result.get('reservation_mib'),
+        'size_declared': result.get('size_declared'),
+        'size_used': result.get('size_used'),
         'observed_exit': result.get('observed_exit'),
         'wall_seconds': (result.get('durations') or {}).get('execute')
                         or result.get('wall_seconds'),

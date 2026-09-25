@@ -91,7 +91,21 @@ ADDED = (('role', "TEXT NOT NULL DEFAULT 'single'"),
          # Which client daemon submitted the attempt: `user@host` by default,
          # `[client] name` when set. NULL on a row from a client that predates
          # it. Attribution and cancel scope only; never an isolation boundary.
-         ('client', 'TEXT'))
+         ('client', 'TEXT'),
+         # The worker queue (`waitlist`). `queued_at` is when the row joined
+         # the one queue and is its place in it; NULL means it never waited
+         # (admitted at submit, or a shard not yet dispatched). The deadline
+         # is wall-clock, fixed at submit from the job's own history.
+         ('queued_at', 'REAL'),
+         ('queue_deadline', 'REAL'),
+         ('admitted_at', 'REAL'),
+         # The detached process that waits for admission and then spawns the
+         # supervisor. Kept apart from `supervisor_pid`, which means "the
+         # command may be running": a waiting row has not started anything.
+         ('waiter_pid', 'INTEGER'),
+         # The size class `pandora.toml` declared. `size_class` is overwritten
+         # at admission with the class actually used, which learning may move.
+         ('size_declared', 'TEXT'))
 
 # A parent holds the fan-out and runs nothing itself; `plan` is the build-once
 # attempt a tier-2 parent runs before there are any shards to dispatch.
@@ -169,12 +183,12 @@ class Ledger:
             self.db.execute(
                 'INSERT INTO attempts (run_id, request_id, repo, job, input_id, source_path,'
                 ' argv, env, cwd, outputs, size_class, state, same_input_as, created, updated,'
-                ' role, parent, shard_index, shard_total, retry_of, client)'
-                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                ' role, parent, shard_index, shard_total, retry_of, client, size_declared)'
+                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (run_id, request_id, repo, job, input_id, source_path,
                  json.dumps(argv), json.dumps(env), cwd, json.dumps(outputs),
                  size_class, 'queued', previous['run_id'] if previous else None, stamp, stamp,
-                 role, parent, shard_index, shard_total, retry_of, client))
+                 role, parent, shard_index, shard_total, retry_of, client, size_class))
         except sqlite3.IntegrityError:
             row = self.by_request(request_id)
             if row is None:

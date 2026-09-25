@@ -10,13 +10,14 @@ round trip to this host is ~90 ms and the watchdog samples the cgroup twice a
 second, so a remote driver would spend more time in transport than in work and
 would make a 0.06 s clone unmeasurable.
 
-    submit    admit (or refuse) a request and start its supervisor
+    submit    admit, queue or refuse a request; start its supervisor or its waiter
+    wait      (internal) the detached waiter of one queued row
     resubmit  one more attempt at a finished infra_failed attempt, same input
     lookup    what became of one request id, for a client whose submit reply was lost
     status    one attempt's row
     logs      raw log bytes from an offset
     result    the finished result JSON
-    cancel    ask a running attempt to stop
+    cancel    ask a running attempt to stop; withdraw a queued one
     ps        live attempts
     stats     scheduler picture plus outcome counts
     health    the cheap one the client polls: reachable, disk, canary, drift
@@ -39,13 +40,17 @@ from pathlib import Path
 if __package__ in (None, ''):                # invoked as a file by the bootstrap
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pandora.engine import admission, runner                      # noqa: E402
+from pandora.engine import admission, runner, waitlist            # noqa: E402
 from pandora.engine.ledger import Ledger, row_to_dict             # noqa: E402
 from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 
 # 3: requests carry `client`, rows and results record it, and `cancel` and
 # `lookup` are scoped to it.
-ENGINE_VERSION = 3
+# 4: a full worker queues: `submit` may answer `state: queued` with a `queued`
+# position, `status` of a queued row carries `queue`, `cancel` of one answers
+# `withdrawn`, `lookup` says `queued`, and results record `size_declared` and
+# `size_used` now that the class is learned.
+ENGINE_VERSION = 4
 CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 
 
@@ -122,9 +127,12 @@ def submit(args, paths, ledger, request):
             return emit({'ok': False, 'code': 'request-collision',
                          'request_id': request['request_id'], 'engine': ENGINE_VERSION})
         if not created:
-            return emit({'ok': True, 'duplicate': True, 'run_id': row['run_id'],
-                         'state': row['state'], 'same_input_as': row['same_input_as'],
-                         'engine': ENGINE_VERSION})
+            answer = {'ok': True, 'duplicate': True, 'run_id': row['run_id'],
+                      'state': row['state'], 'same_input_as': row['same_input_as'],
+                      'engine': ENGINE_VERSION}
+            if row['state'] == 'queued' and row['queued_at']:
+                answer['queued'] = queue_place(paths, ledger, row['run_id'])
+            return emit(answer)
         run_id = row['run_id']
         (paths.attempt(run_id)).mkdir(parents=True, exist_ok=True)
         (paths.attempt(run_id) / 'toolchain.json').write_text(json.dumps(plan['worker']))
@@ -162,12 +170,28 @@ def submit(args, paths, ledger, request):
             return emit({'ok': False, 'code': 'disk-floor', 'run_id': run_id,
                          'capacity': room, 'engine': ENGINE_VERSION})
         store = admission.Store(str(paths.peaks))
-        scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
-        verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])
-        store.close()
+        try:
+            scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
+            verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])
+            if (not verdict['admitted'] and verdict['reason'] in ('memory', 'queue', 'slots')
+                    and not verdict.get('never')):
+                # Memory or slots are short, or older rows are waiting for them:
+                # the row joins the one queue and a waiter holds it there.
+                # Nothing runs, so no supervisor exists yet (`waitlist`).
+                waitlist.enqueue(paths, ledger, scheduler, run_id, plan['repo'], plan['job'])
+                pid = runner.spawn_waiter(paths.root, run_id, python=args.python)
+                ledger.update(run_id, waiter_pid=pid)
+                return emit({'ok': True, 'run_id': run_id, 'state': 'queued',
+                             'duplicate': False, 'same_input_as': row['same_input_as'],
+                             'admission': verdict,
+                             'queued': waitlist.position(ledger, scheduler, run_id),
+                             'waiter_pid': pid, 'engine': ENGINE_VERSION})
+        finally:
+            store.close()
         if not verdict['admitted']:
-            # Refused before anything ran: the row is closed so it cannot be
-            # mistaken for work in progress, and the client may go local.
+            # Refused before anything ran -- a reservation no amount of
+            # waiting fits -- and the row is closed so it cannot be mistaken
+            # for work in progress. Not a fallback cause any more.
             runner.write_result(paths, ledger, run_id, outcome='infra_failed',
                                 layer='engine', exit_code=None, peak_mib=0,
                                 durations={},
@@ -180,6 +204,22 @@ def submit(args, paths, ledger, request):
     return emit({'ok': True, 'run_id': run_id, 'state': 'admitted', 'duplicate': False,
                  'same_input_as': row['same_input_as'], 'admission': verdict,
                  'supervisor_pid': pid, 'engine': ENGINE_VERSION})
+
+
+def queue_place(paths, ledger, run_id):
+    """`waitlist.position` for one queued row, with its own store."""
+    store = admission.Store(str(paths.peaks))
+    try:
+        scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
+        return waitlist.position(ledger, scheduler, run_id)
+    finally:
+        store.close()
+
+
+def cmd_wait(args):
+    """The detached waiter of one queued row. See `waitlist.wait`."""
+    return emit({'ok': True, 'run_id': args.run,
+                 'became': waitlist.wait(args.root, args.run, python=args.python)})
 
 
 def cmd_resubmit(args):
@@ -240,7 +280,8 @@ def cmd_lookup(args):
     asks here, once, by the id it chose.
 
     `spawned` is the fact the client acts on: a supervisor pid in the row means
-    the command may be running, so the client attaches. A row that finished with
+    the command may be running, and a waiter pid that it will run once
+    admitted, so the client attaches (`queued` says which). A row that finished with
     no supervisor was refused before anything ran (`disk-floor`,
     `admission-refused`), and its `cause` is the refusal the lost reply carried.
 
@@ -274,7 +315,11 @@ def cmd_lookup(args):
         evidence = item.get('evidence') if isinstance(item.get('evidence'), dict) else {}
         return emit({'ok': True, 'found': True, 'request_id': args.request_id,
                      'run_id': item['run_id'], 'state': item['state'],
-                     'outcome': item['outcome'], 'spawned': bool(item['supervisor_pid']),
+                     'outcome': item['outcome'],
+                     # A waiter holds a queued row for admission: the engine owns
+                     # it and will run it, so the client attaches as to a spawn.
+                     'spawned': bool(item['supervisor_pid'] or item.get('waiter_pid')),
+                     'queued': item['state'] == 'queued' and bool(item.get('queued_at')),
                      'cause': evidence.get('cause'),
                      'same_input_as': item['same_input_as'],
                      'admission': {'reservation_mib': item['reservation_mib'],
@@ -291,6 +336,9 @@ def cmd_status(args):
         return emit({'ok': False, 'code': 'stale', 'run_id': args.run})
     item = row_to_dict(row)
     item['log_bytes'] = paths.log(args.run).stat().st_size if paths.log(args.run).exists() else 0
+    if item['state'] == 'queued' and item.get('queued_at'):
+        # Where it stands, for the client's `queued behind` line and `ps`.
+        item['queue'] = queue_place(paths, ledger, args.run)
     item['ok'] = True
     return emit(item)
 
@@ -333,7 +381,22 @@ def cmd_cancel(args):
                      'client': row['client']})
     if row['state'] == 'finished':
         return emit({'ok': True, 'already': row['outcome'], 'run_id': args.run})
-    ledger.request_cancel(args.run)
+    with gate(paths.root):
+        # Under the gate the waiter admits under: a queued row is either still
+        # queued here, and is withdrawn -- nothing ran, `cancelled` -- or was
+        # admitted first, and its supervisor is asked to stop like any other.
+        row = ledger.get(args.run)
+        if row['state'] == 'queued' and row['queued_at'] and (row['role'] or 'single') == 'single':
+            waitlist.withdraw(paths, ledger, args.run, 'canceled while queued; nothing ran')
+            return emit({'ok': True, 'withdrawn': True, 'run_id': args.run,
+                         'state': 'queued'})
+        if getattr(args, 'queued_only', False):
+            # A withdrawal that lost the race to admission: the run is the
+            # caller's to follow now, not to stop (a daemon draining for a
+            # restart asks this way).
+            return emit({'ok': True, 'withdrawn': False, 'run_id': args.run,
+                         'state': row['state']})
+        ledger.request_cancel(args.run)
     return emit({'ok': True, 'requested': True, 'run_id': args.run, 'state': row['state']})
 
 
@@ -565,11 +628,14 @@ def main(argv=None):
     lookup.add_argument('--client', default=None)
     lookup.set_defaults(func=cmd_lookup)
     for name, function in (('status', cmd_status), ('result', cmd_result),
-                           ('cancel', cmd_cancel), ('supervise', cmd_supervise)):
+                           ('cancel', cmd_cancel), ('supervise', cmd_supervise),
+                           ('wait', cmd_wait)):
         node = sub.add_parser(name)
         node.add_argument('--run', required=True)
         if name == 'cancel':
             node.add_argument('--client', default=None)
+            node.add_argument('--queued-only', action='store_true',
+                              help='withdraw a queued row; leave an admitted one alone')
         node.set_defaults(func=function)
     logs = sub.add_parser('logs')
     logs.add_argument('--run', required=True)

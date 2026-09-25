@@ -599,6 +599,10 @@ def state_word(row):
     state = row.get('state') or ''
     if state == 'queued' and row.get('phase') in PRE_ACCEPT:
         return PRE_ACCEPT[row['phase']]
+    if state == 'queued' and row.get('phase') == 'queued':
+        # Held in the worker's queue, not yet accepted: `queued #2`.
+        position = (row.get('queue') or {}).get('position')
+        return 'queued #%s' % position if position else state
     return state
 
 
@@ -743,6 +747,11 @@ def render_result(run_id, result):
     if placed.get('overridden'):
         lines.append('  placed %s by override; the job says %s'
                      % (placed.get('where'), placed.get('declared')))
+    if result.get('size_used') and result.get('size_used') != result.get('size_declared'):
+        lines.append('  size %s, learned (declared %s)'
+                     % (result['size_used'], result.get('size_declared')))
+    if (result.get('durations') or {}).get('queue'):
+        lines.append('  waited %.1fs in the worker queue' % float(result['durations']['queue']))
     if result.get('input_id'):
         same = result.get('same_tree_as') or result.get('same_input_as')
         lines.append('  input %s%s' % (result['input_id'],
