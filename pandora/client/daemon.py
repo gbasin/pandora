@@ -38,7 +38,7 @@ from ..errors import (ConfigError, EngineError, ExecutionUncertain, NotClaimed, 
 from ..engine import bundle
 from ..engine import history as engine_history
 from ..engine import retry as retries
-from ..exits import CANCELED, INFRA, STALE
+from ..exits import CANCELED, INFRA, STALE, UNAUTHORIZED
 from . import attribution, runindex
 from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
@@ -1048,8 +1048,8 @@ class Daemon:
     # What each refusal costs the caller. The client no longer invents an exit
     # code for a daemon verdict, so the verdict has to carry one.
     EXITS = {'queue-timeout': STALE, 'busy': STALE, 'version': INFRA,
-             'unauthorized': INFRA, 'local-paused': INFRA, 'fallback-refused': INFRA,
-             'config-unknown': INFRA}
+             'unauthorized': UNAUTHORIZED, 'local-paused': INFRA,
+             'fallback-refused': INFRA, 'config-unknown': INFRA}
 
     def deny(self, conn, code, message, exit=None):
         conn.sendall(dump({'v': VERSION, 't': 'error', 'code': code, 'msg': message,

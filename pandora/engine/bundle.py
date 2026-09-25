@@ -12,7 +12,7 @@ reads. A bundle is either entirely present under its own digest or it is not
 present at all, and a run names the digest it started under.
 
 The payload is the `pandora` package minus the client half -- the worker has no
-use for the daemon, the shim or the fallback budget, and shipping them would put
+use for the daemon, the shim or the fallback policy, and shipping them would put
 the Mac's control plane on a machine that should never make those decisions.
 """
 import base64

@@ -1,4 +1,4 @@
-"""The fallback policy, and the bounded exec that is its last resort.
+"""The fallback policy, and the log line every passthrough leaves.
 
 The owner's rule is that a claimed command may run locally only while its
 non-execution on the worker is still provable. That makes fallback correct but
@@ -20,17 +20,13 @@ has one answer for every cause:
 
 A `local` verdict is not permission to `exec`. It means "admit this job into the
 local lane, with its size class, behind the same queue as every other local
-job" -- which the daemon does. The slot budget below is what is left when the
-daemon itself is the thing that is gone: there is no local lane to admit into,
-so the bound is ``fallback_slots`` file locks, held in the state directory
-rather than in a process that is not running.
+job" -- which the daemon does. When the daemon itself is the thing that is gone
+there is no lane to admit into, and the shim runs the command as it would on a
+machine with no Pandora: a passthrough, not a fallback, with no budget to hold.
 """
-import errno
-import fcntl
 import json
 import os
 from pathlib import Path
-import time
 
 # The causes, in the order they occur along a submission. Every one of them is
 # provably non-executing; that is what makes falling back *permissible*, and it
@@ -111,60 +107,6 @@ def decide(*, cause, size='large', writeback=False, declared=None, notice=None,
             'reason': '%s, so it is not moved to this Mac automatically. %s' % (why, step)}
 
 
-class Slot:
-    def __init__(self, handle, index):
-        self.handle = handle
-        self.index = index
-
-    def release(self):
-        try:
-            fcntl.flock(self.handle, fcntl.LOCK_UN)
-        finally:
-            self.handle.close()
-
-
-class Unbounded(Exception):
-    """The budget's own storage is unreachable, so it cannot be enforced.
-
-    This is not hypothetical.  A shim running inside a Codex `workspace-write`
-    sandbox cannot write to the daemon's state directory unless it was passed
-    with `--add-dir`, and that is exactly the case where the daemon is also
-    unreachable and fallback is most likely.  Refusing to run the command would
-    be worse than running it unbounded, so the caller warns and proceeds.
-    """
-
-
-def acquire(state, count, wait_seconds=0.0, poll=0.02):
-    """One of ``count`` slots, or None once ``wait_seconds`` has elapsed."""
-    directory = Path(state) / 'fallback'
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        raise Unbounded(str(error)) from None
-    deadline = time.monotonic() + max(wait_seconds, 0.0)
-    while True:
-        for index in range(count):
-            try:
-                handle = (directory / ('slot-%d.lock' % index)).open('a+')
-            except OSError as error:
-                raise Unbounded(str(error)) from None
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError as error:
-                handle.close()
-                if error.errno not in (errno.EAGAIN, errno.EACCES):
-                    raise
-                continue
-            handle.seek(0)
-            handle.truncate()
-            handle.write(str(os.getpid()) + '\n')
-            handle.flush()
-            return Slot(handle, index)
-        if time.monotonic() >= deadline:
-            return None
-        time.sleep(poll)
-
-
 def record(state, entry):
     """Append one JSONL line.  O_APPEND on a short line is atomic enough."""
     path = Path(state) / 'passthrough.jsonl'
@@ -172,11 +114,3 @@ def record(state, entry):
     line = json.dumps(entry, separators=(',', ':')) + '\n'
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), 'a') as handle:
         handle.write(line)
-
-
-def config_for(state):
-    path = Path(state) / 'config.json'
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
-        return {}

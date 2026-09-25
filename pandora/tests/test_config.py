@@ -221,6 +221,23 @@ class ClassifyTest(unittest.TestCase):
         self.assertIn('pnpm journey <id>', verdict['message'])
         self.assertIn('No validation started.', verdict['message'])
 
+    def test_every_reject_verdict_is_exit_64(self):
+        # #124: a refused command used to reach the caller as exit 1, which is
+        # indistinguishable from the command having run and failed.
+        for argv, kwargs in (
+            (['pnpm', 'journey'], {}),                          # args = "required", none given
+            (['pnpm', 'journey', '../elsewhere'], {}),          # a path out of the worktree
+            (['pnpm', 'journey', 'S0-01', '--fault'], {}),      # a value flag without a value
+            (['pnpm', 'journey', 'S0-01', '--update', '--update'], {}),  # one option twice
+            (['pnpm', 'check', '--focus'], {}),                 # args = "none", extras refused
+            (['pnpm', 'dev:stack', 'stop'], {}),                # the job's own reject list
+            (['pnpm', 'journey', 'S0-01'], {'env': {'JOURNEY_SHARD': '1/4'}}),
+            (['pnpm', 'unit', 'src/x.test.ts'], {'cwd': 'apps/agent'}),
+        ):
+            with self.subTest(argv=argv):
+                verdict = classify.classify(self.config, argv, **kwargs)
+                self.assertEqual((verdict['decision'], verdict['exit']), ('reject', 64))
+
     def test_an_argument_may_not_escape_the_worktree(self):
         verdict = classify.classify(self.config, ['pnpm', 'journey', '../elsewhere'])
         self.assertEqual(verdict['decision'], 'reject')
@@ -269,7 +286,7 @@ class ClassifyTest(unittest.TestCase):
         config = loader.load(EXAMPLE)
         config['matching']['subdirectory'] = 'reject'
         verdict = classify.classify(config, ['pnpm', 'journey', 'S0-01'], cwd='apps/agent')
-        self.assertEqual(verdict['decision'], 'reject')
+        self.assertEqual((verdict['decision'], verdict['exit']), ('reject', 64))
 
     def test_a_subdirectory_can_claim_nothing_instead(self):
         # `pnpm test` in a package is that package's test, not the root's job.
