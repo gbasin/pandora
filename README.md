@@ -12,7 +12,7 @@ Pandora is a scheduler for that machine. Agents keep typing the commands they
 type today. A file at the repository root, `pandora.toml`, names the commands
 Pandora claims and says where each one runs: in a fresh Linux instance on a
 shared worker, or in a queue on the developer's machine with one memory budget
-for every agent's routed runs. Either way the run waits its turn in a queue
+shared by every agent. Either way the run waits its turn in a queue
 Pandora keeps, leaves a record, and its results arrive in the worktree before
 the command exits with its own code. A worker run that rewrites files, such as
 one that regenerates fixtures, brings them back only from a passing run over a
@@ -83,9 +83,9 @@ flowchart LR
     shim -- "claimed" --> daemon["Pandora daemon<br/>one per user"]
     toml[/"pandora.toml<br/>what the repository claims"/] --> daemon
     cfg[/"~/.config/pandora/config.toml<br/>where the worker is"/] --> daemon
-    daemon -- "where = #quot;local#quot;" --> local["Local lane<br/>queue on this machine, one memory budget"]
-    daemon -- "where = #quot;remote#quot;:<br/>freeze, ship, admit" --> worker["Linux worker<br/>fresh Incus instance<br/>cloned from the golden image"]
-    worker -. "fallback, when the job allows" .-> local
+    daemon -- "where = local" --> local["Local lane<br/>queue on this machine, one memory budget"]
+    daemon -- "where = remote:<br/>freeze, ship, admit" --> worker["Linux worker<br/>fresh Incus instance<br/>cloned from the golden image"]
+    daemon -. "fallback, when the worker declines<br/>and the job allows" .-> local
     local --> home["Worktree<br/>results home, the command's own exit code"]
     worker -- "output, results" --> home
 ```

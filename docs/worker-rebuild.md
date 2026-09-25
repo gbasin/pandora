@@ -27,7 +27,7 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
 3. Set `loop_size_gib` only if there is no spare device. See "No spare device".
 4. Pin `incus` and `incus-client` to exact dpkg versions.
 5. Leave `unattended_upgrades = false`. See "Upgrade cadence".
-6. Set `disk_floor_gib` to the pool free space below which new runs are
+6. Set `disk_floor_gib` to the pool free space below which new single runs are
    refused. Four GiB is the default.
 7. Set `run_disk_gib` to the per-run root quota. This limits *referenced*
    bytes, which include the golden's. A 4 GiB golden under a 12 GiB quota
