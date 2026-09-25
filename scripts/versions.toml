@@ -34,3 +34,17 @@ run_disk_gib = 12               # per-run root quota, enforced by the pool
 golden_keep = 2                 # goldens kept per toolchain family by `pandora worker gc`
 max_running = 0                 # concurrent runs; 0 derives max(2, threads / 2) from the host
 unattended_upgrades = false
+# min_engine_version = 5        # the oldest engine bundle the worker admits at
+                                # submit/resubmit/fence. Unset means the
+                                # provisioner's own version. See "The engine
+                                # floor" in docs/worker.md.
+
+# Each teammate's key gets one entry; provision renders them as the managed
+# block of the worker user's authorized_keys. `user` pins the key to the
+# gateway forced command; `admin` is a plain shell line. Remove an entry and
+# re-run provision to revoke. See "Sharing a worker" in docs/worker.md.
+#
+# [[users]]
+# name = "sterling"
+# role = "user"
+# key = "ssh-ed25519 AAAA... sterling@laptop"

@@ -307,14 +307,15 @@ class Worker:
     # -- following a run ---------------------------------------------------
 
     def status(self, run_id):
-        return self.engine(['status', '--run', run_id], timeout=60)
+        return self.engine(['status', '--run', run_id] + self.as_client(), timeout=60)
 
     def logs(self, run_id, offset):
-        return self.engine(['logs', '--run', run_id, '--offset', str(offset)],
+        return self.engine(['logs', '--run', run_id, '--offset', str(offset)]
+                           + self.as_client(),
                            timeout=120, binary=True, check=False)
 
     def result(self, run_id):
-        return self.engine(['result', '--run', run_id], timeout=60)
+        return self.engine(['result', '--run', run_id] + self.as_client(), timeout=60)
 
     def cancel(self, run_id):
         return self.engine(['cancel', '--run', run_id] + self.as_client(), timeout=60)

@@ -158,7 +158,7 @@ The optional keys and their defaults:
 | `[worker]` | `ssh_persist` | `10m` | SSH control-master lifetime. |
 | | `health_interval_s` | `60` | How often the daemon polls the worker's health. |
 | `[notify]` | `enabled` | `true` | macOS notification on a health transition (worker down or back, canary failed, disk floor, kernel drift). |
-| `[client]` | `name` | `user@host` | Who this Mac is to a shared worker: your login name and the short host name. 1 to 64 letters, digits and `. _ @ + -`, starting with a letter or digit. See [Sharing a worker](worker.md#sharing-a-worker). |
+| `[client]` | `name` | `user@host` | Who this Mac is to a shared worker: your login name and the short host name. 1 to 64 letters, digits and `. _ @ + -`, starting with a letter or digit. On a key provisioned through `[[users]]`, the gateway's pinned name wins over this. See [Sharing a worker](worker.md#sharing-a-worker). |
 | | `keep_runs_days` | `7` | The daemon removes a finished run's directory once all its dates are older than this, at start and every hour, and logs the setting at start. It never removes a live run, a conflicted write-back that waits for `pandora resolve`, or a run whose `meta.json` it cannot parse. A run directory with no `meta.json` goes once the directory is older than this. 0 keeps every run. `pandora stats` sees only what is kept. On the worker, `pandora worker retain` deletes attempt directories older than 24 h by default, and the ledger rows stay. |
 | `[local]` | `budget_mib` | `0` | Local-lane memory budget. 0 means this Mac's RAM minus `reserve_mib`. |
 | | `reserve_mib` | `4096` | Memory kept for agents, editors and the OS. |

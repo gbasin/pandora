@@ -52,7 +52,9 @@ FAULTS = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
           # poll, rather than discovered by paying an SSH timeout.
           'worker-down',
           'worker-unreachable', 'snapshot-failed', 'transfer-failed',
-          'queue-timeout', 'admission-refused', 'engine-error')
+          'queue-timeout', 'admission-refused', 'engine-error',
+          # The worker's provisioned engine floor refused this bundle.
+          'engine-version')
 OUTPUTS = ('artifacts', 'writeback', 'evidence')
 EXTRA = ('local', 'reject')
 ARGS = ('none', 'required', 'optional')

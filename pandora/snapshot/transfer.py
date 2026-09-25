@@ -158,6 +158,84 @@ class Link:
         self.owns_master = None
 
 
+# The fixed `python3 -c` programs a send feeds the worker. Named, rather than
+# inline at the call, because a shared worker's gateway allowlists exactly these
+# scripts by sha256 (`pandora.engine.bundle.feed_digests`); a change to any of
+# them changes its digest, so an edited feed needs a re-provisioned allowlist.
+FEEDS = {
+    # Is the input already in the cache? Presence and the renewed grace are one
+    # locked fact, because the collector uses this same lock.
+    'probe': '''
+import fcntl, os, sys
+root, final = sys.argv[1:]
+os.makedirs(root, exist_ok=True)
+with open(os.path.join(root, 'admission.lock'), 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if os.path.isdir(final):
+        os.utime(final, None)
+        print('present')
+    else:
+        print('absent')
+''',
+    # The newest published snapshots, for --link-dest dedup.
+    'bases': '''
+import os, sys
+base, final = sys.argv[1:]
+os.makedirs(base, exist_ok=True)
+entries = []
+for name in os.listdir(base):
+    path = os.path.join(base, name)
+    try:
+        if (os.path.isdir(path) and not os.path.islink(path)
+                and '.partial.' not in name and os.path.realpath(path) != final):
+            entries.append((os.path.getmtime(path), path))
+    except FileNotFoundError:
+        # GC can remove an entry between the directory check and the stat.
+        continue
+entries.sort(reverse=True)
+for _, path in entries[:4]:
+    print(path)
+''',
+    'stage': '''
+import os, sys, tempfile
+base, input_id = sys.argv[1:]
+os.makedirs(base, exist_ok=True)
+stage = tempfile.mkdtemp(prefix=input_id + '.partial.', dir=base)
+# Isolated container UIDs must be able to read the mounted source tree.
+os.chmod(stage, 0o755)
+print(stage)
+''',
+    'publish': '''
+import errno, fcntl, os, sys, uuid
+stage, final, latest, root = sys.argv[1:]
+with open(os.path.join(root, 'admission.lock'), 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if not os.path.lexists(final):
+        try:
+            os.rename(stage, final)
+        except OSError as exc:
+            if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            if not os.path.isdir(final):
+                raise
+    # A concurrent publisher may have won with an old cached tree. Renew its
+    # grace too, before releasing the lock or acknowledging the shipment.
+    os.utime(final, None)
+temporary = latest + '.tmp.' + uuid.uuid4().hex
+try:
+    os.symlink(final, temporary)
+    os.replace(temporary, latest)
+finally:
+    if os.path.lexists(temporary):
+        os.unlink(temporary)
+''',
+    'clean': '''
+import shutil, sys
+shutil.rmtree(sys.argv[1], ignore_errors=True)
+''',
+}
+
+
 def cache_paths(root, repo, input_id):
     base = '%s/src/%s' % (root, repo)
     return {'base': base, 'final': '%s/%s' % (base, input_id),
@@ -206,18 +284,7 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
     # The collector uses the engine's admission lock too. Refresh the grace
     # period atomically with checking presence: a cache hit is a new use even
     # though no file content changes.
-    _, out, _ = link.feed('''
-import fcntl, os, sys
-root, final = sys.argv[1:]
-os.makedirs(root, exist_ok=True)
-with open(os.path.join(root, 'admission.lock'), 'a') as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    if os.path.isdir(final):
-        os.utime(final, None)
-        print('present')
-    else:
-        print('absent')
-''', (root, paths['final']), timeout=60)
+    _, out, _ = link.feed(FEEDS['probe'], (root, paths['final']), timeout=60)
     if out.strip() == 'present':
         return {'path': paths['final'], 'reused': True, 'link_dests': [],
                 'seconds': 0.0, 'files': len(manifest)}
@@ -227,24 +294,7 @@ with open(os.path.join(root, 'admission.lock'), 'a') as lock:
     # against a divergent base, ~90% against the worktree's own previous tree.
     # rsync tries each --link-dest in order, so four bases cost nothing when
     # none of them matches.
-    _, listed, _ = link.feed('''
-import os, sys
-base, final = sys.argv[1:]
-os.makedirs(base, exist_ok=True)
-entries = []
-for name in os.listdir(base):
-    path = os.path.join(base, name)
-    try:
-        if (os.path.isdir(path) and not os.path.islink(path)
-                and '.partial.' not in name and os.path.realpath(path) != final):
-            entries.append((os.path.getmtime(path), path))
-    except FileNotFoundError:
-        # GC can remove an entry between the directory check and the stat.
-        continue
-entries.sort(reverse=True)
-for _, path in entries[:4]:
-    print(path)
-''', (paths['base'], paths['final']), timeout=60)
+    _, listed, _ = link.feed(FEEDS['bases'], (paths['base'], paths['final']), timeout=60)
     link_dests = [line.strip() for line in listed.splitlines() if line.strip()]
     # Fresh worktrees have new mtimes for identical content. Match by checksum
     # and omit timestamp preservation so link-dest can reuse immutable files.
@@ -254,15 +304,7 @@ for _, path in entries[:4]:
     for link_dest in link_dests:
         argv += ['--link-dest=' + link_dest]
     names = b'\0'.join(record['path'].encode() for record in manifest) + b'\0'
-    _, staged, _ = link.feed('''
-import os, sys, tempfile
-base, input_id = sys.argv[1:]
-os.makedirs(base, exist_ok=True)
-stage = tempfile.mkdtemp(prefix=input_id + '.partial.', dir=base)
-# Isolated container UIDs must be able to read the mounted source tree.
-os.chmod(stage, 0o755)
-print(stage)
-''', (paths['base'], input_id), timeout=120)
+    _, staged, _ = link.feed(FEEDS['stage'], (paths['base'], input_id), timeout=120)
     stage = staged.rstrip('\n')
     argv += [str(worktree) + '/', '%s:%s/' % (link.host, stage)]
     import time
@@ -289,39 +331,14 @@ print(stage)
         # A concurrent attempt may already have published this input. Keep that
         # completed tree, then atomically point latest at it. Each attempt uses
         # a separate temporary symlink, including across different inputs.
-        link.feed('''
-import errno, fcntl, os, sys, uuid
-stage, final, latest, root = sys.argv[1:]
-with open(os.path.join(root, 'admission.lock'), 'a') as lock:
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    if not os.path.lexists(final):
-        try:
-            os.rename(stage, final)
-        except OSError as exc:
-            if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                raise
-            if not os.path.isdir(final):
-                raise
-    # A concurrent publisher may have won with an old cached tree. Renew its
-    # grace too, before releasing the lock or acknowledging the shipment.
-    os.utime(final, None)
-temporary = latest + '.tmp.' + uuid.uuid4().hex
-try:
-    os.symlink(final, temporary)
-    os.replace(temporary, latest)
-finally:
-    if os.path.lexists(temporary):
-        os.unlink(temporary)
-''', (stage, paths['final'], paths['latest'], root), timeout=120)
+        link.feed(FEEDS['publish'], (stage, paths['final'], paths['latest'], root),
+                  timeout=120)
     finally:
         # A cleanup that fails must not replace the error that brought us here:
         # the caller's fallback decision depends on which error that was. On
         # success the stage was renamed away, so a leftover is only garbage.
         try:
-            link.feed('''
-import shutil, sys
-shutil.rmtree(sys.argv[1], ignore_errors=True)
-''', (stage,), timeout=120)
+            link.feed(FEEDS['clean'], (stage,), timeout=120)
         except Exception as error:               # noqa: BLE001 - logged, never raised
             log('could not remove staging directory %s on %s: %s: %s'
                 % (stage, link.host, type(error).__name__, error))

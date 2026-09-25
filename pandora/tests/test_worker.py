@@ -46,6 +46,76 @@ class Versions(unittest.TestCase):
         again = versions.normalize(tomllib.loads(versions.render(manifest)))
         self.assertEqual(versions.digest(manifest), versions.digest(again))
 
+    def test_an_engine_floor_must_be_an_integer(self):
+        self.assertIsNone(versions.normalize({})['worker'].get('min_engine_version'))
+        self.assertEqual(versions.normalize({'worker': {'min_engine_version': 5}})
+                         ['worker']['min_engine_version'], 5)
+        for bad in ('5', True):
+            with self.subTest(bad=bad), self.assertRaises(ConfigError):
+                versions.normalize({'worker': {'min_engine_version': bad}})
+
+    def test_users_round_trip_and_digest(self):
+        key = 'ssh-ed25519 AAAAC3NzaC sterling@laptop'
+        manifest = versions.normalize({'users': [{'name': 'sterling', 'key': key}]})
+        self.assertEqual(manifest['users'],
+                         [{'name': 'sterling', 'key': key, 'role': 'user'}])
+        import tomllib
+        again = versions.normalize(tomllib.loads(versions.render(manifest)))
+        self.assertEqual(versions.digest(manifest), versions.digest(again))
+        # A declared user is part of the declaration: the digest covers it.
+        bare = versions.normalize({})
+        self.assertNotEqual(versions.digest(manifest), versions.digest(bare))
+
+    def test_bad_users_are_refused(self):
+        key = 'ssh-ed25519 AAAAC3NzaC sterling@laptop'
+        for item in ({'name': 'has space', 'key': key},
+                     {'name': 'sterling', 'key': 'not a key'},
+                     {'name': 'sterling', 'key': key, 'role': 'boss'},
+                     {'name': 'sterling', 'key': key, 'comment': 'x'},
+                     {'key': key},
+                     'sterling'):
+            with self.subTest(item=item), self.assertRaises(ConfigError):
+                versions.normalize({'users': [item]})
+        with self.assertRaises(ConfigError):        # names must be unique
+            versions.normalize({'users': [{'name': 's', 'key': key},
+                                          {'name': 's', 'key': key}]})
+
+
+class AuthorizedKeys(unittest.TestCase):
+    """`provision.authorized_lines`: the managed block a manifest becomes."""
+
+    def test_a_user_key_is_pinned_to_the_gateway(self):
+        manifest = versions.normalize({'users': [
+            {'name': 'sterling', 'key': 'ssh-ed25519 AAAAC3NzaC sterling@laptop'}]})
+        lines = provision.authorized_lines(manifest, root='/home/ubuntu/pandora',
+                                           engine_root='/home/ubuntu/pandora-engine')
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith('restrict,command="'))
+        self.assertIn('/home/ubuntu/pandora/bin/gateway --name sterling', lines[0])
+        self.assertIn('--engine-root /home/ubuntu/pandora-engine', lines[0])
+        self.assertTrue(lines[0].endswith('# pandora:sterling'))
+
+    def test_an_admin_key_is_a_plain_line(self):
+        manifest = versions.normalize({'users': [
+            {'name': 'pat', 'role': 'admin', 'key': 'ssh-ed25519 AAAA pat@work'}]})
+        lines = provision.authorized_lines(manifest, root='/w', engine_root='/e')
+        self.assertEqual(lines, ['ssh-ed25519 AAAA pat@work # pandora:pat'])
+
+    def test_the_preamble_carries_the_gateway_the_users_and_the_floor(self):
+        import base64
+        import re
+        from pandora.engine import service
+        manifest = versions.normalize({})
+        text = provision.preamble(manifest, root='/w', engine_root='/e',
+                                  pool_file='/w/pool.img')
+        # Only single-line assignments match; MANIFEST's value is multi-line TOML.
+        values = dict(re.findall(r'(?m)^(\w+)=(\'[^\']*\'|\S+)$', text))
+        unquote = lambda v: v[1:-1] if v.startswith("'") else v   # noqa: E731
+        self.assertEqual(unquote(values['MIN_ENGINE']), str(service.ENGINE_VERSION))
+        decoded = base64.b64decode(unquote(values['GATEWAY_B64'])).decode()
+        self.assertIn('SSH_ORIGINAL_COMMAND', decoded)
+        self.assertEqual(base64.b64decode(unquote(values['USERS_B64'])), b'')
+
 
 class Drift(unittest.TestCase):
     def setUp(self):

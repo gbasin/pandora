@@ -10,14 +10,20 @@ The sequence: ship the script, run it, read its survey, compare the survey with
 the manifest, run the canary, and only then write `ready`. A worker whose
 canary failed keeps whatever state it had, and the reason travels with it.
 """
+import base64
 import shlex
 import time
 
+from ..engine import bundle
 from ..errors import PandoraError
 from . import versions
 from .remote import Remote
 
 SCRIPT = None                      # filled by `script_text`, cached per process
+GATEWAY = None                     # the gateway source, cached per process
+
+MARK_BEGIN = '# >>> pandora users >>>'
+MARK_END = '# <<< pandora users <<<'
 
 
 def script_text():
@@ -28,11 +34,41 @@ def script_text():
     return SCRIPT
 
 
+def gateway_text():
+    """The gateway script's bytes: one self-contained file, copied verbatim."""
+    global GATEWAY
+    if GATEWAY is None:
+        from pathlib import Path
+        GATEWAY = (Path(__file__).resolve().parent / 'gateway.py').read_bytes()
+    return GATEWAY
+
+
+def authorized_lines(manifest, *, root, engine_root):
+    """The managed block of `authorized_keys`, one line per declared user.
+
+    A `user` gets `restrict` plus the gateway forced command, which pins the
+    client name at the key. An `admin` gets a plain line: a shell, for the
+    people who provision the machine. Lines outside the markers are never
+    touched, so the account's own key survives.
+    """
+    lines = []
+    for user in manifest.get('users') or []:
+        if user['role'] == 'admin':
+            lines.append('%s # pandora:%s' % (user['key'], user['name']))
+            continue
+        command = '%s/bin/gateway --name %s --engine-root %s --worker-root %s' \
+                  % (root, user['name'], engine_root, root)
+        lines.append('restrict,command="%s" %s # pandora:%s'
+                     % (command, user['key'], user['name']))
+    return lines
+
+
 def preamble(manifest, *, root, engine_root, pool_file):
     """The variable assignments `provision.sh` reads, quoted for sh."""
     worker = manifest['worker']
     packages = ' '.join('%s=%s' % (name, version)
                         for name, version in sorted(manifest['packages'].items()))
+    lines = authorized_lines(manifest, root=root, engine_root=engine_root)
     values = {
         'PACKAGES': packages,
         'PROJECT': worker['project'],
@@ -52,8 +88,19 @@ def preamble(manifest, *, root, engine_root, pool_file):
         'UNATTENDED': 'true' if worker['unattended_upgrades'] else 'false',
         'MANIFEST': versions.render(manifest),
         'MANIFEST_DIGEST': versions.digest(manifest),
+        # The floor is the provisioner's own engine version unless the manifest
+        # says otherwise: the machine's owner moves first, everyone follows.
+        'MIN_ENGINE': str(worker.get('min_engine_version') or _engine_version()),
+        'GATEWAY_B64': base64.b64encode(gateway_text()).decode(),
+        'USERS_B64': base64.b64encode(('\n'.join(lines) + '\n' * bool(lines)).encode()).decode(),
+        'FEEDS_B64': base64.b64encode(bundle.feed_manifest().encode()).decode(),
     }
     return ''.join('%s=%s\n' % (key, shlex.quote(value)) for key, value in sorted(values.items()))
+
+
+def _engine_version():
+    from ..engine import service
+    return service.ENGINE_VERSION
 
 
 def parse(output):

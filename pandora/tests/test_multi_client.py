@@ -221,6 +221,79 @@ class TwoClientsOneEngine(unittest.TestCase):
         retried = self.bob.resubmit(run, request_id='b1:suite:retry')
         self.assertEqual(self.rows()[retried.run_id]['client'], BOB)
 
+    def test_a_gateway_pin_outranks_the_name_the_client_sent(self):
+        # The forced command's whole point: the key decides, not the request.
+        with mock.patch.dict(os.environ, {'PANDORA_GATEWAY_CLIENT': BOB}):
+            mine = self.submit(self.alice, 'a1:suite', self.small())
+        self.assertEqual(self.rows()[mine.run_id]['client'], BOB)
+        # And reads scope to the pin: under it, Alice's own earlier run reads
+        # as someone else's.
+        other = self.submit(self.alice, 'a2:suite', self.small()).run_id
+        with mock.patch.dict(os.environ, {'PANDORA_GATEWAY_CLIENT': BOB}):
+            answer = self.alice.cancel(other)
+        self.assertEqual(answer['code'], 'not-yours')
+        self.assertEqual(self.rows()[other]['cancel_requested'], 0)
+
+    def test_a_read_of_another_clients_run_is_not_yours(self):
+        run = self.submit(self.bob, 'b1:suite', self.small()).run_id
+        paths = runner.Paths(self.root)
+        (paths.log(run).parent.mkdir(parents=True, exist_ok=True))
+        paths.log(run).write_text('bob output\n')
+        for verb in ('status', 'result', 'wait'):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = service.main(['--root', str(self.root), verb,
+                                     '--run', run, '--client', ALICE])
+            self.assertEqual(code, 0, verb)        # the refusal is still JSON
+            self.assertEqual(json.loads(out.getvalue())['code'], 'not-yours', verb)
+        # `logs` is a byte stream: its refusal is a nonzero exit and stderr.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = service.main(['--root', str(self.root), 'logs',
+                                 '--run', run, '--client', ALICE])
+        self.assertEqual(code, 1)
+        self.assertIn('not-yours', err.getvalue())
+        # Bob's own reads pass, and a nameless caller cannot read either.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            service.main(['--root', str(self.root), 'status',
+                          '--run', run, '--client', BOB])
+        self.assertTrue(json.loads(out.getvalue())['ok'])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = service.main(['--root', str(self.root), 'logs', '--run', run])
+        self.assertEqual(code, 1)
+        self.assertIn('not-yours', err.getvalue())
+
+    def test_a_run_from_before_attribution_is_anyones_to_read(self):
+        ledger = Ledger(runner.Paths(self.root).ensure().ledger)
+        claim(ledger, request_id='old:suite', run_id='rold')
+        ledger.finish('rold', outcome='passed', exit_code=0)
+        ledger.close()
+        paths = runner.Paths(self.root)
+        paths.attempt('rold').mkdir(parents=True, exist_ok=True)
+        paths.result('rold').write_text(json.dumps({'run_id': 'rold', 'outcome': 'passed'}))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            service.main(['--root', str(self.root), 'result',
+                          '--run', 'rold', '--client', ALICE])
+        self.assertTrue(json.loads(out.getvalue())['ok'])
+
+    def test_a_worker_floor_refuses_engines_older_than_it(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / 'min_engine_version').write_text('%d\n' % (service.ENGINE_VERSION + 1))
+        with self.assertRaises(EngineError) as caught:
+            self.submit(self.alice, 'a1:suite', self.small())
+        self.assertEqual(json.loads(str(caught.exception))['code'], 'engine-version')
+        # A fence is a claim: below the floor it does not write either.
+        answer = self.alice.lookup('never:seen', plan=SUBMIT_PLAN)
+        self.assertEqual(answer['code'], 'engine-version')
+        self.assertEqual(self.rows(), {})
+        # At the floor, admitted; above it the engine simply runs.
+        (self.root / 'min_engine_version').write_text(str(service.ENGINE_VERSION))
+        mine = self.submit(self.alice, 'a2:suite', self.small())
+        self.assertTrue(mine.run_id)
+
     def test_a_retry_of_a_legacy_run_belongs_to_whoever_retried_it(self):
         ledger = Ledger(runner.Paths(self.root).ensure().ledger)
         claim(ledger, request_id='old:suite', run_id='rold', source_path=str(self.tree))
@@ -244,7 +317,7 @@ class TwoClientsOneEngine(unittest.TestCase):
             service.main(['--root', str(self.root), 'stats'])
         stats = json.loads(out.getvalue())
         self.assertEqual(stats['by_client'], {ALICE: 1, BOB: 2})
-        self.assertEqual(stats['engine'], 4)
+        self.assertEqual(stats['engine'], service.ENGINE_VERSION)
 
 
 class OpeningOneLedgerAtOnce(unittest.TestCase):

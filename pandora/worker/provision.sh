@@ -104,6 +104,21 @@ else
   printf '%s\n' "$MAX_RUNNING" > "$ENGINE_ROOT/max_running"
   step changed run-cap "$cap_detail"
 fi
+# The engine-version floor and the feed allowlist live beside the ledger for
+# the same reason as the disk floor: the engine and the gateway read them on
+# paths they already own, on the hot path of every submission.
+if [ "$(cat "$ENGINE_ROOT/min_engine_version" 2>/dev/null || true)" = "$MIN_ENGINE" ]; then
+  step present engine-floor "engines >= $MIN_ENGINE"
+else
+  printf '%s\n' "$MIN_ENGINE" > "$ENGINE_ROOT/min_engine_version"
+  step changed engine-floor "engines >= $MIN_ENGINE"
+fi
+if [ "$(base64 "$ENGINE_ROOT/feeds.allow" 2>/dev/null | tr -d '\n')" = "$(printf %s "$FEEDS_B64" | tr -d '\n')" ]; then
+  step present feed-allowlist 'the provisioned feed digests'
+else
+  printf %s "$FEEDS_B64" | base64 -d > "$ENGINE_ROOT/feeds.allow"
+  step changed feed-allowlist 'the provisioned feed digests'
+fi
 
 # --- 4. the pool's backing device -----------------------------------------
 # A real deploy passes DEVICE=/dev/sdb and none of the loop machinery runs.
@@ -350,7 +365,40 @@ else
 fi
 systemctl --user start pandora-engine.service >/dev/null 2>&1 || true
 
-# --- 9. the manifest -------------------------------------------------------
+# --- 9. the gateway and the declared users ----------------------------------
+# `authorized_keys` gets one managed block, replaced wholesale on every run:
+# removing a user from the manifest and re-running revokes them. Lines outside
+# the markers -- the account's own key, installed by the image -- are never
+# touched. The gateway itself is a file like engine-boot: compared as content.
+gw=$ROOT/bin/gateway
+if [ "$(base64 "$gw" 2>/dev/null | tr -d '\n')" = "$(printf %s "$GATEWAY_B64" | tr -d '\n')" ]; then
+  step present gateway "$gw"
+else
+  printf %s "$GATEWAY_B64" | base64 -d > "$gw"
+  chmod 755 "$gw"
+  step changed gateway "$gw"
+fi
+mkdir -p "$HOME/.ssh"
+touch "$HOME/.ssh/authorized_keys"
+ak=$HOME/.ssh/authorized_keys
+wanted_users=$(printf %s "$USERS_B64" | base64 -d)
+current_users=$(awk '/>>> pandora users >>>/{f=1;next}/<<< pandora users <<</{f=0;next}f' "$ak")
+if [ "$current_users" = "$wanted_users" ]; then
+  step present authorized-users "$(printf '%s' "$wanted_users" | grep -c . || true) user(s)"
+else
+  {
+    awk '/>>> pandora users >>>/{f=1;next}/<<< pandora users <<</{f=0;next}!f' "$ak"
+    if [ -n "$wanted_users" ]; then
+      printf '%s\n%s\n%s\n' '# >>> pandora users >>>' "$wanted_users" '# <<< pandora users <<<'
+    fi
+  } > "$ak.pandora.tmp"
+  cat "$ak.pandora.tmp" > "$ak"
+  rm -f "$ak.pandora.tmp"
+  chmod 600 "$ak"
+  step changed authorized-users "$(printf '%s' "$wanted_users" | grep -c . || true) user(s)"
+fi
+
+# --- 10. the manifest ------------------------------------------------------
 # Both sides through a command substitution: it strips trailing newlines, and
 # comparing a stripped file against an unstripped variable never matches.
 if [ "$(cat "$ROOT/worker/versions.toml" 2>/dev/null || true)" = "$(printf '%s' "$MANIFEST")" ]; then
@@ -360,7 +408,7 @@ else
   step changed manifest "$MANIFEST_DIGEST"
 fi
 
-# --- 10. survey ------------------------------------------------------------
+# --- 11. survey ------------------------------------------------------------
 for spec in $PACKAGES; do
   name=${spec%%=*}
   fact "package.$name" "$(dpkg-query -W -f='${Version}' "$name" 2>/dev/null || echo -)"

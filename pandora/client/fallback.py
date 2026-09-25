@@ -41,7 +41,11 @@ CAUSES = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
           # already knew", which is the whole point of polling.
           'worker-down',
           'worker-unreachable', 'snapshot-failed', 'transfer-failed',
-          'queue-timeout', 'admission-refused', 'engine-error')
+          'queue-timeout', 'admission-refused', 'engine-error',
+          # The worker refused this engine bundle for being too old
+          # (`min_engine_version`). The only correct next step is `pandora
+          # upgrade`; running the job here would repeat the submission.
+          'engine-version')
 # Sizes small enough that one more of them on this Mac is a slowdown rather than
 # a stall. The line is drawn here because `large` is what eichler calls a
 # browser suite and a full `check`, and both of them are what killed the Mac.
@@ -52,7 +56,9 @@ LOCAL_SIZES = ('small', 'medium')
 # on this Mac, where it competes with the agents that are busy for the same
 # reason. They stay in `CAUSES` so a `pandora.toml` naming them still loads,
 # and they refuse whatever it declares.
-NEVER_LOCAL = ('admission-refused', 'queue-timeout')
+# `engine-version` joins them: an engine the worker's floor refused stays
+# refused, because the fix is an upgrade, not a local run.
+NEVER_LOCAL = ('admission-refused', 'queue-timeout', 'engine-version')
 
 
 # What a refusal tells the caller to do next. On 2026-09-24 a refusal that said
@@ -91,9 +97,14 @@ def decide(*, cause, size='large', writeback=False, declared=None, notice=None,
     if cause not in CAUSES:
         return {'action': 'refuse', 'reason': 'unknown fallback cause %r. %s' % (cause, step)}
     if cause in NEVER_LOCAL:
-        return {'action': 'refuse',
-                'reason': 'the worker is busy, not unreachable, and a busy worker is waited '
-                          'for rather than moved to this Mac. %s' % step}
+        if cause == 'engine-version':
+            why = ('the worker requires a newer Pandora engine than this client '
+                   'ships, so the run cannot proceed anywhere. `pandora upgrade` '
+                   'is the fix, then retry')
+        else:
+            why = 'the worker is busy, not unreachable, and a busy worker is waited ' \
+                  'for rather than moved to this Mac'
+        return {'action': 'refuse', 'reason': '%s. %s' % (why, step)}
     if writeback:
         return {'action': 'refuse',
                 'reason': 'a write-back run is never moved to this Mac automatically, because '

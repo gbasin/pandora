@@ -89,6 +89,27 @@ print(json.dumps({'ok': True, 'path': str(target), 'digest': digest}))
 '''
 
 
+def feed_digests():
+    """sha256 of every fixed `python3 -c` script the transport may send.
+
+    A shared worker's gateway allowlists exactly these digests for `python3 -c`
+    commands (see `pandora.worker.gateway`): provision writes the set as
+    `<engine_root>/feeds.allow`, and each bundle carries it as
+    `pandora/.feeds`, so the gateway accepts the feeds of every installed
+    bundle version. Editing a feed script changes its digest, which needs a
+    re-provisioned allowlist.
+    """
+    # A client-side call: the snapshot half is not shipped to the worker.
+    from ..snapshot import transfer
+    scripts = [BOOTSTRAP] + [transfer.FEEDS[name] for name in sorted(transfer.FEEDS)]
+    return [hashlib.sha256(script.encode()).hexdigest() for script in scripts]
+
+
+def feed_manifest():
+    """The `.feeds` file's text: one digest per line."""
+    return '\n'.join(feed_digests()) + '\n'
+
+
 def payload(source_root=None):
     """(digest, payload) for the engine half of this checkout."""
     root = Path(source_root or Path(__file__).resolve().parents[1])
@@ -102,6 +123,7 @@ def _pack(root, names):
         if not path.is_file():
             raise FileNotFoundError('engine bundle is missing %s' % path)
         files[name] = base64.b64encode(path.read_bytes()).decode()
+    files['.feeds'] = base64.b64encode(feed_manifest().encode()).decode()
     text = json.dumps(files, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(text.encode()).hexdigest(), text
 
