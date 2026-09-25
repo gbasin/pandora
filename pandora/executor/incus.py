@@ -51,19 +51,25 @@ class IncusDriver(Executor):
     def __init__(self, *, project='pandora', pool='pandorapool', profile='runner',
                  root=None, sudo=True, sample_interval=0.5,
                  thrash_seconds=15.0, thrash_rate=500.0, thrash_pinned=0.95,
-                 thrash_psi=2.0, thrash_window=5.0):
+                 thrash_psi=1.0, thrash_window=5.0):
         self.project, self.pool, self.profile = project, pool, profile
         self.root = Path(root or (Path.home() / 'incus-exec'))
         self.base = (['sudo'] if sudo else []) + ['incus', '--project', project]
         self.sample_interval = sample_interval
         # A thrash episode is three things at once, sustained: the cgroup is
-        # pinned at its effective wall, charges are being refused thousands of
+        # pinned at its effective wall, charges are being refused hundreds of
         # times a second, and the cgroup is actually stalled. Measured: a hog
-        # produces 1,700-4,000 refused charges per second and PSI full avg10
-        # of 6-8 %; a passing journey produces none and 0.0. PSI alone is not
-        # enough (a single-threaded thrasher on four CPUs only reaches 8 %) and
-        # the event rate alone is not enough (memory.high throttling produces
-        # a high rate whenever a run is merely close to its ceiling).
+        # produces 700-4,000 refused charges per second; a passing journey
+        # produces none. PSI full avg10 is storage-dependent: a hog on a
+        # loop-file pool reads 5-8 %, but on local NVMe page-ins resolve fast
+        # enough that it plateaus around 2 %, at the old 2.0 threshold every
+        # dip restarted the sustain clock and the verdict took up to 80 s
+        # (#150). The threshold sits at 1.0 and `stalled_seconds` counts
+        # wedged time inside a trailing window, so a dip pauses the clock
+        # instead of zeroing it. PSI alone is not enough (a single-threaded
+        # thrasher on four CPUs only reaches 8 %) and the event rate alone is
+        # not enough (memory.high throttling produces a high rate whenever a
+        # run is merely close to its ceiling).
         self.thrash_seconds = thrash_seconds
         self.thrash_rate = thrash_rate
         self.thrash_pinned = thrash_pinned
@@ -658,7 +664,7 @@ rm -rf "$2"
         """
         t0, offset = time.monotonic(), 0
         samples, peak, evidence = [], 0, {}
-        stall_since, outcome, code = None, None, None
+        outcome, code = None, None
         deadline = t0 + limits.wall_seconds
         next_poll, slow_polls = 0.0, 0
         while True:
@@ -708,7 +714,6 @@ rm -rf "$2"
                 break
             # Kernel did not, and the cgroup is wedged in reclaim. A hard cap
             # is not self-terminating; this is the watchdog the spike asked for.
-            now = time.monotonic()
             # Smoothed over a trailing window, not sample to sample: the
             # instantaneous rate of a real thrash swings between 160/s and
             # 1,500/s, so a per-sample threshold resets its own timer.
@@ -723,24 +728,23 @@ rm -rf "$2"
             pinned = use.memory_current >= self.thrash_pinned * wall
             psi = use.pressure.get('memory_full_avg10', 0.0)
             samples[-1]['throttle_rate'] = round(rate, 1)
-            if pinned and rate >= self.thrash_rate and psi >= self.thrash_psi:
-                stall_since = stall_since or now
-                if now - stall_since >= self.thrash_seconds:
-                    outcome = 'oom'
-                    evidence = {'reason': 'memory-thrash',
-                                'throttle_events_per_second': round(rate, 1),
-                                'threshold_per_second': self.thrash_rate,
-                                'thrashing_seconds': round(now - stall_since, 1),
-                                'memory_current': use.memory_current,
-                                'memory_wall': wall,
-                                'memory_max': use.memory_max,
-                                'memory_high': use.memory_high,
-                                'psi_memory_some_avg10': use.pressure.get('memory_some_avg10', 0.0),
-                                'psi_memory_full_avg10': psi,
-                                'events': use.events}
-                    break
-            else:
-                stall_since = None
+            samples[-1]['stalled'] = (pinned and rate >= self.thrash_rate
+                                      and psi >= self.thrash_psi)
+            stalled = self.stalled_seconds(samples)
+            if stalled >= self.thrash_seconds:
+                outcome = 'oom'
+                evidence = {'reason': 'memory-thrash',
+                            'throttle_events_per_second': round(rate, 1),
+                            'threshold_per_second': self.thrash_rate,
+                            'thrashing_seconds': round(stalled, 1),
+                            'memory_current': use.memory_current,
+                            'memory_wall': wall,
+                            'memory_max': use.memory_max,
+                            'memory_high': use.memory_high,
+                            'psi_memory_some_avg10': use.pressure.get('memory_some_avg10', 0.0),
+                            'psi_memory_full_avg10': psi,
+                            'events': use.events}
+                break
             if time.monotonic() > deadline:
                 outcome, evidence = 'timeout', {'reason': 'wall', 'seconds': limits.wall_seconds}
                 break
@@ -768,6 +772,25 @@ rm -rf "$2"
         evidence['slow_guest_polls'] = slow_polls
         return Result(exit_code=code if code is not None else -1, outcome=outcome,
                       seconds=seconds, usage=final, log_bytes=offset, evidence=evidence)
+
+    def stalled_seconds(self, samples):
+        """Wedged time inside the trailing window, twice the sustain bar.
+
+        Counted, not streaked: a sample under any of the three thresholds
+        pauses the clock without zeroing it, which is what a signal that sits
+        at its threshold -- PSI on fast storage -- needs (#150).
+        """
+        if not samples:
+            return 0.0
+        horizon = samples[-1]['t'] - 2 * self.thrash_seconds
+        total, next_t = 0.0, samples[-1]['t']
+        for s in reversed(samples):
+            if s['t'] < horizon:
+                break
+            if s.get('stalled'):
+                total += next_t - s['t']
+            next_t = s['t']
+        return total
 
     def kill(self, instance, *, signal='SIGKILL', grace_ms=0):
         """Kill the run's process group, leaving the instance inspectable.

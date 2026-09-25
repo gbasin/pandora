@@ -205,8 +205,11 @@ class Thresholds(unittest.TestCase):
         self.assertGreater(self.driver.thrash_rate, 10)  # measured healthy rate is 0
 
     def test_psi_sits_below_a_measured_thrash_and_above_a_healthy_run(self):
-        self.assertLess(self.driver.thrash_psi, 6.6)     # lowest measured hog PSI
-        self.assertGreater(self.driver.thrash_psi, 0.0)  # measured healthy PSI is 0.0
+        # Lowest measured hog PSI: 2.0 on local NVMe, where page-ins are fast
+        # enough that even a wedged cgroup barely stalls (#150). Loop-file
+        # pools read 5-8; a healthy run reads 0.0.
+        self.assertLess(self.driver.thrash_psi, 2.0)
+        self.assertGreater(self.driver.thrash_psi, 0.0)
 
     def test_pinned_fraction_leaves_room_for_a_run_that_merely_runs_hot(self):
         self.assertGreaterEqual(self.driver.thrash_pinned, 0.9)
@@ -218,6 +221,35 @@ class Thresholds(unittest.TestCase):
         for high, maximum, expected in ((0, 512, 512), (460, 512, 460), (0, 0, 1 << 62)):
             wall = min(x for x in (high, maximum) if x) if (high or maximum) else (1 << 62)
             self.assertEqual(wall, expected)
+
+
+class StalledSeconds(unittest.TestCase):
+    """The sustain bar is wedged time inside a trailing window, not a streak."""
+
+    def setUp(self):
+        self.driver = IncusDriver(root='/tmp')   # thrash_seconds = 15, window 30
+
+    @staticmethod
+    def samples(flags, step=0.5):
+        return [{'t': i * step, 'stalled': flag} for i, flag in enumerate(flags)]
+
+    def test_an_unbroken_streak_counts_as_before(self):
+        samples = self.samples([True] * 40)      # 20 s of stall
+        self.assertAlmostEqual(self.driver.stalled_seconds(samples), 19.5)
+
+    def test_a_streak_split_by_dips_still_counts(self):
+        # 24 s wedged in two 12 s runs around a 2 s dip: the old per-streak
+        # timer never reached 15 s; the windowed count does (#150).
+        samples = self.samples([True] * 24 + [False] * 4 + [True] * 24)
+        self.assertGreaterEqual(self.driver.stalled_seconds(samples), 15.0)
+
+    def test_a_shorter_episode_inside_the_window_is_not_enough(self):
+        samples = self.samples([True] * 28 + [False] * 4)
+        self.assertLess(self.driver.stalled_seconds(samples), 15.0)
+
+    def test_time_older_than_the_window_does_not_count(self):
+        samples = self.samples([True] * 40 + [False] * 80)
+        self.assertEqual(self.driver.stalled_seconds(samples), 0.0)
 
 
 class LimitsShape(unittest.TestCase):
