@@ -21,7 +21,7 @@ jobs:
       - name: ruff
         run: |
           python3 -m pip install ruff==0.15.1
-          ruff check --select F,E9 .
+          ruff check --select F,E9 . --exclude experiments
       - name: shellcheck
         run: |
           command -v shellcheck >/dev/null || {

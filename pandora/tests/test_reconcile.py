@@ -7,7 +7,6 @@ and nothing it closes can be reopened by a thread that was still on its way.
 """
 import json
 import os
-import subprocess
 import tempfile
 import threading
 import time
@@ -15,8 +14,7 @@ import unittest
 
 from pandora.client import daemon as daemon_module
 from pandora.client.local import Supervisor
-from pandora.client.protocol import Reader, VERSION, dump
-from pandora.exits import CANCELED, INFRA
+from pandora.exits import INFRA
 from pandora.tests.test_fallback import DaemonCase
 
 SLOW = '''
