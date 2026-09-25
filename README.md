@@ -6,10 +6,10 @@ browser journeys that boot a database and a stack. Nothing coordinates them.
 Ten agents means ten stacks, swap, and results nobody trusts.
 
 Pandora is a scheduler for that machine. Agents keep typing the commands they
-type today. Pandora decides where each command the repository claims runs. A
-broad suite runs in a fresh Linux instance on a shared worker. A focused one
-runs in a memory-capped queue on the Mac. Either way, the results land back in the worktree before the
-command returns, with the command's own exit code.
+type today. Pandora decides where each claimed command runs. A broad suite runs
+in a fresh Linux instance on a shared worker. A focused one runs in a
+memory-capped queue on the Mac. Either way, the results land back in the
+worktree before the command returns, with the command's own exit code.
 
 ## Mechanism
 
