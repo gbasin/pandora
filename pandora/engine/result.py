@@ -260,6 +260,10 @@ def written_back(facts):
         return ('the worktree changed during the run at %s%s, so nothing was written '
                 'back; re-run it with --update'
                 % (', '.join(paths[:5]), ' and more' if len(paths) > 5 else ''))
+    if state == 'partial':
+        return ('write-back stopped partway; %d file(s) landed and the rest are '
+                'in %s -- `git diff` shows the seam, then validate without --update'
+                % (len(record.get('written') or []), record.get('proposed')))
     if state == 'incomplete':
         return 'nothing was written back: %s' % record.get('why')
     return None

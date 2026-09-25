@@ -787,6 +787,8 @@ def render_result(run_id, result):
                                              ', ' + record['why'] if record.get('why') else ''))
         for path in record.get('written') or []:
             lines.append('    wrote %s' % path)
+        for path in record.get('unwritten') or []:
+            lines.append('    not written %s' % path)
         for item in record.get('conflicts') or []:
             lines.append('    %s: yours kept; proposed %s/%s'
                          % (item['path'], record.get('proposed'), item['path']))
@@ -809,7 +811,9 @@ def cmd_resolve(args):
         notice('no result for run %s' % args.run)
         return 1
     code, lines = writeback.resolve(run_dir, result, keep_local=args.keep_local)
-    if code == 0:
+    if code != 64:
+        # Not only the success paths: a partial publish still moved files, and
+        # the record of what landed is the whole point of writing the record.
         temporary = run_dir / 'result.json.tmp'
         temporary.write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
         temporary.replace(run_dir / 'result.json')

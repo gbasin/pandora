@@ -19,7 +19,8 @@ load-bearing:
    non-executing, so a failure at any of those steps may still fall back to a
    local run. Everything below it may not.
 7. **stream** -- the engine's log file, tailed by offset;
-8. **collect** -- declared artifacts rsynced back into the worktree;
+8. **collect** -- declared artifacts rsynced back into a fresh staging
+   directory, counted, then moved into the worktree;
 9. **result** -- the engine's result JSON, kept beside the run.
 
 A run survives its client, its daemon and its SSH connection, because none of
@@ -28,6 +29,7 @@ them owns it: the engine's supervisor does, and the only thing that stops it is
 """
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -387,17 +389,35 @@ class Worker:
                 return None, offset
             time.sleep(POLL_BUSY if chunk else POLL_IDLE)
 
-    def collect(self, run_id, plan, *, worktree):
-        """Bring declared artifacts back to their worktree-relative locations."""
+    def collect(self, run_id, plan, *, worktree, declared=None, staging):
+        """Bring declared artifacts back to their worktree-relative locations.
+
+        The fetch lands in `staging` -- a fresh directory beside the run, never
+        the worktree -- and a declared path counts as `present` only when it
+        exists there: a file already sitting in the worktree is an older run's
+        leftover, not this run's output. `declared`, the engine's
+        `evidence.collected` map, is the stronger claim when the result carries
+        one; a fan-out parent or a run lost before collect has none, and the
+        staging tree is then the whole of the check. What was fetched is moved
+        into place afterward, the way rsync-into-the-worktree did.
+        """
         paths = [path for output in plan['outputs'] if output['kind'] == 'artifacts'
                  for path in output['paths']]
         if not paths:
             return {'paths': [], 'fetched': False}
         remote = '%s/runs/%s/outputs' % (self.root(), run_id)
-        transfer.fetch(self.link, remote, worktree, timeout=900)
-        present = [path for path in paths if (Path(worktree) / path).exists()]
+        staging = Path(staging)
+        shutil.rmtree(staging, ignore_errors=True)
+        transfer.fetch(self.link, remote, staging, timeout=900)
+        present = [path for path in paths
+                   if (declared is None or declared.get(path) == 'present')
+                   and (staging / path).exists()]
+        for name in sorted(os.listdir(staging)):
+            land(staging / name, Path(worktree) / name)
+        shutil.rmtree(staging, ignore_errors=True)
         return {'paths': paths, 'present': present,
-                'missing': [path for path in paths if path not in present], 'fetched': True}
+                'missing': [path for path in paths if path not in present],
+                'fetched': True}
 
     def fetch_writeback(self, run_id, into):
         """Bring a run's write-back proposal into `into`, never into the worktree.
@@ -411,6 +431,35 @@ class Worker:
 
     def close(self):
         self.link.close()
+
+
+def land(source, target):
+    """Move one fetched path into the worktree; a directory merges into an existing one.
+
+    That merge is what rsync without `--delete` did when the worktree was the
+    target. A file or link standing where a directory must land is removed, as
+    rsync removes it; a directory standing where a file must land is left, and
+    the call raises. Nothing is written through a link.
+    """
+    source, target = Path(source), Path(target)
+    incoming_dir = source.is_dir() and not source.is_symlink()
+    if incoming_dir and target.is_dir() and not target.is_symlink():
+        try:
+            shutil.copytree(source, target, symlinks=True, dirs_exist_ok=True)
+        except shutil.Error as error:
+            raise OSError(str(error)) from error
+        shutil.rmtree(source)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink() and target.is_dir():
+        target.unlink()          # never land through a link into another tree
+    if not incoming_dir and target.is_dir():
+        raise OSError('%s: a directory stands where a file must land' % target)
+    if incoming_dir and os.path.lexists(target) and not target.is_dir():
+        target.unlink()          # a file or a link is in the directory's way
+    # `move`, not `os.replace`: the state directory and the worktree can sit
+    # on different volumes.
+    shutil.move(str(source), str(target))
 
 
 def sync_line(worktree, manifest):

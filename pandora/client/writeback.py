@@ -22,10 +22,13 @@ can stop it:
    never a silent overwrite: exit 75, the paths, and `pandora resolve`.
 
 A write-back is one publication: every file, or none. Publishing the ledger and
-not the route manifest leaves a pair that no run ever produced. Each file is
-written atomically (a temporary file in the same directory, then a rename); the
-set is not a transaction, and a crash between two renames leaves the published
-ones published and the record saying which.
+not the route manifest leaves a pair that no run ever produced. So publishing
+is two passes: every file is staged as a temporary in its own directory and
+verified against the proposal's hash, every pending target is re-verified
+against its pre-publish state -- the window between the conflict check and the
+renames is all of staging -- and only then does a rename pass put them all in
+place. A staging failure or a mid-staging edit lands nothing; a crash between
+two renames can still split the set, so the record says which landed.
 
 Nothing here ever deletes a file. See the engine half for why.
 """
@@ -139,23 +142,47 @@ def default_freeze(cache):
     return freeze
 
 
-def write_atomically(worktree, path, source):
-    """Replace one worktree file with `source`'s bytes: temp file, fsync, rename.
+def unstage(temps):
+    """Remove staged temporaries; a cleanup failure must never eat the record."""
+    for temporary in temps:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def stage(worktree, path, source):
+    """Write `source`'s bytes to a temporary beside `path`: fsynced, mode kept.
 
     The mode of the file being replaced is kept, so an executable fixture stays
-    executable; a new file gets the umask's default.
+    executable; a new file gets the umask's default. The temporary is created
+    exclusively -- `xb` refuses an existing name -- so a leftover or a planted
+    link is never written through; a collision retries under a fresh suffix.
+    A failure removes the temporary rather than leaving it to be mistaken for
+    content.
     """
     target = Path(worktree) / path
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name('.%s.pandora-%d.tmp' % (target.name, os.getpid()))
     data = Path(source).read_bytes()
-    with temporary.open('wb') as handle:
-        handle.write(data)
-        handle.flush()
-        os.fsync(handle.fileno())
-    if target.is_file():
-        os.chmod(temporary, target.stat().st_mode & 0o7777)
-    os.replace(temporary, target)
+    for attempt in range(20):
+        temporary = target.with_name('.%s.pandora-%d%s.tmp' % (
+            target.name, os.getpid(), '' if attempt == 0 else '.%d' % attempt))
+        try:
+            handle = temporary.open('xb')
+        except FileExistsError:
+            continue
+        try:
+            with handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if target.is_file():
+                os.chmod(temporary, target.stat().st_mode & 0o7777)
+        except BaseException:
+            unstage([temporary])
+            raise
+        return temporary
+    raise OSError('could not stage %s: no free temporary name' % path)
 
 
 # --- the decision --------------------------------------------------------------------
@@ -206,20 +233,72 @@ def settle(run_dir, result, *, run_id, fetch, freeze):
         return dict(record, state='conflicted', exit=proposals.COLLISION_EXIT,
                     conflicts=conflicts,
                     why='%d declared file(s) changed here during the run' % len(conflicts))
-    written = publish(frozen['worktree'], into, changes)
+    published = publish(frozen['worktree'], into, changes, expected=frozen['base'])
+    written = published['written']
+    if published.get('drifted'):
+        # A declared file moved while its temporary was being staged: the same
+        # verdict as a conflict found before anything was fetched, naming the
+        # files that moved.
+        conflicts = [{'path': path, 'frozen': frozen['base'].get(path),
+                      'local': local_state(frozen['worktree'], path),
+                      'proposed': changes[path]} for path in published['drifted']]
+        return dict(record, state='conflicted', exit=proposals.COLLISION_EXIT,
+                    conflicts=conflicts,
+                    why='%d declared file(s) changed here while the write-back was '
+                        'being staged' % len(conflicts))
+    if published['error'] is not None:
+        return dict(record, state='partial' if written else 'incomplete',
+                    exit=proposals.INFRA_EXIT, written=written,
+                    unwritten=published['unwritten'],
+                    why='the publication stopped after %d file(s): %s'
+                        % (len(written), published['error']))
     return dict(record, state='published' if written else 'unchanged', written=written,
                 why=None, published_at=time.time())
 
 
-def publish(worktree, into, changes):
-    """Write every proposed file whose local bytes are not already the proposal."""
+def publish(worktree, into, changes, *, expected):
+    """Stage every proposed file beside its target, then rename them all.
+
+    `expected` maps each path to the local state the caller's own conflict
+    check accepted -- the frozen hash, or the contents a resolve report saw.
+    Files whose local bytes already are the proposal are skipped. Everything
+    that can fail on I/O -- reading the proposal, writing and fsyncing the
+    temporary -- happens before the first rename, each staged file is checked
+    against the proposal's hash, and then every pending target is re-verified
+    against `expected`: a file edited while its temporary was being staged is
+    `drifted`, the temporaries are removed and nothing is renamed. A rename is
+    then the only step that can split the set, and the record always says what
+    landed: {'written': [...], 'unwritten': [...], 'error': failure-or-None,
+    'drifted': [paths]}. Cleanup of the temporaries is best-effort; it never
+    raises over the record.
+    """
+    todo = [path for path in sorted(changes)
+            if local_state(worktree, path) != changes[path]]
+    staged = []
+    try:
+        for path in todo:
+            temporary = stage(worktree, path, Path(into) / path)
+            staged.append(temporary)
+            if proposals.digest(temporary) != changes[path]:
+                raise OSError('the staged bytes for %s do not match the proposal' % path)
+    except OSError as error:
+        unstage(staged)
+        return {'written': [], 'unwritten': todo, 'error': str(error)}
+    drifted = [path for path in todo
+               if local_state(worktree, path) not in (expected.get(path), changes[path])]
+    if drifted:
+        unstage(staged)
+        return {'written': [], 'unwritten': todo, 'error': None, 'drifted': drifted}
     written = []
-    for path in sorted(changes):
-        if local_state(worktree, path) == changes[path]:
-            continue
-        write_atomically(worktree, path, Path(into) / path)
+    for temporary, path in zip(staged, todo):
+        try:
+            os.replace(temporary, Path(worktree) / path)
+        except OSError as error:
+            unstage(staged[len(written):])
+            return {'written': written, 'unwritten': todo[len(written):],
+                    'error': str(error)}
         written.append(path)
-    return written
+    return {'written': written, 'unwritten': [], 'error': None}
 
 
 # --- after a conflict ---------------------------------------------------------------
@@ -247,14 +326,33 @@ def resolve(run_dir, result, *, keep_local):
                    'they were not validated remotely: review `git diff`, then validate '
                    'without --update']
     seen = {item['path']: item['local'] for item in record['conflicts']}
+    # What each pending path may still be at rename time: the contents the
+    # conflict report saw, or for a file that was not in it the frozen hash.
+    expected = {path: seen.get(path, frozen['base'].get(path))
+                for path in record['changes']}
     moved = [path for path in sorted(record['changes'])
-             if local_state(worktree, path) not in (
-                 seen.get(path, frozen['base'].get(path)), record['changes'][path])]
+             if local_state(worktree, path) not in (expected[path],
+                                                  record['changes'][path])]
     if moved:
         return 75, ['changed again since the conflict was reported, so nothing was '
                     'written: %s' % ', '.join(moved)]
-    written = publish(worktree, record['proposed'], record['changes'])
-    record.update(state='resolved', resolution='take-worker', written=written,
+    published = publish(worktree, record['proposed'], record['changes'],
+                        expected=expected)
+    written = published['written']
+    # The record accumulates: a retry lands only what is still missing, but the
+    # record of what this run's proposal put in the worktree must not shrink.
+    record['written'] = sorted(set(record.get('written') or []) | set(written))
+    if published.get('drifted'):
+        return 75, ['changed again since the conflict was reported, so nothing was '
+                    'written this time: %s' % ', '.join(published['drifted'])]
+    if published['error'] is not None:
+        # What landed is recorded, but the state stays `conflicted`: the files
+        # that did not land still have the local versions, so a retry writes
+        # only those (the landed ones compare equal to the proposal now).
+        return 70, ['the publication stopped after %s: %s'
+                    % (', '.join(written) or 'no file', published['error']),
+                    'the run is still conflicted; `%s` can be retried' % record['resolve']]
+    record.update(state='resolved', resolution='take-worker',
                   resolved_at=time.time())
     return 0, ['wrote the worker\'s version of %s' % (', '.join(written) or 'nothing'),
                'review `git diff`, then validate without --update']
@@ -280,6 +378,11 @@ def describe(record):
     if state == 'stale':
         return ['not written back: %s: %s. The proposal is kept in %s'
                 % (record['why'], names(record['stale']), record['proposed'])]
+    if state == 'partial':
+        return ['write-back stopped partway: %s' % record['why'],
+                '  landed: %s' % names(record['written']),
+                '  not written: %s -- the worker\'s versions are kept in %s'
+                % (names(record.get('unwritten') or []), record['proposed'])]
     if state in ('incomplete', 'not-run'):
         return ['not written back: %s' % record.get('why')]
     return []

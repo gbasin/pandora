@@ -15,16 +15,18 @@ import stat
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from pandora import cli
 from pandora.client import daemon as daemon_module
+from pandora.client import worker as worker_client
 from pandora.client import writeback as publication
 from pandora.client.protocol import Reader, VERSION, dump
 from pandora.engine import runner
 from pandora.engine import writeback as proposals
 from pandora.engine.ledger import Ledger
-from pandora.errors import WorkerUnreachable
+from pandora.errors import TransferError, WorkerUnreachable
 from pandora.snapshot import freeze as snapshot
 from pandora.tests.test_cli import capture
 from pandora.tests.test_shards import FanoutHarness, WritingDriver
@@ -318,11 +320,15 @@ class Worktree(unittest.TestCase):
         self.fetched += 1
         shutil.copytree(self.worker_side, into, dirs_exist_ok=True)
 
-    def settle(self, proposal, *, outcome='passed', cli_exit=0):
-        return publication.settle(
+    def settle(self, proposal, *, outcome='passed', cli_exit=0, fail_fsync=False):
+        call = lambda: publication.settle(
             self.run_dir, {'outcome': outcome, 'cli_exit': cli_exit, 'writeback': proposal},
             run_id='run1', fetch=self.fetch,
             freeze=lambda worktree, globs: snapshot.freeze(worktree, exclude_globs=globs)[0])
+        if fail_fsync:
+            with mock.patch('os.fsync', side_effect=OSError('disk full')):
+                return call()
+        return call()
 
     def read(self, path):
         return (self.repo / path).read_text()
@@ -419,6 +425,73 @@ class Publication(Worktree):
         self.assertIn(record['state'], ('conflicted', 'stale'))
         self.assertFalse((self.root / 'elsewhere/S0-09.ledger.jsonl').exists())
 
+    def test_a_staging_failure_lands_nothing_and_leaves_no_temporaries(self):
+        record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'}),
+                             fail_fsync=True)
+        self.assertEqual(record['state'], 'incomplete')
+        self.assertEqual(record['exit'], 70)
+        self.assertEqual(record['written'], [])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+        self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
+
+    def test_a_mid_rename_failure_reports_exactly_what_landed(self):
+        original = os.replace
+        calls = []
+
+        def replace(source, target):
+            if len(calls) == 1:
+                calls.append(target)
+                raise OSError('disk full')
+            calls.append(target)
+            return original(source, target)
+
+        with mock.patch('os.replace', replace):
+            record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n',
+                                               ROUTES: '{"theirs": 1}\n'}))
+        self.assertEqual(record['state'], 'partial')
+        self.assertEqual(record['exit'], 70)
+        self.assertEqual(record['written'], ['fixtures/S0-01.ledger.jsonl'])
+        self.assertEqual(record['unwritten'], [ROUTES])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
+        self.assertEqual(self.read(ROUTES), '{}\n')
+        self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
+        self.assertIn('landed', ' '.join(publication.describe(record)))
+
+    def test_an_edit_landing_during_staging_aborts_the_publish(self):
+        # The window between the conflict check and the renames is all of
+        # staging: a file that moves inside it must not be silently overwritten.
+        original = publication.stage
+
+        def stage(worktree, path, source):
+            temporary = original(worktree, path, source)
+            if str(path) == ROUTES:
+                (self.repo / ROUTES).write_text('{"mine": 2}\n')
+            return temporary
+
+        with mock.patch.object(publication, 'stage', stage):
+            record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n',
+                                               ROUTES: '{"theirs": 1}\n'}))
+        self.assertEqual(record['state'], 'conflicted')
+        self.assertEqual(record['exit'], 75)
+        self.assertEqual([item['path'] for item in record['conflicts']], [ROUTES])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+        self.assertEqual(self.read(ROUTES), '{"mine": 2}\n')
+        self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
+
+    def test_a_stale_temporary_is_never_written_through(self):
+        # A leftover from a crashed publish keeps its bytes; the staged file
+        # takes a fresh exclusive name instead of truncating it.
+        stale = self.repo / 'fixtures' / (
+            '.S0-01.ledger.jsonl.pandora-%d.tmp' % os.getpid())
+        stale.write_text('stale\n')
+        source = self.root / 'arrived'
+        source.write_text('new\n')
+        temporary = publication.stage(self.repo, 'fixtures/S0-01.ledger.jsonl', source)
+        self.assertNotEqual(temporary, stale)
+        self.assertEqual(stale.read_text(), 'stale\n')
+        self.assertEqual(temporary.read_text(), 'new\n')
+        temporary.unlink()
+
 
 class Resolve(Worktree):
     def conflicted(self):
@@ -444,6 +517,35 @@ class Resolve(Worktree):
         self.assertEqual(self.read(ROUTES), '{"theirs": 1}\n')
         self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
 
+    def test_take_worker_records_what_landed_when_a_rename_fails_and_stays_conflicted(self):
+        result = self.conflicted()
+        original = os.replace
+        calls = []
+
+        def replace(source, target):
+            if len(calls) == 1:
+                calls.append(target)
+                raise OSError('disk full')
+            calls.append(target)
+            return original(source, target)
+
+        with mock.patch('os.replace', replace):
+            code, lines = publication.resolve(self.run_dir, result, keep_local=False)
+        self.assertEqual(code, 70)
+        record = result['writeback']
+        self.assertEqual(record['state'], 'conflicted')
+        self.assertEqual(record['written'], ['fixtures/S0-01.ledger.jsonl'])
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
+        self.assertEqual(self.read(ROUTES), '{"mine": 1}\n')
+        self.assertIn('retried', ' '.join(lines))
+        # The retry skips the landed file and takes the worker's routes.json;
+        # the record accumulates what the proposal has put down, in total.
+        code, _ = publication.resolve(self.run_dir, result, keep_local=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(record['state'], 'resolved')
+        self.assertEqual(record['written'], ['fixtures/S0-01.ledger.jsonl', ROUTES])
+        self.assertEqual(self.read(ROUTES), '{"theirs": 1}\n')
+
     def test_take_worker_refuses_a_file_edited_again_after_the_report(self):
         result = self.conflicted()
         (self.repo / ROUTES).write_text('{"mine": 2}\n')
@@ -451,6 +553,23 @@ class Resolve(Worktree):
         self.assertEqual(code, 75)
         self.assertEqual(self.read(ROUTES), '{"mine": 2}\n')
         self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+
+    def test_take_worker_aborts_when_a_file_moves_during_staging(self):
+        result = self.conflicted()
+        original = publication.stage
+
+        def stage(worktree, path, source):
+            temporary = original(worktree, path, source)
+            if str(path) == ROUTES:
+                (self.repo / ROUTES).write_text('{"mine": 2}\n')
+            return temporary
+
+        with mock.patch.object(publication, 'stage', stage):
+            code, _ = publication.resolve(self.run_dir, result, keep_local=False)
+        self.assertEqual(code, 75)
+        self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
+        self.assertEqual(self.read(ROUTES), '{"mine": 2}\n')
+        self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
 
     def test_only_a_conflicted_write_back_can_be_resolved(self):
         code, _ = publication.resolve(self.run_dir, {'writeback': {'state': 'stale'}},
@@ -471,6 +590,124 @@ class Resolve(Worktree):
         code, out, _ = capture(lambda: cli.main(['--config', str(config), 'result', 'run1']))
         self.assertIn('write-back: resolved', out)
 
+    def test_the_cli_verb_rewrites_the_result_after_a_partial_publish(self):
+        # A resolve that lands some files and then fails still moved them; the
+        # record of what landed is kept in result.json, not only printed.
+        result = self.conflicted()
+        (self.run_dir / 'result.json').write_text(json.dumps(result))
+        config = self.root / 'config.toml'
+        config.write_text('[client]\nstate = "%s"\n' % self.root)
+        original = os.replace
+        calls = []
+
+        def replace(source, target):
+            if len(calls) == 1:
+                calls.append(target)
+                raise OSError('disk full')
+            calls.append(target)
+            return original(source, target)
+
+        with mock.patch('os.replace', replace):
+            code, _, err = capture(lambda: cli.main(['--config', str(config), 'resolve',
+                                                     'run1', '--take-worker']))
+        self.assertEqual(code, 70, err)
+        saved = json.loads((self.run_dir / 'result.json').read_text())
+        self.assertEqual(saved['writeback']['state'], 'conflicted')
+        self.assertEqual(saved['writeback']['written'], ['fixtures/S0-01.ledger.jsonl'])
+
+
+# --- the return transfer ---------------------------------------------------------
+
+PLAN_ARTIFACTS = {'outputs': [{'kind': 'artifacts', 'paths': ['reports/junit.xml']}]}
+
+
+class Collect(unittest.TestCase):
+    """`Worker.collect` judges presence by what this fetch staged, not the disk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.worktree = self.root / 'repo'
+        self.worktree.mkdir()
+        self.remote = self.root / 'remote-outputs'
+        self.remote.mkdir()
+        self.staging = self.root / 'runs' / 'r1' / 'outputs-incoming'
+        worker = worker_client.Worker.__new__(worker_client.Worker)
+        worker._root, worker.link = '/engine', None
+        self.worker = worker
+        patcher = mock.patch.object(worker_client.transfer, 'fetch', self.fetch)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fetch(self, link, remote, into, **kwargs):
+        shutil.copytree(self.remote, into, dirs_exist_ok=True)
+
+    def collect(self, declared=None):
+        return self.worker.collect('r1', PLAN_ARTIFACTS, worktree=self.worktree,
+                                   declared=declared, staging=self.staging)
+
+    def test_a_stale_leftover_from_an_older_run_is_not_this_runs_output(self):
+        # The engine never collected the report; a file an earlier run left in
+        # the worktree must not count as it having arrived.
+        (self.worktree / 'reports').mkdir()
+        (self.worktree / 'reports/junit.xml').write_text('<old/>')
+        collected = self.collect(declared={'reports/junit.xml': 'missing'})
+        self.assertEqual(collected['missing'], ['reports/junit.xml'])
+        self.assertEqual(collected['present'], [])
+        self.assertEqual((self.worktree / 'reports/junit.xml').read_text(), '<old/>')
+
+    def test_a_declared_present_file_must_actually_arrive(self):
+        collected = self.collect(declared={'reports/junit.xml': 'present'})
+        self.assertEqual(collected['missing'], ['reports/junit.xml'])
+
+    def test_a_present_record_and_a_landed_file_is_present(self):
+        (self.remote / 'reports').mkdir()
+        (self.remote / 'reports/junit.xml').write_text('<new/>')
+        collected = self.collect(declared={'reports/junit.xml': 'present'})
+        self.assertEqual(collected['present'], ['reports/junit.xml'])
+        self.assertEqual(collected['missing'], [])
+        self.assertEqual((self.worktree / 'reports/junit.xml').read_text(), '<new/>')
+
+    def test_no_record_and_a_stale_leftover_is_missing(self):
+        # A fan-out parent or a pre-collect crash carries no `collected` map,
+        # so the staging tree is the whole of the check: a leftover in the
+        # worktree is not this run's output.
+        (self.worktree / 'reports').mkdir()
+        (self.worktree / 'reports/junit.xml').write_text('<old/>')
+        collected = self.collect(declared=None)
+        self.assertEqual(collected['present'], [])
+        self.assertEqual(collected['missing'], ['reports/junit.xml'])
+        self.assertEqual((self.worktree / 'reports/junit.xml').read_text(), '<old/>')
+
+    def test_no_record_and_a_landed_file_is_present(self):
+        (self.remote / 'reports').mkdir()
+        (self.remote / 'reports/junit.xml').write_text('<new/>')
+        collected = self.collect(declared=None)
+        self.assertEqual(collected['present'], ['reports/junit.xml'])
+
+    def test_a_leftover_staging_directory_is_not_evidence(self):
+        # The staging directory is emptied first: only this fetch counts.
+        tree(self.staging, {'reports/junit.xml': '<staged-before/>'})
+        collected = self.collect(declared=None)
+        self.assertEqual(collected['missing'], ['reports/junit.xml'])
+        self.assertFalse(self.staging.exists())
+
+    def test_an_existing_artifact_directory_is_merged_into_not_replaced(self):
+        (self.remote / 'reports').mkdir()
+        (self.remote / 'reports/junit.xml').write_text('<new/>')
+        (self.worktree / 'reports').mkdir()
+        (self.worktree / 'reports/kept.txt').write_text('kept')
+        collected = self.collect(declared=None)
+        self.assertEqual(collected['present'], ['reports/junit.xml'])
+        self.assertEqual((self.worktree / 'reports/kept.txt').read_text(), 'kept')
+        self.assertEqual((self.worktree / 'reports/junit.xml').read_text(), '<new/>')
+
+    def test_nothing_declared_fetches_nothing(self):
+        collected = self.worker.collect('r1', {'outputs': []}, worktree=self.worktree,
+                                        staging=self.staging)
+        self.assertEqual(collected, {'paths': [], 'fetched': False})
+
 
 # --- the daemon, whole --------------------------------------------------------
 
@@ -486,6 +723,7 @@ args = "required"
 forms = [{ prefix = ["journey"] }]
 options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
 outputs = [
+  { kind = "artifacts", paths = ["reports"] },
   { kind = "writeback", requires_option = "update", paths = ["fixtures/*.ledger.jsonl", "fixtures/routes.json"] },
 ]
 run = { argv = ["sh", "-c", "echo ran-here > %(marker)s", "--", "{args}"] }
@@ -509,6 +747,8 @@ class RemoteWorker:
     follow_raises = None
     before_result = None
     submitted = []
+    collect_raises = None
+    collected = None
 
     def __init__(self, host, **kwargs):
         self.host = host
@@ -531,7 +771,9 @@ class RemoteWorker:
                               'changes': changes, 'removed': []}}, 0
 
     def collect(self, *a, **k):
-        return {'fetched': False, 'missing': []}
+        if RemoteWorker.collect_raises is not None:
+            raise RemoteWorker.collect_raises
+        return RemoteWorker.collected or {'fetched': False, 'missing': []}
 
     def fetch_writeback(self, run_id, into):
         tree(into, RemoteWorker.proposal)
@@ -548,6 +790,7 @@ class DaemonWriteBack(unittest.TestCase):
     def setUp(self):
         RemoteWorker.proposal, RemoteWorker.follow_raises = {}, None
         RemoteWorker.before_result, RemoteWorker.submitted = None, []
+        RemoteWorker.collect_raises, RemoteWorker.collected = None, None
         self.home = tempfile.TemporaryDirectory()
         self.addCleanup(self.home.cleanup)
         self.root = Path(self.home.name)
@@ -647,6 +890,23 @@ class DaemonWriteBack(unittest.TestCase):
         self.assertEqual(answer['error']['code'], 'fallback-refused')
         self.assertIn('write-back', answer['error']['msg'])
         self.assertFalse(self.marker.exists(), 'an --update ran on this Mac')
+
+    def test_a_passed_run_whose_return_transfer_fails_exits_70(self):
+        # The command's 0 cannot stand when its declared outputs never came
+        # home: the caller would read a pass on a delivery that did not happen.
+        RemoteWorker.collect_raises = TransferError('rsync: connection closed')
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertEqual(answer['exit'], 70)
+        self.assertIn('could not bring outputs back', answer['err'])
+
+    def test_a_passed_run_with_a_missing_declared_output_exits_70(self):
+        RemoteWorker.collected = {'paths': ['reports'], 'present': [],
+                                  'missing': ['reports'], 'fetched': True}
+        answer = self.call(['pnpm', 'journey', 'S0-01', '--update'])
+        self.assertEqual(answer['exit'], 70)
+        self.assertIn('declared output reports is missing', answer['err'])
+        result = json.loads((self.state / 'runs' / answer['run'] / 'result.json').read_text())
+        self.assertEqual(result['outputs']['missing'], ['reports'])
 
     def test_the_same_job_without_update_still_falls_back_by_its_size(self):
         original = RemoteWorker.submit
