@@ -139,9 +139,14 @@ def cmd_gc(args):
     engine_root = engine_root_of(manifest, args.engine_root)
     driver = driver_for(manifest, engine_root)
     keep = args.keep if args.keep is not None else manifest['worker']['golden_keep']
+    # `--family` present, or `--families-known` with none, is enrollment data;
+    # a bare `gc` on the worker has neither, and None is the honest value --
+    # the sweep must not read "nobody could say" as "nothing is enrolled".
+    enrolled = (gc.parse_families(args.family)
+                if args.family or args.families_known else None)
     receipt = gc.sweep(engine_root, driver, keep=keep, dry_run=args.dry_run,
                        protect=gc.parse_protect(args.protect),
-                       enrolled=gc.parse_families(args.family),
+                       enrolled=enrolled,
                        drop=args.drop_family,
                        orphan_grace=args.orphan_hours * 3600)
     if not args.dry_run:
@@ -213,8 +218,12 @@ def main(argv=None):
     sweep.add_argument('--keep', type=int, default=None)
     sweep.add_argument('--protect', action='append', default=[],
                        metavar='FINGERPRINT[=REPO]')
-    sweep.add_argument('--family', action='append', default=[],
+    sweep.add_argument('--family', action='append', default=None,
                        metavar='REPO=SOURCE_ID')
+    sweep.add_argument('--families-known', action='store_true',
+                       help='the caller read its enrolled configurations; '
+                            'with no --family that means nothing is enrolled, '
+                            'not that nobody looked')
     sweep.add_argument('--drop-family', action='append', default=[], metavar='FAMILY')
     sweep.add_argument('--orphan-hours', type=float, default=24.0)
     sweep.set_defaults(func=cmd_gc)

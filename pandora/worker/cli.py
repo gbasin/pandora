@@ -244,6 +244,10 @@ def cmd_gc(args):
         argv += ['--protect', '%s=%s' % (fingerprint, repo)]
     for repo, source_id in sorted(enrolled.named_families(entries)):
         argv += ['--family', '%s=%s' % (repo, source_id)]
+    # The client always read its enrolled configurations, so the list above
+    # is always an answer -- "nothing is enrolled" included -- never "nobody
+    # could say". The flag is what makes an empty list mean that on the wire.
+    argv.append('--families-known')
     for family in getattr(args, 'drop_family', None) or []:
         argv += ['--drop-family', family]
     if getattr(args, 'orphan_hours', None) is not None:
@@ -382,11 +386,13 @@ def add_parser(sub):
                     'count. Goldens are ranked by last use inside toolchain families -- one '
                     "family per (repository, [worker] source_id) -- never across them. A golden "
                     "whose fingerprint an enrolled repository's pandora.toml names, one a live "
-                    'attempt uses, and a pinned one are never removed. A family no enrolled '
-                    'config names is collected whole once it is past its grace.')
+                    'attempt uses, and a pinned one are never removed. This command always ships '
+                    'the enrolled families it read, so a family none of them names is collected '
+                    'whole once it is past its grace. A `gc` run on the worker itself has no such '
+                    'data; it keeps `keep` per family and collects no orphans.')
     node.add_argument('--dry-run', action='store_true')
     node.add_argument('--keep', type=int, default=None, metavar='N',
-                      help='keep the N most recently used goldens per enrolled toolchain '
+                      help='keep the N most recently used goldens per toolchain '
                            'family, on top of every protected one (default: golden_keep in '
                            'the manifest, 2)')
     node.add_argument('--protect', action='append', default=[], metavar='FINGERPRINT',

@@ -332,6 +332,9 @@ class GcCommand(unittest.TestCase):
         self.assertIn('%s=eichler' % fingerprint, argv)
         self.assertIn('abc=the command line', argv)
         self.assertIn('eichler=eichler-journey-runner-proxy', argv)
+        # The marker that tells the worker the family list is an answer --
+        # empty means "nothing is enrolled", not "nobody could say".
+        self.assertIn('--families-known', argv)
         self.assertIn('named by eichler pandora.toml', out.getvalue())
 
 

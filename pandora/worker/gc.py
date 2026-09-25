@@ -11,12 +11,17 @@ Three sweeps, in the order of how much they are trusted:
 3. **old goldens** -- keep the `keep` most recently used per toolchain
    family, plus every golden a live attempt still needs (queued ones too),
    every golden a currently enrolled repository's `[worker]` table names
-   (`protect`), and every pinned golden. A family no enrolled config names is
-   orphaned: it keeps everything for `orphan_grace` after its last use (a day
-   by default), then the whole family is collectable, because nothing that
-   could still want it names it (#116). `--drop-family` removes a family on
-   sight. This is the only sweep with a policy in it, and it is the only one
-   `--dry-run` exists for.
+   (`protect`), and every pinned golden. When the caller supplies its
+   enrolled families (`--family`, or `--families-known` for an empty
+   enrollment), a family no enrolled config names is orphaned: it keeps
+   everything for `orphan_grace` after its last use (a day by default), then
+   the whole family is collectable, because nothing that could still want it
+   names it (#116). When no enrollment data reaches the sweep at all -- a
+   bare `gc` typed on the worker itself -- no family is orphaned and `keep`
+   alone ranks every family: the sweep cannot tell "nothing is enrolled"
+   from "nobody could say", so it does not guess. `--drop-family` removes a
+   family on sight, enrollment or not. This is the only sweep with a policy
+   in it, and it is the only one `--dry-run` exists for.
 
 A toolchain family is `(repo, source_id)`: the `[worker]` table's own name for
 the tree it bakes in, which survives a node bump or a new package where the
@@ -24,11 +29,12 @@ fingerprint does not. Ranking per repository instead (issue #81) let
 `--keep 1` delete eichler's only surfaces golden because its journeys golden
 had been used more recently. A toolchain with no `source_id` is its own
 family, so `keep` never prunes it against a different toolchain -- only
-against nothing, which means it is kept while enrolled, and orphaned when no
-enrollment reaches it. Goldens no recorded attempt explains (built by a
-canary, or by hand) have neither a repository nor a `source_id` and share one
-`(unknown)` bucket; it is never enrolled, so it ages out like any orphan,
-clocked by the instance creation time Incus reports.
+against nothing, which means it is kept while enrollment names it, and
+orphaned only when enrollment data says nothing does. Goldens no recorded
+attempt explains (built by a canary, or by hand) have neither a repository
+nor a `source_id` and share one `(unknown)` bucket; no enrollment ever names
+it, so with enrollment data it ages out like any orphan, clocked by the
+instance creation time Incus reports.
 
 `protect` and `families` exist because the worker cannot know which goldens
 are *named*: the repositories' `pandora.toml` files live on the client. Last
@@ -36,7 +42,10 @@ use is a proxy for "still wanted", and the proxy is wrong exactly when a
 toolchain is used rarely -- the surfaces golden on 2026-09-23 -- so the client
 passes the fingerprints and `(repo, source_id)` families its enrolled
 configurations name, and the sweep treats them as a floor that no `keep` or
-grace can go below.
+grace can go below. A caller that cannot supply them -- a `gc` typed on the
+worker itself ships neither `--family` nor `--families-known` -- leaves the
+sweep with `keep` as its only evidence, and the sweep collects no orphans it
+cannot prove.
 
 The receipt is the point. A sweep that prints "cleaned up" and nothing else is
 indistinguishable from a sweep that deleted a golden somebody was about to use.
@@ -134,20 +143,23 @@ def created_ts(text):
     return 0
 
 
-def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=(),
+def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
           drop=(), orphan_grace=86400):
     """`protect` is {fingerprint: repo-or-None}: goldens named by a config.
 
     `enrolled` is the set of family keys a config still names
-    (`parse_families`): those families get the `keep` ranking. A family no
-    enrollment names is collectable whole once it is `orphan_grace` seconds
-    past its last use, and a family whose label is in `drop` is collectable on
-    sight. A live attempt's golden and a pinned golden are never touched, drop
-    or not.
+    (`parse_families`), or None when no enrollment data reached the caller at
+    all. Those are different claims: an explicitly empty set means "the
+    client's configurations name nothing", and a family no key names is
+    collectable whole once it is `orphan_grace` seconds past its last use.
+    None means "nobody could say" -- a bare `gc` on the worker -- and then
+    every family gets the `keep` ranking and nothing is orphaned. A family
+    whose label is in `drop` is collectable on sight either way. A live
+    attempt's golden and a pinned golden are never touched, drop or not.
     """
     paths = Paths(root)
     protect = dict(protect or {})
-    enrolled = set(enrolled or ())
+    enrolled = None if enrolled is None else set(enrolled)
     drop = set(drop or ())
     started = time.monotonic()
     live = live_run_instances(paths)
@@ -227,8 +239,8 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=(),
         families.setdefault(key, (label, []))[1].append(item)
     dropped = set()
     for key, (label, items) in sorted(families.items()):
-        wanted = key in enrolled or any(item['fingerprint'] in protect
-                                        for item in items)
+        wanted = (enrolled is None or key in enrolled
+                  or any(item['fingerprint'] in protect for item in items))
         # The family clock: the most recent recorded use, or the creation time
         # Incus reports for a golden no attempt explains.
         age = max([item['last_used'] for item in items] +
@@ -293,8 +305,12 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=(),
     after = driver.pool_usage()
     receipt = {'ok': not failed, 'dry_run': bool(dry_run), 'keep': keep,
                'protect': {fp: repo for fp, repo in sorted(protect.items())},
-               'enrolled': sorted('%s=%s' % (repo, key.split(':', 1)[1])
-                                  for repo, key in enrolled),
+               # null vs [] is the receipt's own record of the two modes:
+               # null when no enrollment data arrived, [] when the caller
+               # said its configurations name nothing.
+               'enrolled': (sorted('%s=%s' % (repo, key.split(':', 1)[1])
+                                   for repo, key in enrolled)
+                            if enrolled is not None else None),
                'drop': sorted(drop), 'orphan_grace_hours': orphan_grace / 3600,
                'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
                'removed': removed, 'kept': kept, 'failed': failed,
@@ -313,8 +329,9 @@ def aborted(driver, started, keep, dry_run, protect, enrolled, drop, orphan_grac
         pool = {'ok': False, 'error': str(error)[:200]}
     return {'ok': False, 'reason': reason, 'dry_run': bool(dry_run), 'keep': keep,
             'protect': {fp: repo for fp, repo in sorted(protect.items())},
-            'enrolled': sorted('%s=%s' % (repo, key.split(':', 1)[1])
-                               for repo, key in enrolled),
+            'enrolled': (sorted('%s=%s' % (repo, key.split(':', 1)[1])
+                                for repo, key in enrolled)
+                         if enrolled is not None else None),
             'drop': sorted(drop), 'orphan_grace_hours': orphan_grace / 3600,
             'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
             'removed': [], 'kept': [],

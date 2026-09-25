@@ -456,7 +456,7 @@ class Sweeps(unittest.TestCase):
             self.attempt('r%d' % index, 'eichler', 'finished', spec, 100.0 * (index + 1))
         driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
                              for name in names])
-        receipt = gc.sweep(self.root, driver, keep=2)
+        receipt = gc.sweep(self.root, driver, keep=2, enrolled=set())
         self.assertEqual(sorted(driver.destroyed), sorted(names),
                          'an orphaned family past its grace loses every member')
         whys = {item['name']: item['why'] for item in receipt['removed']}
@@ -470,7 +470,7 @@ class Sweeps(unittest.TestCase):
             self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
         driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
                              for name in names])
-        receipt = gc.sweep(self.root, driver, keep=2)
+        receipt = gc.sweep(self.root, driver, keep=2, enrolled=set())
         self.assertEqual(driver.destroyed, [])
         whys = {item['name']: item['why'] for item in receipt['kept']}
         self.assertIn('no enrolled config', whys[names[0]])
@@ -489,19 +489,50 @@ class Sweeps(unittest.TestCase):
         self.assertEqual(enrolled_driver.destroyed, [names[0]])
         orphan_driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
                                     for name in names])
-        gc.sweep(self.root, orphan_driver, keep=2)
+        gc.sweep(self.root, orphan_driver, keep=2, enrolled=set())
         self.assertEqual(sorted(orphan_driver.destroyed), sorted(names))
+
+    def test_a_sweep_with_no_enrollment_data_collects_no_orphans(self):
+        """`enrolled=None` is "nobody could say", not "nothing is enrolled":
+        a bare `gc` on the worker gets the keep ranking for every family,
+        however ancient."""
+        specs = [self.rebuilt('a', version) for version in (1, 2, 3)]
+        names = [self.name_of(spec) for spec in specs]
+        for index, (spec, at) in enumerate(zip(specs, (100.0, 200.0, 300.0))):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec, at)
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
+                             for name in names])
+        receipt = gc.sweep(self.root, driver, keep=2)
+        self.assertEqual(driver.destroyed, [names[0]],
+                         'only the rank past keep goes, even past the grace')
+        whys = {item['name']: item['why'] for item in receipt['kept']}
+        self.assertIn('most recently used', whys[names[2]])
+        self.assertIsNone(receipt['enrolled'],
+                          'null, not [], records that no data arrived')
+
+    def test_an_empty_enrollment_is_an_answer_not_a_lack_of_one(self):
+        """`enrolled=set()` is the client saying its configs name nothing."""
+        specs = [self.rebuilt('a', version) for version in (1, 2)]
+        names = [self.name_of(spec) for spec in specs]
+        for index, spec in enumerate(specs):
+            self.attempt('r%d' % index, 'eichler', 'finished', spec,
+                         100.0 * (index + 1))
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
+                             for name in names])
+        receipt = gc.sweep(self.root, driver, keep=2, enrolled=set())
+        self.assertEqual(sorted(driver.destroyed), sorted(names))
+        self.assertEqual(receipt['enrolled'], [])
 
     def test_an_unknown_golden_ages_out_by_when_incus_says_it_was_built(self):
         """A golden no attempt explains has no last use; its clock is `created`."""
         old = FakeDriver([{'name': 'golden-deadbeefdeadbeef', 'state': 'STOPPED',
                            'created': '2020/01/01 00:00 UTC'}])
-        gc.sweep(self.root, old, keep=2)
+        gc.sweep(self.root, old, keep=2, enrolled=set())
         self.assertEqual(old.destroyed, ['golden-deadbeefdeadbeef'])
         fresh = FakeDriver([{'name': 'golden-deadbeefdeadbeef', 'state': 'STOPPED',
                              'created': time.strftime('%Y/%m/%d %H:%M UTC',
                                                       time.gmtime())}])
-        receipt = gc.sweep(self.root, fresh, keep=2)
+        receipt = gc.sweep(self.root, fresh, keep=2, enrolled=set())
         self.assertEqual(fresh.destroyed, [])
         self.assertIn('no enrolled config', receipt['kept'][0]['why'])
 
@@ -509,7 +540,7 @@ class Sweeps(unittest.TestCase):
         """The don't-guess rule: an age that cannot be read is not an old age."""
         driver = FakeDriver([{'name': 'golden-deadbeefdeadbeef', 'state': 'STOPPED',
                               'created': ''}])
-        receipt = gc.sweep(self.root, driver, keep=0)
+        receipt = gc.sweep(self.root, driver, keep=0, enrolled=set())
         self.assertEqual(driver.destroyed, [])
         self.assertIn('age is unknown', receipt['kept'][0]['why'])
 
