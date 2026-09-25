@@ -22,7 +22,10 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
 
 ## 2. Write the versions manifest
 
-1. Copy `scripts/versions.toml` to a file for this worker.
+1. Copy `scripts/versions.toml` to `deploy/workers/<name>.toml` and commit it.
+   The manifest is the one file that reproduces the worker; keep no IPs or
+   hostnames in it, this repository is public. Live example:
+   `deploy/workers/pandora-rbx.toml`.
 2. Set `device` to the spare block device, for example `/dev/sdb`.
 3. Set `loop_size_gib` only if there is no spare device. See "No spare device".
 4. Pin `incus` and `incus-client` to exact dpkg versions.

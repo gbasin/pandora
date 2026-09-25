@@ -1,0 +1,30 @@
+# Manifest for the RISE-L worker pandora-rbx (OVHcloud Roubaix, Ryzen 9 9950X).
+# Reproduce with:
+# `pandora worker --host ubuntu@<worker> provision --versions deploy/workers/pandora-rbx.toml`
+
+[packages]
+incus = "6.0.5-8"
+incus-client = "6.0.5-8"
+btrfs-progs = "*"
+git = "*"
+rsync = "*"
+python3 = "*"
+
+[worker]
+root = "~/pandora"
+engine_root = "~/pandora-engine"
+project = "pandora"
+pool = "pandorapool"
+profile = "runner"
+bridge = "pandorabr0"
+subnet = "10.141.0.1/24"
+user = "ubuntu"
+
+# The second NVMe, raw. The OS lives on nvme0n1 alone.
+device = "/dev/nvme1n1"
+loop_size_gib = 18
+
+disk_floor_gib = 20
+run_disk_gib = 24
+golden_keep = 3
+unattended_upgrades = false
