@@ -2,9 +2,10 @@
 
 This is the procedure. Follow it in order. Do not skip the canary.
 
-A worker is disposable. Nothing on it is the only copy of anything: the ledger
-records attempts, the source cache is a cache, and the goldens rebuild from
-their toolchain descriptions. Rebuild the worker rather than repair it.
+A worker is disposable. Nothing a run needs exists only there: the source
+cache is a cache, and the goldens rebuild from their toolchain descriptions.
+The ledger, the learned size classes and the attempt directories are history,
+and a rebuild starts them empty. Rebuild the worker rather than repair it.
 
 ## 1. Prepare a fresh virtual machine
 
@@ -85,7 +86,8 @@ build those goldens from. Choose one:
   from an enrolled worktree, then run the canary (step 4).
 * Pass `--journey` with a toolchain JSON file that holds the `[worker]` keys of
   the repository, and `--source` with a tree on the worker. This proves that
-  toolchain before any enrollment.
+  toolchain before any enrollment. With `--journey` or `--surfaces`, the canary
+  proves only the toolchains those flags name, never the enrolled ones.
 
 `provision` installs the declared packages, disables unattended upgrades,
 creates the pool on the device, creates the bridge and its forwarding rules,
@@ -148,21 +150,23 @@ canary cannot see, because a canary runs on a machine that is already up.
    `pandora worker --host <old> gc --dry-run` first to see what is live, then
    set the floor above the pool's free space so admission closes:
    `ssh <old> 'echo 999 > ~/pandora-engine/disk_floor'`.
-   Submissions now answer `disk-floor` with the arithmetic, and the client
-   falls back to a local run.
-3. Wait for the running attempts to finish. Poll
-   `pandora worker --host <old> stats` until `held_mib` is 0 and `running` is
-   empty.
+   Submissions now answer `disk-floor` with the arithmetic. The client treats
+   that refusal as `engine-error`, and the
+   [fallback table](../README.md#fallback) decides what happens next. With no
+   declared `fallback`, a `small` or `medium` job runs in the local lane and a
+   `large` or `xlarge` job exits 70.
+3. Wait for the running and queued attempts to finish. Poll
+   `pandora worker --host <old> stats` until `held_mib` is 0, `queued` is 0 and
+   `running` is empty.
 4. Point the client at the new worker. Edit `[worker] host` in
    `~/.config/pandora/config.toml`.
 5. Restart the client daemon. Run `pandora daemon --restart` if launchd runs it
    (`pandora daemon --install`). Otherwise stop it and run `pandora daemon`.
 6. Run one real command end to end. Confirm it lands on the new worker.
-7. Retire the old worker. Run `pandora worker --host <old> reconcile` to close
+7. Keep the old worker for one working day. A cut-over that has to be
+   reversed is reversed by editing one line back.
+8. Retire the old worker. Run `pandora worker --host <old> reconcile` to close
    any attempt whose supervisor is gone, then destroy the VM.
-
-Keep the old worker for one working day before destroying it. A cut-over that
-has to be reversed is reversed by editing one line back.
 
 ## 6. Keep it
 
@@ -183,7 +187,7 @@ different machine.
 
 Unattended upgrades are off. A worker's package set changes when a person
 rebuilds it, never at 06:00 because a mirror moved. A run that passed yesterday
-and fails today must have changed because the code changed.
+and fails today did not fail because the worker's packages changed.
 
 The cadence:
 
@@ -195,6 +199,7 @@ The cadence:
   about a different machine.
 * **Never on a schedule the worker decides for itself.**
 
-Rebuild rather than upgrade. The whole procedure above is under 30 minutes of
-waiting and about 5 minutes of attention, and it ends with a canary. An
+Rebuild rather than upgrade. The procedure above, without the one-day hold on
+the old worker, is under 30 minutes of waiting and about 5 minutes of
+attention, and it ends with a canary. An
 in-place upgrade ends with a machine nobody has proved.

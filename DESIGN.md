@@ -14,8 +14,10 @@ Docker commands are routed, and declared outputs return with conflict checks.
 The integrated surface extension now prepares dependencies automatically and
 publishes generated build outputs with recoverable directory exchange. The
 original pilot description below predates that extension. The S0-01 journey now
-shares its snapshot, admission, dependency, and recovery path. A subsequent bounded Docker build/run profile now shares this path, with
-worktree-private tags. See the README for current workflow and Docker boundaries.
+shares its snapshot, admission, dependency, and recovery path. A subsequent
+bounded Docker build/run profile shared this path in v0.1.1, with
+worktree-private tags. v0.2 does not carry that profile over. See the README
+for the current workflow.
 
 ## Objective and boundaries
 
@@ -257,15 +259,16 @@ replaced the pilot.
 - **Enroll is consent, not configuration.** It records once per repository that
   Pandora may route it. Nothing about routing is re-read at enroll time that is
   not re-read on the next command.
-- **No file names a client home.** The shim runs the client from the checkout it
-  is itself in; the daemon runs its own. A file that pins another checkout is how
-  one daemon, one pinned client and one updated checkout came to run three code
-  versions.
+- **No file names a client home.** The shim runs the client from the installed
+  version it is itself in, and the daemon runs the version it started with. A
+  file that pins another checkout is how one daemon, one pinned client and one
+  updated checkout came to run three code versions.
 - **A file the code does not understand is refused, not ignored.** An unknown
   key or value (a file written for newer code, or a mistake) refuses each claimed
-  command with exit 70, the key, the value and the fix: `git -C <daemon
-  checkout> pull && pandora daemon --restart`, after `pandora ps` is idle. The
-  cache keeps the file's claimed forms so those commands reach that refusal
+  command with exit 70, the key, the value and the fix. On an installed version
+  the fix is `git -C <source checkout> pull && pandora upgrade`. On an install
+  that runs the checkout it is `git -C <checkout> pull && pandora daemon
+  --restart`, after `pandora ps` is idle. The cache keeps the file's claimed forms so those commands reach that refusal
   instead of running unmanaged. User-facing text carries no version numbers: the
   fix is the same whichever side is older.
 - **Installed and not answering is broken, not absent.** Where the client
