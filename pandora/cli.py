@@ -706,6 +706,12 @@ def result_without_one(args, meta):
     state = (meta or {}).get('state')
     if state is None or state in ('queued', 'running'):
         notice('no result for run %s (still running, or it never reached the worker)' % args.run)
+        if args.json:
+            # No verdict yet is still non-passing, but the row is the data an
+            # agent needs: state, queue position, argv. An absent row answers
+            # with the least that is true.
+            print(json.dumps(dict(meta or {}, id=args.run, state=state or 'unknown'),
+                             indent=1, sort_keys=True))
         return 1
     if args.json:
         print(json.dumps(meta, indent=1, sort_keys=True))

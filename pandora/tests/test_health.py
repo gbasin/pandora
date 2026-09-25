@@ -131,6 +131,63 @@ class Transitions(unittest.TestCase):
                           'pandora: worker kernel drift'])
         self.assertIn('3 failure', notes[0][1])
 
+    def test_a_degraded_edge_without_a_named_cause_announces_once(self):
+        mon, worker, notes = monitor(answer())
+        mon.poll()
+        worker.reply = answer(ok=False, reason='provisioning is still running')
+        mon.poll()
+        mon.poll()
+        self.assertEqual([t for t, _ in notes], ['pandora: worker degraded'])
+        self.assertIn('provisioning is still running', notes[0][1])
+
+    def test_a_degraded_edge_names_the_worker_state_when_there_is_no_reason(self):
+        mon, worker, notes = monitor(answer())
+        mon.poll()
+        worker.reply = answer(ok=False, state='unproven')
+        mon.poll()
+        self.assertEqual([t for t, _ in notes], ['pandora: worker degraded'])
+        self.assertIn('unproven', notes[0][1])
+
+    def test_a_named_degraded_cause_does_not_announce_twice(self):
+        # The canary edge says it; the generic edge stands down.
+        mon, worker, notes = monitor(answer())
+        mon.poll()
+        worker.reply = answer(ok=False, canary={'ok': False, 'failures': 1})
+        mon.poll()
+        self.assertEqual([t for t, _ in notes], ['pandora: worker canary failed'])
+
+    def test_coming_back_degraded_is_a_worker_back_not_a_second_alarm(self):
+        mon, worker, notes = monitor(answer())
+        mon.poll()
+        worker.reply = PandoraError('gone')
+        mon.poll()
+        worker.reply = answer(ok=False, reason='still reimaging')
+        mon.poll()
+        self.assertEqual([t for t, _ in notes],
+                         ['pandora: worker down', 'pandora: worker back'])
+
+    def test_disk_near_the_floor_warns_once_then_the_floor_edge_takes_over(self):
+        mon, worker, notes = monitor(answer())
+        mon.poll()
+        worker.reply = answer(capacity={'ok': True, 'free_gib': 5.0, 'floor_gib': 4})
+        mon.poll()
+        mon.poll()
+        self.assertEqual([t for t, _ in notes], ['pandora: worker disk low'])
+        self.assertIn('5.0 GiB', notes[0][1])
+        worker.reply = answer(ok=False, capacity={'ok': False, 'free_gib': 1.0,
+                                                  'floor_gib': 4})
+        mon.poll()
+        self.assertEqual([t for t, _ in notes],
+                         ['pandora: worker disk low', 'pandora: worker disk floor'])
+
+    def test_a_pool_that_starts_below_the_floor_does_not_warn_twice(self):
+        mon, worker, notes = monitor(answer())
+        mon.poll()
+        worker.reply = answer(ok=False, capacity={'ok': False, 'free_gib': 1.0,
+                                                  'floor_gib': 4})
+        mon.poll()
+        self.assertEqual([t for t, _ in notes], ['pandora: worker disk floor'])
+
     def test_notifications_can_be_disabled(self):
         calls = []
         mon = health.Monitor(lambda: Worker(answer()), notify_enabled=False, clock=Clock(),

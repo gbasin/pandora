@@ -9,9 +9,9 @@ afternoon. A poll that already knows the worker is down turns that into an
 immediate `fallback:worker-down`, and the only thing that costs is one SSH call
 a minute that would otherwise never have been made.
 
-**Attention.** A worker that goes away, a canary that starts failing, a pool
-that crosses its floor or a kernel that changed under a reboot are all things
-nobody is watching a terminal for. On this Mac that is a notification; anywhere
+**Attention.** A worker that goes away or turns degraded, a canary that starts
+failing, a pool that nears or crosses its floor or a kernel that changed under
+a reboot are all things nobody is watching a terminal for. On this Mac that is a notification; anywhere
 else it is a log line, because `osascript` is not a portable idea.
 
 **Honesty about what a poll knows.** `reachable` means the engine answered and
@@ -38,6 +38,9 @@ DEFAULT_INTERVAL = 60.0
 # How long a reading stands for, in intervals: one or two missed polls are not a
 # forgotten worker, three are.
 STALE_FACTOR = 3.0
+# The soft disk threshold, as a multiple of the admission floor: inside it the
+# pool still takes runs, but the floor is close enough to say so once.
+DISK_WARN_FACTOR = 1.5
 STATES = ('unknown', 'reachable', 'degraded', 'down')
 
 
@@ -89,7 +92,8 @@ class Monitor:
         self.stopping = threading.Event()
         self.nudge = threading.Event()
         self.current = {'worker': 'unknown', 'at': 0, 'reason': None, 'canary': None,
-                        'disk': None, 'goldens': 0, 'ready': None, 'kernel_drift': False,
+                        'disk': None, 'free_gib': None, 'floor_gib': None, 'goldens': 0,
+                        'ready': None, 'kernel_drift': False,
                         'host': None, 'health': None, 'polls': 0}
         self._load()
 
@@ -129,6 +133,8 @@ class Monitor:
                            host=getattr(worker, 'host', None),
                            reason=answer.get('reason'),
                            canary=answer.get('canary'), disk=disk,
+                           free_gib=capacity.get('free_gib'),
+                           floor_gib=capacity.get('floor_gib'),
                            goldens=len(answer.get('goldens') or []),
                            ready=answer.get('state'),
                            kernel_drift=bool(answer.get('kernel_drift')),
@@ -202,10 +208,11 @@ class Monitor:
 def transitions(before, after):
     """[(title, message)] for what changed between two readings.
 
-    Edges only, and only the five the brief names: the worker coming back, the
-    worker going away, a canary that started failing, a pool that crossed its
-    floor, a kernel that changed. A state that has not changed is not news, and
-    a monitor that re-announces every minute is a monitor nobody reads.
+    Edges only: the worker coming back, the worker going away, the worker going
+    degraded for a reason the specific edges do not name, a canary that started
+    failing, a pool nearing or crossing its floor, a kernel that changed. A
+    state that has not changed is not news, and a monitor that re-announces
+    every minute is a monitor nobody reads.
     """
     out = []
     was, now = before.get('worker', 'unknown'), after.get('worker', 'unknown')
@@ -213,19 +220,42 @@ def transitions(before, after):
         out.append(('pandora: worker down', after.get('reason') or 'the engine did not answer'))
     elif now in ('reachable', 'degraded') and was == 'down':
         out.append(('pandora: worker back', 'the engine answered; state %s' % now))
+    named = False
     if failed(after.get('canary')) and not failed(before.get('canary')):
         out.append(('pandora: worker canary failed',
                     'the worker last proved itself with %s failure(s)'
                     % (after['canary'] or {}).get('failures')))
+        named = True
     if after.get('disk') == 'below floor' and before.get('disk') != 'below floor':
         out.append(('pandora: worker disk floor',
                     'the pool is below its floor; new runs are being refused'))
+        named = True
     if after.get('kernel_drift') and not before.get('kernel_drift'):
         out.append(('pandora: worker kernel drift',
                     'the kernel changed since the canary passed; re-run '
                     '`pandora worker canary --mark`'))
+        named = True
+    if now == 'degraded' and was not in ('degraded', 'down') and not named:
+        # The specific edges already said their piece; this is for the
+        # degradations none of them cover, like a state.json that is not ready.
+        reason = after.get('reason')
+        if not reason and after.get('ready') not in (None, 'ready'):
+            reason = 'worker state is %s' % after['ready']
+        out.append(('pandora: worker degraded',
+                    reason or 'the engine answered but is not fit'))
+    if near_floor(after) and not near_floor(before):
+        out.append(('pandora: worker disk low',
+                    '%.1f GiB free of a %.1f GiB floor; the floor is close'
+                    % (after['free_gib'], after['floor_gib'])))
     return out
 
 
 def failed(canary):
     return bool(canary) and canary.get('ok') is False
+
+
+def near_floor(reading):
+    """Above the floor but inside the warn margin. Below floor is its own edge."""
+    free, floor = reading.get('free_gib'), reading.get('floor_gib')
+    return (isinstance(free, (int, float)) and isinstance(floor, (int, float))
+            and 0 < floor <= free < floor * DISK_WARN_FACTOR)
