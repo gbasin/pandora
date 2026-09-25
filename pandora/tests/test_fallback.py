@@ -68,7 +68,9 @@ outputs = [{ kind = "writeback", requires_option = "update", paths = ["out"] }]
 run = { argv = ["sh", "-c", "echo ran-writer > %(marker)s"] }
 [[jobs]]
 id = "fanout"
-size = "large"
+# medium, on purpose: size alone would admit it to the local lane, so the
+# sharded-job refusal below exercises the lane gate, not the size class.
+size = "medium"
 args = "optional"
 forms = [{ prefix = ["fanout"] }]
 shards = { strategy = "argv", template = "--shard={i}/{n}", default = 2, max = 4 }
@@ -290,12 +292,16 @@ class OneFallbackPath(DaemonCase):
         self.assertNotIn('PANDORA_OFF', answer.error['msg'])
         self.assertFalse(self.marker.exists(), 'a large job ran on this Mac')
 
-    def test_a_sharded_job_offers_pandora_off_only_as_a_last_resort(self):
+    def test_a_sharded_job_never_falls_back_at_any_size(self):
+        # fanout is medium: the size rule would admit it, but the local lane
+        # cannot run a sharded job, so the verdict is refuse (gh-120).
         FakeWorker.raises = TransferError('rsync failed (255): unexpected end of file')
         answer = self.call(['pnpm', 'fanout'])
         self.assertEqual((answer.error['code'], answer.exit), ('fallback-refused', 70))
+        self.assertIn('local lane', answer.error['msg'])
         self.assertNotIn('PANDORA_WHERE=local', answer.error['msg'])
         self.assertIn('last resort, PANDORA_OFF=1', answer.error['msg'])
+        self.assertFalse(self.marker.exists())
 
     def test_a_paused_local_lane_says_why_in_the_refused_runs_log(self):
         from pandora.client.pressure import Paused
@@ -330,6 +336,10 @@ class OneFallbackPath(DaemonCase):
         answer = self.call(['pnpm', 'writer', '--update'])
         self.assertEqual(answer.exit, 70)
         self.assertFalse(self.marker.exists())
+        # And the refusal does not steer the caller to the local lane: that
+        # lane cannot write back either (gh-130).
+        self.assertNotIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertIn('worker is reachable', answer.error['msg'])
 
 
 class UploadPhases(DaemonCase):
@@ -1205,10 +1215,15 @@ class WithoutADaemon(unittest.TestCase):
         self.assertEqual(self.run_shim(['surface']), 0)
         self.assertTrue(self.ran.exists())
 
-    def test_update_runs_here_and_writes_in_place_without_a_daemon(self):
+    def test_update_is_refused_without_a_daemon(self):
+        # --update asks the worker to write files back; with no daemon there
+        # is no run at all, and writing in place here skips every check.
         self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'local',
                      'writeback': True}])
-        self.assertEqual(self.run_shim(['unit', '--update']), 0)
+        self.assertEqual(self.run_shim(['unit', '--update']), 70)
+        self.assertFalse(self.ran.exists())
+        # The same job without the option is an ordinary run and still passes.
+        self.assertEqual(self.run_shim(['unit']), 0)
         self.assertTrue(self.ran.exists())
 
     def test_an_explicit_remote_request_is_still_refused_without_a_daemon(self):
@@ -1306,11 +1321,30 @@ class Policy(unittest.TestCase):
         self.assertIn('write-back', verdict['reason'])
 
     def test_a_refusal_steers_to_the_local_queue_when_the_job_can_run_there(self):
-        for kwargs in ({'size': 'large'}, {'size': 'small', 'writeback': True},
+        for kwargs in ({'size': 'large'},
                        {'size': 'small', 'declared': {'action': 'local', 'on': ['queue-timeout']}}):
             reason = policy.decide(cause='transfer-failed', **kwargs)['reason']
             self.assertIn('PANDORA_WHERE=local', reason, kwargs)
             self.assertNotIn('PANDORA_OFF', reason, kwargs)
+
+    def test_a_write_back_refusal_steers_to_the_worker_not_the_local_queue(self):
+        reason = policy.decide(cause='worker-unreachable', size='small',
+                               writeback=True)['reason']
+        self.assertNotIn('PANDORA_WHERE=local', reason)
+        self.assertNotIn('PANDORA_OFF', reason)
+        self.assertIn('worker is reachable', reason)
+
+    def test_a_job_the_local_lane_cannot_take_is_refused_at_any_size(self):
+        # A medium job falls back on size alone; a sharded one cannot run in
+        # the lane at all, so the gate turns the verdict into refuse (gh-120).
+        verdict = policy.decide(cause='worker-unreachable', size='medium', local_lane=False)
+        self.assertEqual(verdict['action'], 'refuse')
+        self.assertIn('local lane', verdict['reason'])
+        # The gate applies to a declared fallback = "local" too.
+        declared = {'action': 'local', 'on': list(policy.CAUSES)}
+        verdict = policy.decide(cause='worker-unreachable', size='small', declared=declared,
+                                local_lane=False)
+        self.assertEqual(verdict['action'], 'refuse')
 
     def test_pandora_off_is_named_only_when_the_local_lane_cannot_take_it(self):
         reason = policy.decide(cause='transfer-failed', size='large', local_lane=False)['reason']

@@ -156,15 +156,17 @@ class LocalOverride(PlacementCase):
         # the reservation are the job's.
         self.assertEqual(result['size_class'], 'small')
 
-    def test_update_runs_locally_and_writes_in_place(self):
-        # `journey` is large and declares fallback = "refuse"; neither applies,
-        # because this is not a fallback, and --update is fine where it writes in place.
+    def test_update_in_the_local_lane_is_refused_and_nothing_runs(self):
+        # --update arms write-back, and write-back is the worker's half of the
+        # run: the local lane would write the files in place with none of the
+        # stale or conflict checks (gh-130).
         answer = self.place(['pnpm', 'journey', 'S0-01', '--update'], 'local')
-        self.assertEqual(answer.exit, 0, answer.error)
-        self.assertEqual(answer.accepted['lane'], 'local')
-        self.assertEqual(self.marker.read_text().strip(), 'ran-journey S0-01 --update')
+        self.assertEqual((answer.error['code'], answer.exit), ('placement', 64))
+        self.assertIn('write-back', answer.error['msg'])
+        self.assertIn('worker', answer.error['msg'])
+        self.assertNotIn('PANDORA_OFF', answer.error['msg'])
+        self.assertFalse(self.marker.exists())
         self.assertEqual(RecordingWorker.plans, [])
-        self.assertEqual(self.result_of(answer.accepted['run'])['size_class'], 'large')
 
     def test_a_sharded_job_is_refused_with_64_and_nothing_runs(self):
         answer = self.place(['pnpm', 'surface', 'desk'], 'local')
@@ -220,6 +222,17 @@ class RemoteOverride(PlacementCase):
         self.assertNotIn('PANDORA_OFF', answer.error['msg'])
         self.assertFalse(self.marker.exists(), 'an explicit --remote fell back to this Mac')
 
+    def test_remote_writeback_refusal_steers_to_the_worker_not_the_local_queue(self):
+        # The --remote refusal named PANDORA_WHERE=local as the next step; for a
+        # write-back job that steered agents onto the unprotected path (gh-130).
+        FakeWorker.raises = WorkerUnreachable('down')
+        answer = self.place(['pnpm', 'journey', 'S0-01', '--update'], 'remote')
+        self.assertEqual((answer.error['code'], answer.exit), ('placement-unavailable', 70))
+        self.assertIn('--remote was asked for', answer.error['msg'])
+        self.assertIn('worker is reachable', answer.error['msg'])
+        self.assertNotIn('PANDORA_WHERE=local', answer.error['msg'])
+        self.assertFalse(self.marker.exists())
+
     def test_a_worker_known_down_is_the_same_error_without_submitting(self):
         FakeWorker.health_raises = WorkerUnreachable('gone')
         self.daemon.health.poll()
@@ -259,6 +272,15 @@ class Decide(unittest.TestCase):
             placement.decide(job, {'where': 'remote'}, 'local')
         self.assertEqual((caught.exception.code, caught.exception.exit), ('placement', 64))
         self.assertIn('plan step', str(caught.exception))
+
+    def test_a_write_back_run_is_refused_the_local_lane(self):
+        with self.assertRaises(Refused) as caught:
+            placement.decide(dict(self.JOB),
+                             {'where': 'remote', 'writeback': True,
+                              'options': {'update': True}}, 'local')
+        self.assertEqual((caught.exception.code, caught.exception.exit), ('placement', 64))
+        self.assertIn('worker', str(caught.exception))
+        self.assertNotIn('PANDORA_OFF', str(caught.exception))
 
 
 def capture(function, *args):
