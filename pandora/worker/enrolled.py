@@ -10,7 +10,7 @@ prove.
 Runs on the Mac only, and is deliberately not in the engine bundle.
 """
 from ..config import classify, loader
-from ..engine.runner import toolchain_of
+from ..engine.runner import remote_cwd, toolchain_of
 from ..errors import ConfigError
 from ..snapshot import transfer
 
@@ -71,7 +71,7 @@ def journey_check(config):
     env, _ = classify.environment(config, job)
     return {'id': canary['journey'], 'job': job['id'],
             'argv': splice(job['run']['argv'], job['run']['args_at'], [canary['journey']]),
-            'env': env, 'cwd': config['worker']['workdir'], 'compose': canary['compose']}
+            'env': env, 'cwd': remote_cwd(job['run']['cwd']), 'compose': canary['compose']}
 
 
 def surface_check(config):
@@ -92,15 +92,16 @@ def surface_check(config):
         spec = job['validate']
         env = dict(env, **spec['env'])
         argv, step = splice(spec['argv'], spec['args_at'], [canary['surface']]), 'validate'
+        cwd = remote_cwd(spec['cwd'])
     elif job['shards'] and job['shards']['plan']:
         argv = [item.replace('{n}', '1').replace('{plan}', PLAN_PATH)
                 for item in splice(job['shards']['plan'], job['shards']['plan_args_at'],
                                    [canary['surface']])]
-        step = 'plan'
+        step, cwd = 'plan', remote_cwd(job['run']['cwd'])
     else:
         return None
     return {'id': canary['surface'], 'job': job['id'], 'step': step, 'argv': argv,
-            'env': env, 'cwd': config['worker']['workdir']}
+            'env': env, 'cwd': cwd}
 
 
 def canary_targets(entries, *, engine_root, source=None):

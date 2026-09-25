@@ -545,6 +545,10 @@ class Daemon:
         self.lock_handle = None
         self.repo_configs = {}
         self.repo_stamps = {}
+        # Config warnings already said to a caller, by their full text: a load
+        # that warns still loads, so the word for it is one notice per daemon,
+        # not one per command.
+        self.warned = set()
         self.adopting = threading.Lock()   # one takeover per orphaned row
         self.workers = {}
         self.workers_lock = threading.Lock()
@@ -605,6 +609,23 @@ class Daemon:
             self.repo_configs[key] = config
             self.repo_stamps[key] = stamp
         return self.repo_configs[key]
+
+    def say_warnings(self, config, say):
+        """The config's load warnings, each said once per daemon lifetime.
+
+        The loader has no warnings channel of its own; the notice frame is the
+        honest one, because the file still loaded -- the caller gets a line on
+        stderr, not a refusal. `say` None means this request has no caller to
+        tell (an internal call, a test); the warning stays unsaid and is
+        offered to the next request that does.
+        """
+        if say is None:
+            return
+        for line in config.get('warnings') or []:
+            text = '%s: %s' % (config.get('source') or loader.FILENAME, line)
+            if text not in self.warned:
+                self.warned.add(text)
+                say(text)
 
     @staticmethod
     def direct_script(spec, root):
@@ -1158,6 +1179,7 @@ class Daemon:
             raise refusal from None
         except ConfigError as error:
             raise NotClaimed('no usable config in this worktree: %s' % error) from None
+        self.say_warnings(config, say)
         try:
             relative = Path(cwd).resolve().relative_to(root.resolve())
         except ValueError:

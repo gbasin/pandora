@@ -423,7 +423,7 @@ JOB_OPTIONAL = {'summary', 'tool', 'size', 'args', 'options', 'value_flags', 're
                 'cancel', 'drift', 'git'}
 
 
-def _job(value, index):
+def _job(value, index, warnings):
     where = 'jobs[%d]' % index
     _keys(value, where, JOB_REQUIRED, JOB_OPTIONAL)
     job_id = _str(value['id'], where + '.id', NAME)
@@ -490,6 +490,16 @@ def _job(value, index):
     if job['shards'] and job['where'] == 'local':
         raise ConfigError(where + ' is sharded, which is a fan-out across worker '
                                   "instances; it cannot also be where = 'local'")
+    # A remote run executes a frozen snapshot, which cannot drift, so the key
+    # does nothing here -- but live configs already set it, so the load warns
+    # rather than fails. A future release will refuse it.
+    if job['drift'] is not None and job['where'] != 'local':
+        warnings.append(
+            where + ".drift is read only in the local lane: a remote run executes a "
+                    "frozen snapshot, which cannot drift, so the key does nothing here. "
+                    "Remove it -- a future release will refuse it. Should this job ever "
+                    "run on this Mac -- a fallback or an override -- the machine's "
+                    "[local] drift setting applies.")
     if job['shards'] and job['shards']['plan'] and not job['outputs']:
         raise ConfigError(where + '.shards.plan writes a per-shard report, so the job must '
                                   'declare the artifacts that bring it home')
@@ -539,6 +549,14 @@ def _job(value, index):
 
 # --- worker toolchain -------------------------------------------------------
 
+def _workdir(value, where):
+    text = _str(value, where)
+    if text != '/work':
+        raise ConfigError('%s does not move a run: the source lands at /work and the '
+                          'command executes there, plus the job\'s run.cwd' % where)
+    return text
+
+
 def _worker(value, where):
     """Golden inputs and an optional per-clone command after source injection."""
     _keys(value, where, {'base_image'},
@@ -556,7 +574,11 @@ def _worker(value, where):
                                 allow_empty=True),
         'source_id': _str(value.get('source_id', ''), where + '.source_id', allow_empty=True),
         'env': _env(value.get('env', {}), where + '.env'),
-        'workdir': _str(value.get('workdir', '/work'), where + '.workdir'),
+        # `workdir` never moved a run: the source is injected at /work and the
+        # command runs there plus the job's `run.cwd`. The literal default is
+        # still accepted so a file that spells it keeps loading; anything else
+        # claims an effect nothing reads, so it is refused rather than kept.
+        'workdir': _workdir(value.get('workdir', '/work'), where + '.workdir'),
     }
 
 
@@ -626,9 +648,10 @@ def validate(value):
     environment = _keys(value.get('env', {}), 'env', (),
                         {'set', 'passthrough', 'unset', 'reject_if_set'})
 
+    warnings = []
     jobs = {}
     for index, item in enumerate(value['jobs']):
-        job = _job(item, index)
+        job = _job(item, index, warnings)
         if job['id'] in jobs:
             raise ConfigError('jobs has duplicate id ' + job['id'])
         jobs[job['id']] = job
@@ -692,6 +715,9 @@ def validate(value):
         # overrides that for every job it does not override individually.
         'fallback': _fallback(value['fallback'], 'fallback') if 'fallback' in value else None,
         'jobs': jobs,
+        # Keys the file still loads with but should drop, one line each. The
+        # daemon says them once, as notices; nothing here prints.
+        'warnings': warnings,
     }
     for job in jobs.values():
         if job['fallback'] is None:

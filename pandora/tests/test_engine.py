@@ -208,6 +208,7 @@ class FakeDriver:
     def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
                 on_tick=None, reattach=False):
         self.executed, self.env = True, dict(env or {})
+        self.cwd, self.limits = cwd, limits
         if on_log:
             on_log(self.log)
         if on_tick and on_tick() == 'cancel':
@@ -355,6 +356,37 @@ class SuperviseTest(unittest.TestCase):
     def test_a_declared_output_that_produced_nothing_is_missing_not_empty(self):
         result = self.run_with(FakeDriver())
         self.assertEqual(result['evidence']['collected'], {'reports': 'missing'})
+
+    def test_the_jobs_timeout_minutes_becomes_the_runs_wall_clock(self):
+        self.request(timeout_minutes=45)
+        driver = FakeDriver()
+        result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertEqual(driver.limits.wall_seconds, 2700)
+
+    def test_the_default_wall_clock_is_thirty_minutes(self):
+        driver = FakeDriver()
+        self.run_with(driver)
+        self.assertEqual(driver.limits.wall_seconds, 1800)
+
+    def test_a_wall_seconds_env_override_wins_over_timeout_minutes(self):
+        self.request(timeout_minutes=45)
+        self.ledger.update('r1', env={'PANDORA_WALL_SECONDS': '90'})
+        driver = FakeDriver()
+        self.run_with(driver)
+        self.assertEqual(driver.limits.wall_seconds, 90)
+
+    def test_the_command_runs_in_the_declared_cwd_under_work(self):
+        self.ledger.update('r1', cwd='apps/desk')
+        driver = FakeDriver()
+        result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertEqual(driver.cwd, '/work/apps/desk')
+
+    def test_the_root_cwd_stays_at_work(self):
+        driver = FakeDriver()
+        self.run_with(driver)
+        self.assertEqual(driver.cwd, '/work')
 
     def test_running_it_twice_returns_the_first_result_rather_than_rerunning(self):
         first = self.run_with(FakeDriver())
