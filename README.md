@@ -1287,8 +1287,8 @@ numbers were taken under that load. They are not a quiet-machine baseline.
 
 A warm remote `check` spends about 1.4 s before `accepted`, 0.35 s on clone and
 start, 0.8 s on injection, 3.1 s on the synthetic Git repository, 11-12 s in
-eichler's own uncached checks, and 1 s on destroy. On four vCPU,
-sharding gives no further gain past four shards.
+eichler's own uncached checks, and 1 s on destroy. On four vCPU, one, two
+and four shards were measured, and four was the best of those.
 
 Sizes that matter:
 
