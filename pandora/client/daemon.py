@@ -20,6 +20,7 @@ import base64
 import faulthandler
 import fcntl
 import json
+import math
 import os
 import signal
 import socket
@@ -405,12 +406,18 @@ class Run:
         return max(0.0, (now() if at is None else at) - self.active_at)
 
     def activity_fields(self):
-        """What `ps --json` and a drain's blockers say about a local run's progress."""
+        """What `ps --json` and a drain's blockers say about a local run's progress.
+
+        Idle time is cut down to a tenth, never rounded up: a drain cancels on
+        this figure and the daemon then checks its own exact reading against the
+        same limit, so a figure above the reading (1.96 said as 2.0) was a cancel
+        the daemon refused, and the drain waited `CANCEL_RETRY` to ask again.
+        """
         if self.lane != 'local' or self.state != 'running':
             return {}
         idle = self.idle_seconds()
         return {'cpu_seconds': self.cpu_seconds, 'last_active': self.active_at,
-                'idle_seconds': None if idle is None else round(idle, 1)}
+                'idle_seconds': None if idle is None else math.floor(idle * 10) / 10}
 
     def spawned(self, pid):
         """The local supervisor started the child, as the leader of its own group."""
@@ -1062,6 +1069,7 @@ class Daemon:
                 worker.close()
             except OSError:
                 pass
+        self.budget.close()
         if self.lock_handle:
             self.lock_handle.close()
 
