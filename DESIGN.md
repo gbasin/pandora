@@ -16,8 +16,8 @@ publishes generated build outputs with recoverable directory exchange. The
 original pilot description below predates that extension. The S0-01 journey now
 shares its snapshot, admission, dependency, and recovery path. A subsequent
 bounded Docker build/run profile shared this path in v0.1.1, with
-worktree-private tags. v0.2 does not carry that profile over. See the README
-for the current workflow.
+worktree-private tags. v0.2 does not carry that profile over. See
+[docs/operations.md](docs/operations.md) for the current workflow.
 
 ## Objective and boundaries
 
