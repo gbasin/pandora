@@ -1,0 +1,33 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: ruff
+        run: |
+          python3 -m pip install ruff==0.15.1
+          ruff check --select F,E9 .
+      - name: shellcheck
+        run: |
+          command -v shellcheck >/dev/null || {
+            if [ "$(uname)" = Linux ]; then sudo apt-get install -y shellcheck;
+            else brew install shellcheck; fi
+          }
+          shellcheck bin/pnpm bin/pandora
+      - name: unittest
+        run: python3 -m unittest discover -s pandora
