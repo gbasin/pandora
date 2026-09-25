@@ -55,6 +55,18 @@ def named_fingerprints(entries):
     return named
 
 
+def named_families(entries):
+    """{(repo, source_id)} for every enrolled `[worker]` table's family.
+
+    A family outlives the fingerprint that named it -- a rebuild keeps the
+    `source_id` -- so gc needs the family, not the fingerprint, to know which
+    toolchains are still wanted. `repo` is the plan's repo name, which is what
+    the engine's attempts record.
+    """
+    return {(config['repo']['name'], config['worker']['source_id'])
+            for _, config in entries if config['worker'].get('source_id')}
+
+
 def splice(argv, args_at, tail):
     argv = list(argv)
     if args_at is not None:

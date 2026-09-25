@@ -140,7 +140,10 @@ def cmd_gc(args):
     driver = driver_for(manifest, engine_root)
     keep = args.keep if args.keep is not None else manifest['worker']['golden_keep']
     receipt = gc.sweep(engine_root, driver, keep=keep, dry_run=args.dry_run,
-                       protect=gc.parse_protect(args.protect))
+                       protect=gc.parse_protect(args.protect),
+                       enrolled=gc.parse_families(args.family),
+                       drop=args.drop_family,
+                       orphan_grace=args.orphan_hours * 3600)
     if not args.dry_run:
         gc.write_receipt(worker_dir(args.root), receipt)
     return emit(receipt)
@@ -210,6 +213,10 @@ def main(argv=None):
     sweep.add_argument('--keep', type=int, default=None)
     sweep.add_argument('--protect', action='append', default=[],
                        metavar='FINGERPRINT[=REPO]')
+    sweep.add_argument('--family', action='append', default=[],
+                       metavar='REPO=SOURCE_ID')
+    sweep.add_argument('--drop-family', action='append', default=[], metavar='FAMILY')
+    sweep.add_argument('--orphan-hours', type=float, default=24.0)
     sweep.set_defaults(func=cmd_gc)
     gate = sub.add_parser('canary')
     gate.add_argument('--journey', default=None)

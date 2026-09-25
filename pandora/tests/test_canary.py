@@ -143,6 +143,12 @@ class Derivation(unittest.TestCase):
         self.assertEqual(named, {enrolled.fingerprint_of(journeys): 'a,b',
                                  enrolled.fingerprint_of(surfaces): 's'})
 
+    def test_named_families_follow_the_repo_and_the_source_id(self):
+        families = enrolled.named_families([('eichler', load(JOURNEYS)),
+                                            ('surfaces', load(SURFACES))])
+        self.assertEqual(families, {('eichler', 'eichler-journey-runner-proxy'),
+                                    ('eichler', 'eichler-surfaces')})
+
 
 class FakeDriver:
     """The IncusDriver surface `canary.run` touches, recording what it was asked."""
@@ -325,6 +331,7 @@ class GcCommand(unittest.TestCase):
         self.assertEqual(argv[:3], ['gc', '--dry-run', '--keep'])
         self.assertIn('%s=eichler' % fingerprint, argv)
         self.assertIn('abc=the command line', argv)
+        self.assertIn('eichler=eichler-journey-runner-proxy', argv)
         self.assertIn('named by eichler pandora.toml', out.getvalue())
 
 

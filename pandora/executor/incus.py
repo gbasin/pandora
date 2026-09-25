@@ -437,11 +437,27 @@ rm -rf "$2"
         if rc != 0:
             raise CloneFailed('copy %s -> %s: %s' % (golden.name, name, err.strip()[:400]))
         copied = time.monotonic() - t0
-        if limits:
-            self.apply(name, limits)
-        mark = time.monotonic()
-        self.incus('start', name, timeout=300)
-        self.wait_ready(name)
+        try:
+            if limits:
+                self.apply(name, limits)
+            mark = time.monotonic()
+            self.incus('start', name, timeout=300)
+            self.wait_ready(name)
+        except Exception as error:
+            # A copy that could not be configured or started is not an
+            # instance a run may use, and leaving it leaks the instance and
+            # its volume for gc to find (#88). The delete is best-effort: the
+            # original failure is the one the run needs to hear. A timeout
+            # becomes CloneFailed so the failure maps to retryable
+            # 'clone-failed' instead of 'engine-error'.
+            try:
+                self.incus('delete', '-f', name, check=False, timeout=300)
+            except Exception:                                        # noqa: BLE001
+                pass
+            if isinstance(error, subprocess.TimeoutExpired):
+                raise CloneFailed('%s timed out being made from %s'
+                                  % (name, golden.name)) from error
+            raise
         return Instance(name=name, run_id=run_id, golden=golden.name,
                         clone_seconds=copied, start_seconds=time.monotonic() - mark)
 
@@ -494,8 +510,12 @@ rm -rf "$2"
         mid-way and leaves the instance unconfigurable. That is worth a legible
         refusal here rather than an unexplained one three commands later.
         """
-        self.settle_qgroups()
-        referenced = self.qgroup(name)[0]
+        try:
+            self.settle_qgroups()
+            referenced = self.qgroup(name)[0]
+        except subprocess.TimeoutExpired as error:
+            raise CloneFailed('qgroup accounting on %s timed out while setting '
+                              'up %s: %s' % (self.pool, name, error)) from error
         if referenced and gib * (1 << 30) <= referenced:
             raise CloneFailed(
                 'disk quota %d GiB on %s is at or below the %.2f GiB it already '
@@ -525,17 +545,21 @@ rm -rf "$2"
             rc, out, err = run(['sudo', 'btrfs', 'qgroup', 'show', '--raw', self.pool_mount()],
                                check=False, timeout=120)
             return 'inconsistent' in (out + err).lower()
-        if not inconsistent():
-            return False
-        rc, _, err = run(['sudo', 'btrfs', 'quota', 'rescan', '-w', self.pool_mount()],
-                         check=False, timeout=900)
-        if rc != 0:     # one already running: wait for that one instead
-            run(['sudo', 'btrfs', 'quota', 'rescan', '-W', self.pool_mount()],
-                check=False, timeout=900)
-        if inconsistent():
-            raise CloneFailed('btrfs qgroups on %s are inconsistent and a rescan did not '
-                              'settle them, so a disk quota would not be enforced: %s'
-                              % (self.pool, err.strip()[:200]))
+        try:
+            if not inconsistent():
+                return False
+            rc, _, err = run(['sudo', 'btrfs', 'quota', 'rescan', '-w', self.pool_mount()],
+                             check=False, timeout=900)
+            if rc != 0:     # one already running: wait for that one instead
+                run(['sudo', 'btrfs', 'quota', 'rescan', '-W', self.pool_mount()],
+                    check=False, timeout=900)
+            if inconsistent():
+                raise CloneFailed('btrfs qgroups on %s are inconsistent and a rescan did not '
+                                  'settle them, so a disk quota would not be enforced: %s'
+                                  % (self.pool, err.strip()[:200]))
+        except subprocess.TimeoutExpired as error:
+            raise CloneFailed('btrfs qgroup rescan on %s timed out: %s'
+                              % (self.pool, error)) from error
         return True
 
     def harden(self, instance, limits):
