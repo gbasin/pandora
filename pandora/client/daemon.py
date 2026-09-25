@@ -108,8 +108,10 @@ class Heartbeat:
         self.conn, self.every = conn, self.EVERY
         self.stopped, self.gone = threading.Event(), threading.Event()
         self.thread = threading.Thread(target=self.beat, daemon=True)
-        # The beat and `say` share the socket; one frame at a time.
-        self.sending = threading.Lock()
+        # The beat and `say` share the socket; one frame at a time. Reentrant:
+        # a `Locked` conn's own sendall takes this same lock, and a caller
+        # already holding it (say_queued) must not deadlock itself.
+        self.sending = threading.RLock()
 
     def beat(self):
         while not self.stopped.wait(self.every):
@@ -139,6 +141,25 @@ class Heartbeat:
         self.stopped.set()
         self.thread.join()
         return self.gone.is_set()
+
+
+class Locked:
+    """A connection whose sends serialize with a heartbeat's beats.
+
+    Beats share the socket with every other pre-accept frame, so each sendall
+    goes through the beat's lock: a `working` frame and a verdict can never
+    interleave into one another. Everything else forwards to the real socket.
+    """
+
+    def __init__(self, conn, lock):
+        self.conn, self.lock = conn, lock
+
+    def sendall(self, data):
+        with self.lock:
+            self.conn.sendall(data)
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
 
 
 class Run:
@@ -1495,6 +1516,17 @@ class Daemon:
             self.deny(conn, 'daemon-stopping', 'the daemon is stopping; nothing ran. Re-run it.',
                       exit=INFRA)
             return
+        # The caller's silence clock does not know which pre-accept step is
+        # slow -- on a loaded Mac that can be plan_for's config and git reads,
+        # not just the submit -- so the beat covers the whole window, and every
+        # send shares the beat's lock.
+        beat = Heartbeat(conn).start()
+        try:
+            self._serve(Locked(conn, beat.sending), reader, request, beat)
+        finally:
+            beat.stop()
+
+    def _serve(self, conn, reader, request, beat):
         try:
             repo, config, verdict = self.plan_for(request,
                                                   say=lambda line: self.tell(conn, line))
@@ -1542,6 +1574,7 @@ class Daemon:
         plan = placed['plan']
         request = dict(request, placement=placed['record'], reason=placed['reason'])
         if placed['where'] == 'local':
+            beat.stop()   # the local lane carries its own frames from here
             self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
                              reason=placed['reason'])
             return
@@ -1572,7 +1605,8 @@ class Daemon:
             self.hold(run)
             run.save()
         try:
-            self.submit_remote(conn, reader, request, repo, job, plan, worktree, checked, run)
+            self.submit_remote(conn, reader, request, repo, job, plan, worktree, checked, run,
+                               beat)
         finally:
             # Every way out before `accepted` must close the row it opened. A
             # branch that forgot to -- or an exception nobody anticipated --
@@ -1583,7 +1617,8 @@ class Daemon:
                 run.note('the submission ended before `accepted` without a verdict')
                 run.finish(INFRA, state='infra_failed')
 
-    def submit_remote(self, conn, reader, request, repo, job, plan, worktree, checked, run):
+    def submit_remote(self, conn, reader, request, repo, job, plan, worktree, checked, run,
+                      beat):
         """From a saved `queued` row to `accepted`, or to that row's final state.
 
         `run` is finished on every path that returns before `accepted`: as
@@ -1606,7 +1641,8 @@ class Daemon:
         # the client happened to do with that error code. The exception is
         # `ExecutionUncertain`: the submit call failed and the engine could not
         # be asked what it did (`Worker.recover`), so it never falls back.
-        beat = Heartbeat(conn).start()
+        # `beat` has been running since serve_run took the connection; the stop
+        # below is what makes two threads never share the socket past here.
 
         def entered(name):
             # `pandora ps` reads meta.json: a slow ship shows as `shipping`,
