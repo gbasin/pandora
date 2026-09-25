@@ -74,11 +74,12 @@ class DrainCase(DaemonCase):
     def ask(self, request, timeout=10):
         return drain.ask(self.daemon.socket_path, request, timeout=timeout)
 
-    def first_frame(self, request, timeout=30):
+    def first_frame(self, request, timeout=30, sock=None):
         """The first frame that is not a notice or `queued`: the daemon's answer."""
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if sock is None:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.connect(str(self.daemon.socket_path))
         sock.settimeout(timeout)
-        sock.connect(str(self.daemon.socket_path))
         try:
             sock.sendall(dump(dict({'v': VERSION}, **request)))
             reader = Reader(sock)
@@ -268,9 +269,17 @@ class ADrainingDaemon(DrainCase):
         self.assertEqual(seen, [False])
 
     def test_a_request_during_a_drained_stop_is_told_to_wait_not_to_rerun(self):
+        # The connection must be accepted before `stopping` is set; after the
+        # serve loop exits, a backlog connection is never answered (the real
+        # `stop` closes the listener, which flag-only stopping does not).
         self.ask({'op': 'drain'})
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(str(self.daemon.socket_path))
+        self.assertTrue(wait_until(lambda: self.daemon.handlers, 10),
+                        'the daemon never accepted the connection')
         self.daemon.stopping.set()
-        self.assertEqual(self.first_frame(self.run_request(['pnpm', 'slow']))['t'], 'draining')
+        self.assertEqual(self.first_frame(self.run_request(['pnpm', 'slow']), sock=sock)['t'],
+                         'draining')
 
     def test_the_successor_clears_the_marker_after_settling(self):
         self.ask({'op': 'drain'})

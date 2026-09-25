@@ -7,6 +7,7 @@ and nothing it closes can be reopened by a thread that was still on its way.
 """
 import json
 import os
+import socket
 import tempfile
 import threading
 import time
@@ -107,8 +108,17 @@ class AStoppingDaemon(DaemonCase):
                          ('withdrawn', INFRA, None))
 
     def test_a_request_that_arrives_while_stopping_is_refused_not_run(self):
+        # The connection must be accepted before `stopping` is set: once the
+        # serve loop sees the flag it exits, and a connection still waiting in
+        # the backlog is never answered. `stop()` closes the listener in the
+        # same breath, so that state exists only in a test that sets the flag
+        # by itself.
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(str(self.daemon.socket_path))
+        self.assertTrue(wait_until(lambda: self.daemon.handlers, 10),
+                        'the daemon never accepted the connection')
         self.daemon.stopping.set()
-        answer = self.call(['pnpm', 'slow'])
+        answer = self.call(['pnpm', 'slow'], sock=sock)
         self.assertEqual(answer.error['code'], 'daemon-stopping')
         self.assertEqual(answer.exit, INFRA)
         self.assertEqual(self.rows('slow'), [])
