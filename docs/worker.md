@@ -155,11 +155,12 @@ running as the worker user, so a teammate who can ship a bundle can run
 anything as that user. Identity, revocation and verb scoping are what it buys;
 isolation between users stays out of scope.
 
-The e2e workflow exercises it against the live worker once the runner carries
-a teammate key: `scripts/e2e-gateway.sh` refuses a shell, a `python3 -c`
+The e2e workflow exercises it against the live worker:
+`scripts/e2e-gateway.sh` generates a teammate keypair, adds it as a `[[users]]`
+entry through a real `worker provision`, refuses a shell, a `python3 -c`
 stranger and an escaping rsync, runs `worker status` and a selftest through
-the pinned key, and checks the ledger names the pin. Its header lists the four
-files the runner needs; until they exist the job reports a skipped gate.
+the pinned key, checks the ledger names the pin, and provisions the original
+manifest back to prove revocation.
 
 ### The engine floor
 
