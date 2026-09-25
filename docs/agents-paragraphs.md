@@ -2,7 +2,7 @@
 
 This file holds the paragraphs a repository that uses Pandora may copy into its
 own agent instructions. Maintain that text here. When Pandora's
-behavior changes, this file changes with the README in the same pull request.
+behavior changes, this file changes with `docs/agents.md` in the same pull request.
 A repository that copies a paragraph owns its copy and updates it from here.
 
 Agents keep typing the commands they type today. The paragraphs tell them only
