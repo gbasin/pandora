@@ -1,20 +1,42 @@
 # Pandora
 
-Several coding agents work in one repository on one Mac. Each has its own
-worktree, and each runs the same heavy validation: type checks, test suites,
-browser journeys that boot a database and a stack. Nothing coordinates them.
-Ten agents can start ten stacks at once, and the machine swaps.
+A coding agent finishes a change and runs the tests. Nine others on the same
+machine do the same, each in its own worktree, each booting the same database,
+the same browser, the same build. The machine swaps. Two runs claim the same
+port and one fails. The agent reads the failure and cannot tell whether it
+broke the code or a neighbor did, so it runs again. Nothing capped the load,
+and nothing recorded what ran. The developer whose laptop this is can no longer
+type.
 
 Pandora is a scheduler for that machine. Agents keep typing the commands they
-type today. The repository's `pandora.toml` says which of those commands
-Pandora routes and where each one runs: a fresh Linux instance on a shared
-worker for the broad suites, or a queue on the Mac with a shared memory budget
-for the focused ones. When a run completes, its declared results are in the
-worktree and the command exits with the run's own code.
+type today. A file at the repository root, `pandora.toml`, names the commands
+Pandora claims and says where each one runs: in a fresh Linux instance on a
+shared worker, or in a queue on the developer's machine with one memory budget
+for everyone. Either way there is one queue, a record of every run, and results
+that arrive in the worktree before the command exits with its own code. A run
+that rewrites files, such as one that regenerates fixtures, brings them back
+only from a passing run over a tree nobody edited meanwhile.
+
+## What agents offload
+
+Anything a developer would rather not run on the machine they are typing on:
+
+* Static gates: type checks, lint, format and schema checks.
+* Test suites, whole or one package's slice.
+* End-to-end tests that boot services: a database, an API, a browser.
+* Builds: bundles, native apps, container images.
+* Runs that rewrite the repository: golden files, recorded responses, generated
+  code.
+* Device simulators and emulators.
+* Migrations, seeds and benchmarks against a scratch database.
+* Reproductions: run one failing test twenty times and report.
+* A development server, which Pandora runs as one job per machine so two never
+  share a port.
 
 ## Mechanism
 
-What happens to `pnpm check`, with the eichler configuration as the example:
+What happens to `pnpm check` in a repository whose `pandora.toml` declares a
+`check` job:
 
 1. A `pnpm` shim sits first on PATH. It reads the worktree's claim cache with
    shell builtins. `check` is a claimed form, so the shim hands the command to
@@ -23,9 +45,9 @@ What happens to `pnpm check`, with the eichler configuration as the example:
 2. The daemon matches the command to the `check` job in this worktree's
    `pandora.toml`. The job declares `where = "remote"`. `PANDORA_WHERE=local`
    or `PANDORA_WHERE=remote` overrides that for one run, and exits 64 when the
-   job cannot run there. The job's preflight, eichler's own planner asked to
-   plan rather than run, rejects a bad suite name in about 50 ms before
-   anything ships.
+   job cannot run there. The job's declared preflight, a command that
+   rejects bad arguments in milliseconds, runs in the worktree before anything
+   ships.
 3. For a remote job, the daemon snapshots the worktree's source, transfers it
    to the worker's content-addressed cache, and asks the worker to admit it
    against the worker's memory budget. A full worker queues the run and says
@@ -33,8 +55,8 @@ What happens to `pnpm check`, with the eichler configuration as the example:
 4. The worker runs the job's command in a fresh Incus system container cloned
    from the repository's golden image, which holds the toolchain and the
    installed dependencies. A local job instead waits for the daemon's memory
-   budget and runs on the Mac. That budget limits admission. It is not a hard
-   limit on each process.
+   budget and runs on the developer's machine. That budget limits admission.
+   It is not a hard limit on each process.
 5. Output streams back while the run executes. Pandora's own lines go to
    stderr with a `pandora:` prefix. The last one may be `pandora: hint: ...`,
    the next action, derived from what the run measured.
@@ -50,11 +72,11 @@ the run continues. 130: canceled.
 ```mermaid
 flowchart LR
     agent["Coding agent in a worktree<br/>types pnpm check"] --> shim["pnpm shim<br/>first on PATH"]
-    shim -- "not claimed" --> real["real pnpm,<br/>on the Mac"]
+    shim -- "not claimed" --> real["real pnpm,<br/>on this machine"]
     shim -- "claimed" --> daemon["Pandora daemon<br/>one per user"]
     toml[/"pandora.toml<br/>what the repository claims"/] --> daemon
     cfg[/"~/.config/pandora/config.toml<br/>where the worker is"/] --> daemon
-    daemon -- "focused job" --> local["Local lane<br/>memory-capped queue on the Mac"]
+    daemon -- "focused job" --> local["Local lane<br/>queue on this machine, one memory budget"]
     daemon -- "broad suite:<br/>freeze, ship, admit" --> worker["Linux worker<br/>fresh Incus instance<br/>cloned from the golden image"]
     local --> home["Worktree<br/>results home, the command's own exit code"]
     worker -- "output, results" --> home
