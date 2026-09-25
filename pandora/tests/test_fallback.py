@@ -177,11 +177,12 @@ class DaemonCase(unittest.TestCase):
 
     # -- a client, without the shim's process ------------------------------
 
-    def call(self, argv, cwd=None, timeout=60):
+    def call(self, argv, cwd=None, timeout=60, sock=None):
         answer = Answer()
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if sock is None:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.connect(str(self.daemon.socket_path))
         sock.settimeout(timeout)
-        sock.connect(str(self.daemon.socket_path))
         sock.sendall(dump({'v': VERSION, 'op': 'run', 'cwd': str(cwd or self.repo),
                            'argv': argv, 'env': {}, 'tty': False}))
         reader = Reader(sock)
