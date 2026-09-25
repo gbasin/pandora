@@ -226,21 +226,39 @@ def cmd_canary(args):
     return 0 if answer.get('ok') else 1
 
 
-def protected(args):
+def protected(entries, args):
     """{fingerprint: repos} the sweep may never remove: every golden an enrolled
     repository's `[worker]` table names, plus any `--protect` given by hand."""
-    named = enrolled.named_fingerprints(enrolled.configs(settings.load(args.config)))
+    named = enrolled.named_fingerprints(entries)
     for fingerprint, repo in gc_protect.parse_protect(args.protect).items():
         named.setdefault(fingerprint, repo or 'the command line')
     return named
 
 
 def cmd_gc(args):
+    config = settings.load(args.config)
+    entries = enrolled.configs(config)
     argv = ['gc'] + (['--dry-run'] if args.dry_run else [])
     if args.keep is not None:
         argv += ['--keep', str(args.keep)]
-    for fingerprint, repo in sorted(protected(args).items()):
+    for fingerprint, repo in sorted(protected(entries, args).items()):
         argv += ['--protect', '%s=%s' % (fingerprint, repo)]
+    # The enrollment lists are an answer only when a config file was actually
+    # read: `load` of an absent file yields zero repos, and shipping
+    # --families-known for it would turn "no file" into the authoritative
+    # "nothing is enrolled".
+    if config['source'] is not None:
+        for repo, source_id in sorted(enrolled.named_families(entries)):
+            argv += ['--family', '%s=%s' % (repo, source_id)]
+        # One worker serves many Macs; --repos is what scopes the orphan rule
+        # to the repositories this caller's own enrollment covers.
+        for repo in sorted({item['repo']['name'] for _, item in entries}):
+            argv += ['--repos', repo]
+        argv.append('--families-known')
+    for family in getattr(args, 'drop_family', None) or []:
+        argv += ['--drop-family', family]
+    if getattr(args, 'orphan_hours', None) is not None:
+        argv += ['--orphan-hours', str(args.orphan_hours)]
     answer = remote_call(args, argv, timeout=900)
     if args.json:
         print(json.dumps(answer, indent=1, sort_keys=True))
@@ -375,14 +393,26 @@ def add_parser(sub):
                     'count. Goldens are ranked by last use inside toolchain families -- one '
                     "family per (repository, [worker] source_id) -- never across them. A golden "
                     "whose fingerprint an enrolled repository's pandora.toml names, one a live "
-                    'attempt uses, and a pinned one are never removed.')
+                    'attempt uses, and a pinned one are never removed. With a config file this '
+                    'command ships the families and repos its enrollments read, so a family none '
+                    'of them names -- in a repo the enrollment covers -- is collected once it is '
+                    'past its grace. Repos the caller never enrolled, and a bare `gc` on the '
+                    'worker itself, keep `keep` per family and collect no orphans.')
     node.add_argument('--dry-run', action='store_true')
     node.add_argument('--keep', type=int, default=None, metavar='N',
-                      help='keep the N most recently used goldens per toolchain family, on top '
-                           'of every protected one (default: golden_keep in the manifest, 2)')
+                      help='keep the N most recently used goldens per toolchain '
+                           'family, on top of every protected one (default: golden_keep in '
+                           'the manifest, 2)')
     node.add_argument('--protect', action='append', default=[], metavar='FINGERPRINT',
                       help='never remove this golden, in addition to the fingerprints the '
                            'enrolled pandora.toml files name; repeatable')
+    node.add_argument('--drop-family', action='append', default=[], metavar='FAMILY',
+                      help='remove this family on sight -- the label the receipt prints, '
+                           'like "eichler eichler-journeys" or "(unknown)"; a golden a live '
+                           'attempt needs and a pinned one still hold; repeatable')
+    node.add_argument('--orphan-hours', type=float, default=None, metavar='H',
+                      help='grace after last use before a family no enrolled config names '
+                           'is collected (default: 24)')
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_gc)
 

@@ -2,12 +2,13 @@
 
 The parts that are subprocesses are tested on the worker by `canary.py`.
 """
+import subprocess
 import unittest
 
 from pandora.executor import incus as incus_driver
 from pandora.executor.incus import IncusDriver, parse_cgroup
 from pandora.executor.interface import (Golden, Limits, Receipt, Toolchain,
-                                        CloneFailed, InstanceLost)
+                                        CloneFailed, ExecutionFailed, InstanceLost)
 
 SAMPLE = '''==memory.current
 312356864
@@ -111,6 +112,53 @@ class Naming(unittest.TestCase):
     def test_cgroup_of_an_unknown_instance_raises_instance_lost(self):
         with self.assertRaises(InstanceLost):
             self.driver.cgroup('no-such-instance-here')
+
+
+class CloneCleanup(unittest.TestCase):
+    """#88: a clone that fails after `incus copy` may not leave the instance."""
+
+    def setUp(self):
+        self.driver = IncusDriver(root='/tmp')
+        self.golden = Golden(name='golden-abc', fingerprint='abc', snapshot='warm')
+
+    def test_a_start_failure_deletes_the_copied_instance(self):
+        calls = []
+
+        def fake(*args, **kwargs):
+            calls.append(args)
+            if args[0] == 'start':
+                raise ExecutionFailed('start refused')
+            return 0, '', ''
+
+        self.driver.incus = fake
+        with self.assertRaises(ExecutionFailed):
+            self.driver.clone(self.golden, 'r1', limits=Limits(memory_mib=1,
+                                                               ceiling_mib=2))
+        self.assertIn(('delete', '-f', 'run-r1'), calls)
+
+    def test_a_quota_failure_deletes_the_copied_instance(self):
+        calls = []
+        self.driver.incus = lambda *args, **kwargs: (calls.append(args), (0, '', ''))[1]
+        self.driver.settle_qgroups = lambda: (_ for _ in ()).throw(
+            CloneFailed('quota refused'))
+        with self.assertRaises(CloneFailed):
+            self.driver.clone(self.golden, 'r1', limits=Limits(memory_mib=1,
+                                                               ceiling_mib=2, disk_gib=8))
+        self.assertIn(('delete', '-f', 'run-r1'), calls)
+
+    def test_a_clone_timeout_is_a_clone_failure_not_an_engine_error(self):
+        """#88: TimeoutExpired maps to retryable 'clone-failed', not 'engine-error'."""
+        calls = []
+        self.driver.incus = lambda *args, **kwargs: (calls.append(args), (0, '', ''))[1]
+
+        def timed_out(name, gib):
+            raise subprocess.TimeoutExpired(['btrfs'], 900)
+
+        self.driver.quota = timed_out
+        with self.assertRaises(CloneFailed):
+            self.driver.clone(self.golden, 'r1', limits=Limits(memory_mib=1,
+                                                               ceiling_mib=2, disk_gib=8))
+        self.assertIn(('delete', '-f', 'run-r1'), calls)
 
 
 class Listing(unittest.TestCase):

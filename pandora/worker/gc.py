@@ -11,8 +11,21 @@ Three sweeps, in the order of how much they are trusted:
 3. **old goldens** -- keep the `keep` most recently used per toolchain
    family, plus every golden a live attempt still needs (queued ones too),
    every golden a currently enrolled repository's `[worker]` table names
-   (`protect`), and every pinned golden. This is the only sweep with a policy
-   in it, and it is the only one `--dry-run` exists for.
+   (`protect`), and every pinned golden. When the caller supplies its
+   enrolled families (`--family`, or `--families-known` for an empty
+   enrollment) and the repositories its enrollment covers (`--repos`), a
+   family no enrolled config names is orphaned: a member whose own age is
+   known and past `orphan_grace` (a day by default) is collectable, because
+   nothing that could still want it names it (#116). The rule reaches only
+   the caller's repositories -- one worker serves many Macs, and one Mac's
+   enrollment is no evidence about another's -- plus the `(unknown)` family,
+   which no repository owns. A member whose age cannot be read is kept. When
+   no enrollment data reaches the sweep at all -- a bare `gc` typed on the
+   worker itself -- no family is orphaned and `keep` alone ranks every
+   family: the sweep cannot tell "nothing is enrolled" from "nobody could
+   say", so it does not guess. `--drop-family` removes a family on sight,
+   enrollment or not. This is the only sweep with a policy in it, and it is
+   the only one `--dry-run` exists for.
 
 A toolchain family is `(repo, source_id)`: the `[worker]` table's own name for
 the tree it bakes in, which survives a node bump or a new package where the
@@ -20,21 +33,29 @@ fingerprint does not. Ranking per repository instead (issue #81) let
 `--keep 1` delete eichler's only surfaces golden because its journeys golden
 had been used more recently. A toolchain with no `source_id` is its own
 family, so `keep` never prunes it against a different toolchain -- only
-against nothing, which means it is kept. Goldens no recorded attempt explains
-(built by a canary, or by hand) have neither a repository nor a `source_id`
-and share one `(unknown)` bucket, as before; `protect` is what keeps an
-enrolled repository's golden in there.
+against nothing, which means it is kept while enrollment names it, and
+orphaned only when enrollment data says nothing does. Goldens no recorded
+attempt explains (built by a canary, or by hand) have neither a repository
+nor a `source_id` and share one `(unknown)` bucket; no enrollment ever names
+it, so with enrollment data it ages out like any orphan, clocked by the
+instance creation time Incus reports.
 
-`protect` exists because the worker cannot know which goldens are *named*: the
-repositories' `pandora.toml` files live on the client. Last use is a proxy for
-"still wanted", and the proxy is wrong exactly when a toolchain is used rarely
--- the surfaces golden on 2026-09-23 -- so the client passes the fingerprints
-its enrolled configurations name, and the sweep treats them as a floor that no
-`keep` can go below.
+`protect` and `families` exist because the worker cannot know which goldens
+are *named*: the repositories' `pandora.toml` files live on the client. Last
+use is a proxy for "still wanted", and the proxy is wrong exactly when a
+toolchain is used rarely -- the surfaces golden on 2026-09-23 -- so the client
+passes the fingerprints and `(repo, source_id)` families its enrolled
+configurations name, and the sweep treats them as a floor that no `keep` or
+grace can go below. A caller that cannot supply them -- a `gc` typed on the
+worker itself ships neither `--family` nor `--families-known` -- leaves the
+sweep with `keep` as its only evidence, and the sweep collects no orphans it
+cannot prove.
 
 The receipt is the point. A sweep that prints "cleaned up" and nothing else is
 indistinguishable from a sweep that deleted a golden somebody was about to use.
 """
+import calendar
+from datetime import datetime, timezone
 import json
 import time
 from pathlib import Path
@@ -87,10 +108,80 @@ def parse_protect(values):
     return out
 
 
-def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
-    """`protect` is {fingerprint: repo-or-None}: goldens named by a config."""
+def family_key(text):
+    """One `REPO=SOURCE_ID` wire value -> its family key, or ValueError.
+
+    A malformed value is refused, never dropped: "--family oops" that parsed
+    to nothing would read as "the caller names nothing", which is the
+    authoritative claim (#116).
+    """
+    repo, _, source_id = str(text).partition('=')
+    repo, source_id = repo.strip(), source_id.strip()
+    if not repo or not source_id:
+        raise ValueError('expected REPO=SOURCE_ID, not %r' % (text,))
+    return repo, 'source:' + source_id
+
+
+def parse_families(values):
+    """`REPO=SOURCE_ID` values -> the family keys an enrolled config still names."""
+    return {family_key(value) for value in values or ()}
+
+
+def created_ts(text):
+    """Epoch seconds of an `incus list -c D` value, or 0 when it cannot be read.
+
+    Incus prints `2006/01/02 15:04 MST` in table and CSV output and RFC3339 in
+    JSON. 0 means "no usable clock", and the sweep treats that as unknown age
+    rather than as ancient -- the same don't-guess rule as an aborted listing.
+    """
+    text = (text or '').strip()
+    if not text:
+        return 0
+    try:
+        moment = datetime.fromisoformat(text.replace(' UTC', '+00:00')
+                                      .replace(' GMT', '+00:00').replace('Z', '+00:00'))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return moment.timestamp()
+    except ValueError:
+        pass
+    if text[-4:] in (' UTC', ' GMT'):
+        text = text[:-4]
+    for fmt in ('%Y/%m/%d %H:%M:%S', '%Y/%m/%d %H:%M'):
+        try:
+            return calendar.timegm(time.strptime(text, fmt))
+        except ValueError:
+            pass
+    return 0
+
+
+def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
+          repos=None, drop=(), orphan_grace=86400):
+    """`protect` is {fingerprint: repo-or-None}: goldens named by a config.
+
+    `enrolled` is the set of family keys a config still names
+    (`parse_families`), or None when no enrollment data reached the caller at
+    all. Those are different claims: an explicitly empty set means "the
+    client's configurations name nothing", and a member of a family no key
+    names is collectable once its own age passes `orphan_grace` -- and kept
+    when its age cannot be read. None means "nobody could say" -- a bare `gc`
+    on the worker -- and then every family gets the `keep` ranking and
+    nothing is orphaned. A family whose label is in `drop` is collectable on
+    sight either way. A live attempt's golden and a pinned golden are never
+    touched, drop or not.
+
+    `repos` is the set of repository names the caller's enrollment covers, or
+    None when the caller did not say. One worker serves several Macs, and a
+    family in a repository this caller never enrolled is wanted -- the orphan
+    rule does not reach it, exactly as if `enrolled` were None for that
+    family. The `(unknown)` family belongs to no repository, so any
+    enrollment data covers it; `repos=None` covers everything.
+    """
     paths = Paths(root)
     protect = dict(protect or {})
+    enrolled = None if enrolled is None else set(enrolled)
+    repos = None if repos is None else set(repos)
+    drop = set(drop or ())
     started = time.monotonic()
     live = live_run_instances(paths)
     protected = golden_index.live_goldens(paths)
@@ -101,7 +192,8 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
         # Every sweep below deletes what this listing does *not* name. A
         # listing that failed names nothing, so without this every volume in
         # the pool would read as leaked (#88). Abort before anything is touched.
-        return aborted(driver, started, keep, dry_run, protect,
+        return aborted(driver, started, keep, dry_run, protect, enrolled, repos,
+                       drop, orphan_grace,
                        'incus list failed, so nothing was swept: %s' % error)
 
     # 1. leaked run instances
@@ -118,30 +210,51 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
         entry.update(destroy(driver, name))
         (removed if entry['removed'] else failed).append(entry)
 
-    # 2. leaked storage volumes. Listed again, after step 1's deletes; and
-    # checked again, for the same reason as the first listing.
+    # 2. leaked storage volumes. The volume list comes before the instance
+    # re-list so the gap between "no instance of that name" and the delete is
+    # the delete loop, not both listings; and each candidate is re-checked the
+    # moment before its delete, which is what the gap is for (#88).
     try:
+        rc, out, err = driver.incus('storage', 'volume', 'list', driver.pool,
+                                    '--format', 'csv', check=False, timeout=180)
+        if rc != 0:
+            # A nonzero listing is unusable, exactly like an exception: skip
+            # the sweep and say so, or the receipt reads ok while a leak sits.
+            raise RuntimeError('incus storage volume list exited %d%s'
+                               % (rc, ': ' + err.strip()[:160] if err.strip() else ''))
         names = {item['name'] for item in driver.instances(check=True)}
-        rc, out, _ = driver.incus('storage', 'volume', 'list', driver.pool,
-                                  '--format', 'csv', check=False, timeout=180)
     except Exception as error:                                       # noqa: BLE001
         failed.append({'kind': 'listing', 'name': 'incus list', 'removed': False,
                        'why': 'volume sweep skipped: %s' % error})
-        rc, out = 1, ''
-    for line in out.splitlines() if rc == 0 else []:
+        out = ''
+    for line in out.splitlines():
         parts = line.split(',')
         if len(parts) < 2 or parts[0] != 'container' or parts[1] in names:
             continue
         entry = {'kind': 'volume', 'name': parts[1], 'why': 'no instance of that name'}
         if dry_run:
             entry['removed'] = False
-        else:
-            code, _, err = driver.incus('storage', 'volume', 'delete', driver.pool,
-                                        'container/' + parts[1], check=False, timeout=300)
-            entry['removed'] = code == 0
-            if code != 0:
-                entry['error'] = err.strip()[:200]
-        (removed if entry['removed'] or dry_run else failed).append(entry)
+            removed.append(entry)
+            continue
+        try:
+            leaked = parts[1] not in {item['name']
+                                      for item in driver.instances(check=True)}
+        except Exception as error:                                  # noqa: BLE001
+            entry['removed'] = False
+            entry['why'] = 'kept: the instance re-check failed: %s' % str(error)[:160]
+            kept.append(entry)
+            continue
+        if not leaked:
+            entry['removed'] = False
+            entry['why'] = 'kept: an instance of that name appeared mid-sweep'
+            kept.append(entry)
+            continue
+        code, _, err = driver.incus('storage', 'volume', 'delete', driver.pool,
+                                    'container/' + parts[1], check=False, timeout=300)
+        entry['removed'] = code == 0
+        if code != 0:
+            entry['error'] = err.strip()[:200]
+        (removed if entry['removed'] else failed).append(entry)
 
     # 3. goldens, newest use first per toolchain family
     families = {}
@@ -150,33 +263,86 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
             continue
         key, label = family_of(item)
         families.setdefault(key, (label, []))[1].append(item)
+    dropped = set()
+    now = time.time()
     for key, (label, items) in sorted(families.items()):
+        # The orphan rule reaches only the repositories the caller's own
+        # enrollment covers: one worker serves many Macs, and this Mac's
+        # config is no evidence about another's. `(unknown)` belongs to no
+        # repository, so any enrollment data covers it; a caller that sent no
+        # `--repos` at all is treated as covering everything.
+        covered = repos is None or key[0] == '(unknown)' or key[0] in repos
+        wanted = (enrolled is None or not covered or key in enrolled
+                  or any(item['fingerprint'] in protect for item in items))
+        if label in drop:
+            dropped.add(label)
         for rank, item in enumerate(items):
-            reason = None
+            reason = why = None
             if item['name'] in protected:
                 reason = 'a live attempt needs it'
-            elif item['fingerprint'] in protect:
-                reason = 'named by %s pandora.toml' % (protect[item['fingerprint']]
-                                                       or 'an enrolled')
             elif item.get('pinned'):
                 # A pinned golden is one somebody resolved to digests on
                 # purpose; its bytes cannot be rebuilt from the description
                 # alone once a tag moves, so a last-use policy does not get to
                 # decide it. Remove one by hand with `incus delete`.
                 reason = 'pinned; gc never removes a pinned golden'
-            elif rank < keep:
-                reason = 'one of the %d most recently used for %s' % (keep, label)
+            elif label in drop:
+                why = 'family %s removed by --drop-family' % label
+            elif item['fingerprint'] in protect:
+                reason = 'named by %s pandora.toml' % (protect[item['fingerprint']]
+                                                       or 'an enrolled')
+            elif wanted:
+                if rank < keep:
+                    reason = 'one of the %d most recently used for %s' % (keep, label)
+                else:
+                    why = 'rank %d for %s, keep %d' % (rank + 1, label, keep)
+            else:
+                # An orphan is judged on its own clock: last use, or the
+                # creation time Incus reports for a golden no attempt
+                # explains. An age that cannot be read keeps the item -- a
+                # sibling's old age must not drag it into the same delete.
+                age = max(item['last_used'], created_ts(item['created']))
+                if not age:
+                    reason = ('family %s is named by no enrolled config, but its '
+                              'age is unknown' % label)
+                elif now - age > orphan_grace:
+                    why = ('family %s is named by no enrolled config and was last '
+                           'used %.1f h ago' % (label, (now - age) / 3600))
+                else:
+                    reason = ('family %s is named by no enrolled config, '
+                              'collectable in %.1f h'
+                              % (label, (age + orphan_grace - now) / 3600))
             row = {'kind': 'golden', 'name': item['name'], 'repo': key[0],
                    'family': label, 'referenced_bytes': item['referenced_bytes']}
             if reason:
                 kept.append(dict(row, why=reason))
                 continue
-            entry = dict(row, why='rank %d for %s, keep %d' % (rank + 1, label, keep))
+            entry = dict(row, why=why)
             if dry_run:
                 entry['removed'] = False
             else:
+                # `protected` is a snapshot from sweep start; a run submitted
+                # since would lose its golden here. Re-ask immediately before
+                # the delete, the same pattern as the volume re-check, and
+                # keep the golden when the answer cannot be had.
+                try:
+                    claimed = item['name'] in golden_index.live_goldens(paths)
+                except Exception as error:                        # noqa: BLE001
+                    entry['removed'] = False
+                    entry['why'] = ('kept: the live-attempt re-check failed: %s'
+                                    % str(error)[:160])
+                    kept.append(entry)
+                    continue
+                if claimed:
+                    entry['removed'] = False
+                    entry['why'] = 'kept: a live attempt claimed it mid-sweep'
+                    kept.append(entry)
+                    continue
                 entry.update(destroy(driver, item['name']))
             (removed if entry['removed'] or dry_run else failed).append(entry)
+    for label in sorted(drop - dropped):
+        failed.append({'kind': 'family', 'name': label, 'removed': False,
+                       'why': 'no such golden family'})
 
     if any(item['kind'] == 'golden' and item.get('removed') for item in removed):
         # Deleting a golden-sized subvolume makes the kernel mark qgroups
@@ -192,6 +358,14 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
     after = driver.pool_usage()
     receipt = {'ok': not failed, 'dry_run': bool(dry_run), 'keep': keep,
                'protect': {fp: repo for fp, repo in sorted(protect.items())},
+               # null vs [] is the receipt's own record of the two modes:
+               # null when no enrollment data arrived, [] when the caller
+               # said its configurations name nothing.
+               'enrolled': (sorted('%s=%s' % (repo, key.split(':', 1)[1])
+                                   for repo, key in enrolled)
+                            if enrolled is not None else None),
+               'repos': sorted(repos) if repos is not None else None,
+               'drop': sorted(drop), 'orphan_grace_hours': orphan_grace / 3600,
                'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
                'removed': removed, 'kept': kept, 'failed': failed,
                'freed_bytes': sum(item.get('referenced_bytes', 0) for item in removed
@@ -200,7 +374,8 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None):
     return receipt
 
 
-def aborted(driver, started, keep, dry_run, protect, reason):
+def aborted(driver, started, keep, dry_run, protect, enrolled, repos, drop,
+            orphan_grace, reason):
     """The receipt of a sweep that removed nothing because it could not look."""
     try:
         pool = driver.pool_usage()
@@ -208,6 +383,11 @@ def aborted(driver, started, keep, dry_run, protect, reason):
         pool = {'ok': False, 'error': str(error)[:200]}
     return {'ok': False, 'reason': reason, 'dry_run': bool(dry_run), 'keep': keep,
             'protect': {fp: repo for fp, repo in sorted(protect.items())},
+            'enrolled': (sorted('%s=%s' % (repo, key.split(':', 1)[1])
+                                for repo, key in enrolled)
+                         if enrolled is not None else None),
+            'repos': sorted(repos) if repos is not None else None,
+            'drop': sorted(drop), 'orphan_grace_hours': orphan_grace / 3600,
             'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
             'removed': [], 'kept': [],
             'failed': [{'kind': 'listing', 'name': 'incus list', 'removed': False,

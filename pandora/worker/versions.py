@@ -18,7 +18,7 @@ make two identical workers look different.
     engine_root = "~/pandora-engine"
     pool = "pandorapool"
     device = ""                 # a real block device; empty means loop file
-    loop_size_gib = 18
+    loop_size_gib = 32
     disk_floor_gib = 4          # admission stops below this much pool free
     golden_keep = 2             # goldens kept per toolchain family by `worker gc`
 """
@@ -50,7 +50,7 @@ WORKER = {
     'bridge': 'pandorabr0',
     'subnet': '10.141.0.1/24',
     'device': '',
-    'loop_size_gib': 18,
+    'loop_size_gib': 32,
     'disk_floor_gib': 4,
     'run_disk_gib': 12,
     'golden_keep': 2,
