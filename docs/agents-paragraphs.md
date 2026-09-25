@@ -1,7 +1,7 @@
 # Agent instruction paragraphs
 
 This file holds the paragraphs a repository that uses Pandora may copy into its
-own agent instructions. It is the source of truth for that text. When Pandora's
+own agent instructions. Maintain that text here. When Pandora's
 behavior changes, this file changes with the README in the same pull request.
 A repository that copies a paragraph owns its copy and updates it from here.
 
@@ -21,15 +21,15 @@ and points to the README and `pandora --help` for the rest.
 
 ## Short paragraph for `AGENTS.md`
 
-> Validation runs where it runs best: broad suites on the Pandora worker,
-> focused ones on this machine. Use the same commands as before, from the
+> Pandora runs broad validation suites on its worker and focused ones on this
+> machine. Use the same commands as before, from the
 > repository root. Results, reports and artifacts are in your worktree before
 > the command returns, and the exit code is the command's own. Exit 70 is an
-> infrastructure failure, never a test verdict: retry, or run the command here
+> infrastructure failure: retry, or run the command here
 > with `PANDORA_WHERE=local`, which keeps it in the queue, when the refusal
 > offers it. When the worker is
 > full, the command waits in the worker's queue and prints `pandora: queued on
-> the worker behind N runs`. That is normal, so let it wait. If the message says
+> the worker behind N runs`. Let it wait. If the message says
 > this machine is under memory pressure, wait a few minutes and retry. Do not
 > bypass it. Exit 75 means a validation is already active in this worktree,
 > the source changed during the run, a write-back conflicted, or a restart ran
@@ -42,17 +42,17 @@ and points to the README and `pandora --help` for the rest.
 ## Longer section for the validation notes
 
 > Validation runs through Pandora. Type the same commands as before. A broad
-> suite runs on the Pandora worker. A focused one runs on this machine in the
-> same queue.
+> suite runs on the Pandora worker. A focused one runs in this machine's local
+> queue.
 >
 > ## What changes for you
 >
-> Nothing about the commands. Run them from the repository root. There, Pandora
+> Use your existing commands, from the repository root. There, Pandora
 > claims them. Below the root, the `[matching] subdirectory` mode in
 > `pandora.toml` decides what a claimed command does:
 >
 > - `passthrough`: nothing is claimed below the root. The command runs as typed,
->   on this machine, as if Pandora were not installed. It gets no queue and no
+>   on this machine. It gets no queue and no
 >   receipt. `pnpm test` in a package runs that package's own script. To route a
 >   suite, run it from the root.
 > - `reroot`, the default: the command runs from the root. If an argument names
@@ -63,8 +63,8 @@ and points to the README and `pandora --help` for the rest.
 >   `Run this command from the repository root.`
 >
 > Results, reports and artifacts are in your worktree before the command
-> returns. A report the runner did not write is reported as missing. Missing is
-> not zero failures.
+> returns. A report the runner did not write is reported as missing, and does not
+> count as zero failures.
 >
 > The exit code is the command's own. Five codes are Pandora's:
 >
@@ -84,7 +84,7 @@ and points to the README and `pandora --help` for the rest.
 > Each worktree routes by its own `pandora.toml`. If you change it, the change
 > applies from the next command in that worktree. That one command starts a
 > little slower while Pandora reads the new file, and may print `pandora: claim
-> cache refreshed from pandora.toml`. There is nothing to enroll again. If
+> cache refreshed from pandora.toml`. You do not need to enroll again. If
 > Pandora refuses a claimed command because it does not understand a key in
 > `pandora.toml`, the message names the key and the fix. The fix updates
 > Pandora on this machine, so leave it to the owner.
@@ -94,7 +94,7 @@ and points to the README and `pandora --help` for the rest.
 > When the worker is full, a command waits in the worker's queue before it
 > starts. It prints `pandora: queued on the worker behind N runs (position P)`,
 > with an estimate when one exists, and then `still queued` at most once a
-> minute. This is normal. Let it wait, and do not run the command here instead.
+> minute. Let it wait, and do not run the command here instead.
 > There is one queue for everybody, first come, first served. The wait has a
 > limit that comes from how long the job usually takes, between 2 and 30
 > minutes. At the limit the command exits 70 with `queue-timeout`, and nothing
@@ -115,7 +115,7 @@ and points to the README and `pandora --help` for the rest.
 > To choose where one command runs, set `PANDORA_WHERE=local` or
 > `PANDORA_WHERE=remote` before it. The run keeps its queue, its receipt and its
 > exit code. Exit 64 means the job cannot run there, and the message says why.
-> Nothing falls back from an explicit `remote`. If the worker cannot take it,
+> An explicit `remote` does not fall back to this machine. If the worker cannot take it,
 > the exit is 70.
 >
 > `--update` runs on the worker. It writes its declared files back only after

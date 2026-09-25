@@ -1,9 +1,9 @@
 # Rebuild a Pandora worker
 
-This is the procedure. Follow it in order. Do not skip the canary.
+Follow the steps in order. Do not skip the canary.
 
-A worker is disposable. Nothing a run needs exists only there: the source
-cache is a cache, and the goldens rebuild from their toolchain descriptions.
+A worker is disposable. Pandora can repopulate the source cache from
+worktrees, and the goldens rebuild from their toolchain descriptions.
 The ledger, the learned size classes and the attempt directories are history,
 and a rebuild starts them empty. Rebuild the worker rather than repair it.
 
@@ -110,8 +110,8 @@ sparse file under the layout root and a `pandora-pool.service` unit that
 re-attaches it to a loop device before Incus starts. The pool is recorded by
 filesystem UUID, so the loop number does not have to be stable.
 
-A loop file is slower and it is one more thing that can fail at boot. Use a
-real device on any worker that takes real work.
+A loop file is slower and adds a boot dependency. Use a block device on any
+worker that takes routine work.
 
 ## 4. Prove the worker
 
@@ -140,8 +140,8 @@ A worker that fails the canary is never marked `ready`. Do not cut over to it.
 Reboot the new worker once before you cut over. Run
 `sudo reboot`, wait, then run `pandora worker --host ubuntu@<new-ip> status`
 again. The pool, the
-goldens and the forwarding rules must all come back. This is the one failure a
-canary cannot see, because a canary runs on a machine that is already up.
+goldens and the forwarding rules must all come back. A canary cannot
+test this, because it runs on a machine that is already up.
 
 ## 5. Cut over
 
@@ -163,8 +163,8 @@ canary cannot see, because a canary runs on a machine that is already up.
 5. Restart the client daemon. Run `pandora daemon --restart` if launchd runs it
    (`pandora daemon --install`). Otherwise stop it and run `pandora daemon`.
 6. Run one real command end to end. Confirm it lands on the new worker.
-7. Keep the old worker for one working day. A cut-over that has to be
-   reversed is reversed by editing one line back.
+7. Keep the old worker for one working day. To reverse the cut-over,
+   restore the previous `[worker] host` value and restart the client daemon.
 8. Retire the old worker. Run `pandora worker --host <old> reconcile` to close
    any attempt whose supervisor is gone, then destroy the VM.
 
@@ -185,9 +185,8 @@ different machine.
 
 ## Upgrade cadence
 
-Unattended upgrades are off. A worker's package set changes when a person
-rebuilds it, never at 06:00 because a mirror moved. A run that passed yesterday
-and fails today did not fail because the worker's packages changed.
+Unattended upgrades are off. A worker's package set changes only when a
+person rebuilds it.
 
 The cadence:
 
@@ -197,9 +196,8 @@ The cadence:
   Rebuild inside one working day. Do not patch the running worker in place: a
   patched worker no longer matches its manifest, and its last canary result is
   about a different machine.
-* **Never on a schedule the worker decides for itself.**
 
 Rebuild rather than upgrade. The procedure above, without the one-day hold on
 the old worker, is under 30 minutes of waiting and about 5 minutes of
 attention, and it ends with a canary. An
-in-place upgrade ends with a machine nobody has proved.
+in-place upgrade ends with a machine no canary has tested.
