@@ -380,7 +380,8 @@ def supervise(root, run_id, *, driver=None):
             with gate(paths.root):
                 store = admission.Store(str(paths.peaks))
                 try:
-                    scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
+                    scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths),
+                                          max_running=max_running_of(paths)[0])
                     learned = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
                 finally:
                     store.close()
@@ -436,7 +437,8 @@ def cpus_now(paths, ledger):
     with gate(paths.root):
         store = admission.Store(str(paths.peaks))
         try:
-            scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths))
+            scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths),
+                                          max_running=max_running_of(paths)[0])
             return scheduler.cpus_hint(scheduler.lanes())
         finally:
             store.close()
@@ -610,6 +612,33 @@ def budget_of(paths):
     except OSError:
         pass
     return 4096
+
+
+def derived_max_running(threads):
+    """The run cap a host earns from its threads: every admitted run keeps at
+    least two, and a tiny host still admits two so a fan-out can fan.
+
+    Memory admission is learned per job and disk has its floor; this is the
+    only thing that keeps runs from starving each other of CPU, and a
+    starved browser suite does not refuse cleanly, it times out and is
+    charged as a real failure."""
+    return max(2, int(threads or 0) // 2)
+
+
+def max_running_of(paths, threads=None):
+    """The concurrent-run cap for this worker, and where it came from.
+
+    `PANDORA_MAX_RUNNING` in the environment wins, then a positive
+    `max_running` the manifest wrote into the engine root, then the host's
+    threads. Returns (cap, source)."""
+    override = os.environ.get('PANDORA_MAX_RUNNING') or ''
+    if override.isdigit() and int(override) > 0:
+        return int(override), 'PANDORA_MAX_RUNNING'
+    configured = read_text(Path(paths.root) / 'max_running') or '0'
+    if configured.isdigit() and int(configured) > 0:
+        return int(configured), 'manifest max_running'
+    threads = threads or os.cpu_count() or 1
+    return derived_max_running(threads), 'threads %d / 2' % threads
 
 
 def disk_headroom(paths, driver=None):

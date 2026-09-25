@@ -43,6 +43,7 @@ def preamble(manifest, *, root, engine_root, pool_file):
         'DEVICE': worker['device'],
         'DISK_FLOOR_GIB': str(worker['disk_floor_gib']),
         'RUN_DISK_GIB': str(worker['run_disk_gib']),
+        'MAX_RUNNING': str(worker['max_running']),
         'LOOP_GIB': str(worker['loop_size_gib']),
         'POOL_FILE': pool_file,
         'ROOT': root,

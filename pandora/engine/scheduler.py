@@ -52,7 +52,7 @@ def gate(state):
 
 
 class Scheduler:
-    def __init__(self, ledger, store, *, budget_mib, cores=None, max_running=8,
+    def __init__(self, ledger, store, *, budget_mib, cores=None, max_running=None,
                  margin=admission.MARGIN, floor=admission.FLOOR_MIB):
         if not isinstance(budget_mib, int) or budget_mib < admission.FLOOR_MIB:
             raise admission.AdmissionError(
@@ -61,7 +61,9 @@ class Scheduler:
         self.store = store
         self.budget_mib = budget_mib
         self.cores = cores or os.cpu_count() or 1
-        self.max_running = max_running
+        # None derives from the cores this scheduler sees; the engine passes the
+        # worker's configured cap (`runner.max_running_of`).
+        self.max_running = max_running if max_running else max(2, self.cores // 2)
         self.margin = margin
         self.floor = floor
 

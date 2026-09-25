@@ -32,4 +32,5 @@ loop_size_gib = 32
 disk_floor_gib = 4              # admission refuses new runs below this
 run_disk_gib = 12               # per-run root quota, enforced by the pool
 golden_keep = 2                 # goldens kept per toolchain family by `pandora worker gc`
+max_running = 0                 # concurrent runs; 0 derives max(2, threads / 2) from the host
 unattended_upgrades = false
