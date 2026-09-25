@@ -6,34 +6,38 @@ browser journeys that boot a database and a stack. Nothing coordinates them.
 Ten agents means ten stacks, swap, and results nobody trusts.
 
 Pandora is a scheduler for that machine. Agents keep typing the commands they
-type today. Pandora decides where each one runs. A broad suite runs in a fresh
-Linux instance on a shared worker. A focused one runs in a memory-capped queue
-on the Mac. Either way, the results land back in the worktree before the
+type today. Pandora decides where each command the repository claims runs. A
+broad suite runs in a fresh Linux instance on a shared worker. A focused one
+runs in a memory-capped queue on the Mac. Either way, the results land back in the worktree before the
 command returns, with the command's own exit code.
 
 ## Mechanism
 
 * **Shim.** A POSIX `pnpm` shim sits first on PATH. It reads the worktree's
-  claim cache with shell builtins. A command the repository does not claim goes
-  to the real `pnpm` at once, as if Pandora were not installed.
+  claim cache with shell builtins. A command the repository does not claim runs
+  unchanged through the real `pnpm`, as if Pandora were not installed.
 * **Daemon.** A claimed command goes to a per-user daemon on the Mac, over a
   Unix socket. The daemon holds the local queue, the memory budget and the
   record of every run.
 * **Claims.** The repository declares in `pandora.toml`, at its root, which
   commands it owns and how to run them. Each worktree's claim cache is derived
-  from that worktree's own `pandora.toml`. The Mac declares where the worker is
+  from that worktree's own `pandora.toml`, or from the enrollment's `--config`
+  file when the root has none. The Mac declares where the worker is
   in `~/.config/pandora/config.toml`.
 * **Placement.** Each job runs on the worker or in the daemon's local lane. The
-  job's declaration decides. `PANDORA_WHERE` moves one run to the other lane.
+  job's declaration decides. `PANDORA_WHERE` moves one run to the other lane
+  when the job can run there, and refuses with exit 64 when it cannot.
 * **Worker.** A remote run is frozen, shipped into the worker's
   content-addressed source cache, and admitted against the worker's memory
   budget. It then runs in a fresh Incus system container cloned from the
   repository's golden image. The golden holds the toolchain and the installed
-  dependencies, so a run does not install them again.
+  dependencies, so a run starts from them. An optional `prepare_command` can
+  refresh dependencies in each run's clone.
 * **Write-back.** Declared reports and artifacts are in the worktree before the
   command exits. An armed option, such as `--update`, may also rewrite declared
-  source files. It does so only after a passing run over a tree nobody edited
-  meanwhile.
+  source files. On the worker it does so only after a passing run over a tree
+  nobody edited meanwhile. A run placed here with `PANDORA_WHERE=local` writes
+  in place.
 * **Exit codes.** The command exits with its own code. Pandora adds a few of
   its own: 64 when the command cannot run as typed, 70 for an infrastructure
   failure, 75 for busy or stale, 124 when `--max-wait` elapsed, and 130 for
@@ -166,6 +170,9 @@ mkdir -p ~/.local/bin
 ln -s ~/.local/share/pandora/current/bin/pandora ~/.local/bin/pandora
 ln -s ~/.local/share/pandora/current/bin/pnpm ~/.local/bin/pnpm
 ```
+
+If `XDG_DATA_HOME` is set, link through `$XDG_DATA_HOME/pandora/current`
+instead.
 
 Do not link into the checkout or into a `versions/` directory. A link into the
 checkout runs whatever the checkout holds now. A link into a version directory
@@ -721,9 +728,10 @@ aliases for one release. Each prints a one-line deprecation notice on stderr and
 
 ## The worker
 
-A worker is a disposable Linux machine. Nothing on it is the only copy of
-anything: the ledger records attempts, the source cache is a cache, and each
-golden rebuilds from its toolchain description. Rebuild a worker rather than
+A worker is a disposable Linux machine. Nothing a run needs exists only there:
+the source cache is a cache, and each golden rebuilds from its toolchain
+description. The ledger, the learned size classes and the attempt directories
+are history. A rebuild starts them empty. Rebuild a worker rather than
 repair it. [`docs/worker-rebuild.md`](docs/worker-rebuild.md) is the full
 procedure, with cut-over and upgrade cadence.
 
@@ -763,7 +771,8 @@ Use `--loop-file 18G` instead of `device` only when there is no spare device.
 
 ### Canary
 
-The canary is the health gate: about 26 checks in about 100 seconds. It reads
+The canary is the worker's health check: about 26 checks in about 100
+seconds. It reads
 every enrolled repository's `pandora.toml` through the daemon's loader and
 proves each distinct `[worker]` golden: it builds or reuses the golden, runs a
 real journey with its compose stack in one clone, runs the surface job's
@@ -797,8 +806,10 @@ pandora worker canary --mark
 `provision` without `--no-canary` runs the same canary and marks the verdict.
 It takes the same `--journey`, `--surfaces` and `--source` flags.
 
-A worker that fails the canary is never `ready`. Reboot a new worker once
-before it takes work. Then confirm the state again.
+A worker that fails the canary is never marked `ready`. The ready state is a
+label for people: `pandora worker status` and the daemon's health notices
+report it, and submission does not check it. Do not send work to a worker that
+is not `ready`. Reboot a new worker once before it takes work. Then confirm the state again.
 
 ```sh
 pandora worker status
@@ -918,8 +929,9 @@ Both carry the reasoning behind each value as comments.
 ### Ownership
 
 The repository owns the runner. It decides what a suite is, which arguments are
-legal, how a suite is cut into shards, and what it writes. Pandora never parses
-the repository's command line beyond matching the declared prefix.
+legal, how a suite is cut into shards, and what it writes. Pandora reads the
+command line only as far as the job declares: the claimed prefix, the declared
+options and value flags, and the `args` and `reject` rules.
 
 Pandora owns placement, the snapshot, admission and delivery. It decides which
 lane runs a command, freezes the worktree into a manifest, ships it into a
@@ -1007,7 +1019,8 @@ the paragraphs a repository may copy into its own agent instructions.
 
 ### Invariants
 
-The invariants, as `pandora --help` states them:
+The invariants, as `pandora --help` states them, with their exceptions spelled
+out:
 
 * Same cwd, environment and exit code as a local run. `$?` and traps behave.
 * Declared results are in your worktree before the command exits. A missing
@@ -1019,18 +1032,18 @@ The invariants, as `pandora --help` states them:
   command runs as if Pandora were not installed.
 * Exit codes that are not the command's own:
   * 70: infrastructure failure, never a test verdict. It includes a daemon
-    installed here that does not answer within 5 s. Nothing ran. Run
-    `pandora doctor`.
+    installed here that does not answer within 5 s. In that case nothing ran,
+    and the next step is `pandora doctor`.
   * 75: busy or stale.
   * 124: `--max-wait` elapsed, and the run was not stopped.
   * 130: canceled.
-* `--update` runs on the worker, never here. Its files come back only from a
-  passing run (every shard) over a tree you did not edit meanwhile. Otherwise it
-  exits 75, with your files untouched, and the next step printed.
+* `--update` runs on the worker, never here, unless `PANDORA_WHERE=local`
+  places it here, where it writes in place. On the worker, its files come back
+  only from a passing run (every shard) over a tree you did not edit meanwhile.
+  Otherwise it exits 75, with your files untouched, and the next step printed.
 * `PANDORA_WHERE=local|remote <command>` moves one run between lanes and keeps
   the queue and the stats. It exits 64 if the job cannot run there, and never
-  falls back.
-  `PANDORA_OFF=1 <command>` runs it here with no Pandora at all: a last resort,
+  falls back. `PANDORA_OFF=1 <command>` runs it here with no Pandora at all: a last resort,
   never a way around the queue or a memory-pressure refusal.
 * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
   `pandora: hint: ...`: the next action, derived from evidence.
@@ -1091,7 +1104,7 @@ agent's tool call times out) does not. The run continues, and `pandora wait
 ### Caller output
 
 Pandora's lines go to stderr and start with `pandora:`. The command's own
-output stays on stdout. A remote run prints progress lines: `syncing N files`
+output stays on stdout. A remote command's stderr is merged into that stream. A remote run prints progress lines: `syncing N files`
 on a source-cache miss (also kept in the run's log for `pandora logs`),
 `instance ready in N s`, `running (typical 4m10s for check; cpus hint 2)` once
 three earlier runs exist, queue lines for the worker queue, shards and the
