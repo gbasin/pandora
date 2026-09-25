@@ -155,7 +155,8 @@ control plane.
 GitHub Actions with owned runners, Crabbox, and Buildkite remain alternatives.
 Reconsider them if measured reliability or maintenance gaps justify the change.
 Do not implement another backend before establishing the current pilot's failure
-behavior. Initial evidence and untested cases are linked from the README.
+behavior. Initial evidence and untested cases are linked from
+[Operating limits](docs/operations.md#operating-limits).
 
 ## Evaluation protocol
 
@@ -234,7 +235,8 @@ Extend the window only within the remaining cap. Never delete unrelated resource
 Deliver a Pandora-owned profile, session launcher, pinned worker setup, and
 scripted smoke/fault harness before agent evaluation. Produce an evidence report
 and recommend adoption, refinement, or abandonment. The first worker and agent evaluation are complete. The full fault matrix and
-broader adoption evaluation remain incomplete. See the README for the boundary.
+broader adoption evaluation remain incomplete. See
+[Operating limits](docs/operations.md#operating-limits) for the boundary.
 
 Deferred: learned admission, automatic command classification, universal shell
 rewriting, continuous sync, general source write-back, microVMs, multi-host
