@@ -170,13 +170,16 @@ WantedBy=multi-user.target"
 fi
 
 # --- 5. incus database and the pool ---------------------------------------
-$I admin init --minimal >/dev/null 2>&1 || true
+# This script arrives on the worker's stdin (`sh -s`). `incus ... create` reads
+# a YAML body from stdin whenever stdin is not a terminal, so every create here
+# takes </dev/null or Incus swallows the rest of this script as its config.
+$I admin init --minimal </dev/null >/dev/null 2>&1 || true
 if $I storage show "$POOL" >/dev/null 2>&1; then
   step present pool "$POOL"
 else
   # An existing btrfs filesystem on the device is adopted rather than
   # recreated, so re-provisioning a worker never eats its goldens.
-  $I storage create "$POOL" btrfs source="$BACKING" >/dev/null
+  $I storage create "$POOL" btrfs source="$BACKING" </dev/null >/dev/null
   step created pool "$POOL on $BACKING"
 fi
 sudo btrfs quota enable "/var/lib/incus/storage-pools/$POOL" >/dev/null 2>&1 || true
@@ -185,7 +188,7 @@ sudo btrfs quota enable "/var/lib/incus/storage-pools/$POOL" >/dev/null 2>&1 || 
 if $I network show "$BRIDGE" >/dev/null 2>&1; then
   step present bridge "$BRIDGE"
 else
-  $I network create "$BRIDGE" ipv4.address="$SUBNET" ipv4.nat=true ipv6.address=none >/dev/null
+  $I network create "$BRIDGE" ipv4.address="$SUBNET" ipv4.nat=true ipv6.address=none </dev/null >/dev/null
   step created bridge "$BRIDGE $SUBNET"
 fi
 rules=$LIB/net-rules
@@ -238,11 +241,11 @@ sudo systemctl start pandora-net.service >/dev/null 2>&1 || true
 if $I project show "$PROJECT" >/dev/null 2>&1; then
   step present project "$PROJECT"
 else
-  $I project create "$PROJECT" -c features.images=true -c features.profiles=true \
-     -c features.storage.volumes=true -c features.networks=false >/dev/null
+  $I project create "$PROJECT" </dev/null >/dev/null -c features.images=true -c features.profiles=true \
+     -c features.storage.volumes=true -c features.networks=false
   step created project "$PROJECT"
 fi
-$P profile show "$PROFILE" >/dev/null 2>&1 || $P profile create "$PROFILE" >/dev/null
+$P profile show "$PROFILE" >/dev/null 2>&1 || $P profile create "$PROFILE" </dev/null >/dev/null
 $P profile device add "$PROFILE" root disk path=/ pool="$POOL" >/dev/null 2>&1 || true
 $P profile device add "$PROFILE" eth0 nic network="$BRIDGE" name=eth0 >/dev/null 2>&1 || true
 profile_changed=no
