@@ -247,7 +247,8 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
 
     `remote` means Pandora will run it. `local` means no configured job claims
     it, which is not an error. `reject` means a claimed job will not take this
-    argv, which is the repository's opinion reported verbatim.
+    argv, which is the repository's opinion reported verbatim; a reject verdict
+    always carries `exit` = 64, because the command as typed cannot be routed.
 
     `cwd` is where the command was typed, relative to the worktree root. When it
     is not the root, the verdict carries `rerooted` naming that directory, and
@@ -271,6 +272,7 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
                     'plan': None, 'job': job['id'], 'forwarded': []}
         if config['matching']['subdirectory'] == 'reject':
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
+                    'exit': USAGE,
                     'message': _message(config, 'Run this command from the repository root.')}
         offender = path_like(rest, exists)
         if offender is not None:
@@ -294,12 +296,14 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
     for name in [*config['env']['reject_if_set'], *job['reject_if_set']]:
         if name in present:
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
+                    'exit': USAGE,
                     'message': _message(config, 'Unset %s before %s; it would silently change '
                                                 'the routed job.' % (name, ' '.join(form['prefix'])))}
     try:
         forwarded, chosen, guarded = split(job, rest)
     except Refused as error:
         return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
+                'exit': USAGE,
                 'message': _message(config, '%s (%s)' % (usage_of(job), error))}
     if job['args'] == 'none':
         if forwarded:
@@ -309,15 +313,18 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
                         'plan': None, 'job': job['id'], 'forwarded': forwarded}
             text = action['message'] or config['feedback']['extra_message']
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': forwarded,
+                    'exit': USAGE,
                     'message': _message(config, text.replace('{job}', job['id']))}
     else:
         if job['args'] == 'required' and not forwarded:
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': [],
+                    'exit': USAGE,
                     'message': _message(config, usage_of(job))}
         try:
             check_arguments(job, forwarded, guarded)
         except Refused as error:
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': forwarded,
+                    'exit': USAGE,
                     'message': _message(config, '%s (%s)' % (usage_of(job), error))}
     return {'decision': 'remote', 'reason': '', 'job': job['id'], 'forwarded': forwarded,
             'chosen': chosen, 'rerooted': rerooted,
@@ -366,5 +373,7 @@ def claimed_or_raise(config, argv, **kwargs):
     if verdict['decision'] == 'local':
         raise NotClaimed(verdict['reason'])
     if verdict['decision'] == 'reject':
-        raise Refused(verdict['message'])
+        error = Refused(verdict['message'])
+        error.code, error.exit = verdict.get('code'), verdict.get('exit')
+        raise error
     return verdict

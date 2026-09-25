@@ -125,13 +125,12 @@ class WorktreeConfig(unittest.TestCase):
 
 
 class PassthroughOverrides(unittest.TestCase):
-    def invoke(self, command, *, where=None, policy=None, frame_writeback=False):
+    def invoke(self, command, *, where=None, frame_writeback=False):
         sock = mock.Mock()
         with (mock.patch.object(shim, 'connect', return_value=sock),
               mock.patch.object(shim, 'handshake', return_value=(None, {
                   't': 'error', 'code': 'passthrough', 'msg': 'runner unavailable',
                   'writeback': frame_writeback})),
-              mock.patch.object(shim, 'marker_policy', return_value=policy),
               mock.patch.object(shim, 'run_local', return_value=0) as local):
             args = ['--sock', '/tmp/unused.sock', '--real', '/tmp/pnpm']
             if where:
@@ -148,11 +147,6 @@ class PassthroughOverrides(unittest.TestCase):
         code, local = self.invoke(['journey', '--update'])
         self.assertEqual(code, INFRA)
         local.assert_not_called()
-
-    def test_writeback_capability_does_not_block_an_ordinary_passthrough(self):
-        code, local = self.invoke(['journey'], policy={'writeback': True})
-        self.assertEqual(code, 0)
-        local.assert_called_once()
 
     def test_daemon_writeback_refuses_local_passthrough(self):
         code, local = self.invoke(['journey'], frame_writeback=True)

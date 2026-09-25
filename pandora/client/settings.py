@@ -20,8 +20,6 @@ too high a price for changing a hostname.
     [client]
     state = "~/.local/state/pandora/default"
     name = "gary@studio"                # who this Mac is to a shared worker; default user@host
-    fallback_slots = 2
-    fallback_wait_seconds = 0
     keep_runs_days = 7                  # finished runs older than this are removed; 0 keeps all
 
     [local]
@@ -72,8 +70,7 @@ DEFAULTS = {
     # Transitions only, and only on darwin. `osascript` is not a portable idea,
     # so everywhere else this is a no-op and the transition is a log line.
     'notify': {'enabled': True},
-    'client': {'state': str(DEFAULT_STATE), 'fallback_slots': 2,
-               'fallback_wait_seconds': 0.0, 'max_wait_seconds': 0, 'name': '',
+    'client': {'state': str(DEFAULT_STATE), 'max_wait_seconds': 0, 'name': '',
                # Finished run directories older than this are removed by the
                # daemon (`runindex.prune`); 0 keeps every run.
                'keep_runs_days': 7},
@@ -98,6 +95,13 @@ def normalize(raw):
     config = {'worker': dict(DEFAULTS['worker']), 'client': dict(DEFAULTS['client']),
               'backend': dict(DEFAULTS['backend']), 'local': dict(DEFAULTS['local']),
               'notify': dict(DEFAULTS['notify']), 'repos': []}
+    # Same closed-schema rule as the keys inside a table: a misspelled
+    # `[wroker]` that loaded silently would leave worker.host empty (#128).
+    unknown = sorted(set(raw) - set(DEFAULTS))
+    if unknown:
+        raise ConfigError('config.toml has unknown top-level table%s %s; allowed: %s'
+                          % ('' if len(unknown) == 1 else 's', ', '.join(unknown),
+                             ', '.join(sorted(DEFAULTS))))
     for section in ('worker', 'client', 'backend', 'local', 'notify'):
         block = raw.get(section, {})
         if not isinstance(block, dict):

@@ -247,9 +247,7 @@ class Budget:
 
     Everything is guarded by one condition variable, because a release has to
     wake whoever is waiting for the memory it just gave back. The daemon is the
-    only process that admits, so in-process state is the whole truth -- unlike
-    the fallback budget, which is file locks precisely because its commonest
-    caller is a shim running when the daemon is gone.
+    only process that admits, so in-process state is the whole truth.
     """
 
     def __init__(self, config, *, store_path=None, store=None, gate=None):

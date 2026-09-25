@@ -24,10 +24,10 @@ have run it (exec, or the passthrough logger for a heavy one), and a claimed
 one continues below as if the shim had claimed it.
 
 That leaves exactly one decision here: what to do when the daemon cannot be
-reached at all. There is no local lane to admit into, so the client applies the
-same policy from the claim cache -- a `refuse` verdict exits 70 with one
-line, and a `local` verdict runs under the file-lock slot budget and says that
-is what it did.
+reached at all. There is no local lane to admit into and no policy to apply: a
+daemon that is installed but does not answer is a broken install, so a claimed
+command is refused with exit 70; where nothing was ever installed the command
+runs here as if Pandora were not.
 
 A restart is not that case. A daemon that answers `draining` is alive and has
 run nothing, and no socket beside a fresh `<state>/draining` marker is the gap
@@ -84,35 +84,13 @@ def die_by(number):
     os.kill(os.getpid(), number)
 
 
-def run_local(real, argv, *, state=None, claimed=True, reason='', where=None):
-    """Run the command here, under the fallback budget when it was claimed."""
+def run_local(real, argv, *, state=None, reason='', where=None):
+    """Run the command here, logging the passthrough when there is a state dir."""
     environment = dict(os.environ, PANDORA_ROUTE_DEPTH='1', PANDORA_REAL_PNPM=real)
-    slot = None
     started = time.time()
-    if claimed and state is not None:
-        config = fallback_module.config_for(state)
-        count = int(config.get('fallback_slots', 2))
-        wait = float(config.get('fallback_wait_seconds', 0))
-        try:
-            slot = fallback_module.acquire(state, count, wait)
-        except fallback_module.Unbounded as error:
-            notice('cannot reach the fallback budget at %s (%s); running locally without '
-                   'one. Concurrent fallbacks are not limited.' % (state, error))
-            slot = None
-        else:
-            if slot is None:
-                notice('%d local fallback slots are all busy; refusing to add a %s run to '
-                       'this Mac. Retry in a minute. As a last resort, PANDORA_OFF=1 runs '
-                       'it with no Pandora at all, outside every limit.'
-                       % (count, argv[0] if argv else 'pnpm'))
-                return STALE
-    try:
-        code = subprocess.call([real, *argv], env=environment)
-    finally:
-        if slot is not None:
-            slot.release()
+    code = subprocess.call([real, *argv], env=environment)
     if state is not None:
-        entry = {'ts': started, 'kind': 'fallback' if claimed else 'passthrough',
+        entry = {'ts': started, 'kind': 'passthrough',
                  'argv': argv, 'cwd': os.getcwd(), 'reason': reason,
                  'duration_ms': int((time.time() - started) * 1000), 'exit': code}
         if where:
@@ -155,24 +133,6 @@ def handshake(sock, request, reader=None):
         if frame.get('t') == 'queued':
             sock.settimeout(None)       # admitted to a queue: wait as long as it takes
             continue
-
-
-def marker_policy(command):
-    """What this worktree's claim cache, or the v0.2 marker, says about this argv.
-
-    Size, fallback, writeback. Only ever consulted when the daemon is
-    unreachable. A file written before this rule existed has no `policy` lines,
-    and the caller treats that as unknown -- which is decided as `large`,
-    because a client that cannot say how big a job is has not earned the right
-    to start it here.
-    """
-    try:
-        _common, marker = enrollment.marker_for(os.getcwd())
-    except OSError:
-        marker = None
-    if not marker:
-        return None
-    return enrollment.policy_for(command, marker)
 
 
 def subdirectory_offender(command):
@@ -584,16 +544,15 @@ def main(argv=None):
             return INFRA
         # No daemon is the same situation as no Pandora: the command runs here
         # as it would on a machine that never installed the shim. It is a
-        # passthrough, not a fallback: no slot, no size class, no policy. The
-        # marker's policy lines exist for the daemon's own verdicts; with the
-        # daemon gone there is no queue to protect and nothing to decide with,
-        # and an engineer whose daemon died must not lose `pnpm journey` (the
-        # owner's rule for machines without Pandora: always run directly).
+        # passthrough, not a fallback. The marker's policy lines exist for the
+        # daemon's own verdicts; with the daemon gone there is no queue to
+        # protect and nothing to decide with, and an engineer whose daemon died
+        # must not lose `pnpm journey` (the owner's rule for machines without
+        # Pandora: always run directly).
         notice('%s; running it here as if Pandora were not installed (exit codes '
                'are the command\'s own; start the daemon with `pandora daemon '
                '--install` to route again)' % message)
-        return run_local(args.real, command, state=state, claimed=False,
-                         reason=cause, where=where)
+        return run_local(args.real, command, state=state, reason=cause, where=where)
 
     def pass_through(message, writeback=False):
         """Not claimed here: run it as if the shim were not installed."""
@@ -607,10 +566,9 @@ def main(argv=None):
             return INFRA
         # Pandora has no opinion about this invocation -- not enrolled, not
         # claimed, or typed in a subdirectory with a path in the argv. It is
-        # not a fallback, so it takes no slot; it is what would have happened
-        # if the shim were not installed.
+        # what would have happened if the shim were not installed.
         notice(message)
-        return run_local(args.real, command, state=state, claimed=False,
+        return run_local(args.real, command, state=state,
                          reason='passthrough', where=where)
 
     # `subdirectory = "passthrough"` below the worktree root: nothing is claimed,

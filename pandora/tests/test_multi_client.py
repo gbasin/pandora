@@ -419,6 +419,21 @@ class ClientIdentity(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ConfigError):
                 settings.normalize({'client': {'name': bad}})
 
+    def test_a_misspelled_table_is_refused_at_load(self):
+        # #128: `[wroker]` used to load silently and leave worker.host empty.
+        with self.assertRaises(ConfigError) as caught:
+            settings.normalize({'wroker': {'host': 'ubuntu@10.0.0.1'}})
+        self.assertIn('wroker', str(caught.exception))
+        self.assertIn('worker', str(caught.exception))
+
+    def test_the_dead_fallback_keys_are_refused_not_ignored(self):
+        # #127: both were accepted and never read.
+        for key in ('fallback_slots', 'fallback_wait_seconds'):
+            with self.subTest(key=key):
+                with self.assertRaises(ConfigError) as caught:
+                    settings.normalize({'client': {key: 2}})
+                self.assertIn(key, str(caught.exception))
+
     def test_odd_characters_in_the_default_are_replaced(self):
         with mock.patch.object(settings.getpass, 'getuser', return_value='gary basin'), \
                 mock.patch.object(settings.socket, 'gethostname', return_value='my mac.lan'):

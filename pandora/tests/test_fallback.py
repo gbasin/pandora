@@ -1094,6 +1094,21 @@ class SubdirectoryInvocations(DaemonCase):
         self.assertIn('enrolled', answer.error['msg'])
 
 
+class RefusalsExitWithUsage(DaemonCase):
+    """#124: a claimed command the job will not take is exit 64, not exit 1.
+
+    Exit 1 would be indistinguishable from the command having run and failed.
+    """
+
+    def test_every_classification_refusal_is_exit_64(self):
+        for argv in (['pnpm', 'insist', 'extra'],                  # takes no arguments
+                     ['pnpm', 'writer', '--update', '--update'],   # one option, twice
+                     ['pnpm', 'unit', '../outside']):              # escapes the worktree
+            answer = self.call(list(argv))
+            self.assertEqual((answer.error['code'], answer.exit), ('rejected', 64), argv)
+        self.assertFalse(self.marker.exists(), 'a refused command ran')
+
+
 class WithoutADaemon(unittest.TestCase):
     """The one decision the client still makes, and the marker it makes it with."""
 
@@ -1126,7 +1141,7 @@ class WithoutADaemon(unittest.TestCase):
                           '--real', str(real), '--state', str(self.state),
                           '--', *command])
 
-    def test_a_small_job_runs_here_under_the_slot_budget(self):
+    def test_a_small_job_runs_here_when_the_daemon_is_gone(self):
         self.enroll([{'prefix': ['unit'], 'size': 'small', 'fallback': 'auto',
                      'writeback': False}])
         self.assertEqual(self.run_shim(['unit']), 0)
