@@ -96,6 +96,14 @@ else
   printf '%s\n' "$RUN_DISK_GIB" > "$ENGINE_ROOT/run_disk_gib"
   step changed run-disk-quota "${RUN_DISK_GIB}GiB per run"
 fi
+# The run cap. 0 means the engine derives it from the host's threads.
+cap_detail=$([ "$MAX_RUNNING" = 0 ] && echo 'derived: max(2, threads / 2)' || echo "${MAX_RUNNING} runs")
+if [ "$(cat "$ENGINE_ROOT/max_running" 2>/dev/null || true)" = "$MAX_RUNNING" ]; then
+  step present run-cap "$cap_detail"
+else
+  printf '%s\n' "$MAX_RUNNING" > "$ENGINE_ROOT/max_running"
+  step changed run-cap "$cap_detail"
+fi
 
 # --- 4. the pool's backing device -----------------------------------------
 # A real deploy passes DEVICE=/dev/sdb and none of the loop machinery runs.

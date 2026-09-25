@@ -20,6 +20,7 @@ make two identical workers look different.
     device = ""                 # a real block device; empty means loop file
     loop_size_gib = 32
     disk_floor_gib = 4          # admission stops below this much pool free
+    max_running = 0             # concurrent runs; 0 means max(2, threads // 2)
     golden_keep = 2             # goldens kept per toolchain family by `worker gc`
 """
 import hashlib
@@ -54,11 +55,12 @@ WORKER = {
     'disk_floor_gib': 4,
     'run_disk_gib': 12,
     'golden_keep': 2,
+    'max_running': 0,           # 0 derives the run cap from the host's threads
     'unattended_upgrades': False,
     'user': 'ubuntu',
 }
 
-INTS = ('loop_size_gib', 'disk_floor_gib', 'run_disk_gib', 'golden_keep')
+INTS = ('loop_size_gib', 'disk_floor_gib', 'run_disk_gib', 'golden_keep', 'max_running')
 
 
 def normalize(raw):
@@ -83,6 +85,8 @@ def normalize(raw):
     for key in INTS:
         if not isinstance(worker[key], int) or isinstance(worker[key], bool):
             raise ConfigError('[worker] %s must be an integer' % key)
+    if worker['max_running'] < 0:
+        raise ConfigError('[worker] max_running must be 0 (derive from threads) or a positive count')
     if not isinstance(worker['unattended_upgrades'], bool):
         raise ConfigError('[worker] unattended_upgrades must be true or false')
     if worker['device'] and not worker['device'].startswith('/dev/'):

@@ -34,6 +34,10 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
    gives the run about 8 GiB of its own writes.
 8. Set `golden_keep` to the number of goldens `gc` keeps per toolchain family.
    A family is one repository's `[worker] source_id`.
+9. Leave `max_running = 0` unless you have measured a reason. Zero derives the
+   concurrent-run cap from the host: `max(2, threads / 2)`, so every admitted
+   run keeps at least two threads. A positive value is the cap itself.
+   `pandora worker status` prints the effective cap and where it came from.
 
 ### Example
 
@@ -61,6 +65,7 @@ loop_size_gib = 18
 
 disk_floor_gib = 4
 run_disk_gib = 12
+max_running = 0
 golden_keep = 2
 unattended_upgrades = false
 ```
@@ -104,6 +109,11 @@ Read the report. Every step says `present`, `created`, `changed` or `skipped`.
 
 Run `provision` again. The second run must report `0 changed`. If it does not,
 a step is not idempotent. Do not continue.
+
+A live worker whose manifest changes is unproven again the moment `provision`
+writes the new manifest, and the engine refuses runs until a canary passes. On
+a worker that is serving, run `provision` without `--no-canary`, so the canary
+follows in the same command, or run `canary --mark` straight after.
 
 ### No spare device
 

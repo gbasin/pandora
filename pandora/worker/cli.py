@@ -161,6 +161,9 @@ def render_status(answer):
     lines.append('admission: %s (floor %s GiB)%s'
                  % ('open' if capacity.get('ok') else 'CLOSED', capacity.get('floor_gib'),
                     '' if capacity.get('ok') else ' -- ' + str(capacity.get('reason'))))
+    cap = answer.get('run_cap') or {}
+    if cap:
+        lines.append('run cap: %s concurrent (%s)' % (cap.get('max_running'), cap.get('source')))
     lines.append('goldens:')
     for item in answer.get('goldens') or []:
         lines.append('  %-26s %-10s %6.2f GiB  %-7s %s'
