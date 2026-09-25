@@ -28,6 +28,7 @@ jobs:
             if [ "$(uname)" = Linux ]; then sudo apt-get install -y shellcheck;
             else brew install shellcheck; fi
           }
-          shellcheck bin/pnpm bin/pandora
+          # SC3013: -nt is deliberate; dash and bash have had it for decades.
+          shellcheck -e SC3013 bin/pnpm bin/pandora
       - name: unittest
         run: python3 -m unittest discover -s pandora
