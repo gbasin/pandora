@@ -1,11 +1,12 @@
 """Hints: the one sentence a reader of a failure would have wanted first.
 
 A result already says what happened. A hint says what to *do*, and only when the
-evidence already on hand names the action. There are seven rules, and every one
+evidence already on hand names the action. There are eight rules, and every one
 of them is a function of facts that were measured -- a peak against a ceiling, a
 wall clock against a limit, a declared report that is not there, two manifests
-that differ, two verdicts on one input that disagree, a path the command named
-that exists here and was not shipped, a write-back and what it found.
+that differ, two verdicts on one input that disagree, a program the worker does
+not have, a path the command named that exists here and was not shipped, a
+write-back and what it found.
 
 What this file deliberately is not: a guesser. No model, no pattern library, no
 "this looks like a flaky test" -- the flaky rule fires only on two recorded
@@ -16,8 +17,8 @@ acts on it, and then the next twenty minutes are spent on the wrong thing.
 The rules are pure functions of one `facts` dictionary so that both sides can
 run them. The engine has the outcome, the peak, the ceiling and the collected
 outputs, so it attaches a hint at collect time. The client has the worktree, the
-snapshot manifest and the log, so it fills in the two rules the engine cannot
-see. `hint_for` returns the first rule that fires, and order is worst-first: a
+snapshot manifest and the log, so it fills in the rules the engine cannot see.
+`hint_for` returns the first rule that fires, and order is worst-first: a
 run that was killed has nothing to say about a missing report.
 """
 import re
@@ -31,6 +32,25 @@ MAX_TOKENS = 200
 # A token that could be a path: at least one separator or a leading `./`, no
 # whitespace, no shell metacharacters that would make it a fragment of a command.
 PATH_TOKEN = re.compile(r'(?<![\w/.-])((?:\./|\.\./)?[\w.@+-]+(?:/[\w.@+-]+)+/?)')
+
+# Signatures of "the program is not there": Playwright's missing browser, a
+# node `spawn` failure, the shell's own wording. Each captures the executable's
+# name or path where the wording carries one.
+EXEC_MISSING = (
+    re.compile(r"Executable doesn't exist(?:\s+at\s+(\S+))?"),
+    re.compile(r'\b(?:spawn\w*|exec\w*|launch)\s+([\w./@+-]+)\s+ENOENT'),
+    # zsh's order before bash's, or `zsh: command not found: rg` names the shell.
+    re.compile(r'command not found:\s*([\w.+-]+)'),
+    re.compile(r'([\w.+-]+): command not found'),
+)
+# An ENOENT line that names a file syscall -- `ENOENT, open 'x'` -- is a missing
+# *file*, which is the gitignored rule's case, not a missing program's.
+FILE_ACCESS = re.compile(r'ENOENT[^\n]*\b(?:open|scandir|stat|lstat|access|mkdir|'
+                         r'unlink|rename|chmod|utime|readlink|symlink|copyfile)\b')
+# A line that blames something: the gitignored rule only trusts a path a failing
+# line names, not whatever a stack frame happens to mention.
+ERRORISH = re.compile(r"cannot find|can't find|enoent|doesn't exist|does not exist|"
+                      r'not found|no such file', re.IGNORECASE)
 
 
 def path_tokens(text, cap=MAX_TOKENS):
@@ -159,12 +179,44 @@ def drifted(facts):
     return 'the worktree changed during the run at %s; re-run it' % where
 
 
+def missing_executable(facts):
+    """A program the command needs is not installed on the worker.
+
+    Playwright says "Executable doesn't exist", node says "spawn foo ENOENT",
+    the shell says "command not found": the snapshot shipped fine, but the
+    thing that was supposed to run it is absent. Ordered before the file rules,
+    because such a log also names plenty of paths and `gitignored` would
+    otherwise blame whichever one a stack frame mentions first. A bare ENOENT
+    that names a file syscall is left for `gitignored` -- that is a missing
+    file, and this rule would just be guessing at a name.
+    """
+    if facts.get('outcome') == 'passed':
+        return None
+    for line in (facts.get('log_tail') or '').splitlines():
+        name = None
+        for pattern in EXEC_MISSING:
+            match = pattern.search(line)
+            if match:
+                name = (match.group(1) or '').strip('\'"`,;:)]}').rsplit('/', 1)[-1]
+                break
+        if name is None:
+            if 'ENOENT' not in line or FILE_ACCESS.search(line):
+                continue
+            name = ''
+        which = "'%s'" % name if name else 'a command the run invoked'
+        return ('%s is not installed on the worker; install it there, or bake it '
+                'into the golden' % which)
+    return None
+
+
 def gitignored(facts):
     """A path the command named exists here, is ignored, and was not shipped.
 
     The client's rule, not the engine's: only the Mac has the worktree and the
     manifest that was frozen from it. Run on failure only, over the tail of the
-    log, and capped -- see `LOG_TAIL_BYTES` and `MAX_TOKENS`.
+    log, and capped -- see `LOG_TAIL_BYTES` and `MAX_TOKENS`. Only lines that
+    read as an error are blamed (`ERRORISH`): a stack frame names paths it did
+    not miss.
     """
     if facts.get('outcome') == 'passed':
         return None
@@ -174,7 +226,8 @@ def gitignored(facts):
     if not tail or exists is None or ignored is None:
         return None
     shipped = facts.get('shipped') or frozenset()
-    for token in path_tokens(tail):
+    blamed = '\n'.join(line for line in tail.splitlines() if ERRORISH.search(line))
+    for token in path_tokens(blamed):
         if token in shipped or not exists(token) or not ignored(token):
             continue
         return ('%s exists locally but is gitignored, so it was not in the snapshot; '
@@ -214,7 +267,8 @@ def written_back(facts):
 
 # Worst-first, and the order is the contract: a killed run says nothing about a
 # report it never got to write.
-RULES = (oom, timed_out, drifted, flaky, missing_report, written_back, gitignored)
+RULES = (oom, timed_out, drifted, flaky, missing_executable, missing_report,
+         written_back, gitignored)
 
 
 def hint_for(facts):

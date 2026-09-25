@@ -171,10 +171,16 @@ class Verbs(DaemonCase):
         directory = self.state / 'runs' / 'q1'
         directory.mkdir(parents=True)
         (directory / 'meta.json').write_text(json.dumps({'id': 'q1', 'state': 'queued'}))
-        for run_id in ('q1', 'nosuchrun000'):
+        for run_id, expected in (('q1', 'queued'), ('nosuchrun000', 'unknown')):
             code, _out, err = self.pandora('result', run_id)
             self.assertEqual(code, 1)
             self.assertIn('still running, or it never reached the worker', err)
+            # --json: no verdict yet is still exit 1, but the row is data.
+            code, out, err = self.pandora('result', run_id, '--json')
+            self.assertEqual(code, 1)
+            self.assertIn('still running, or it never reached the worker', err)
+            row = json.loads(out)
+            self.assertEqual((row['id'], row['state']), (run_id, expected))
 
     def test_a_row_that_fell_back_points_at_the_local_run(self):
         directory = self.state / 'runs' / 'f1'

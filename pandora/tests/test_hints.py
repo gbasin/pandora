@@ -149,6 +149,59 @@ class Gitignored(unittest.TestCase):
             'from the engine')
 
 
+class MissingExecutable(unittest.TestCase):
+    """The log-reading rule that outranks `gitignored` (GH #114)."""
+
+    def setUp(self):
+        self.home = tempfile.TemporaryDirectory()
+        self.addCleanup(self.home.cleanup)
+        self.root = Path(self.home.name)
+        for argv in (['git', 'init', '-q'], ['git', 'config', 'user.email', 'a@b.c'],
+                     ['git', 'config', 'user.name', 'a']):
+            subprocess.run(argv, cwd=self.root, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (self.root / '.gitignore').write_text('node_modules/\ntmp/\n')
+        (self.root / 'tmp').mkdir()
+        (self.root / 'tmp' / 'fixture.json').write_text('{}')
+        (self.root / 'node_modules').mkdir()
+        (self.root / 'node_modules' / 'x.js').write_text('x')
+
+    def test_a_missing_playwright_browser_names_the_executable(self):
+        tail = ("browserType.launch: Executable doesn't exist at "
+                "/ms-playwright/chromium-1117/chrome-mac/Chromium\n"
+                "    at Object.<anonymous> (node_modules/x.js:3:1)\n")
+        hint = hints.for_run({'outcome': 'command_failed'}, worktree=self.root,
+                             tail=tail)
+        self.assertIn("'Chromium' is not installed on the worker", hint)
+        self.assertIn('golden', hint)
+        self.assertNotIn('gitignored', hint)
+
+    def test_the_executable_rule_wins_even_when_a_gitignored_path_is_blamed(self):
+        # Both rules would fire on this tail; the program is the cause.
+        tail = ("Error: spawn ffmpeg ENOENT\n"
+                "Error: ENOENT, open 'tmp/fixture.json'\n")
+        hint = hints.for_run({'outcome': 'command_failed'}, worktree=self.root,
+                             tail=tail)
+        self.assertIn("'ffmpeg' is not installed on the worker", hint)
+
+    def test_command_not_found_names_the_program(self):
+        hint = rules.missing_executable({'outcome': 'command_failed',
+                                         'log_tail': 'bash: rg: command not found\n'})
+        self.assertIn("'rg' is not installed on the worker", hint)
+
+    def test_a_file_enoent_is_left_for_the_gitignored_rule(self):
+        # `open` is a file access; a missing file is not a missing program.
+        hint = hints.for_run({'outcome': 'command_failed'}, worktree=self.root,
+                             tail="Error: ENOENT, open 'tmp/fixture.json'\n")
+        self.assertIn('tmp/fixture.json exists locally but is gitignored', hint)
+
+    def test_a_path_a_stack_frame_names_is_not_blamed(self):
+        # The line does not read as an error; it only mentions a path.
+        self.assertIsNone(hints.for_run(
+            {'outcome': 'command_failed'}, worktree=self.root,
+            tail='    at run (tmp/fixture.json:3:1)\n'))
+
+
 class LogTail(unittest.TestCase):
     def test_it_decodes_framed_output(self):
         with tempfile.TemporaryDirectory() as home:
