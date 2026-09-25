@@ -894,7 +894,13 @@ class Unfollowed(unittest.TestCase):
 
 
 class DaemonLog(DaemonCase):
-    """Every line the daemon writes to its log starts with a UTC time."""
+    """Every line the daemon writes to its log starts with a UTC time.
+
+    Each check picks its line out of the captured stderr first: anything else
+    in the process may write there meanwhile (a `ResourceWarning` from the
+    garbage collector, a daemon thread of another test), and a `^` anchored on
+    the whole buffer would miss a well-stamped line that came second.
+    """
 
     STAMP = r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ '
 
@@ -902,7 +908,9 @@ class DaemonLog(DaemonCase):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             daemon_module.log('worker down: no route')
-        self.assertRegex(err.getvalue(), self.STAMP + 'worker down: no route\n$')
+        [line] = [line for line in err.getvalue().splitlines(keepends=True)
+                  if 'worker down' in line]
+        self.assertRegex(line, self.STAMP + 'worker down: no route\n$')
 
     def test_a_refusal_is_logged_with_its_run_and_cause(self):
         FakeWorker.raises = TransferError('rsync to h failed (255): unexpected end of file')
@@ -922,8 +930,8 @@ class DaemonLog(DaemonCase):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             self.daemon.resume_interrupted()
-        self.assertRegex(err.getvalue(), self.STAMP + 'resume: local run loc9 closed as '
-                         'infra_failed')
+        [line] = [line for line in err.getvalue().splitlines() if 'loc9' in line]
+        self.assertRegex(line, self.STAMP + 'resume: local run loc9 closed as infra_failed')
 
 
 class NoRowStaysQueued(DaemonCase):

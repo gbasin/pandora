@@ -269,6 +269,24 @@ class Budget:
         # Seconds until the queue is likely to move, or None. Set by the daemon,
         # which has the run history; the budget only knows who holds what.
         self.estimate = None
+        self.closed = False
+
+    def close(self):
+        """Close the peaks store: the daemon is stopping.
+
+        Every touch of the store is under the lock, so none is half done. After
+        this nothing is admitted, and a run that finishes late gives back its
+        hold without recording a peak.
+        """
+        with self.lock:
+            if not self.closed:
+                self.closed = True
+                self.admission.store.close()
+            self.wake.notify_all()
+
+    def refuse_if_closed(self):
+        if self.closed:
+            raise Busy('the Pandora daemon is stopping; nothing new starts. Retry in a moment.')
 
     # -- the rules that refuse rather than queue ---------------------------
 
@@ -281,6 +299,7 @@ class Budget:
         """
         key = str(Path(worktree).resolve())
         with self.lock:
+            self.refuse_if_closed()
             if size is not None and self.admission.store.size_class(repo, job, '') != size:
                 # The configuration's size class is the ceiling; without this the
                 # store's `medium` default would silently override a job declared
@@ -350,6 +369,7 @@ class Budget:
         deadline = (time.monotonic() + timeout) if timeout else None
         said = None
         with self.lock:
+            self.refuse_if_closed()
             reservation = self.admission.reservation(repo, job)[0]
             if reservation > self.admission.budget_mib:
                 # Waiting for room that can never exist is worse than saying so:
@@ -361,6 +381,7 @@ class Budget:
             while True:
                 if canceled is not None and canceled():
                     return None
+                self.refuse_if_closed()
                 verdict = self.admission.admit(run_id, repo, job)
                 if verdict['admitted']:
                     self.held[run_id]['admitted'] = True
@@ -394,7 +415,9 @@ class Budget:
             record = self.held.pop(run_id, None)
             if record is None:
                 return None
-            if record['admitted']:
+            if record['admitted'] and self.closed:
+                self.admission.running.pop(run_id, None)
+            elif record['admitted']:
                 learned = self.admission.finish(run_id, max(0, int(peak_mib)), outcome)
             if record['singleton'] and self.singletons.get(record['job']) == run_id:
                 del self.singletons[record['job']]

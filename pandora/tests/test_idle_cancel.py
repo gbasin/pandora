@@ -9,7 +9,9 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
+from pandora.client import daemon as daemon_module
 from pandora.client import drain, local
 from pandora.client.daemon import Run
 from pandora.exits import CANCELED
@@ -276,6 +278,24 @@ class TheDaemon(DrainCase):
         reply = self.ask({'op': 'cancel', 'run': run.id, 'if_idle': 1})
         self.assertEqual(reply.get('code'), 'not-idle')
         self.assertIn('unmeasured', reply['msg'])
+
+    def test_the_idle_a_blocker_shows_is_one_the_daemon_agrees_with(self):
+        # CI, 2026-09-25: a blocker shown idle 2.0 s (1.96 rounded up) was refused
+        # at --idle-cancel 2 by the daemon's own 1.96, and the drain gave up.
+        run = Run(self.state, 'nearly', {'argv': ['pnpm', 'x']})
+        run.lane, run.state = 'local', 'running'
+        run.activity(0.0, 1000.0)
+        with self.daemon.runs_lock:
+            self.daemon.runs[run.id] = run
+        self.addCleanup(run.finish, 0)
+        with mock.patch.object(daemon_module, 'now', return_value=1001.96):
+            shown = run.activity_fields()['idle_seconds']
+            self.assertEqual(shown, 1.9)
+            self.assertLess(drain.idle_of({'idle_seconds': shown}), 2,
+                            'the drain must not ask to cancel at 2 s yet')
+            reply = self.ask({'op': 'cancel', 'run': run.id, 'if_idle': shown})
+        self.assertEqual(reply.get('t'), 'ok', reply)
+        self.assertTrue(run.canceled.is_set())
 
 
 class TheCommandLine(unittest.TestCase):

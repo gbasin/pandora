@@ -7,6 +7,7 @@ container or a repository -- the commands are `sh -c` one-liners.
 """
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -124,6 +125,24 @@ class BudgetRules(unittest.TestCase):
         pool.admit('a', repo='eichler', job='dev-stack')
         pool.finish('a', 100, 'ok')
         pool.reserve('b', repo='eichler', job='dev-stack', worktree='.', singleton=True)
+
+    def test_a_stopping_daemon_closes_the_store_and_admits_nothing_more(self):
+        pool = budget()
+        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        pool.admit('a', repo='eichler', job='check')
+        pool.reserve('b', repo='eichler', job='unit', worktree='/b', singleton=False)
+        pool.close()
+        pool.close()                               # a second stop is harmless
+        with self.assertRaises(sqlite3.ProgrammingError):
+            pool.admission.store.peaks('eichler', 'check')
+        with self.assertRaisesRegex(Busy, 'stopping'):
+            pool.admit('b', repo='eichler', job='unit')
+        with self.assertRaisesRegex(Busy, 'stopping'):
+            pool.reserve('c', repo='eichler', job='lint', worktree='/c', singleton=False)
+        # A run that ends after the close gives its holds back; no peak is learned.
+        self.assertIsNone(pool.finish('a', 100, 'ok'))
+        self.assertIsNone(pool.finish('b', 0, 'lost'))
+        self.assertEqual(pool.snapshot()['running'], [])
 
     def test_a_cold_job_reserves_its_whole_class_and_a_second_waits(self):
         # A cold `medium` reserves its whole 4096 MiB ceiling, so a 4096 MiB
