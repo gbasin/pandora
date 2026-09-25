@@ -2,12 +2,12 @@
 
 This file holds the paragraphs a repository that uses Pandora may copy into its
 own agent instructions. Maintain that text here. When Pandora's
-behavior changes, this file changes with the README in the same pull request.
+behavior changes, this file changes with `docs/agents.md` in the same pull request.
 A repository that copies a paragraph owns its copy and updates it from here.
 
 Agents keep typing the commands they type today. The paragraphs tell them only
 what changes when a command runs somewhere else. They agree with
-[What agents type](../README.md#what-agents-type) in the README and with
+[What agents type](agents.md) and with
 `pandora --help`. The fan-out verbs (`pandora run --detach`, several ids to
 `pandora wait`, `PANDORA_SHARDS`) are left out on purpose. They are the `FANOUT`
 section of `pandora --help`, for orchestrators that ask for it.

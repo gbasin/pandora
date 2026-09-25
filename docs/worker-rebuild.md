@@ -154,7 +154,7 @@ test this, because it runs on a machine that is already up.
    `ssh <old> 'echo 999 > ~/pandora-engine/disk_floor'`.
    Submissions now answer `disk-floor` with the arithmetic. The client treats
    that refusal as `engine-error`, and the
-   [fallback table](../README.md#fallback) decides what happens next. With no
+   [fallback table](pandora-toml.md#fallback) decides what happens next. With no
    declared `fallback`, a `small` or `medium` job runs in the local lane and a
    `large` or `xlarge` job exits 70.
 3. Wait for the running and queued attempts to finish. Poll
