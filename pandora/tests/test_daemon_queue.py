@@ -8,7 +8,6 @@ canceled, withdrawn for a restart -- none of which is a fallback.
 """
 import json
 import socket
-import threading
 import time
 import unittest
 
