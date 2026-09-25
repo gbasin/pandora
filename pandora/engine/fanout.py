@@ -255,6 +255,12 @@ def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
     attempt = paths.attempt(run_id)
     attempt.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(paths.attempt(parent) / 'toolchain.json', attempt / 'toolchain.json')
+    request = paths.attempt(parent) / 'request.json'
+    if request.is_file():
+        # The child's supervisor reads the parts of the plan the ledger does
+        # not carry -- timeout_minutes, the cancel contract, git -- from the
+        # request beside the attempt. A child's request is its parent's.
+        shutil.copyfile(request, attempt / 'request.json')
     paths.log(run_id).touch()
     if graft is not None:
         # A symlink, not a copy: N shards share one build-once tree on the host
@@ -284,16 +290,30 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
             store = admission.Store(str(paths.peaks))
             try:
                 scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
-                verdict = scheduler.admit(run_id, plan['repo'], plan['job'],
-                                          plan.get('size_declared') or plan['size_class'])
-                if verdict['admitted']:
-                    pid = runner.spawn(paths.root, run_id)
-                    ledger.update(run_id, supervisor_pid=pid)
-                    return verdict
-                if verdict['reason'] == 'state':
+                current = ledger.get(run_id)
+                if current is not None and current['state'] != 'queued':
                     # Not queued any more: something else admitted or closed it.
                     # Spawning here would be a second supervisor; the poll that
                     # follows reads whatever became of it.
+                    return {'admitted': False, 'reason': 'state',
+                            'state': current['state']}
+                # Disk has no reservation arithmetic; the floor check runs
+                # before `admit` so a child never holds a memory reservation
+                # for an instance the pool has no room to clone. A shard below
+                # the floor waits exactly as one refused on memory does -- the
+                # same queue, the same deadline -- rather than starting a run
+                # that could not fit.
+                room = runner.disk_headroom(paths)
+                if not room.get('ok'):
+                    verdict = {'admitted': False, 'reason': 'disk-floor',
+                               'capacity': room}
+                else:
+                    verdict = scheduler.admit(run_id, plan['repo'], plan['job'],
+                                              plan.get('size_declared')
+                                              or plan['size_class'])
+                if verdict['admitted']:
+                    pid = runner.spawn(paths.root, run_id)
+                    ledger.update(run_id, supervisor_pid=pid)
                     return verdict
                 # The shard stands in the worker's one queue (`waitlist`), in
                 # arrival order with every plain run, from its first refusal.
@@ -310,7 +330,12 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
                                    % (run_id, ADMIT_SECONDS, verdict.get('reason')))
         now = time.monotonic()
         if said is None or now - said >= STILL_EVERY:
-            note(queue_line(ledger, label or run_id, ahead, first=said is None))
+            if verdict['reason'] == 'disk-floor':
+                note('%s waits on disk: %s' % (label or run_id,
+                                               (verdict['capacity'] or {}).get('reason')
+                                               or 'the pool is below its floor'))
+            else:
+                note(queue_line(ledger, label or run_id, ahead, first=said is None))
             said = now
         time.sleep(POLL * 2)
 

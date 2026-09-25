@@ -134,15 +134,22 @@ def supervise(root, run_id, *, driver=None):
     driver = driver or IncusDriver(root=paths.root)
     # The ledger stores the fields it schedules on; the submitted plan is kept
     # whole beside the attempt, which is where the parts the *executor* needs but
-    # the scheduler does not -- the cancel contract -- are read from. No column,
-    # no migration, and an attempt written before this existed reads as the
-    # default, which is the old behavior exactly.
-    cancel = (submitted_plan(paths, run_id) or {}).get('cancel') or {}
+    # the scheduler does not -- the cancel contract, the wall clock -- are read
+    # from. No column, no migration, and an attempt written before this existed
+    # reads as the default, which is the old behavior exactly.
+    request = submitted_request(paths, run_id) or {}
+    submitted = request.get('plan') or {}
+    cancel = submitted.get('cancel') or {}
+    # `PANDORA_WALL_SECONDS` in the run's own env remains the override: a job or
+    # repository that sets it means it. Otherwise the job's declared
+    # `timeout_minutes`, and thirty minutes for a plan that predates it.
+    wall = plan['env'].get('PANDORA_WALL_SECONDS') or 60 * int(
+        submitted.get('timeout_minutes') or 30)
     limits = Limits(memory_mib=row['reservation_mib'] or 2048,
                     ceiling_mib=row['ceiling_mib'] or 4096,
                     cpu_weight=100,
                     cpus_hint=row['cpus_hint'] or 1,
-                    wall_seconds=int(plan['env'].get('PANDORA_WALL_SECONDS', 1800)),
+                    wall_seconds=int(wall),
                     cancel_signal=cancel.get('signal') or 'SIGKILL',
                     cancel_grace_ms=int(cancel.get('grace_ms') or 0))
     durations, marks = {}, time.monotonic()
@@ -197,10 +204,9 @@ def supervise(root, run_id, *, driver=None):
             marks = time.monotonic()
         # Before the cache and before the command: the repository is part of
         # the source, and a job that declared it must never start without it.
-        submitted = submitted_request(paths, run_id) or {}
-        if (submitted.get('plan') or {}).get('git') == 'synthetic':
+        if submitted.get('git') == 'synthetic':
             durations['git'] = round(driver.synthetic_git(
-                instance.name, '/work', submitted.get('git_marks') or {},
+                instance.name, '/work', request.get('git_marks') or {},
                 'pandora %s' % row['input_id']), 2)
             marks = time.monotonic()
             note('synthetic git repository in %.1fs' % durations['git'])
@@ -268,7 +274,8 @@ def supervise(root, run_id, *, driver=None):
         limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
         ledger.update(run_id, cpus_hint=limits.cpus_hint)
         note(running_line(ledger, row, limits.cpus_hint))
-        result = driver.execute(instance, plan['argv'], env=env, cwd='/work',
+        result = driver.execute(instance, plan['argv'], env=env,
+                                cwd=remote_cwd(plan['cwd']),
                                 limits=limits, on_log=log_handle.write, on_tick=tick)
         durations['execute'] = round(result.seconds, 2)
         marks = time.monotonic()
@@ -433,6 +440,16 @@ def cpus_now(paths, ledger):
             return scheduler.cpus_hint(scheduler.lanes())
         finally:
             store.close()
+
+
+def remote_cwd(relative):
+    """Where a command runs in the instance: `/work`, plus the job's `run.cwd`.
+
+    The source is always injected at `/work`; `run.cwd` is the worktree-relative
+    directory the job declared it runs from, so the remote answer is `/work`
+    joined with it. The instance is the only place this string is used.
+    """
+    return '/work' if not relative or relative == '.' else '/work/' + relative.strip('/')
 
 
 def collect(driver, instance, outputs, into):

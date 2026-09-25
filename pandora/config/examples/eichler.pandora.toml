@@ -158,10 +158,10 @@ validate = { argv = ["node", "tools/validate.mjs", "plan", "check"], timeout_ms 
 # directly and never reaches `fingerprint`. notes/v0.2-check-profile-2026-09-22.md.
 git = "synthetic"
 run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
-# Turbo writes into its own cache while it runs, which is a tree change a
-# `drift = "fail"` machine would refuse. `warn` is the honest setting for a job
-# that edits nothing a verdict depends on.
-drift = "warn"
+# Turbo writes into its own cache while it runs, so a `drift = "fail"` machine
+# would refuse a fallback local run of this job. That is a machine setting --
+# `drift` on a remote job does nothing but warn, whose frozen snapshots
+# cannot drift.
 
 [[jobs]]
 id = "native-unit"
@@ -183,7 +183,6 @@ validate = { argv = ["node", "tools/validate.mjs", "plan", "native-unit"], timeo
 # `pnpm validate` fingerprints the tree through git, as for `check` above.
 git = "synthetic"
 run = { argv = ["pnpm", "validate", "native-unit"], env = { EICHLER_QUEUE = "direct" } }
-drift = "warn"
 
 # --- the local lane ---------------------------------------------------------
 #

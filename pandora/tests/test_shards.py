@@ -252,6 +252,8 @@ class WritingDriver:
         self.outcomes = {} if outcomes is None else outcomes
         self.current = None
         self.destroyed = []
+        self.limits = {}
+        self.cwds = {}
 
     def prepare(self, toolchain, source=None, log=print):
         return Golden(name='golden-x', fingerprint='x', snapshot='warm', reused=True)
@@ -269,6 +271,8 @@ class WritingDriver:
 
     def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
                 on_tick=None, reattach=False):
+        self.limits[instance.run_id] = limits
+        self.cwds[instance.run_id] = cwd
         if on_log:
             on_log('ran %s\n' % ' '.join(argv))
         outcome = self.outcomes.get(instance.run_id, 'ok')
@@ -327,12 +331,17 @@ class FanoutHarness(unittest.TestCase):
         # arithmetic under test is the shard arithmetic and not the host's.
         self.budget = os.environ.get('PANDORA_BUDGET_MIB')
         os.environ['PANDORA_BUDGET_MIB'] = '65536'
+        # The shard admit loop checks the pool floor; a Mac running the unit
+        # tests has no btrfs pool, so headroom is faked like the budget.
+        self.headroom, runner.disk_headroom = (runner.disk_headroom,
+                                               lambda paths, driver=None: {'ok': True})
         # The poll interval is a courtesy to a human watching a four-minute
         # shard, not a property of the fan-out. Tests do not need to wait it out.
         self.poll, fanout.POLL = fanout.POLL, 0.02
 
     def tearDown(self):
         runner.spawn = self.original
+        runner.disk_headroom = self.headroom
         fanout.POLL = self.poll
         if self.budget is None:
             os.environ.pop('PANDORA_BUDGET_MIB', None)
@@ -375,6 +384,9 @@ class FanoutHarness(unittest.TestCase):
         (attempt / 'shards.json').write_text(json.dumps(
             {'shards': self.config, 'args': list(args), 'want': want,
              'keep_going': keep_going}))
+        (attempt / 'request.json').write_text(json.dumps(
+            {'request_id': 'req', 'input_id': 'i', 'source_path': source_path,
+             'plan': {'repo': 'demo', 'job': 'surface', 'timeout_minutes': 45}}))
         self.ledger.update('p1', state='admitted', reservation_mib=0, ceiling_mib=0)
         return fanout.supervise_parent(self.root, 'p1', driver=self.driver)
 
@@ -437,6 +449,15 @@ class FanoutTest(FanoutHarness):
         self.assertEqual(result['outcome'], 'infra_failed')
         self.assertEqual(result['verification']['missing'], ['t3'])
         self.assertEqual(result['verification']['unexpected'], ['t9'])
+
+    def test_every_child_runs_with_the_requests_timeout(self):
+        # The plan's `timeout_minutes` lives in request.json, which a child
+        # inherits from its parent: the wall clock is 45 minutes everywhere.
+        self.arrange()
+        self.parent(want=2)
+        for run_id, _ in self.spawned:
+            self.assertEqual(self.driver.limits[run_id].wall_seconds, 2700,
+                             self.role_of(run_id)['role'])
 
     def test_a_failing_shard_makes_the_parent_fail_with_its_code(self):
         self.arrange()

@@ -438,8 +438,9 @@ class FanoutQueueLine(unittest.TestCase):
             paths = runner.Paths(tmp).ensure()
             ledger = Ledger(paths.ledger)
             os.environ['PANDORA_BUDGET_MIB'] = '4096'
-            saved = runner.spawn, fanout.POLL
+            saved = runner.spawn, runner.disk_headroom, fanout.POLL
             runner.spawn, fanout.POLL = (lambda root, run_id, python=None: 1), 0.01
+            runner.disk_headroom = lambda paths, driver=None: {'ok': True}
             try:
                 claim(ledger, request_id='big', run_id='big', size_class='large')
                 ledger.update('big', state='running', reservation_mib=4000)
@@ -451,7 +452,7 @@ class FanoutQueueLine(unittest.TestCase):
                                            deadline=time.monotonic() + 0.3)
                 self.assertEqual(said, ['shard 1/2 queued behind 1 run'])
             finally:
-                runner.spawn, fanout.POLL = saved
+                runner.spawn, runner.disk_headroom, fanout.POLL = saved
                 ledger.close()
 
 

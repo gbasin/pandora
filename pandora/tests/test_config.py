@@ -140,8 +140,33 @@ run = { argv = ["node", "other.mjs"] }
         self.assertIn('SIGTERM', str(caught.exception))
 
     def test_drift_belongs_to_the_job_when_the_job_says_so(self):
-        self.assertEqual(load_text(MINIMAL + '\ndrift = "off"\n')['jobs']['suite']['drift'], 'off')
+        local = MINIMAL + '\nwhere = "local"\ndrift = "off"\n'
+        self.assertEqual(load_text(local)['jobs']['suite']['drift'], 'off')
         self.assertIsNone(load_text(MINIMAL)['jobs']['suite']['drift'])
+
+    def test_drift_on_a_remote_job_warns_because_a_snapshot_cannot_drift(self):
+        # A remote run executes a frozen tree; the knob only exists in the
+        # local lane, so the key does nothing -- but live configs already set
+        # it, so the load warns rather than fails. A future release will
+        # refuse it. Should the job ever land in the local lane -- a fallback
+        # or PANDORA_WHERE=local -- the machine's [local] drift applies.
+        for spelling in ('warn', 'fail', 'off'):
+            with self.subTest(drift=spelling):
+                config = load_text(MINIMAL + '\ndrift = "%s"\n' % spelling)
+                self.assertEqual(config['jobs']['suite']['drift'], spelling)
+                self.assertEqual(len(config['warnings']), 1, config['warnings'])
+                self.assertIn('drift', config['warnings'][0])
+        self.assertEqual(load_text(MINIMAL)['warnings'], [])
+
+    def test_worker_workdir_is_not_a_run_knob(self):
+        base = 'base_image = "images:ubuntu/26.04"'
+        self.assertEqual(load_text(MINIMAL)['worker']['workdir'], '/work')
+        # The default spelled out claims nothing, so it still loads.
+        self.assertEqual(load_text(MINIMAL.replace(base, base + '\nworkdir = "/work"'))
+                         ['worker']['workdir'], '/work')
+        with self.assertRaises(ConfigError) as caught:
+            load_text(MINIMAL.replace(base, base + '\nworkdir = "/srv"'))
+        self.assertIn('workdir', str(caught.exception))
 
     def test_a_local_job_declares_evidence_not_artifacts(self):
         local = MINIMAL + '\nwhere = "local"\n'

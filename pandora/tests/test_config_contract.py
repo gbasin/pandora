@@ -202,6 +202,20 @@ class DaemonRefusesWhatItCannotRead(DaemonCase):
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.error['code'], 'passthrough')
 
+    def test_drift_on_a_remote_job_loads_and_warns_once(self):
+        # Live configs set `drift` on remote jobs; the key does nothing there,
+        # so the daemon says so once rather than refusing the file.
+        text = CONFIG % {'marker': self.marker}
+        (self.repo / 'pandora.toml').write_text(
+            text.replace('size = "small"', 'size = "small"\ndrift = "warn"', 1))
+        answer = self.call(['pnpm', 'unit'])
+        self.assertEqual(answer.exit, 0, answer.error)
+        drift = [line for line in answer.notices if 'drift' in line]
+        self.assertEqual(len(drift), 1, answer.notices)
+        self.assertIn('frozen snapshot', drift[0])
+        again = self.call(['pnpm', 'unit'])
+        self.assertFalse(any('drift' in line for line in again.notices), again.notices)
+
     def test_the_slow_path_claims_what_the_unreadable_file_claims(self):
         self.enroll()
         text = CONFIG % {'marker': self.marker}

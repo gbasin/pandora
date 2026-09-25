@@ -51,8 +51,8 @@ class Engine(unittest.TestCase):
             service.main(['--root', str(self.root), *argv])
         return json.loads(out.getvalue())
 
-    def submit(self, request_id, *, size='medium', job='suite', client=None):
-        plan = dict(PLAN, size=size, job=job, shards=None)
+    def submit(self, request_id, *, size='medium', job='suite', client=None, shards=None):
+        plan = dict(PLAN, size=size, job=job, shards=shards)
         request = {'request_id': request_id, 'input_id': 'input-a',
                    'source_path': str(self.source), 'plan': plan}
         if client:
@@ -185,6 +185,29 @@ class AFullWorkerQueues(Engine):
                                lambda paths, driver=None: {'ok': False, 'reason': 'low'}):
             refused = self.submit('a:suite')
         self.assertEqual(refused['code'], 'disk-floor')
+
+    SHARDS = {'strategy': 'argv', 'template': '--shard={i}/{n}',
+              'default': 2, 'max': 4, 'plan': None}
+
+    def test_a_fanned_run_is_refused_below_the_disk_floor_too(self):
+        # The parent reserves no memory, so the floor is the only check it can
+        # fail. Its shards check again as they are dispatched.
+        with mock.patch.object(runner, 'disk_headroom',
+                               lambda paths, driver=None: {'ok': False, 'reason': 'low'}):
+            refused = self.submit('a:suite', shards=self.SHARDS)
+        self.assertFalse(refused['ok'])
+        self.assertEqual(refused['code'], 'disk-floor')
+        self.assertEqual(self.spawned, [])
+        row = self.row(refused['run_id'])
+        self.assertEqual((row['state'], row['outcome']), ('finished', 'infra_failed'))
+        result = json.loads(self.paths.result(refused['run_id']).read_text())
+        self.assertEqual(result['evidence']['cause'], 'disk-floor')
+
+    def test_a_fanned_run_over_the_floor_is_admitted_as_before(self):
+        answer = self.submit('a:suite', shards=self.SHARDS)
+        self.assertTrue(answer['ok'])
+        self.assertTrue(answer['admission']['fanout'])
+        self.assertEqual(self.spawned, [answer['run_id']])
 
     def test_status_says_where_a_queued_row_stands(self):
         self.submit('a:suite', size='large')
@@ -319,6 +342,55 @@ class ReconcileKeepsTheQueue(Engine):
         self.assertEqual(after['state'], 'queued')
         self.assertEqual(after['queued_at'], before['queued_at'])
         self.assertEqual(self.waiters, [queued, queued])
+
+
+class ShardsWaitOnDisk(Engine):
+    """A shard below the disk floor waits for it, exactly as for memory."""
+
+    def shard(self):
+        from pandora.engine import fanout
+        ledger = self.ledger()
+        claim(ledger, request_id='p:shard:1', run_id='rshard', role='shard',
+              source_path=str(self.source))
+        return fanout, ledger, dict(ledger.get('rshard'))
+
+    def test_a_below_floor_shard_waits_and_says_so_without_spawning(self):
+        fanout, ledger, plan = self.shard()
+        notes = []
+        with mock.patch.object(runner, 'disk_headroom',
+                               lambda paths, driver=None:
+                               {'ok': False, 'reason': 'pool low'}):
+            with mock.patch.object(fanout.time, 'sleep', side_effect=StopIteration):
+                with self.assertRaises(StopIteration):
+                    fanout.admit_and_spawn(self.paths, ledger, 'rshard', plan,
+                                           note=notes.append, label='shard 1/2')
+        self.assertNotIn('rshard', self.spawned)
+        self.assertIsNotNone(ledger.get('rshard')['queued_at'])
+        self.assertEqual(notes, ['shard 1/2 waits on disk: pool low'])
+
+    def test_a_shard_that_never_sees_disk_times_out_with_the_floor_named(self):
+        fanout, ledger, plan = self.shard()
+        with mock.patch.object(runner, 'disk_headroom',
+                               lambda paths, driver=None:
+                               {'ok': False, 'reason': 'pool low'}):
+            with self.assertRaises(fanout.AdmissionTimeout) as caught:
+                fanout.admit_and_spawn(self.paths, ledger, 'rshard', plan,
+                                       note=lambda text: None,
+                                       deadline=time.monotonic() - 1)
+        self.assertIn('disk-floor', str(caught.exception))
+        self.assertNotIn('rshard', self.spawned)
+
+    def test_a_shard_admits_the_moment_the_floor_is_met_again(self):
+        fanout, ledger, plan = self.shard()
+        rooms = iter([{'ok': False, 'reason': 'pool low'}, {'ok': True}])
+        with mock.patch.object(runner, 'disk_headroom',
+                               lambda paths, driver=None: next(rooms)):
+            with mock.patch.object(fanout.time, 'sleep', lambda seconds: None):
+                verdict = fanout.admit_and_spawn(self.paths, ledger, 'rshard', plan,
+                                                 note=lambda text: None)
+        self.assertTrue(verdict['admitted'])
+        self.assertIn('rshard', self.spawned)
+        self.assertEqual(self.row('rshard')['state'], 'admitted')
 
 
 class ShardsStandInTheSameLine(Engine):

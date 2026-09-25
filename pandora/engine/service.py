@@ -138,6 +138,21 @@ def submit(args, paths, ledger, request):
         (paths.attempt(run_id) / 'toolchain.json').write_text(json.dumps(plan['worker']))
         (paths.attempt(run_id) / 'request.json').write_text(json.dumps(request, indent=1))
         paths.log(run_id).touch()
+        # Disk is admitted before memory and by a floor rather than a
+        # reservation, because nothing learns how much a run will write. A
+        # fan-out is refused here too: its parent reserves nothing, so the
+        # floor is the only thing standing between a submission and N shards
+        # the pool has no room for -- and each shard checks the floor again as
+        # it is dispatched (`fanout.admit_and_spawn`). A run already going is
+        # never touched by this; only the next one is refused.
+        room = runner.disk_headroom(paths)
+        if not room.get('ok'):
+            runner.write_result(paths, ledger, run_id, outcome='infra_failed',
+                                layer='engine', exit_code=None, peak_mib=0,
+                                durations={}, evidence={'capacity': room, 'cause': 'disk-floor'},
+                                receipt=None)
+            return emit({'ok': False, 'code': 'disk-floor', 'run_id': run_id,
+                         'capacity': room, 'engine': ENGINE_VERSION})
         if fanned:
             # A parent reserves nothing and occupies no lane: it runs no command
             # and holds no instance. Its children are admitted one at a time, by
@@ -158,17 +173,6 @@ def submit(args, paths, ledger, request):
                          'duplicate': False, 'same_input_as': row['same_input_as'],
                          'admission': verdict, 'supervisor_pid': pid,
                          'engine': ENGINE_VERSION})
-        # Disk is admitted before memory and by a floor rather than a
-        # reservation, because nothing learns how much a run will write. A run
-        # already going is never touched by this; only the next one is refused.
-        room = runner.disk_headroom(paths)
-        if not room.get('ok'):
-            runner.write_result(paths, ledger, run_id, outcome='infra_failed',
-                                layer='engine', exit_code=None, peak_mib=0,
-                                durations={}, evidence={'capacity': room, 'cause': 'disk-floor'},
-                                receipt=None)
-            return emit({'ok': False, 'code': 'disk-floor', 'run_id': run_id,
-                         'capacity': room, 'engine': ENGINE_VERSION})
         store = admission.Store(str(paths.peaks))
         try:
             scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths))
