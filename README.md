@@ -1,47 +1,51 @@
 # Pandora
 
-Several coding agents work in one repository on one Mac. Each works in its own
+Several coding agents work in one repository on one Mac. Each has its own
 worktree, and each runs the same heavy validation: type checks, test suites,
 browser journeys that boot a database and a stack. Nothing coordinates them.
-Ten agents means ten stacks, swap, and results nobody trusts.
+Ten agents can start ten stacks at once, and the machine swaps.
 
 Pandora is a scheduler for that machine. Agents keep typing the commands they
-type today. Pandora decides where each claimed command runs. A broad suite runs
-in a fresh Linux instance on a shared worker. A focused one runs in a
-memory-capped queue on the Mac. Either way, the results land back in the
-worktree before the command returns, with the command's own exit code.
+type today. The repository's `pandora.toml` says which of those commands
+Pandora routes and where each one runs: a fresh Linux instance on a shared
+worker for the broad suites, or a queue on the Mac with a shared memory budget
+for the focused ones. When a run completes, its declared results are in the
+worktree and the command exits with the run's own code.
 
 ## Mechanism
 
-* **Shim.** A POSIX `pnpm` shim sits first on PATH. It reads the worktree's
-  claim cache with shell builtins. A command the repository does not claim runs
-  unchanged through the real `pnpm`, as if Pandora were not installed.
-* **Daemon.** A claimed command goes to a per-user daemon on the Mac, over a
-  Unix socket. The daemon holds the local queue, the memory budget and the
-  record of every run.
-* **Claims.** The repository declares in `pandora.toml`, at its root, which
-  commands it owns and how to run them. Each worktree's claim cache is derived
-  from that worktree's own `pandora.toml`, or from the enrollment's `--config`
-  file when the root has none. The Mac declares where the worker is
-  in `~/.config/pandora/config.toml`.
-* **Placement.** Each job runs on the worker or in the daemon's local lane. The
-  job's declaration decides. `PANDORA_WHERE` moves one run to the other lane
-  when the job can run there, and refuses with exit 64 when it cannot.
-* **Worker.** A remote run is frozen, shipped into the worker's
-  content-addressed source cache, and admitted against the worker's memory
-  budget. It then runs in a fresh Incus system container cloned from the
-  repository's golden image. The golden holds the toolchain and the installed
-  dependencies, so a run starts from them. An optional `prepare_command` can
-  refresh dependencies in each run's clone.
-* **Write-back.** Declared reports and artifacts are in the worktree before the
-  command exits. An armed option, such as `--update`, may also rewrite declared
-  source files. On the worker it does so only after a passing run over a tree
-  nobody edited meanwhile. A run placed here with `PANDORA_WHERE=local` writes
-  in place.
-* **Exit codes.** The command exits with its own code. Pandora adds a few of
-  its own: 64 when the command cannot run as typed, 70 for an infrastructure
-  failure, 75 for busy or stale, 124 when `--max-wait` elapsed, and 130 for
-  canceled. None of them is a test verdict.
+What happens to `pnpm check`, with the eichler configuration as the example:
+
+1. A `pnpm` shim sits first on PATH. It reads the worktree's claim cache with
+   shell builtins. `check` is a claimed form, so the shim hands the command to
+   the per-user daemon over a Unix socket. A command the file does not claim
+   runs through the real `pnpm` with its arguments unchanged.
+2. The daemon matches the command to the `check` job in this worktree's
+   `pandora.toml`. The job declares `where = "remote"`. `PANDORA_WHERE=local`
+   or `PANDORA_WHERE=remote` overrides that for one run, and exits 64 when the
+   job cannot run there. The job's preflight, eichler's own planner asked to
+   plan rather than run, rejects a bad suite name in about 50 ms before
+   anything ships.
+3. For a remote job, the daemon snapshots the worktree's source, transfers it
+   to the worker's content-addressed cache, and asks the worker to admit it
+   against the worker's memory budget. A full worker queues the run and says
+   so on stderr.
+4. The worker runs the job's command in a fresh Incus system container cloned
+   from the repository's golden image, which holds the toolchain and the
+   installed dependencies. A local job instead waits for the daemon's memory
+   budget and runs on the Mac. That budget limits admission. It is not a hard
+   limit on each process.
+5. Output streams back while the run executes. Pandora's own lines go to
+   stderr with a `pandora:` prefix. The last one may be `pandora: hint: ...`,
+   the next action, derived from what the run measured.
+6. The declared reports and artifacts are copied into the worktree, then the
+   command exits with the run's own code. An option that rewrites source, such
+   as `--update`, writes its files back only after a passing run over a tree
+   that still matches the snapshot.
+
+Pandora adds five exit codes of its own. 64: the command cannot run as typed.
+70: infrastructure failure. 75: busy or stale. 124: `--max-wait` elapsed and
+the run continues. 130: canceled.
 
 ```mermaid
 flowchart LR
@@ -56,7 +60,7 @@ flowchart LR
     worker -- "output, results" --> home
 ```
 
-Pandora v0.2 is proved against one repository (eichler), one worker (4 vCPU,
+Pandora v0.2 has been tested with one repository (eichler), one worker (4 vCPU,
 15.6 GiB, x86_64 Ubuntu 26.04) and one Mac. Read
 [Operating limits](#operating-limits) before you rely on it.
 
@@ -256,7 +260,7 @@ The optional keys and their defaults:
 | `[local.pause]` | `enabled`, `sample_seconds`, `swap_growth_mib_per_minute`, `psi_full_avg10`, `free_percent`, `load_per_cpu`, `max_wait_seconds` | `true`, 3, 256, 20.0, 5.0, 8.0, 300 | The gate that stops new local jobs on a Mac under memory pressure. A job held past `max_wait_seconds` exits 70 and never runs. |
 
 `pandora/client/settings.py` documents every key. It also accepts `[worker]
-budget_mib` and `[client] max_wait_seconds`. Nothing reads them.
+budget_mib` and `[client] max_wait_seconds`, but neither setting affects behavior.
 
 ### 4. Start the daemon
 
@@ -312,8 +316,8 @@ as the worker half, is not a reason to restart.
 ### 5. Enroll each repository
 
 Enrolling is consent: it says that Pandora may route this repository on this
-Mac. It is not configuration. What is routed is each worktree's own
-`pandora.toml`, read again whenever it changes. Write the client configuration
+Mac. What is routed is each worktree's own `pandora.toml`, read again whenever
+it changes. Write the client configuration
 first, so the files enrollment writes point at the right socket. Then enroll
 the repository from any of its worktrees. Do this once per repository.
 
@@ -387,10 +391,10 @@ The repository rows:
 
 | Row | `ok` | Otherwise |
 |---|---|---|
-| `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the old marker enrolls it; run `pandora enroll <root>` once. |
-| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next command here refreshes it (the next claimed command, when only its digest shows it); or there is no cache yet, and the next command writes it. `info`: no cache yet, and the old marker routes this worktree until then. Never `fail`. |
+| `repository` | `pandora-repo` is in the Git common directory. | `fail`: not enrolled. `warn`: only the old marker enrolls it. Run `pandora enroll <root>` once. |
+| `claim cache` | This worktree's cache is fresh. | `warn`: the cache is stale for this worktree, and the next command here refreshes it (the next claimed command, when only its digest shows it). Or there is no cache yet, and the next command writes it. `info`: no cache yet, and the old marker routes this worktree until then. Never `fail`. |
 | `claim caches` | Always `info`: every worktree of the repository, counted as fresh, stale or without a cache. | |
-| `client home` | Not shown. | `info`: the file the shim reads still has a `home` line. It is ignored; the row says what rewrites the file without it. |
+| `client home` | Not shown. | `info`: the file the shim reads still has a `home` line. It is ignored. The row says what rewrites the file without it. |
 | `client socket` | Not shown. | `warn`: the cache routes to another socket than the one the doctor checked. |
 | `daemon enrollment` | The client configuration has a `[[repos]]` entry for the repository. | `fail`: it has none, so the daemon passes every command through. |
 
@@ -400,7 +404,7 @@ The version lines warn in these cases:
 |---|---|---|
 | `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into the checkout it upgrades or into a version directory. Replace any other link with one through `current`. |
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
-| `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first; else stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
+| `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first. Otherwise stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
 | `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
 | `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It drains the daemon, then restarts it. |
 | `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
@@ -467,7 +471,7 @@ from.
 |---|---|
 | 0 | The daemon runs the new version, or no daemon runs. |
 | 75 | `current` did not move. The drain ended without a restart: a run still blocked it after `--wait`, and the daemon admits runs again (if the drain could not be ended, upgrade says so and the daemon ends it within 30 s). Or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
-| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import; nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout; nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
+| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import. Nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout. Nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
 
 To go back, install a version that is still built:
 
@@ -516,7 +520,7 @@ This section covers restarts, a daemon that does not answer, and removal.
 
 ### Restart and drain
 
-You do not need a quiet moment. A restart drains the daemon first.
+A restart drains the daemon first, in three steps.
 
 ```sh
 pandora daemon --restart
@@ -565,14 +569,14 @@ the drain cannot be ended at the end of a failed wait, `--restart` says so and
 the lease ends it.
 
 `--restart` refuses before it drains when launchd does not run the daemon that
-holds `daemon.lock`: a kickstart would not reach that daemon. A socket that
-refuses connections while a daemon holds the lock is a daemon that does not
-answer, not a missing one: `--restart` exits 75 without `--now`.
+holds `daemon.lock`: a kickstart would not reach that daemon. When a daemon
+holds the lock but its socket refuses connections, `--restart` treats it as a
+daemon that does not answer and exits 75 without `--now`.
 
 What a client sees during the drain and the restart:
 
-* A new claimed command prints `pandora: daemon is restarting; waiting` once.
-  Nothing has run. It asks again every 2 seconds and is submitted as usual
+* A new claimed command prints `pandora: daemon is restarting; waiting` once,
+  before anything runs. It asks again every 2 seconds and is submitted as usual
   when the new daemon answers.
 * A local run that was still queued is withdrawn and submitted again in the
   same way. It loses its place in the queue.
@@ -607,7 +611,7 @@ What a restart does to each run:
 | Run | After the restart |
 |---|---|
 | Remote, accepted | Continues on the worker. The next daemon follows it from its recorded log offset. `pandora wait <id>` re-attaches. |
-| Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`; rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
+| Remote, not yet accepted | The drain waits for it. With `--now` after the wait, or with a daemon killed some other way: still freezing or shipping, it ends `infra_failed`, exit 70, without asking the worker. Rerun it. Otherwise the next daemon asks the worker for it by request id. A run the worker started is followed, except a write-back run, which is stopped there and ends `infra_failed`. A run the worker never saw or refused ends `infra_failed`. Rerun it. A run the worker cannot account for, or a worker that cannot be asked, ends `infra_failed` with "check `pandora ps` before retrying". |
 | Local, executing | The drain waits for it to finish. With `--now` after the wait: it ends `infra_failed`, exit 70, and its process tree is stopped, by the stopping daemon itself before it exits. The next daemon sweeps any row its predecessor did not get to. Rerun it. |
 | Local, queued | Ends `withdrawn` when the drain starts. Its client submits it again to the next daemon. |
 | A claimed command typed during the drain or the 1-2 s without a daemon | Waits for the new daemon, then runs as usual. A daemon stopped without a drain gets the 5 s wait, then exit 70 (see [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)). |
@@ -623,11 +627,11 @@ refuses it, takes one of three paths, in this order:
 
 1. A fresh `<state>/draining` marker: a restart is in progress. The command
    waits for the new daemon, up to `PANDORA_DRAIN_WAIT`, then exits 75 with
-   "did not come back". Nothing runs.
+   "did not come back" without running the command.
 2. No fresh marker, and the client configuration, `~/.config/pandora/config.toml`,
    exists: the daemon was installed on this Mac. The command waits up to five
-   seconds, which covers a restart without a drain. Then it exits 70 and prints
-   ``pandora: hint: run `pandora doctor` ``. Nothing runs.
+   seconds, which covers a restart without a drain. Then it exits 70 without running
+   the command and prints ``pandora: hint: run `pandora doctor` ``.
 3. No fresh marker and no client configuration: Pandora was never installed
    here. A claimed command in an enrolled clone runs here as if Pandora were
    not installed, with one notice and a row in `<state>/passthrough.jsonl`.
@@ -655,8 +659,9 @@ worktree's `pandora.toml`, whenever it classifies a command from that worktree.
 The shim reads it with shell builtins and forks nothing. A worktree on a branch
 with a different `pandora.toml` routes by its own file.
 
-The cache is a cache of `pandora.toml` and checks itself. You do not enroll
-again after a change to the file. The shim compares dates: a cache older than
+The cache derives from `pandora.toml`, and the shim checks it against the
+files it came from. You do not enroll again after a change to the file. The
+shim compares dates: a cache older than
 the worktree's `pandora.toml`, the `--config` file it came from, or the client
 configuration is stale. On a stale or missing cache the shim starts Python
 once. The daemon rewrites the cache and says whether the command is claimed.
@@ -728,9 +733,9 @@ aliases for one release. Each prints a one-line deprecation notice on stderr and
 
 ## The worker
 
-A worker is a disposable Linux machine. Nothing a run needs exists only there:
-the source cache is a cache, and each golden rebuilds from its toolchain
-description. The ledger, the learned size classes and the attempt directories
+A worker is a disposable Linux machine. Pandora can repopulate the source
+cache from worktrees, and each golden rebuilds from its toolchain description.
+The ledger, the learned size classes and the attempt directories
 are history. A rebuild starts them empty. Rebuild a worker rather than
 repair it. [`docs/worker-rebuild.md`](docs/worker-rebuild.md) is the full
 procedure, with cut-over and upgrade cadence.
@@ -823,18 +828,18 @@ package or kernel that differs from what the canary ran on reads `drifted`, not
 ### Sharing a worker
 
 Several Macs, each with its own client daemon and its own user, can share one
-worker and one `engine_root`. Each daemon names itself to the engine with every
+worker and one `engine_root`. Each daemon sends its client name with every
 submission: `[client] name`, or `user@host` by default (`gary@studio`). The
-engine records the name on the run's ledger row and in its result, and a
+worker records the name on the run's ledger row and in its result, and a
 shard's row carries its parent's name.
 
 What holds between clients:
 
-* Runs never collide. Every attempt has its own row, directory, log, result and
-  instance, even when two Macs submit the same tree at the same moment. The
+* Every attempt has its own row, directory, log, result and instance, even
+  when two Macs submit the same tree at the same moment. The
   source cache and the turbo cache are content-addressed and written by
   temporary file and rename, so two writers of one entry leave one whole entry.
-* A request id held by one client is never attached to by another. The engine
+* A request id held by one client is never attached to by another. The worker
   refuses the second submission as `request-collision`, and nothing starts.
 * One memory budget covers every client's runs. Admission counts them all.
 * `cancel`, `lookup` and the automatic retry act only on the calling client's
@@ -895,16 +900,17 @@ The other worker verbs:
 |---|---|
 | `pandora worker goldens` | Each golden: repository, referenced and exclusive bytes, pinned or not, last use. |
 | `pandora worker pins --toolchain F [--source D]` | Resolve a toolchain to its base-image fingerprint, lockfile digest and registry manifest digests. |
-| `pandora worker reconcile` | Adopt or fail runs whose supervisor is gone after an engine restart. |
+| `pandora worker reconcile` | Adopt or fail runs whose supervisor is gone after the worker service restarts. |
 | `pandora worker retain` | Delete old attempt directories and unreferenced source snapshots. |
-| `pandora worker stats` | The engine's scheduler picture and outcome counts. |
+| `pandora worker stats` | The worker's scheduler picture and outcome counts. |
 | `pandora cache stats`, `pandora cache clear [--repo R]` | The worker's turbo remote cache, served on the runs' bridge. |
 
 `--json`, like `--host`, goes before the verb: `pandora worker --json status`.
 
 ## The repository side
 
-A repository declares its routed boundary in `pandora.toml` at its root. The
+A repository declares which commands Pandora routes in `pandora.toml` at its
+root. The
 loader looks there first, and uses the enrollment's `--config` path only when
 the root has none. The schema is closed: an unknown key is refused with the
 allowed set printed.
@@ -933,10 +939,11 @@ legal, how a suite is cut into shards, and what it writes. Pandora reads the
 command line only as far as the job declares: the claimed prefix, the declared
 options and value flags, and the `args` and `reject` rules.
 
-Pandora owns placement, the snapshot, admission and delivery. It decides which
-lane runs a command, freezes the worktree into a manifest, ships it into a
+Pandora owns placement, the snapshot, admission and delivery. It decides where a
+command runs, freezes the worktree into a manifest, ships it into a
 content-addressed source cache, admits the run against a memory budget, clones
-an instance, streams the output, brings the declared paths home, and exits with
+an instance, streams the output, copies the declared paths into the worktree,
+and exits with
 the command's code.
 
 Sharding has two tiers. A tier-1 job appends a shard flag and runs N instances.
@@ -951,11 +958,11 @@ equal the planned partition exactly.
 |---|---|
 | `version` | `1`. |
 | `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. |
-| `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`); `subdirectory = "reroot"`, `"reject"` or `"passthrough"`: what a claimed command typed below the worktree root does. `reroot` runs it from the root unless an argument names a path, then exits 64. `reject` refuses it. `passthrough` claims it only at the root, so below it the command runs unchanged, like an unclaimed one, decided in the shim with no fork. Use it when bare root forms (`test`, `build`) mean a package's own script in a subdirectory. |
+| `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`). `subdirectory = "reroot"`, `"reject"` or `"passthrough"`: what a claimed command typed below the worktree root does. `reroot` runs it from the root unless an argument names a path, then exits 64. `reject` refuses it. `passthrough` claims it only at the root, so below it the command runs unchanged, like an unclaimed one, decided in the shim with no fork. Use it when bare root forms (`test`, `build`) mean a package's own script in a subdirectory. |
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
-| `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`; `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
+| `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`. `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
-| `[worker]` | Golden toolchain: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `prepare_command` is an optional per-run hook described below; it does not change the golden fingerprint. |
+| `[worker]` | Golden toolchain: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `prepare_command` is an optional per-run hook described below. It does not change the golden fingerprint. |
 | `[fallback]` | Optional repository-wide fallback. Eichler declares none on purpose. |
 | `[[jobs]]` | One entry per routed job. |
 
@@ -993,16 +1000,16 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `where` | `remote` (default) or `local`. Local is the daemon's own lane: the same queue, admission, receipt and exit contract, on the Mac. |
 | `size` | `small`, `medium` (default), `large` or `xlarge`: memory ceilings of 1, 4, 8 and 12 GiB. The declared size is the starting class. On the worker, after 3 clean runs under the current declaration, the class becomes the one that p95 of those peaks times 1.25 fits, up or down, and never one whose ceiling is below the newest peak times 1.25. A fan-out's plan step and its shards learn separately. That class sets both the reservation and the ceiling, which is the hard cap. An `oom` resets the class to the declared one, and learning starts again after 3 more clean runs. A change prints `pandora: size for <job>: <old> -> <new> (p95 N MiB over K runs)`, and `pandora result --json` records `size_declared` and `size_used`. A changed `size` restarts learning from the new value. The declared size also decides fallback. |
 | `args` | `none` (default), `required` or `optional`. `on_extra = { action = "local" }` lets extra arguments fall out of the claim instead of being refused. |
-| `validate` | `{ argv, timeout_ms }`: the repository's own pre-flight check, run in the worktree before anything is frozen or queued. Exit 0 means "I would run this"; anything else is the repository's refusal, shown as is. |
+| `validate` | `{ argv, timeout_ms }`: the repository's own pre-flight check, run in the worktree before anything is frozen or queued. Exit 0 means "I would run this". Anything else is the repository's refusal, shown as is. |
 | `run` | `{ argv, env, unset, cwd }`: the command. `{args}` places the caller's arguments. |
-| `outputs` | `artifacts` (remote paths brought home), `writeback` (files an armed option may rewrite; see below), `evidence` (local jobs only: paths the receipt records as present or absent). |
+| `outputs` | `artifacts` (remote paths brought home), `writeback` (files an armed option may rewrite, described below), `evidence` (local jobs only: paths the receipt records as present or absent). |
 | `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Eichler's `--update` is one. |
 | `value_flags` | Flags whose value is not a path, so the subdirectory rule does not check it. |
 | `shards` | `strategy` (`argv` or `env`), `template` (`--shard={i}/{n}`), `default`, `max`, and for tier 2 `plan`, `expect_flag`, `report`, `plan_outputs`. Every shard also gets `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`. Remote only. |
 | `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. It does not take its worktree's `one_active_per_worktree` slot, so other local jobs still run there while it lives. |
 | `reject` | `[{ args, message }]`: arguments the job refuses, with the reason. |
 | `reject_if_set` | Environment variables that make the job refuse. |
-| `drift` | `off`, `warn` or `fail` for a local run whose worktree changed meanwhile. Use `off` for `small` jobs; freezing a 4,900-file worktree twice costs more than they do. |
+| `drift` | `off`, `warn` or `fail` for a local run whose worktree changed meanwhile. Use `off` for `small` jobs. Freezing a 4,900-file worktree twice costs more than they do. |
 | `cancel` | `{ signal, grace_ms }`: `SIGINT`, `SIGTERM` (default), `SIGHUP` or `SIGQUIT`, then SIGKILL after the grace (default 15,000 ms). |
 | `fallback` | `local` or `refuse`. Undeclared means the size class decides. |
 | `git` | `none` (default) or `synthetic`: the worker builds a one-commit repository over the tree, indexed as this worktree's tracked set, for suites that ask git what is tracked or changed. About 3 s per run. Remote only. |
@@ -1013,7 +1020,7 @@ A write-back path may glob only its last component, below a directory:
 
 ## What agents type
 
-Nothing new. An agent keeps typing the commands it types today, from the
+An agent keeps typing the commands it types today, from the
 repository root. [`docs/agents-paragraphs.md`](docs/agents-paragraphs.md) holds
 the paragraphs a repository may copy into its own agent instructions.
 
@@ -1031,13 +1038,13 @@ out:
   refuses every routed command. `passthrough` claims nothing there, so the
   command runs as if Pandora were not installed.
 * Exit codes that are not the command's own:
-  * 70: infrastructure failure, never a test verdict. It includes a daemon
+  * 70: infrastructure failure. It includes a daemon
     installed here that does not answer within 5 s. In that case nothing ran,
     and the next step is `pandora doctor`.
   * 75: busy or stale.
   * 124: `--max-wait` elapsed, and the run was not stopped.
   * 130: canceled.
-* `--update` runs on the worker, never here, unless `PANDORA_WHERE=local`
+* `--update` runs on the worker unless `PANDORA_WHERE=local`
   places it here, where it writes in place. On the worker, its files come back
   only from a passing run (every shard) over a tree you did not edit meanwhile.
   Otherwise it exits 75, with your files untouched, and the next step printed.
@@ -1057,8 +1064,8 @@ out:
 |---|---|---|
 | the command's own | The command's verdict. | As without Pandora. |
 | 64 | The command cannot run as typed: a path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
-| 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry; do not bypass it. |
-| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or a restart did not finish within `PANDORA_DRAIN_WAIT`; nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
+| 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry. Do not bypass it. |
+| 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or a restart did not finish within `PANDORA_DRAIN_WAIT`, and nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 | 130 | Canceled. | Nothing. |
 
@@ -1066,11 +1073,11 @@ out:
 
 | Variable | Effect |
 |---|---|
-| `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`; `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
-| `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back; if the worker cannot take it, the exit is 70. |
+| `PANDORA_OFF=1` | The shim execs the real pnpm: no queue, no memory gate, no receipt. On a claimed command in an enrolled repository it first starts the passthrough logger, which runs the real pnpm and appends one row to `<state>/passthrough.jsonl`. `pandora stats` counts it as bypassed with `PANDORA_OFF`. A last resort, for a job the local lane cannot run (a sharded suite) or to debug a routed failure. Never use it to skip the queue or after a memory-pressure refusal. |
+| `PANDORA_WHERE=local` or `remote` | Place this one run. It keeps its queue, receipt and exit code. Exit 64 if the job cannot run there. An explicit `remote` never falls back. If the worker cannot take it, the exit is 70. |
 | `PANDORA_SHARDS=N` | Shard count for this run of a sharded job, clamped to the job's `max` and to free lanes. |
-| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 660. Then it exits 75; nothing ran. |
-| `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own; the client runs none. |
+| `PANDORA_DRAIN_WAIT=S` | How long a command waits for a daemon restart, in seconds. Default 660. Then it exits 75, and nothing ran. |
+| `PANDORA_SESSION=<id>` | Names the session that submitted the run. The run records it as `submitter`. Without it, `CLAUDE_CODE_SESSION_ID` (Claude Code) or `CODEX_COMPANION_SESSION_ID` (the Codex plugin) is used. Without any of them, the daemon records the top interactive process above the caller, as `name:pid`, from the socket's peer pid and one `ps` of its own. The client runs none. |
 
 `PANDORA_*` variables are read by the outermost shim and never reach the run.
 
@@ -1078,11 +1085,11 @@ out:
 
 | Command | What it does |
 |---|---|
-| `pandora ps [--json] [--limit N]` | Every active run and the latest 20 completed runs. `--limit` selects 0–200 completed runs, for both text and JSON. Worker health includes the client name and other clients' live counts; pressure includes the sample age. While a restart drains, `daemon: draining` comes first. A remote run not yet accepted shows `freezing`, `shipping`, `submitting` or `queued #N` (its place in the worker queue; JSON has it as `queue`). JSON includes each run's `submitter` and `client`. |
-| `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70; a wait never hangs on it. |
+| `pandora ps [--json] [--limit N]` | Every active run and the latest 20 completed runs. `--limit` selects 0–200 completed runs, for both text and JSON. Worker health includes the client name and other clients' live counts. Pressure includes the sample age. While a restart drains, `daemon: draining` comes first. A remote run not yet accepted shows `freezing`, `shipping`, `submitting` or `queued #N` (its place in the worker queue, `queue` in JSON). JSON includes each run's `submitter` and `client`. |
+| `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70. A wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
 | `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
-| `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A run in the worker queue is withdrawn; nothing ran. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
+| `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A run in the worker queue is withdrawn, and nothing ran. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
 | `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, how long runs waited in the worker queue (p50, p95) and how many ended `queue-timeout`, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
@@ -1126,25 +1133,25 @@ the runs admitted when it starts. A runner can use it for its own parallelism.
 
 ### Fallback
 
-`accepted` is the line the design hangs on. The daemon sends it only after the
-engine has admitted and named the run. Before it, the command provably has not
-run anywhere, so it may run here instead. After it, the command never runs
-here. `decide()` in `pandora/client/fallback.py` answers whether it should.
+The daemon sends `accepted` only after the worker has admitted and named the
+run. Before `accepted`, the command may run here instead, but only once the
+daemon knows the worker has not started it. After `accepted`, the command never
+runs here. `decide()` in `pandora/client/fallback.py` answers whether it should.
 
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
-| `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` (any other engine refusal, such as the disk floor) | local lane | refuse, 70 | refuse, 70 |
-| the worker is full (memory or slots) | queues on the worker; 70 after the bound (`queue-timeout`) | queues; 70 after the bound | queues; 70 after the bound |
+| `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` (any other worker refusal, such as the disk floor) | local lane | refuse, 70 | refuse, 70 |
+| the worker is full (memory or slots) | queues on the worker, 70 after the bound (`queue-timeout`) | queues, 70 after the bound | queues, 70 after the bound |
 | `admission-refused`: the reservation is larger than the worker's whole budget | refuse, 70 | refuse, 70 | refuse, 70 |
 | `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
 | `daemon-unreachable`, never installed here (no client configuration) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
-| the `submit` call fails and the engine cannot then be asked whether it started the run | 70 | 70 | 70 |
+| the `submit` call fails and the worker cannot then be asked whether it started the run | 70 | 70 | 70 |
 | any failure after `accepted` | 70 | 70 | 70 |
 
-A failed `submit` call is not a refusal: the engine may have started the run
-and lost only the reply. The daemon asks the engine once, by request id. A run
-the engine started is attached to as if `accepted` had arrived. A request the
-engine never saw is fenced, so a late copy cannot start, and falls back as
+A failed `submit` call is not a refusal: the worker may have started the run
+and lost only the reply. The daemon asks the worker once, by request id. A run
+the worker started is attached to as if `accepted` had arrived. A request the
+worker never received is fenced, so a late copy cannot start, and falls back as
 above. A worker that cannot be asked ends the run with exit 70 and the message
 "execution is uncertain; check `pandora ps` before retrying".
 
@@ -1161,10 +1168,9 @@ bypass it.
 
 ### Queueing
 
-A full worker queues a run. It does not refuse it. When the worker's memory or
-its run slots (8 at once) are full, the run waits in the worker's queue
-before `accepted`. The
-caller sees `pandora: queued on the worker behind 3 runs (position 2), ~4m10s;
+When the worker's memory or its run slots (8 at once) are full, the worker
+queues the run, and it waits there before `accepted`. The caller sees
+`pandora: queued on the worker behind 3 runs (position 2), ~4m10s;
 gives up after 10m00s`, then at most once a minute `still queued behind N
 (position P)`. The heartbeat continues under the wait, so the client does not
 time out. There is one queue for every client, every job and every shard, in
@@ -1196,14 +1202,14 @@ deletes.
 
 | Case | Written | Exit |
 |---|---|---|
-| Run passed; every changed declared file is still as frozen here | The worker's version of each | 0 |
-| Run passed; changed nothing declared | Nothing | 0 |
+| Run passed, and every changed declared file is still as frozen here | The worker's version of each | 0 |
+| Run passed and changed nothing declared | Nothing | 0 |
 | A declared file the run changed was edited here during the run | Nothing | 75, with `pandora resolve <id> --keep-local` or `--take-worker` |
 | A declared file absent at freeze was created by the run and is still absent here | The new file | 0 |
 | The same, but a file now exists here at that path | Nothing | 75, as a conflict |
 | A declared file present at freeze is absent after the run | Nothing | 70 |
 | A local file is already byte-equal to the proposal | Skipped for that file | 0 |
-| Stale: any file outside the declared paths changed during the run | Nothing | 75; re-run with `--update` |
+| Stale: any file outside the declared paths changed during the run | Nothing | 75. Re-run with `--update` |
 | A shard failed, was never dispatched, filed no report, or the partition is unverified | Nothing from any shard | The command's own non-zero, or 70 |
 | Two shards changed one declared file differently | Nothing | 75 |
 | Two shards changed disjoint top-level keys of one JSON object | The merged file | 0 |
@@ -1230,26 +1236,26 @@ runs locally.
 | `execution-failed` | yes | The host could not start or feed the command. |
 | `supervisor-gone` | yes | Says nothing about the input. |
 | `prepare-failed` | no | A golden that failed to build fails again, at minutes a try. |
-| `prepare-command-failed` | no | The transferred source preparation exited nonzero; the job did not start. |
+| `prepare-command-failed` | no | The transferred source preparation exited nonzero. The job did not start. |
 | `prepare-command-execution-failed` | no | The worker could not supervise the source preparation. |
 | `disk-quota` | no | The same quota refuses again. |
 | `destroy-incomplete` | no | The command reached a verdict. |
-| `partition-unverified` | no | The shards ran; their reports will not change. |
+| `partition-unverified` | no | The shards ran. Their reports will not change. |
 | `shard-failed` | no | The shard already had its own retry. |
 | `admission-timeout` | no | A retry joins the same full queue. |
-| `queue-timeout` | no | The worker queue did not admit it within its bound; a retry joins the same queue. |
+| `queue-timeout` | no | The worker queue did not admit it within its bound. A retry joins the same queue. |
 | `engine-error` | no | An unrecognized failure is not retried. |
 | `worker-lost` | no | The run may still be executing. |
 
 `oom`, `timed_out`, `cancelled` and `command_failed` are verdicts and are never
 retried. A run that failed and then passed on the same input, argv, environment
-and cwd is recorded as a flaky pair, per shard for fan-outs. Nothing re-runs.
-The hint and `pandora stats` report it.
+and cwd is recorded as a flaky pair, per shard for fan-outs.
+Recording a flaky pair does not trigger another run. The hint and `pandora
+stats` report it.
 
 ### Placement override refusals
 
-Every refusal is exit 64, before the validator, the freeze and the queue.
-Nothing runs.
+Every refusal exits 64 before the validator, the freeze or the queue.
 
 | Job | Override | Result |
 |---|---|---|
@@ -1281,8 +1287,8 @@ numbers were taken under that load. They are not a quiet-machine baseline.
 
 A warm remote `check` spends about 1.4 s before `accepted`, 0.35 s on clone and
 start, 0.8 s on injection, 3.1 s on the synthetic Git repository, 11-12 s in
-eichler's own uncached checks, and 1 s on destroy. Four shards on four vCPU is
-where sharding stops paying.
+eichler's own uncached checks, and 1 s on destroy. On four vCPU, one, two
+and four shards were measured, and four was the best of those.
 
 Sizes that matter:
 
@@ -1295,7 +1301,7 @@ Sizes that matter:
 * Journeys peak at 3-4.5 GiB. Surface shards peak at about 2.5 GiB.
 * The source cache grows with every fresh worktree, because `--link-dest`
   deduplicates only on equal mtimes. Before it was collected, it grew from 1.2
-  to 2.3 GiB in one afternoon. The engine now deletes a snapshot that no live
+  to 2.3 GiB in one afternoon. The worker now deletes a snapshot that no live
   run needs, that is not the `latest` link-dest base, and that is older than
   an hour. It keeps the newest 4 such snapshots per repository. It runs this
   collection at most every 5 minutes on the health poll, and `pandora worker
@@ -1328,22 +1334,22 @@ Known caveats:
 
 | Path | What it is |
 |---|---|
-| `bin/pandora`, `bin/pnpm` | The two POSIX launchers. `pnpm` is the shim; its non-enrolled and fresh-cache paths fork nothing. |
+| `bin/pandora`, `bin/pnpm` | The two POSIX launchers. `pnpm` is the shim. Its non-enrolled and fresh-cache paths fork nothing. |
 | `pandora/cli.py`, `errors.py`, `exits.py` | The one `pandora` command, the typed exceptions and the exit table. |
 | `pandora/client/` | Runs on the Mac: the daemon, the shim client, enrollment, the local lane, fallback, placement, write-back settlement, health, stats, hints, `doctor`, `upgrade` (`install.py`). |
 | `pandora/config/` | Runs on the Mac: the `pandora.toml` loader and the argv classifier. |
 | `pandora/snapshot/` | Runs on the Mac: the manifest freeze and the transfer into the worker's source cache. |
 | `pandora/engine/` | Runs on the worker: the ledger, admission, scheduler, per-run supervisor, fan-out, retry, write-back proposal and turbo cache server. |
 | `pandora/executor/` | Runs on the worker: the Incus driver and its memory watchdog. |
-| `pandora/worker/` | Both halves: `provision`, `versions`, `remote` and `cli` run on the Mac; `service`, `canary`, `gc`, `goldens`, `facts` and `pins` run on the worker. |
+| `pandora/worker/` | Both halves: `provision`, `versions`, `remote` and `cli` run on the Mac. `service`, `canary`, `gc`, `goldens`, `facts` and `pins` run on the worker. |
 | `pandora/tests/` | `python3 -m unittest discover -s pandora`. |
 | `scripts/versions.toml` | The worker's package pins. |
 | `docs/` | The paragraphs a repository may copy into its agent instructions, and the worker rebuild procedure. |
 | `notes/` | Dated measurement and decision logs. The `v0.2-*` notes are the evidence for this README. |
 | `experiments/` | Retained prototypes and the v0.1 runtime. Nothing in v0.2 imports from them. |
 
-The client ships the worker half as a content-addressed engine bundle over SSH
-on first use, from the version the daemon or the `pandora worker` verb runs. A
+The client ships the worker half as a content-addressed bundle of worker code over
+SSH on first use, from the version the daemon or the `pandora worker` verb runs. A
 new version reaches the worker's runner on the first run after the daemon
 restarts into it. The turbo cache server keeps the bundle it started with until
 its unit restarts. `provision` restarts it when the unit file changes.

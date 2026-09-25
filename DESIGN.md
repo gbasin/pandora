@@ -2,7 +2,7 @@
 
 Design status: SSH pilot implemented and initially evaluated, 2026-09-19.
 See [README.md](README.md) for current behavior, evidence, and remaining gaps.
-The earlier v2 architecture remains in Git history at `0621e3f`; local POC notes
+The earlier v2 architecture remains in Git history at `0621e3f`. Local POC notes
 remain under `tmp/poc/`. Those probes do not establish an integrated system.
 
 ## Relationship to v0.1
@@ -33,8 +33,8 @@ terminals retain their current behavior. No tracked changes or permanent hooks
 are required in Eichler or another target repo. Pandora owns the experiment,
 profiles, launcher, telemetry, and evaluation artifacts.
 
-Pandora is not a commitment to a custom execution platform. Use existing tools
-first. Do not implement the previous daemon, Docker API proxy, generation
+Use existing tools for the MVP, and defer any decision about a custom
+execution platform. Do not implement the previous daemon, Docker API proxy, generation
 manager, or learned scheduler for this MVP.
 
 ## First workload
@@ -63,7 +63,7 @@ Evaluate three treatments against the same backend and workload:
 
 | Treatment | Behavior | Question |
 | --- | --- | --- |
-| Normal commands | Route normal entries; observe direct local launches | Are familiar entry points sufficient? |
+| Normal commands | Route normal entries and observe direct local launches | Are familiar entry points sufficient? |
 | Block bypasses | Reject recognized direct heavy launches with an exact supported alternative | Do agents recover or loop around the restriction? |
 | Redirect bypasses | Redirect a bounded set of recognized direct invocations | Does automation help without changing meaning? |
 
@@ -107,18 +107,18 @@ experimental results. No merge/deployment behavior changes.
 
 ## Queue, cancellation, and debugging
 
-One Linux VM has fixed execution slots. Start with one; admit a second only after
+One Linux VM has fixed execution slots. Start with one. Admit a second only after
 measuring a run's memory and establishing a host reserve. Apply CPU/RAM ceilings.
 Excess requests queue. Never automatically burst to paid capacity or run locally
 because the remote is busy or unavailable.
 
 Normal invocation blocks with concise accepted/queued/running/terminal feedback.
-The agent may wait; it need not invent other work. Quiet stdout is not failure.
+The agent may wait. It need not invent other work. Quiet stdout is not failure.
 An equivalent active request from the same worktree and local state directory reconnects or
 reports the existing job. A changed request while one is queued reports that
-fact; it does not submit or replace automatically. A deliberate rerun after a
+fact. It does not submit or replace automatically. A deliberate rerun after a
 terminal result creates a new attempt. Preserve identity through ambiguous
-network acknowledgments. This is duplicate prevention, not result caching.
+network acknowledgments. Completed results are not reused for new requests.
 
 Explicit cancellation stops the owned workload and verifies cleanup. A tool
 yield with a continuing handle is not cancellation. Abrupt client loss is a
@@ -141,7 +141,7 @@ must enter reproducible repository setup before clean final validation.
 
 | Path | Existing capabilities | Integration gap |
 | --- | --- | --- |
-| Crabbox with owned SSH worker | Dirty sync, execution, logs, explicit artifacts | Static SSH is direct-only; shared-host queue/isolation and client-loss behavior |
+| Crabbox with owned SSH worker | Dirty sync, execution, logs, explicit artifacts | Static SSH is direct-only. Shared-host queue/isolation and client-loss behavior |
 | GitHub Actions with owned runner | Familiar control plane, queue, run IDs, artifacts | Dirty-source submission, local wrapper, disposable bounded execution |
 | Buildkite Preflight with owned agent | Dirty snapshot commits, submission, agent-facing watcher | Experimental CLI, new account/setup, isolation and local result handling |
 
@@ -149,7 +149,7 @@ The selected first path is the small SSH harness, as requested for the initial
 agent trial. It provides frozen-source submission, warm dependencies, a one-slot
 worker lock, bounded containers, streamed logs, and artifact return. The launcher
 routes selected normal commands without changing the target repository. This
-choice evaluates routing, waiting, and cancellation; it does not evaluate a CI
+choice evaluates routing, waiting, and cancellation. It does not evaluate a CI
 control plane.
 
 GitHub Actions with owned runners, Crabbox, and Buildkite remain alternatives.
@@ -178,12 +178,12 @@ Scripted cases precede live agents:
 Then run informed agents followed by fresh agents with ordinary validation
 instructions and no backend tutorial. Remote/queue status remains truthful in
 both stages. Compare all three routing treatments with matched prompts and
-reset fault conditions; rotate order to reduce learning and cache confounders.
+reset fault conditions. Rotate order to reduce learning and cache confounders.
 
 Start with two local agents, then four. Escalate toward twelve only after local
 headroom, subscription capacity, budget, and earlier results permit it. Keep the
 remote slot count small to force queueing. Observe direct local bypasses only
-within a conservative trial window; stop owned trial processes if they threaten
+within a conservative trial window. Stop owned trial processes if they threaten
 host headroom and record the intervention as a failure. Never kill unrelated
 work. Evaluate subscribed Claude and Codex CLIs separately before aggregating.
 
@@ -192,7 +192,7 @@ work. Evaluate subscribed Claude and Codex CLIs separately before aggregating.
 Persist timestamped acceptance, queue, execution, cancellation, cleanup, and
 result events linked to session, worktree, request, source, and run IDs. Observe
 owned child processes after the waiting CLI exits. Record host memory pressure
-and job usage over time; elapsed duration is not CPU time, summed RSS is not
+and job usage over time. Elapsed duration is not CPU time, summed RSS is not
 physical memory, and overlapping durations are not host busy time.
 
 Hard failures are wrong-source results, cross-job interference, false success,
@@ -206,9 +206,9 @@ remote memory peaks, cold/warm behavior, cost, and maintenance burden. Do not
 hide correctness failures inside a weighted score.
 
 Choose the simplest treatment with correct outcomes and autonomous recovery in
-the tested cases. Report sample counts and limitations; a small pilot cannot
-establish a production failure rate. Preserve failures as evidence, not just
-successful demonstrations.
+the tested cases. Report sample counts and limitations. A small pilot cannot
+establish a production failure rate. Preserve evidence from failed trials as
+well as successful ones.
 
 ## Cost and teardown
 
@@ -226,14 +226,14 @@ Record the accepted rate, creation timestamp, exact provider IDs, and an initial
 12-hour deletion deadline. Set a stop threshold below $20 with allowance for
 cleanup and extras. Use an independent cleanup timer/control path, not a test
 agent's survival. Shutdown is not deletion and may keep billing. Verify removal
-of owned instances, volumes, snapshots, and billable IPs; retain cleanup evidence.
+of owned instances, volumes, snapshots, and billable IPs. Retain cleanup evidence.
 Extend the window only within the remaining cap. Never delete unrelated resources.
 
 ## Delivery and deferred work
 
 Deliver a Pandora-owned profile, session launcher, pinned worker setup, and
 scripted smoke/fault harness before agent evaluation. Produce an evidence report
-and recommend adoption, refinement, or abandonment. The first worker and agent evaluation are complete; the full fault matrix and
+and recommend adoption, refinement, or abandonment. The first worker and agent evaluation are complete. The full fault matrix and
 broader adoption evaluation remain incomplete. See the README for the boundary.
 
 Deferred: learned admission, automatic command classification, universal shell
@@ -247,33 +247,32 @@ claimed forms run unmanaged and a pinned client home kept three code versions
 live at once. These rules hold for the machine-wide shim and daemon that
 replaced the pilot.
 
-- **The file is the truth; everything else is a cache of it.** A worktree's
-  claim cache is derived from that worktree's own `pandora.toml`, in the
+- Routing comes from each worktree's own `pandora.toml`. A worktree's claim
+  cache is derived from that file, in the
   worktree's own Git directory, so two worktrees on branches with different
   files never share one and never rewrite each other's. The shim trusts a cache
   by date with shell builtins. Every claimed command reaches the daemon, which
-  derives the cache again from the file's content; when the claims differ it
+  derives the cache again from the file's content. When the claims differ it
   rewrites the cache and the caller sees one line, `pandora: claim cache
   refreshed from pandora.toml`. The cache also records a SHA-256 digest of the
   file, so `pandora doctor` finds a file replaced by one with an older date.
-- **Enroll is consent, not configuration.** It records once per repository that
-  Pandora may route it. Nothing about routing is re-read at enroll time that is
-  not re-read on the next command.
-- **No file names a client home.** The shim runs the client from the installed
-  version it is itself in, and the daemon runs the version it started with. A
-  file that pins another checkout is how one daemon, one pinned client and one
-  updated checkout came to run three code versions.
-- **A file the code does not understand is refused, not ignored.** An unknown
-  key or value (a file written for newer code, or a mistake) refuses each claimed
-  command with exit 70, the key, the value and the fix. On an installed version
+- Enrollment records once per repository that Pandora may route it. Anything
+  enrollment reads about routing, the next command reads again.
+- The shim loads the client from the installed version it is itself in, and
+  the daemon runs the version it started with. No file names a client home. A
+  file that pinned another checkout let one daemon, one pinned client and one
+  updated checkout run three code versions.
+- Unknown configuration keys or values cause each claimed command to exit 70.
+  Such a key or value comes from a file written for newer code, or from a
+  mistake. The refusal names the key, the value and the fix. On an installed version
   the fix is `git -C <source checkout> pull && pandora upgrade`. On an install
   that runs the checkout it is `git -C <checkout> pull && pandora daemon
   --restart`, after `pandora ps` is idle. The cache keeps the file's claimed forms so those commands reach that refusal
   instead of running unmanaged. User-facing text carries no version numbers: the
   fix is the same whichever side is older.
-- **Installed and not answering is broken, not absent.** Where the client
-  configuration exists, a claimed command waits five seconds for the daemon
-  (a restart) and then exits 70 with the doctor hint. Only where Pandora was
+- An unavailable daemon causes a claimed command to wait five seconds (for a
+  restart) and then exit 70 with the doctor hint, where the client
+  configuration exists. Only where Pandora was
   never installed does no daemon mean no Pandora, and the command passes
   through. `PANDORA_OFF=1` bypasses both.
 
