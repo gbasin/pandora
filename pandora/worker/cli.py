@@ -236,18 +236,25 @@ def protected(entries, args):
 
 
 def cmd_gc(args):
-    entries = enrolled.configs(settings.load(args.config))
+    config = settings.load(args.config)
+    entries = enrolled.configs(config)
     argv = ['gc'] + (['--dry-run'] if args.dry_run else [])
     if args.keep is not None:
         argv += ['--keep', str(args.keep)]
     for fingerprint, repo in sorted(protected(entries, args).items()):
         argv += ['--protect', '%s=%s' % (fingerprint, repo)]
-    for repo, source_id in sorted(enrolled.named_families(entries)):
-        argv += ['--family', '%s=%s' % (repo, source_id)]
-    # The client always read its enrolled configurations, so the list above
-    # is always an answer -- "nothing is enrolled" included -- never "nobody
-    # could say". The flag is what makes an empty list mean that on the wire.
-    argv.append('--families-known')
+    # The enrollment lists are an answer only when a config file was actually
+    # read: `load` of an absent file yields zero repos, and shipping
+    # --families-known for it would turn "no file" into the authoritative
+    # "nothing is enrolled".
+    if config['source'] is not None:
+        for repo, source_id in sorted(enrolled.named_families(entries)):
+            argv += ['--family', '%s=%s' % (repo, source_id)]
+        # One worker serves many Macs; --repos is what scopes the orphan rule
+        # to the repositories this caller's own enrollment covers.
+        for repo in sorted({item['repo']['name'] for _, item in entries}):
+            argv += ['--repos', repo]
+        argv.append('--families-known')
     for family in getattr(args, 'drop_family', None) or []:
         argv += ['--drop-family', family]
     if getattr(args, 'orphan_hours', None) is not None:
@@ -386,10 +393,11 @@ def add_parser(sub):
                     'count. Goldens are ranked by last use inside toolchain families -- one '
                     "family per (repository, [worker] source_id) -- never across them. A golden "
                     "whose fingerprint an enrolled repository's pandora.toml names, one a live "
-                    'attempt uses, and a pinned one are never removed. This command always ships '
-                    'the enrolled families it read, so a family none of them names is collected '
-                    'whole once it is past its grace. A `gc` run on the worker itself has no such '
-                    'data; it keeps `keep` per family and collects no orphans.')
+                    'attempt uses, and a pinned one are never removed. With a config file this '
+                    'command ships the families and repos its enrollments read, so a family none '
+                    'of them names -- in a repo the enrollment covers -- is collected once it is '
+                    'past its grace. Repos the caller never enrolled, and a bare `gc` on the '
+                    'worker itself, keep `keep` per family and collect no orphans.')
     node.add_argument('--dry-run', action='store_true')
     node.add_argument('--keep', type=int, default=None, metavar='N',
                       help='keep the N most recently used goldens per toolchain '

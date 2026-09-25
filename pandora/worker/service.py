@@ -142,11 +142,14 @@ def cmd_gc(args):
     # `--family` present, or `--families-known` with none, is enrollment data;
     # a bare `gc` on the worker has neither, and None is the honest value --
     # the sweep must not read "nobody could say" as "nothing is enrolled".
-    enrolled = (gc.parse_families(args.family)
+    # `--repos` scopes the orphan rule to the caller's own enrollments; None
+    # means the caller did not say, and covers everything.
+    enrolled = (set(args.family)
                 if args.family or args.families_known else None)
     receipt = gc.sweep(engine_root, driver, keep=keep, dry_run=args.dry_run,
                        protect=gc.parse_protect(args.protect),
                        enrolled=enrolled,
+                       repos=None if args.repos is None else set(args.repos),
                        drop=args.drop_family,
                        orphan_grace=args.orphan_hours * 3600)
     if not args.dry_run:
@@ -219,7 +222,11 @@ def main(argv=None):
     sweep.add_argument('--protect', action='append', default=[],
                        metavar='FINGERPRINT[=REPO]')
     sweep.add_argument('--family', action='append', default=None,
-                       metavar='REPO=SOURCE_ID')
+                       type=gc.family_key, metavar='REPO=SOURCE_ID')
+    sweep.add_argument('--repos', action='append', default=None, metavar='REPO',
+                       help='a repository the caller\'s own enrollment covers; '
+                            'repeatable. The orphan rule never reaches a family '
+                            'in a repository the caller did not enroll')
     sweep.add_argument('--families-known', action='store_true',
                        help='the caller read its enrolled configurations; '
                             'with no --family that means nothing is enrolled, '

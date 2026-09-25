@@ -333,9 +333,34 @@ class GcCommand(unittest.TestCase):
         self.assertIn('abc=the command line', argv)
         self.assertIn('eichler=eichler-journey-runner-proxy', argv)
         # The marker that tells the worker the family list is an answer --
-        # empty means "nothing is enrolled", not "nobody could say".
+        # empty means "nothing is enrolled", not "nobody could say" -- and
+        # the repos that scope the orphan rule to this client's enrollment.
         self.assertIn('--families-known', argv)
+        self.assertEqual(argv[argv.index('--repos') + 1], 'eichler')
         self.assertIn('named by eichler pandora.toml', out.getvalue())
+
+    def test_no_config_file_ships_no_enrollment_claims(self):
+        """`load` of an absent config yields zero repos; that is "nobody could
+        say", never the authoritative "nothing is enrolled"."""
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        from pandora.worker import cli
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(config=str(Path(tmp) / 'absent.toml'),
+                                      dry_run=True, keep=None, protect=[],
+                                      json=False)
+            answer = {'ok': True, 'dry_run': True, 'removed': [], 'failed': [],
+                      'kept': [], 'pool': {}}
+            out = io.StringIO()
+            with mock.patch.object(cli, 'remote_call', return_value=answer) as call, \
+                    contextlib.redirect_stdout(out):
+                self.assertEqual(cli.cmd_gc(args), 0)
+        argv = call.call_args[0][1]
+        self.assertNotIn('--families-known', argv)
+        self.assertNotIn('--family', argv)
+        self.assertNotIn('--repos', argv)
 
 
 if __name__ == '__main__':
