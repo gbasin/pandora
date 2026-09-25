@@ -11,7 +11,9 @@ and a rebuild starts them empty. Rebuild the worker rather than repair it.
 
 1. Create an Ubuntu 26.04 VM with at least 4 vCPU, 15 GiB of memory and 96 GB
    of disk.
-2. Attach a spare block device for the storage pool. Use at least 40 GB.
+2. Attach a spare block device for the storage pool. Use at least 40 GB. This
+   is sized for about three goldens of 4 to 5 GiB each plus concurrent runs.
+   40 GB is an estimate, not a measurement.
 3. Add your SSH key to the `ubuntu` user.
 4. Confirm passwordless sudo. Run `ssh ubuntu@<ip> sudo -n true`.
 5. Record the new host address. You need it in step 2 and step 5.

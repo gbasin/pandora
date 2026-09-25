@@ -25,7 +25,8 @@ and points to the README and `pandora --help` for the rest.
 > machine. Use the same commands as before, from the
 > repository root. Results, reports and artifacts are in your worktree before
 > the command returns, and the exit code is the command's own. Exit 70 is an
-> infrastructure failure: retry, or run the command here
+> infrastructure failure, or an `oom` or a timeout: read the `pandora: hint:`
+> line first, then retry, or run the command here
 > with `PANDORA_WHERE=local`, which keeps it in the queue, when the refusal
 > offers it. When the worker is
 > full, the command waits in the worker's queue and prints `pandora: queued on
@@ -33,7 +34,8 @@ and points to the README and `pandora --help` for the rest.
 > this machine is under memory pressure, wait a few minutes and retry. Do not
 > bypass it. Exit 75 means a validation is already active in this worktree,
 > the source changed during the run, a write-back conflicted, or a restart ran
-> long. `--update` runs on the worker too. Do not
+> long. `--update` runs on the worker too, unless `PANDORA_WHERE=local` places
+> it here, where it writes in place with no check. Do not
 > edit the worktree while it runs, then review `git diff` of the files it wrote
 > back. When Pandora has advice, it is the last line, `pandora: hint: ...`. Act
 > on it. Read `<validation notes>` for suite selection, cancellation, and
@@ -60,19 +62,21 @@ and points to the README and `pandora --help` for the rest.
 >   root to route`, because a run from the root would read that path
 >   differently.
 > - `reject`: every claimed command typed below the root is refused with
->   `Run this command from the repository root.`
+>   `Run this command from the repository root.` and exit 1.
 >
 > Results, reports and artifacts are in your worktree before the command
 > returns. A report the runner did not write is reported as missing, and does not
 > count as zero failures.
 >
-> The exit code is the command's own. Five codes are Pandora's:
+> The exit code is the command's own. Five codes are Pandora's. A job that
+> refuses its arguments exits 1, or with its validator's own code, prints why,
+> and runs nothing. Read the usage line.
 >
 > | Exit | Meaning | Do this |
 > |---|---|---|
-> | 64 | The command cannot run as typed: a path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
-> | 70 | Infrastructure failure. Not a test verdict. | Retry. Or run it in the queue here with `PANDORA_WHERE=local <command>`, unless the job is sharded (that gives 64). If the message says this machine is under memory pressure, wait a few minutes, then retry. Do not bypass it. If it says the daemon does not answer, or does not understand `pandora.toml`, run `pandora doctor` and tell the owner. Do not bypass it. |
-> | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. Or the daemon was still restarting, and nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
+> | 64 | A path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
+> | 70 | Infrastructure failure, including `oom` and `timed_out`. Not a test verdict. | Read the `pandora: hint:` line first: an `oom` needs a larger `size`. Otherwise retry. Or run it in the queue here with `PANDORA_WHERE=local <command>`, unless the job is sharded (that gives 64). If the message says this machine is under memory pressure, wait a few minutes, then retry. Do not bypass it. If it says the daemon does not answer, or does not understand `pandora.toml`, run `pandora doctor` and tell the owner. Do not bypass it. |
+> | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. Or the local queue or the daemon restart took too long, and nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 > | 130 | You canceled it. | Nothing. |
 >
@@ -95,7 +99,7 @@ and points to the README and `pandora --help` for the rest.
 > starts. It prints `pandora: queued on the worker behind N runs (position P)`,
 > with an estimate when one exists, and then `still queued` at most once a
 > minute. Let it wait, and do not run the command here instead.
-> There is one queue for everybody, first come, first served. The wait has a
+> The worker has one queue for everybody, first come, first served. The wait has a
 > limit that comes from how long the job usually takes, between 2 and 30
 > minutes. At the limit the command exits 70 with `queue-timeout`, and nothing
 > ran. Retry later. `pandora cancel <id>` takes a queued command out of the
@@ -119,7 +123,8 @@ and points to the README and `pandora --help` for the rest.
 > the exit is 70.
 >
 > `--update` runs on the worker. It writes its declared files back only after
-> a passing run, and only when you did not edit the worktree during the run. If
+> a passing run, and only when you did not edit the worktree during the run.
+> With `PANDORA_WHERE=local` it runs here and writes in place with no check. If
 > you edited a declared file, Pandora keeps your version, prints the path of the
 > worker's version, and exits 75. Merge the two by hand. Then run
 > `pandora resolve <id> --keep-local`. Validate without `--update` after every
