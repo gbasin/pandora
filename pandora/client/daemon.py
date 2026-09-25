@@ -245,6 +245,10 @@ class Run:
                    'writeback': bool(self.request.get('writeback'))}
         if self.fell_back_to:
             payload['fell_back_to'] = self.fell_back_to
+        if self.request.get('outputs'):
+            # The declared artifact paths, so the next daemon's reattach knows
+            # what this run owes the worktree even without the plan.
+            payload['outputs'] = self.request['outputs']
         if self.queue:
             payload['queue'] = self.queue
         if self.refusal:
@@ -1535,7 +1539,13 @@ class Daemon:
                 return
             run = Run(self.state, uuid.uuid4().hex[:12],
                       dict(request, repo=repo['name'], job=job['id'], worktree=worktree,
-                           writeback=bool(plan.get('writeback'))), on_save=self.saved)
+                           writeback=bool(plan.get('writeback')),
+                           # What the run is to deliver home, so a daemon that
+                           # re-attaches after a restart knows it.
+                           outputs=[path for output in plan['outputs']
+                                    if output['kind'] == 'artifacts'
+                                    for path in output['paths']]),
+                      on_save=self.saved)
             run.state = 'queued'
             self.hold(run)
             run.save()
@@ -2226,7 +2236,6 @@ class Daemon:
             run.note('this daemon no longer has an enrollment for run %s' % run.id)
             run.finish(70, state='infra_failed')
             return
-        collected = None
         try:
             worker = self.worker_for(repo)
             while True:
@@ -2238,8 +2247,15 @@ class Daemon:
                 # The plan is gone, so write-back is judged from the argv.
                 if not self.retry(run, repo, None, result):
                     break
-            collected = list((result.get('evidence') or {}).get('collected') or [])
-            plan = {'outputs': [{'kind': 'artifacts', 'paths': collected}] if collected else []}
+            # What the run owes the worktree: the declared paths this daemon
+            # saved at submit, or the engine's collected map when a row from
+            # before that record exists. Either way `collect` fetches first and
+            # judges by what landed in staging, so a fan-out parent -- whose
+            # evidence carries no collected map -- gets the same missing
+            # accounting as any other run.
+            known = (result.get('evidence') or {}).get('collected') or {}
+            declared = list(run.request.get('outputs') or sorted(known))
+            plan = {'outputs': [{'kind': 'artifacts', 'paths': declared}] if declared else []}
             self.deliver(run, repo, plan, result)
         except (WorkerUnreachable, EngineError) as error:
             if self.stopping.is_set():
@@ -2342,8 +2358,9 @@ class Daemon:
         try:
             collected = worker.collect(
                 run.remote, plan, worktree=run.worktree(),
-                declared=(result.get('evidence') or {}).get('collected'))
-        except (TransferError, WorkerUnreachable) as error:
+                declared=(result.get('evidence') or {}).get('collected'),
+                staging=run.dir / 'outputs-incoming')
+        except (TransferError, WorkerUnreachable, OSError) as error:
             run.note('could not bring outputs back: %s' % error)
             collected = {'paths': [path for output in plan.get('outputs') or []
                                    if output.get('kind') == 'artifacts'
