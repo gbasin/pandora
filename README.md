@@ -1,47 +1,51 @@
 # Pandora
 
-Several coding agents work in one repository on one Mac. Each works in its own
+Several coding agents work in one repository on one Mac. Each has its own
 worktree, and each runs the same heavy validation: type checks, test suites,
 browser journeys that boot a database and a stack. Nothing coordinates them.
-Ten agents means ten stacks, swap, and results nobody trusts.
+Ten agents can start ten stacks at once, and the machine swaps.
 
 Pandora is a scheduler for that machine. Agents keep typing the commands they
-type today. Pandora decides where each claimed command runs. A broad suite runs
-in a fresh Linux instance on a shared worker. A focused one runs in a
-memory-capped queue on the Mac. Either way, the results land back in the
-worktree before the command returns, with the command's own exit code.
+type today. The repository's `pandora.toml` says which of those commands
+Pandora routes and where each one runs: a fresh Linux instance on a shared
+worker for the broad suites, or a queue on the Mac with a shared memory budget
+for the focused ones. When a run completes, its declared results are in the
+worktree and the command exits with the run's own code.
 
 ## Mechanism
 
-* **Shim.** A POSIX `pnpm` shim sits first on PATH. It reads the worktree's
-  claim cache with shell builtins. A command the repository does not claim runs
-  unchanged through the real `pnpm`, as if Pandora were not installed.
-* **Daemon.** A claimed command goes to a per-user daemon on the Mac, over a
-  Unix socket. The daemon holds the local queue, the memory budget and the
-  record of every run.
-* **Claims.** The repository declares in `pandora.toml`, at its root, which
-  commands it owns and how to run them. Each worktree's claim cache is derived
-  from that worktree's own `pandora.toml`, or from the enrollment's `--config`
-  file when the root has none. The Mac declares where the worker is
-  in `~/.config/pandora/config.toml`.
-* **Placement.** Each job runs on the worker or in the daemon's local lane. The
-  job's declaration decides. `PANDORA_WHERE` moves one run to the other lane
-  when the job can run there, and refuses with exit 64 when it cannot.
-* **Worker.** A remote run is frozen, shipped into the worker's
-  content-addressed source cache, and admitted against the worker's memory
-  budget. It then runs in a fresh Incus system container cloned from the
-  repository's golden image. The golden holds the toolchain and the installed
-  dependencies, so a run starts from them. An optional `prepare_command` can
-  refresh dependencies in each run's clone.
-* **Write-back.** Declared reports and artifacts are in the worktree before the
-  command exits. An armed option, such as `--update`, may also rewrite declared
-  source files. On the worker it does so only after a passing run over a tree
-  nobody edited meanwhile. A run placed here with `PANDORA_WHERE=local` writes
-  in place.
-* **Exit codes.** The command exits with its own code. Pandora adds a few of
-  its own: 64 when the command cannot run as typed, 70 for an infrastructure
-  failure, 75 for busy or stale, 124 when `--max-wait` elapsed, and 130 for
-  canceled. None of them is a test verdict.
+What happens to `pnpm check`, with the eichler configuration as the example:
+
+1. A `pnpm` shim sits first on PATH. It reads the worktree's claim cache with
+   shell builtins. `check` is a claimed form, so the shim hands the command to
+   the per-user daemon over a Unix socket. A command the file does not claim
+   runs through the real `pnpm` with its arguments unchanged.
+2. The daemon matches the command to the `check` job in this worktree's
+   `pandora.toml`. The job declares `where = "remote"`. `PANDORA_WHERE=local`
+   or `PANDORA_WHERE=remote` overrides that for one run, and exits 64 when the
+   job cannot run there. The job's preflight, eichler's own planner asked to
+   plan rather than run, rejects a bad suite name in about 50 ms before
+   anything ships.
+3. For a remote job, the daemon snapshots the worktree's source, transfers it
+   to the worker's content-addressed cache, and asks the worker to admit it
+   against the worker's memory budget. A full worker queues the run and says
+   so on stderr.
+4. The worker runs the job's command in a fresh Incus system container cloned
+   from the repository's golden image, which holds the toolchain and the
+   installed dependencies. A local job instead waits for the daemon's memory
+   budget and runs on the Mac. That budget limits admission. It is not a hard
+   limit on each process.
+5. Output streams back while the run executes. Pandora's own lines go to
+   stderr with a `pandora:` prefix. The last one may be `pandora: hint: ...`,
+   the next action, derived from what the run measured.
+6. The declared reports and artifacts are copied into the worktree, then the
+   command exits with the run's own code. An option that rewrites source, such
+   as `--update`, writes its files back only after a passing run over a tree
+   that still matches the snapshot.
+
+Pandora adds five exit codes of its own. 64: the command cannot run as typed.
+70: infrastructure failure. 75: busy or stale. 124: `--max-wait` elapsed and
+the run continues. 130: canceled.
 
 ```mermaid
 flowchart LR
@@ -56,7 +60,7 @@ flowchart LR
     worker -- "output, results" --> home
 ```
 
-Pandora v0.2 is proved against one repository (eichler), one worker (4 vCPU,
+Pandora v0.2 has been tested with one repository (eichler), one worker (4 vCPU,
 15.6 GiB, x86_64 Ubuntu 26.04) and one Mac. Read
 [Operating limits](#operating-limits) before you rely on it.
 
