@@ -266,9 +266,9 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
         head = source_head(now, runner)
         if head and head != now['meta'].get('commit'):
             return check('daemon', WARN, '%s; daemon runs %s, current is %s, and %s is at %s '
-                         'since; run `pandora upgrade`' % (detail, old, now['name'],
-                                                          now['meta'].get('source'), head[:12]),
-                         **facts), answer
+                         'since; run `pandora upgrade --from %s`'
+                         % (detail, old, now['name'], now['meta'].get('source'), head[:12],
+                            now['meta'].get('source')), **facts), answer
         return check('daemon', WARN, '%s; daemon runs %s, current is %s; restart it: %s'
                      % (detail, old, now['name'], restart_advice(supervised, answer.get('pid'))),
                      **facts), answer
@@ -287,10 +287,13 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
         mine = None
     facts.update(code=code, client_code=mine)
     if code and mine and code != mine and now:
+        again = ('`pandora upgrade --from %s`' % now['meta']['source']
+                 if now['meta'].get('source')
+                 else '`pandora upgrade --release %s`' % now['meta'].get('release', '<tag>'))
         return check('daemon', WARN, '%s; daemon code differs from %s on disk: something '
-                     'edited the version directory. `pandora upgrade` builds the commit '
-                     'again under a new name and restarts the daemon after a drain'
-                     % (detail, now['path']), **facts), answer
+                     'edited the version directory. %s builds it again under a new name '
+                     'and restarts the daemon after a drain'
+                     % (detail, now['path'], again), **facts), answer
     if code and mine and code != mine:
         # Same checkout, different bytes: it was updated after the daemon started.
         return check('daemon', WARN, '%s; daemon code differs from the checkout; restart '
@@ -331,11 +334,14 @@ def check_install(data, launcher, shim, runner=subprocess.run):
                      'link into the checkout it upgrades or into a version directory; replace '
                      'any other link with one through current' % ('; '.join(stray), now['name']),
                      stray=stray, **facts)
-    detail = 'current is %s, from %s' % (now['name'], meta.get('source') or '(unrecorded)')
+    detail = 'current is %s, from %s' % (now['name'],
+                                         meta.get('source') or meta.get('release')
+                                         or '(unrecorded)')
     head = source_head(now, runner)
     if head and head != meta.get('commit'):
         # Not a warning: a checkout that moves on changes nothing live.
-        detail += '; the checkout is at %s since, which `pandora upgrade` installs' % head[:12]
+        detail += '; the checkout is at %s since, which `pandora upgrade --from %s` installs' \
+                  % (head[:12], meta.get('source'))
     return check('install', OK, detail + '; `pandora` and the shim run through it', **facts)
 
 
@@ -625,10 +631,10 @@ def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
                      '(that restarts the daemon without a drain: check `pandora ps` first)'
                      % (pid, label, kind or '(unset, which launchd treats as Standard)',
                         launchd.PROCESS_TYPE), **facts)
-    return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; %s after '
-                 'updating the checkout' % (pid, label, runs, starts,
-                                            '`pandora upgrade`' if upgraded
-                                            else '`pandora daemon --restart`'), **facts)
+    return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; %s restarts '
+                 'it into new code' % (pid, label, runs, starts,
+                                       '`pandora upgrade`' if upgraded
+                                       else '`pandora daemon --restart`'), **facts)
 
 
 # -- the whole report ------------------------------------------------------------

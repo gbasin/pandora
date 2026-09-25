@@ -5,10 +5,12 @@ tree", "dirty" and "untracked" are git's answers rather than mocks. launchd is
 `FakeLaunchd` from `test_launchd`, the daemon's `ping` and its side of the
 drain are callables, and the clock is fake, so the drain's polls cost nothing.
 """
+import io
 import json
 import os
 import plistlib
 import subprocess
+import tarfile
 import tempfile
 import threading
 import unittest
@@ -541,8 +543,8 @@ class Doctor(Case):
         # The checkout moved on too: an upgrade, not just a restart.
         head = self.commit(self.repo, 'VERSION = 3\n')
         item = self.daemon(old['path'])
-        self.assertIn('and %s is at %s since; run `pandora upgrade`' % (self.repo, head[:12]),
-                      item['detail'])
+        self.assertIn('and %s is at %s since; run `pandora upgrade --from %s`'
+                      % (self.repo, head[:12], self.repo), item['detail'])
 
     def test_an_edited_version_directory_is_named_with_the_way_out(self):
         from pandora.client import doctor
@@ -551,8 +553,8 @@ class Doctor(Case):
         with mock.patch.object(doctor, 'ping', return_value=pong):
             item, _ = doctor.check_daemon(self.state / 'client.sock', None, self.data)
         self.assertEqual(item['status'], 'warn')
-        self.assertIn('something edited the version directory. `pandora upgrade` builds the '
-                      'commit again under a new name', item['detail'])
+        self.assertIn('something edited the version directory. `pandora upgrade --from %s` '
+                      'builds it again under a new name' % self.repo, item['detail'])
 
     def test_a_daemon_on_a_checkout_is_told_to_install_from_current(self):
         item = self.daemon(self.repo)
@@ -955,6 +957,135 @@ class Upgrade(Case):
             self.assertEqual(cli.main(['--state', str(self.state), '--config',
                                        str(self.root / 'none.toml'), 'upgrade', '--keep', '1']),
                              64)
+
+    def test_bare_upgrade_means_the_latest_release(self):
+        from pandora import cli
+        with mock.patch.object(install, 'upgrade', return_value=0) as called:
+            code = cli.main(['--state', str(self.state), '--config',
+                             str(self.root / 'none.toml'), 'upgrade'])
+        self.assertEqual(code, 0)
+        self.assertEqual(called.call_args.kwargs['release'], 'latest')
+
+    def test_the_cli_refuses_a_release_mixed_with_a_checkout_source(self):
+        from pandora import cli
+        for argv in (['upgrade', '--release', 'v1.0.0', '--from', str(self.repo)],
+                     ['upgrade', '--release', '--dirty'],
+                     ['upgrade', '--release', 'v1.0.0', '--version', 'abc123']):
+            with mock.patch('sys.stderr') as err, \
+                    mock.patch.object(install, 'upgrade') as never:
+                code = cli.main(['--state', str(self.state), '--config',
+                                 str(self.root / 'none.toml'), *argv])
+            self.assertEqual(code, 64, argv)
+            written = ''.join(call.args[0] for call in err.write.call_args_list)
+            self.assertIn('--release installs a published tarball', written)
+            never.assert_not_called()
+
+    def test_a_release_is_fetched_and_installed_as_its_tag(self):
+        blob = Releases.tarball_of(self, 'pandora-9.9.9')
+        api = install.RELEASE_API + '/releases/tags/v9.9.9'
+        body = json.dumps({'tag_name': 'v9.9.9',
+                           'tarball_url': 'https://codeload/auto.tgz',
+                           'assets': [{'name': 'pandora-9.9.9.tar.gz',
+                                       'browser_download_url': 'https://x/asset.tgz'}]
+                           }).encode()
+        fetch = Releases.fetcher({api: body, 'https://x/asset.tgz': blob})
+        self.rows = [[]]
+        code = self.upgrade(release='v9.9.9', fetch=fetch)
+        text = '\n'.join(self.said)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(install.installed(self.data)['name'], 'v9.9.9')
+        self.assertIn('fetched https://x/asset.tgz', text)
+        meta = install.read_meta(self.data / 'versions' / 'v9.9.9')
+        self.assertEqual(meta['release'], 'v9.9.9')
+        self.assertTrue((self.data / 'versions' / 'v9.9.9' / 'bin' / 'pandora').is_file())
+
+
+class Releases(Case):
+    """`release_tree`: a release's tarball resolved over a fake HTTP fetch."""
+
+    def tarball_of(self, root):
+        tree = self.root / ('tree-%s' % root)
+        (tree / 'bin').mkdir(parents=True)
+        (tree / 'pandora' / 'client').mkdir(parents=True)
+        (tree / 'bin' / 'pandora').write_text('#!/bin/sh\n')
+        (tree / 'bin' / 'pandora').chmod(0o755)
+        (tree / 'pandora' / 'cli.py').write_text('VERSION = 9\n')
+        (tree / 'pandora' / '__init__.py').write_text('')
+        (tree / 'pandora' / 'client' / '__init__.py').write_text('')
+        (tree / 'pandora' / 'client' / 'daemon.py').write_text('')
+        (tree / 'pandora' / 'client' / 'shim.py').write_text('')
+        blob = io.BytesIO()
+        with tarfile.open(fileobj=blob, mode='w:gz') as archive:
+            archive.add(tree, arcname=root)
+        return blob.getvalue()
+
+    @staticmethod
+    def fetcher(mapping):
+        def fetch(url):
+            if url not in mapping:
+                raise AssertionError('unexpected fetch of %s' % url)
+            return mapping[url]
+        return fetch
+
+    def test_latest_resolves_and_the_version_is_named_by_the_tag(self):
+        blob = self.tarball_of('pandora-9.9.9')
+        api = install.RELEASE_API + '/releases/latest'
+        body = json.dumps({'tag_name': 'v9.9.9', 'assets': [],
+                           'tarball_url': 'https://codeload/auto.tgz'}).encode()
+        fetch = self.fetcher({api: body, 'https://codeload/auto.tgz': blob})
+        with tempfile.TemporaryDirectory() as tmp:
+            info = install.release_tree('latest', tmp, fetch=fetch)
+            self.assertEqual((info['name'], info['release'], info['commit'], info['dirty']),
+                             ('v9.9.9', 'v9.9.9', '', False))
+            version = install.snapshot(info, self.data)
+        self.assertEqual(version['name'], 'v9.9.9')
+        path = self.data / 'versions' / 'v9.9.9'
+        self.assertEqual(version['path'], str(path))
+        self.assertEqual((path / 'pandora' / 'cli.py').read_text(), 'VERSION = 9\n')
+        meta = install.read_meta(path)
+        self.assertEqual(meta['release'], 'v9.9.9')
+        self.assertIsNone(meta['source'])
+        # The same release fetched again is reused, not rebuilt.
+        with tempfile.TemporaryDirectory() as tmp:
+            again = install.snapshot(install.release_tree('latest', tmp, fetch=fetch),
+                                     self.data)
+        self.assertTrue(again['reused'])
+
+    def test_the_release_asset_is_preferred_over_the_source_archive(self):
+        blob = self.tarball_of('pandora-9.9.9')
+        api = install.RELEASE_API + '/releases/tags/v9.9.9'
+        body = json.dumps({'tag_name': 'v9.9.9',
+                           'tarball_url': 'https://codeload/auto.tgz',
+                           'assets': [{'name': 'pandora-9.9.9.tar.gz',
+                                       'browser_download_url': 'https://x/asset.tgz'}]
+                           }).encode()
+        fetch = self.fetcher({api: body, 'https://x/asset.tgz': blob})
+        with tempfile.TemporaryDirectory() as tmp:
+            info = install.release_tree('v9.9.9', tmp, fetch=fetch)
+        self.assertEqual(info['url'], 'https://x/asset.tgz')
+
+    def test_a_release_json_without_a_tag_is_refused(self):
+        fetch = self.fetcher({install.RELEASE_API + '/releases/latest': b'{}'})
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(install.Refused) as caught:
+                install.release_tree('latest', tmp, fetch=fetch)
+        self.assertIn('no release tag', str(caught.exception))
+
+    def test_a_tarball_with_no_pandora_tree_is_refused(self):
+        tree = self.root / 'tree-empty'
+        tree.mkdir()
+        blob = io.BytesIO()
+        with tarfile.open(fileobj=blob, mode='w:gz') as archive:
+            archive.add(tree, arcname='pandora-0.0.0')
+        api = install.RELEASE_API + '/releases/latest'
+        body = json.dumps({'tag_name': 'v0.0.0',
+                           'tarball_url': 'https://x/t.tgz'}).encode()
+        fetch = self.fetcher({api: body, 'https://x/t.tgz': blob.getvalue()})
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(install.Refused) as caught:
+                install.release_tree('latest', tmp, fetch=fetch)
+        self.assertIn('no Pandora tree', str(caught.exception))
+        self.assertFalse(self.data.exists(), 'a refusal writes nothing')
 
 
 if __name__ == '__main__':

@@ -38,6 +38,13 @@ class Help(unittest.TestCase):
             self.assertIn(needle, out)
 
 
+class Version(unittest.TestCase):
+    def test_version_prints_the_release_this_tree_carries(self):
+        code, out, _ = capture(lambda: _exit_code(cli.main, ['--version']))
+        self.assertEqual(code, 0)
+        self.assertRegex(out.strip(), r'^pandora \d+\.\d+\.\d+$')
+
+
 class OldSpellings(unittest.TestCase):
     """`enrol` and `unenrol` still work for one release, and say what replaces them."""
 

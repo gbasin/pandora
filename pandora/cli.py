@@ -40,7 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
-  pandora upgrade [--from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update]
+  pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update]
 """
 import argparse
 import json
@@ -50,6 +50,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import version as _version
 from .client import enrollment, settings
 from .client.protocol import Reader, VERSION, dump
 from .config import loader
@@ -247,8 +248,16 @@ def cmd_upgrade(args):
     if args.version and (args.source or args.dirty):
         notice('--version installs a version already built; it takes no --from or --dirty')
         return 64
+    release = args.release
+    if release is None and not (args.source or args.version or args.dirty):
+        release = 'latest'
+    if release is not None and (args.source or args.dirty or args.version):
+        notice('--release installs a published tarball; it takes no --from, --dirty or '
+               '--version. For a checkout: `pandora upgrade --from <checkout>`')
+        return 64
     try:
         return install.upgrade(state=state, source=args.source, version=args.version,
+                               release=release,
                                dirty_ok=args.dirty, now=args.now, no_restart=args.no_restart,
                                relink=True if args.relink else None, wait=args.wait,
                                keep=args.keep, idle_cancel=idle_cancel_of(args), say=notice)
@@ -915,6 +924,9 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--state', default=None)
     parser.add_argument('--config', default=None, help='path to config.toml')
+    # --version stays off the one-screen contract: it is a flag, not a verb.
+    parser.add_argument('--version', action='version', help=argparse.SUPPRESS,
+                        version='pandora %s' % (_version.read() or 'unreleased'))
     # The description above is the whole help; argparse's own list of
     # subcommands would repeat it, worse, below the fold.
     sub = parser.add_subparsers(dest='which', required=True, metavar='<command>',
@@ -948,10 +960,15 @@ def main(argv=None):
                         help='the launchd label (default com.pandora.daemon)')
     daemon.set_defaults(func=cmd_daemon)
 
-    upgrade = sub.add_parser('upgrade', help="install the checkout's HEAD as the version "
-                             'everything runs, and restart the daemon after a drain')
+    upgrade = sub.add_parser('upgrade', help='install a new version of everything Pandora '
+                             'runs, and restart the daemon after a drain. Bare: the latest '
+                             'published release')
+    upgrade.add_argument('--release', nargs='?', const='latest', default=None,
+                         metavar='TAG',
+                         help='install a published GitHub release (default tag: latest)')
     upgrade.add_argument('--from', dest='source', default=None, metavar='CHECKOUT',
-                         help='the checkout to snapshot (default: the one current came from)')
+                         help='snapshot a checkout instead of a release (default: the one '
+                              'current came from)')
     upgrade.add_argument('--dirty', action='store_true',
                          help='snapshot uncommitted edits to tracked files instead of refusing')
     upgrade.add_argument('--version', default=None, metavar='NAME',

@@ -6,9 +6,10 @@ the checkout directly. So a `git pull` changed live client behavior at once and
 left the daemon on the old code, for hours, until a digest warning in `doctor`
 (#97) made the skew visible. This removes the skew rather than reporting it:
 
-* `<data>/versions/<name>/` is the checkout's committed tree at one commit. It
-  is written into a scratch directory beside it, renamed into place, and never
-  changed again. `<name>` is the 12-hex short commit; a snapshot of uncommitted
+* `<data>/versions/<name>/` is one snapshot: a checkout's committed tree at one
+  commit, or a published release's tarball. It is written into a scratch
+  directory beside it, renamed into place, and never changed again. `<name>`
+  is the 12-hex short commit, or the release tag; a snapshot of uncommitted
   edits (`--dirty`) is `<commit>-dirty-<code8>`, because the same commit with
   other edits must not overwrite a directory a daemon may be running.
 * `<data>/current` is a symlink to one of them, flipped with rename(2), so a
@@ -35,10 +36,13 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 CURRENT = 'current'
 VERSIONS = 'versions'
+RELEASE_API = 'https://api.github.com/repos/gbasin/pandora'
 # Inside each version directory: where it came from, and its code digest.
 META = '.pandora-version'
 KEEP = 3
@@ -133,16 +137,19 @@ def is_version(home, data):
 def update_fix(home, data=None):
     """The one command that brings the code at `home` up to its source, as a person types it.
 
-    A version directory is updated by pulling its source checkout and
-    upgrading, which restarts the daemon at a safe moment. A checkout is pulled
-    and the daemon restarted once `pandora ps` shows nothing running. No
-    version numbers: the fix is the same whichever side is older.
+    A version directory built from a checkout is updated by pulling that
+    checkout and upgrading from it; one built from a release by fetching the
+    latest. A checkout is pulled and the daemon restarted once `pandora ps`
+    shows nothing running. No version numbers: the fix is the same whichever
+    side is older.
     """
     data = data_root() if data is None else data
     if home and is_version(home, data):
-        source = (read_meta(Path(os.path.realpath(home))) or {}).get('source')
-        return ('`git -C %s pull && pandora upgrade`' % source if source
-                else '`pandora upgrade --from <your pandora checkout>`')
+        meta = read_meta(Path(os.path.realpath(home))) or {}
+        if meta.get('source'):
+            return '`git -C %s pull && pandora upgrade --from %s`' % (meta['source'],
+                                                                     meta['source'])
+        return '`pandora upgrade`'
     return ('when `pandora ps` shows nothing running, `git -C %s pull && pandora daemon '
             '--restart`' % home)
 
@@ -279,6 +286,70 @@ def export_worktree(source, stage, *, run=subprocess.run):
             shutil.copy2(origin, target)
 
 
+def copy_tree(root, stage):
+    """A plain directory into the stage: what a downloaded release tarball extracted to."""
+    shutil.copytree(root, stage, symlinks=True, dirs_exist_ok=True)
+
+
+def http_get(url):
+    """One GET as bytes. GitHub's API answers only to a request with a User-Agent."""
+    request = urllib.request.Request(
+        url, headers={'Accept': 'application/vnd.github+json',
+                      'User-Agent': 'pandora-upgrade'})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as body:
+            return body.read()
+    except OSError as error:
+        raise Refused('cannot fetch %s: %s' % (url, error))
+
+
+def release_tree(tag, stage, *, fetch=None):
+    """Fetch a published release's tarball into `stage`; return the info snapshot() wants.
+
+    `tag` is 'latest' or an exact tag such as v0.3.0. A `pandora-*.tar.gz`
+    asset on the release is preferred over the source archive GitHub makes for
+    every tag: the asset is the artifact the release workflow's own checks ran
+    against. The extracted tree must look like a checkout: `pandora/cli.py`
+    and `bin/pandora`, under one top-level directory.
+    """
+    fetch = fetch or http_get
+    if tag in (None, '', 'latest'):
+        url = RELEASE_API + '/releases/latest'
+    else:
+        url = RELEASE_API + '/releases/tags/' + urllib.parse.quote(str(tag), safe='')
+    try:
+        data = json.loads(fetch(url))
+    except ValueError as error:
+        raise Refused('%s did not answer with a release: %s' % (url, error))
+    name = data.get('tag_name')
+    if not isinstance(name, str) or not name:
+        raise Refused('%s returned no release tag' % url)
+    chosen = next((item for item in (data.get('assets') or [])
+                   if isinstance(item.get('name'), str)
+                   and item['name'].startswith('pandora-')
+                   and item['name'].endswith('.tar.gz')), None)
+    blob_url = (chosen or {}).get('browser_download_url') or data.get('tarball_url')
+    if not blob_url:
+        raise Refused('release %s has no tarball to install' % name)
+    blob = fetch(blob_url)
+    with tarfile.open(fileobj=io.BytesIO(blob), mode='r:gz') as archive:
+        roots = {member.name.split('/')[0] for member in archive.getmembers()
+                 if member.name}
+        if len(roots) != 1:
+            raise Refused('the %s tarball is not one top-level directory' % name)
+        if hasattr(tarfile, 'tar_filter'):
+            archive.extractall(stage, filter='tar')
+        else:                                        # a 3.11 without the backport
+            archive.extractall(stage)
+    root = Path(stage) / roots.pop()
+    if not ((root / 'pandora' / 'cli.py').is_file()
+            and (root / 'bin' / 'pandora').is_file()):
+        raise Refused('the %s tarball holds no Pandora tree (no pandora/cli.py and '
+                      'bin/pandora)' % name)
+    return {'source': None, 'commit': '', 'dirty': False, 'name': name,
+            'release': name, 'tree': str(root), 'url': blob_url}
+
+
 def intact(path):
     """A version directory whose files still hash to the digest written at build time."""
     meta = read_meta(path)
@@ -301,12 +372,15 @@ def snapshot(info, data, *, run=subprocess.run, clock=time.time):
     """
     versions = Path(data) / VERSIONS
     versions.mkdir(parents=True, exist_ok=True)
-    short = info['commit'][:12]
+    # A release snapshot is named by its tag; a checkout's by its commit.
+    short = info.get('name') or info['commit'][:12]
     if not info['dirty'] and (versions / short / META).is_file() and intact(versions / short):
         return found(versions / short)
     stage = Path(tempfile.mkdtemp(prefix='.incoming-%d-' % os.getpid(), dir=str(versions)))
     try:
-        if info['dirty']:
+        if info.get('tree'):
+            copy_tree(info['tree'], stage)
+        elif info['dirty']:
             export_worktree(info['source'], stage, run=run)
         else:
             export_commit(info['source'], info['commit'], stage, run=run)
@@ -322,6 +396,8 @@ def snapshot(info, data, *, run=subprocess.run, clock=time.time):
         target = versions / name
         meta = {'name': name, 'commit': info['commit'], 'dirty': info['dirty'],
                 'source': info['source'], 'code': code, 'created': clock()}
+        if info.get('release'):
+            meta['release'] = info['release']
         (stage / META).write_text(json.dumps(meta, indent=1, sort_keys=True) + '\n')
         os.chmod(stage, 0o755)                       # mkdtemp made it 0700
         try:
@@ -597,11 +673,12 @@ def default_data(home=None):
     return Path(home or Path.home()) / '.local' / 'share' / 'pandora'
 
 
-def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
-            dirty_ok=False, now=False, no_restart=False, relink=None, wait=WAIT_SECONDS,
-            keep=KEEP, platform=None, git_run=subprocess.run, check_run=subprocess.run,
-            launchctl=subprocess.run, ping=None, ask=None, clock=time.monotonic,
-            sleep=time.sleep, say=print, idle_cancel=None):
+def upgrade(*, state, source=None, version=None, release=None, data=None, env=None,
+            home=None, dirty_ok=False, now=False, no_restart=False, relink=None,
+            wait=WAIT_SECONDS, keep=KEEP, platform=None, git_run=subprocess.run,
+            check_run=subprocess.run, launchctl=subprocess.run, ping=None, ask=None,
+            clock=time.monotonic, sleep=time.sleep, say=print, idle_cancel=None,
+            fetch=None):
     """Build or pick a version, drain the daemon, flip `current`, restart, prune.
 
     `current` moves only when the daemon can move with it (or `--no-restart`
@@ -636,16 +713,24 @@ def upgrade(*, state, source=None, version=None, data=None, env=None, home=None,
         say('version  %s (tree %s), built before' % (job.target['name'],
                                                       short_code(job.target['meta'].get('code'))))
     else:
-        info = describe(source_for(source, data), dirty_ok=dirty_ok, run=git_run)
-        job.source = info['source']
-        job.target = snapshot(info, data, run=git_run)
+        if release is not None:
+            with tempfile.TemporaryDirectory(prefix='pandora-release-') as tmp:
+                info = release_tree(release, tmp, fetch=fetch)
+                job.target = snapshot(info, data, run=git_run)
+            job.source = None
+            built = 'fetched %s' % info['url']
+        else:
+            info = describe(source_for(source, data), dirty_ok=dirty_ok, run=git_run)
+            job.source = info['source']
+            job.target = snapshot(info, data, run=git_run)
+            built = 'built from %s' % info['source']
         if job.target.get('edited'):
             say('version  %s was edited after it was built; built the commit again as %s'
                 % (job.target['edited'], job.target['name']))
         say('version  %s (tree %s), %s' % (job.target['name'],
                                            short_code(job.target['meta'].get('code')),
                                            'already built' if job.target['reused']
-                                           else 'built from %s' % info['source']))
+                                           else built))
     check_imports(job.target['path'], interpreters(env, state, home), run=check_run)
     kind, value = probe(job.ping)
     if kind == 'pong':

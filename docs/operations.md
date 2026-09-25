@@ -61,7 +61,7 @@ The clone is on `main`, the current line. Install its HEAD as the version
 Pandora runs.
 
 ```sh
-~/Code/pandora/bin/pandora upgrade
+~/Code/pandora/bin/pandora upgrade --from ~/Code/pandora
 ```
 
 `upgrade` copies the committed tree into
@@ -69,7 +69,7 @@ Pandora runs.
 `~/.local/share/pandora/current` at it. The launchers and the daemon run from
 `current`, never from the checkout. Pulling,
 editing or switching branches in the checkout changes nothing live until the
-next `pandora upgrade`. See [Upgrade](#upgrade). If `XDG_DATA_HOME` is set,
+next `pandora upgrade --from`. See [Upgrade](#upgrade). If `XDG_DATA_HOME` is set,
 the directory is `$XDG_DATA_HOME/pandora` instead.
 
 ### 2. Put the launchers first on PATH
@@ -279,7 +279,7 @@ ok    pandora on PATH    ~/.local/bin/pandora imports ~/.local/share/pandora/ver
 ok    install            current is f91ef4e7a1c2, from ~/Code/pandora; `pandora` and the shim run through it
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, worker ubuntu@WORKER_IP, runs current (f91ef4e7a1c2)
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
-ok    daemon supervision launchd runs pid 47841 as com.pandora.daemon, interpreter /opt/homebrew/bin/python3 (3.14.0); launchd starts it with /opt/homebrew/bin/python3; `pandora upgrade` after updating the checkout
+ok    daemon supervision launchd runs pid 47841 as com.pandora.daemon, interpreter /opt/homebrew/bin/python3 (3.14.0); launchd starts it with /opt/homebrew/bin/python3; `pandora upgrade` restarts it into new code
 ok    repository         enrolled as eichler, registration ~/Code/eichler/.git/pandora-repo
 ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/eichler/pandora.toml; cache ~/Code/eichler/.git/pandora-claims
 info  claim caches       57 worktree(s): 41 fresh, 2 stale, 14 without a cache; each refreshes on its next command
@@ -316,9 +316,9 @@ The version lines warn in these cases:
 | `install` | `pandora` on PATH or the shim runs a checkout or a version directory, not `current` | `pandora upgrade` re-points a link into the checkout it upgrades or into a version directory. Replace any other link with one through `current`. |
 | `install` | `current` names a directory with no package (`fail`) | `pandora upgrade --from ~/Code/pandora` |
 | `daemon` | `daemon runs <old>, current is <new>; restart it` | `pandora daemon --restart` under launchd, which drains the daemon first. Otherwise stop and start it. Or run `pandora upgrade`, which drains the daemon first. |
-| `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade` | `pandora upgrade` |
+| `daemon` | `daemon runs <old>, current is <new>, and <checkout> is at <commit> since; run pandora upgrade --from <checkout>` | `pandora upgrade --from <checkout>` |
 | `daemon` | `daemon runs the checkout <path>, current is <new>` | `pandora daemon --install`. It drains the daemon, then restarts it. |
-| `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | `pandora upgrade`. It builds the commit again under a new name. |
+| `daemon` | `daemon code differs from <version> on disk: something edited the version directory` | The `pandora upgrade` command the message names (`--from <checkout>` or `--release <tag>`). It builds the version again under a new name. |
 
 A checkout that has moved on since the last upgrade is not a warning. The
 `install` line notes its commit.
@@ -345,23 +345,29 @@ path worked; 70 means it could not be exercised, with the reason.
 
 ## Upgrade
 
-Pandora runs from a snapshot of the checkout, never from the checkout itself.
-To move to new code, update the checkout, then install its HEAD.
+Pandora runs from a snapshot, never from the checkout or a download directly.
+Bare `pandora upgrade` fetches the latest published release and installs it.
+`--release <tag>` names another one. To move to unreleased code, update the
+checkout and install its HEAD.
 
 ```sh
-git -C ~/Code/pandora pull
 pandora upgrade
+pandora upgrade --release v0.3.0
+git -C ~/Code/pandora pull && pandora upgrade --from ~/Code/pandora
 ```
 
 `pandora upgrade` does these steps:
 
-1. It refuses if the checkout has uncommitted changes to tracked files.
-   `--dirty` snapshots the working tree instead, as
-   `<commit>-dirty-<digest>`. Untracked files are never copied.
-2. It copies the committed tree at HEAD into `versions/<commit>/`, named by the
-   first 12 hex digits of the commit. A version already built is reused while
+1. With `--release` (or bare), it downloads the release's `pandora-*.tar.gz`
+   asset, or the tag's source archive when there is none, and checks the
+   tarball holds a Pandora tree. With `--from`, it refuses if the checkout
+   has uncommitted changes to tracked files. `--dirty` snapshots the working
+   tree instead, as `<commit>-dirty-<digest>`. Untracked files are never
+   copied.
+2. It copies the tree into `versions/<name>/`: the release tag, or the
+   commit's first 12 hex digits. A version already built is reused while
    its files still match the digest written when it was built. An edited one
-   is left alone and the commit is built again as `<commit>-<digest>`.
+   is left alone and the tree is built again as `<name>-<digest>`.
 3. It imports the new version's client and daemon with the interpreter the
    plist pins and the one the launchers find. A version that cannot import is
    refused, and nothing changes.
@@ -396,14 +402,14 @@ its version until it restarts, and `pandora doctor` warns meanwhile.
 
 It prints the new version with its tree digest, `current` before and after,
 and the daemon's version before and after the restart. `--from <checkout>`
-names the checkout. The default is the checkout the current version came
-from.
+snapshots a checkout instead of a release; with `--dirty` and no `--from` the
+checkout is the one the current version came from.
 
 | Exit | Meaning |
 |---|---|
 | 0 | The daemon runs the new version, or no daemon runs. |
 | 75 | `current` did not move. The drain ended without a restart: a run still blocked it after `--wait`, and the daemon admits runs again (if the drain could not be ended, upgrade says so and the daemon ends it within 30 s). Or the daemon did not answer `ping` (for example, it is busy on a swapping Mac), or a daemon holds the lock but its socket is gone. The new version waits in `versions/`. Run `pandora upgrade` again later, or with `--now`. |
-| 1 | Refused: uncommitted changes, not a Pandora checkout, or a version that cannot import. Nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout. Nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
+| 1 | Refused: uncommitted changes, not a Pandora checkout, a release that cannot be fetched or holds no Pandora tree, or a version that cannot import. Nothing changed. Or `upgrade` cannot restart this daemon: it was started by hand, or its plist runs a checkout. Nothing changed unless `--no-restart`. Or the new daemon did not end the drain within 20 seconds, or did not answer from the new version within 10 seconds. The last lines say what to run. |
 
 To go back, install a version that is still built:
 
