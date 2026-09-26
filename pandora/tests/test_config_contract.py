@@ -276,8 +276,13 @@ class TheFixFollowsHowPandoraIsInstalled(unittest.TestCase):
             version.mkdir(parents=True)
             (version / install.META).write_text(json.dumps({'source': '/src/pandora'}))
             self.assertEqual(install.update_fix(str(version), data=data),
-                             '`git -C /src/pandora pull && pandora upgrade`')
+                             '`git -C /src/pandora pull && pandora upgrade --from /src/pandora`')
             self.assertNotRegex(install.update_fix(str(version), data=data), r'\bv\d')
+            # A version built from a release has no source checkout: bare
+            # upgrade fetches the latest release.
+            (version / install.META).write_text(json.dumps({'release': 'v0.3.0'}))
+            self.assertEqual(install.update_fix(str(version), data=data),
+                             '`pandora upgrade`')
 
 
 class InstalledButNotAnswering(unittest.TestCase):

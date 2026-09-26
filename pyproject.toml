@@ -1,0 +1,10 @@
+# Pandora runs from a checkout or a snapshot over PYTHONPATH (`bin/pandora`),
+# so this file is not a build recipe. It is the one place a version lives: the
+# release workflow bumps it, `pandora --version` prints it, and a snapshot of
+# the tree carries it into `versions/`.
+[project]
+name = "pandora"
+version = "0.3.0"
+description = "A scheduler that routes a repository's heavy commands off the machine its agents type on"
+requires-python = ">=3.11"
+license = "MIT"
