@@ -50,7 +50,11 @@ from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 # position, `status` of a queued row carries `queue`, `cancel` of one answers
 # `withdrawn`, `lookup` says `queued`, and results record `size_declared` and
 # `size_used` now that the class is learned.
-ENGINE_VERSION = 4
+# 5: a gateway may pin the caller's client through PANDORA_GATEWAY_CLIENT, ahead
+# of whatever the request claims; `status`, `logs`, `result` and `wait` scope to
+# the caller like `cancel`; and a provisioned `min_engine_version` floor
+# refuses bundles older than it at submit, resubmit and fence.
+ENGINE_VERSION = 5
 CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 
 
@@ -70,6 +74,46 @@ def foreign(row, client):
     """
     owner = row['client'] if 'client' in row.keys() else None
     return bool(owner) and owner != client
+
+
+def pinned_client():
+    """The client a gateway pinned to this connection, or None.
+
+    A forced command sets it from the authorized_keys entry, so it outweighs
+    whatever the request itself claims: a client cannot name another client.
+    """
+    return client_of(os.environ.get('PANDORA_GATEWAY_CLIENT'))
+
+
+def caller(args=None, request=None):
+    """This call's client: the gateway's pin first, then the self-reported name."""
+    return pinned_client() or client_of(getattr(args, 'client', None)) \
+        or client_of((request or {}).get('client'))
+
+
+def version_floor(paths):
+    """The lowest engine version this worker admits, per the provisioned file."""
+    try:
+        return int((paths.root / 'min_engine_version').read_text().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def below_floor(paths):
+    """The refusal when this bundle predates the worker's floor, else None."""
+    floor = version_floor(paths)
+    if floor and ENGINE_VERSION < floor:
+        return {'ok': False, 'code': 'engine-version', 'have': ENGINE_VERSION,
+                'want': floor,
+                'detail': 'this engine bundle is version %d and the worker '
+                          'requires %d. Run `pandora upgrade`, then retry.'
+                          % (ENGINE_VERSION, floor)}
+    return None
+
+
+def not_yours(row):
+    return emit({'ok': False, 'code': 'not-yours', 'run_id': row['run_id'],
+                 'client': row['client']})
 
 
 def emit(payload):
@@ -102,10 +146,13 @@ def cmd_submit(args):
 def submit(args, paths, ledger, request):
     """The body of `submit`, shared with `resubmit` so a retry is admitted exactly
     as a first attempt is: same disk floor, same memory admission, same refusals."""
+    refusal = below_floor(paths)
+    if refusal:
+        return emit(refusal)
     plan = request['plan']
     fanned = bool(plan.get('shards'))
     run_id = 'r' + uuid.uuid4().hex[:15]
-    client = client_of(request.get('client'))
+    client = caller(request=request)
     with gate(paths.root):
         # A retry does not ship or renew the cache grace. Recheck under the
         # collector's lock: resubmit's earlier existence check can go stale.
@@ -224,6 +271,13 @@ def queue_place(paths, ledger, run_id):
 
 def cmd_wait(args):
     """The detached waiter of one queued row. See `waitlist.wait`."""
+    paths, ledger = open_ledger(args.root)
+    try:
+        row = ledger.get(args.run)
+        if row is not None and foreign(row, caller(args)):
+            return not_yours(row)
+    finally:
+        ledger.close()
     return emit({'ok': True, 'run_id': args.run,
                  'became': waitlist.wait(args.root, args.run, python=args.python)})
 
@@ -250,6 +304,9 @@ def cmd_resubmit(args):
 
 
 def resubmit(args, paths, ledger):
+    refusal = below_floor(paths)
+    if refusal:
+        return emit(refusal)
     row = ledger.get(args.run)
     if row is None:
         return emit({'ok': False, 'code': 'stale', 'run_id': args.run})
@@ -265,14 +322,12 @@ def resubmit(args, paths, ledger):
     if not Path(row['source_path']).is_dir():
         return emit({'ok': False, 'code': 'source-gone', 'run_id': args.run,
                      'source_path': row['source_path']})
-    if foreign(row, client_of(getattr(args, 'client', None))):
-        return emit({'ok': False, 'code': 'not-yours', 'run_id': args.run,
-                     'client': row['client']})
+    if foreign(row, caller(args)):
+        return not_yours(row)
     # The retry is the caller's, even of a run from before attribution: an
     # unowned retry would be anyone's to attach to or cancel.
-    caller = client_of(getattr(args, 'client', None))
     request = dict(request, request_id=args.request_id, retry_of=args.run,
-                   client=caller or request.get('client'))
+                   client=caller(args) or request.get('client'))
     return submit(args, paths, ledger, request)
 
 
@@ -302,17 +357,20 @@ def cmd_lookup(args):
     try:
         with gate(paths.root):
             row = ledger.by_request(args.request_id)
-            if row is not None and foreign(row, client_of(args.client)):
+            if row is not None and foreign(row, caller(args)):
                 # Not this client's request: neither attach to it nor fence it.
                 return emit({'ok': False, 'code': 'request-collision',
                              'request_id': args.request_id, 'engine': ENGINE_VERSION})
             if row is None:
                 if args.fence:
+                    refusal = below_floor(paths)
+                    if refusal:
+                        return emit(refusal)
                     fence = 'f' + uuid.uuid4().hex[:15]
                     ledger.claim(args.request_id, fence, repo=args.repo or '',
                                  job=args.job or '', input_id='', source_path='', argv=[],
                                  env={}, cwd='', outputs=[], size_class='',
-                                 client=client_of(args.client))
+                                 client=caller(args))
                     ledger.finish(fence, outcome='infra_failed', exit_code=None,
                                   evidence={'cause': 'submit-lost', 'fence': True})
                 return emit({'ok': True, 'found': False, 'fenced': bool(args.fence),
@@ -340,6 +398,8 @@ def cmd_status(args):
     row = ledger.get(args.run)
     if row is None:
         return emit({'ok': False, 'code': 'stale', 'run_id': args.run})
+    if foreign(row, caller(args)):
+        return not_yours(row)
     item = row_to_dict(row)
     item['log_bytes'] = paths.log(args.run).stat().st_size if paths.log(args.run).exists() else 0
     if item['state'] == 'queued' and item.get('queued_at'):
@@ -351,7 +411,18 @@ def cmd_status(args):
 
 def cmd_logs(args):
     """Raw bytes from an offset. Not JSON: the client copies them through."""
-    paths = runner.Paths(args.root)
+    paths, ledger = open_ledger(args.root)
+    try:
+        row = ledger.get(args.run)
+        # A row that predates attribution is anyone's, as everywhere else.
+        if row is not None and foreign(row, caller(args)):
+            # A refusal cannot ride this channel -- the client streams it as
+            # log bytes -- so the verdict goes to stderr with a failing exit.
+            sys.stderr.write('not-yours: run %s belongs to %s\n'
+                             % (args.run, row['client']))
+            return 1
+    finally:
+        ledger.close()
     path = paths.log(args.run)
     if not path.exists():
         return 1
@@ -368,9 +439,11 @@ def cmd_logs(args):
 
 def cmd_result(args):
     paths, ledger = open_ledger(args.root)
+    row = ledger.get(args.run)
+    if row is not None and foreign(row, caller(args)):
+        return not_yours(row)
     path = paths.result(args.run)
     if not path.is_file():
-        row = ledger.get(args.run)
         return emit({'ok': False, 'code': 'not-finished' if row is not None else 'stale',
                      'run_id': args.run, 'state': row['state'] if row is not None else None})
     return emit({'ok': True, 'result': json.loads(path.read_text())})
@@ -381,10 +454,9 @@ def cmd_cancel(args):
     row = ledger.get(args.run)
     if row is None:
         return emit({'ok': False, 'code': 'stale', 'run_id': args.run})
-    if foreign(row, client_of(args.client)):
+    if foreign(row, caller(args)):
         # One client never stops another's run, whatever id it was handed.
-        return emit({'ok': False, 'code': 'not-yours', 'run_id': args.run,
-                     'client': row['client']})
+        return not_yours(row)
     if row['state'] == 'finished':
         return emit({'ok': True, 'already': row['outcome'], 'run_id': args.run})
     with gate(paths.root):
@@ -640,14 +712,18 @@ def main(argv=None):
                            ('wait', cmd_wait)):
         node = sub.add_parser(name)
         node.add_argument('--run', required=True)
-        if name == 'cancel':
+        # `supervise` and `wait` are the engine's own spawns; the flag exists
+        # for when they arrive over SSH anyway.
+        if name != 'supervise':
             node.add_argument('--client', default=None)
+        if name == 'cancel':
             node.add_argument('--queued-only', action='store_true',
                               help='withdraw a queued row; leave an admitted one alone')
         node.set_defaults(func=function)
     logs = sub.add_parser('logs')
     logs.add_argument('--run', required=True)
     logs.add_argument('--offset', type=int, default=0)
+    logs.add_argument('--client', default=None)
     logs.set_defaults(func=cmd_logs)
     ps = sub.add_parser('ps')
     ps.add_argument('--live', action='store_true')

@@ -103,7 +103,7 @@ class AFullWorkerQueues(Engine):
         queued = self.submit('b:suite', size='medium')
         self.assertTrue(queued['ok'])
         self.assertEqual(queued['state'], 'queued')
-        self.assertEqual(queued['engine'], 4)
+        self.assertEqual(queued['engine'], service.ENGINE_VERSION)
         self.assertEqual(queued['queued']['position'], 1)
         self.assertEqual(queued['queued']['running'], 1)
         self.assertEqual(queued['queued']['bound_seconds'], waitlist.BOUND_DEFAULT)

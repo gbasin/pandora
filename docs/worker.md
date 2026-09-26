@@ -104,34 +104,102 @@ with `--mark` after any change to the machine.
 ## Sharing a worker
 
 Several Macs, each with its own client daemon and its own user, can share one
-worker and one `engine_root`. Each daemon sends its client name with every
-submission: `[client] name`, or `user@host` by default (`gary@studio`). The
-worker records the name on the run's ledger row and in its result, and a
-shard's row carries its parent's name.
+worker and one `engine_root` ([#156](https://github.com/gbasin/pandora/issues/156)).
+Every client logs in as the same worker user; what a key may do is decided by
+the key, not by whoever is holding it.
 
-What holds between clients:
+### Users in the manifest
+
+`versions.toml` gains a `[[users]]` entry per teammate's key:
+
+```toml
+[[users]]
+name = "sterling"               # the client name this key speaks as
+role = "user"                   # or "admin": a plain shell, no gateway
+key = "ssh-ed25519 AAAA... sterling@laptop"
+```
+
+`provision` renders them as a managed block in the worker user's
+`authorized_keys`, between `# >>> pandora users >>>` markers. A `user` line
+carries `restrict` and the forced command
+`<root>/bin/gateway --name <name> --engine-root <er> --worker-root <wr>`; an
+`admin` line is the plain key. Lines outside the markers are never touched, so
+the account's own key survives. Removing an entry and re-running `provision`
+revokes the access. `name` is validated like `[client] name`; `role` defaults
+to `user`.
+
+### The gateway
+
+`provision` installs `pandora/worker/gateway.py` as `<root>/bin/gateway`. Pinned
+as a key's forced command, it admits exactly the wire shapes a client sends and
+refuses everything else with `pandora-gateway: refused as <name>: <reason>`:
+
+* the home probe and the bundle presence check (`sh -c`, two fixed forms);
+* `python3 -c <script>` for the fixed feed scripts only, allowlisted by sha256
+  in `<engine_root>/feeds.allow` and in each installed bundle's
+  `pandora/.feeds`, with every path argument inside the engine root;
+* `python3 -m pandora.engine.service` under an installed bundle, for the
+  lifecycle verbs: `submit`, `resubmit`, `lookup`, `status`, `result`,
+  `cancel`, `wait`, `logs`, `ps`, `stats`, `health`, `cache-stats`,
+  `reconcile`;
+* `pandora.worker.service` under an installed bundle, read-only: `status`,
+  `capacity`, `goldens`, `pins`;
+* `rsync --server` with every path operand inside the engine root.
+
+`gc`, `canary`, `ready`, `retain`, `cache-clear` and a bare shell are refused
+on a `user` key. An admitted command runs with `PANDORA_GATEWAY_CLIENT` set to
+the key's name, and the engine trusts that pin over whatever the request
+claimed — so a gatewayed client cannot speak as another client, whatever code
+it runs.
+
+The gateway bounds command *shape*, not content: a bundle is client code
+running as the worker user, so a teammate who can ship a bundle can run
+anything as that user. Identity, revocation and verb scoping are what it buys;
+isolation between users stays out of scope.
+
+The e2e workflow exercises it against the live worker:
+`scripts/e2e-gateway.sh` generates a teammate keypair, adds it as a `[[users]]`
+entry through a real `worker provision`, refuses a shell, a `python3 -c`
+stranger and an escaping rsync, runs `worker status` and a selftest through
+the pinned key, checks the ledger names the pin, and provisions the original
+manifest back to prove revocation.
+
+### The engine floor
+
+`provision` writes `<engine_root>/min_engine_version`, defaulting to the
+provisioner's own engine version (`[worker] min_engine_version` overrides it).
+`submit`, `resubmit` and a `lookup --fence` refuse a bundle older than the
+floor as `engine-version`, which never falls back: the caller is told to run
+`pandora upgrade`. One ledger, one budget and one scheduler are shared by
+every bundle, so an old engine writing new rows is the failure this exists to
+prevent.
+
+### What holds between clients
 
 * Every attempt has its own row, directory, log, result and instance, even
   when two Macs submit the same tree at the same moment. The
   source cache and the turbo cache are content-addressed and written by
   temporary file and rename, so two writers of one entry leave one whole entry.
+  The caches are shared on purpose: a second client inherits warm turbo
+  entries, source dedup and the repository's golden.
 * A request id held by one client is never attached to by another. The worker
   refuses the second submission as `request-collision`, and nothing starts on
   the worker. The client treats it as `engine-error`, so the
   [Fallback](pandora-toml.md#fallback) table decides.
 * One memory budget covers every client's runs. Admission counts them all.
-* `cancel`, `lookup` and the automatic retry act only on the calling client's
-  runs. Another client's run is refused as `not-yours`. A run submitted before
-  attribution existed has no client, and any client may cancel it.
+* `cancel`, `lookup`, `wait`, the retry, and now the reads — `status`, `logs`,
+  `result` — act only on the calling client's runs. Another client's run is
+  refused as `not-yours`. A run submitted before attribution existed has no
+  client, and any client may act on it.
 * Reconcile and retention act on what a row records (live, finished,
   orphaned), never on who submitted it.
 
-What does not hold yet ([#73](https://github.com/gbasin/pandora/issues/73)):
-there is no fair share between clients, so one Mac can fill the budget. Every
-client logs in as the same worker user, with that user's SSH key. And a Mac
-still running older Pandora code sends no name: its runs record no client, and
-it can cancel anyone's run. The guarantees above hold once every Mac runs this
-code. Change `[client] name` only while `pandora ps` shows nothing live: runs
+What does not hold yet: there is no fair share between clients, so one Mac can
+fill the budget. And the guarantees above assume the worker's keys were
+provisioned through `[[users]]`: a client whose key is a plain shell — admin
+or pre-gateway — can still name anyone, and a Mac running old code sends no
+name at all. The engine floor keeps bundled code honest, not bare keys.
+Change `[client] name` only while `pandora ps` shows nothing live: runs
 submitted under the old name answer cancel and lookup only to that name.
 
 Where the name shows:
