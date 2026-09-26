@@ -43,6 +43,10 @@ VERSION = 1
 NAME = re.compile(r'[a-z][a-z0-9-]*\Z')
 FLAG = re.compile(r'-{1,2}[A-Za-z][A-Za-z0-9-]*\Z')
 TOKEN = re.compile(r'\{([^{}]+)\}')
+# `{argN}` is the one template a declared path may carry: the Nth positional
+# argument of the command being claimed, filled in when the plan is built.
+# 1-based, like the shell's $1.
+ARG_PATH = re.compile(r'\{arg([1-9][0-9]*)\}')
 VARIABLE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*\Z')
 # Every way a remote submission can fail to proceed, named once. The list is
 # closed because it is also the fallback policy's vocabulary: a cause nobody can
@@ -156,6 +160,19 @@ def _no_template(text, where):
     return text
 
 
+def _arg_path(path, where):
+    """The one template a declared path may carry is `{argN}` -- the Nth
+    positional argument of the command being claimed, so a job whose args
+    select one of several targets can name the selected target's outputs."""
+    for match in TOKEN.finditer(path):
+        if not ARG_PATH.fullmatch(match.group(0)):
+            raise UnknownSchema('%s uses template value {%s}; a declared path substitutes '
+                                'only {argN}, the Nth positional argument'
+                                % (where, match.group(1)),
+                                key=where, value='{%s}' % match.group(1))
+    return path
+
+
 # --- job parts --------------------------------------------------------------
 
 def _option(value, where):
@@ -241,6 +258,7 @@ def _output(value, where):
     if not output['paths']:
         raise ConfigError(where + '.paths must not be empty')
     for path in output['paths']:
+        _arg_path(path, where + '.paths')
         _inside(path, where + '.paths')
     if 'requires_option' in value:
         output['requires_option'] = _str(value['requires_option'], where + '.requires_option')
@@ -325,6 +343,9 @@ WHERE = ('remote', 'local')
 
 SHARD_TOKEN = re.compile(r'\{(i|n)\}')
 PLAN_TOKEN = re.compile(r'\{(n|plan)\}')
+# A per-shard report path may also name the selected argument: acme's surfaces
+# keep each app's reports under `apps/<app>/`, and the app is `{arg1}`.
+REPORT_TOKEN = re.compile(r'\{(i|n|arg[1-9][0-9]*)\}')
 
 
 def _shard_text(text, where, pattern, *, required=()):
@@ -404,11 +425,12 @@ def _shards(value, where):
             raise ConfigError(where + '.plan needs a report path: an inventory nothing is '
                                       'checked against proves nothing')
         shards['report'] = _inside(_shard_text(_str(value['report'], where + '.report'),
-                                               where + '.report', SHARD_TOKEN),
+                                               where + '.report', REPORT_TOKEN),
                                    where + '.report')
         shards['plan_outputs'] = _strs(value.get('plan_outputs', []),
                                        where + '.plan_outputs', unique=True)
         for path in shards['plan_outputs']:
+            _arg_path(path, where + '.plan_outputs')
             _inside(path, where + '.plan_outputs')
     else:
         for key in ('expect_flag', 'report', 'plan_outputs'):
@@ -505,6 +527,13 @@ def _job(value, index, warnings):
     if job['shards'] and job['shards']['plan'] and not job['outputs']:
         raise ConfigError(where + '.shards.plan writes a per-shard report, so the job must '
                                   'declare the artifacts that bring it home')
+    declared = [path for output in job['outputs'] for path in output['paths']]
+    if job['shards']:
+        declared += job['shards']['plan_outputs']
+        if job['shards']['report']:
+            declared.append(job['shards']['report'])
+    if args == 'none' and any(ARG_PATH.search(path) for path in declared):
+        raise ConfigError(where + " declares {argN} paths but the job's args = 'none'")
     if job['git'] != 'none' and job['where'] == 'local':
         raise ConfigError(where + ".git builds a repository on the worker; a local job "
                                   "already runs in a real checkout")
