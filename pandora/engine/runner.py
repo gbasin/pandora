@@ -32,6 +32,7 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, gate, size_line
+from . import batches, shards as sharding
 from . import admission, history, retry, turbocache, writeback
 
 RESULT_VERSION = 2
@@ -274,9 +275,19 @@ def supervise(root, run_id, *, driver=None):
         limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
         ledger.update(run_id, cpus_hint=limits.cpus_hint)
         note(running_line(ledger, row, limits.cpus_hint))
-        result = driver.execute(instance, plan['argv'], env=env,
-                                cwd=remote_cwd(plan['cwd']),
-                                limits=limits, on_log=log_handle.write, on_tick=tick)
+        queue_marker = attempt / 'batchqueue.json'
+        if queue_marker.is_file():
+            # A queue-fed shard is a session: claim a batch, run it, pull its
+            # report, claim the next, until the parent queue drains or halts.
+            result = queue_session(paths, ledger, run_id, plan, driver, instance,
+                                   env=env, limits=limits, tick=tick, note=note,
+                                   log=log_handle, marker=json.loads(
+                                       queue_marker.read_text()))
+        else:
+            result = driver.execute(instance, plan['argv'], env=env,
+                                    cwd=remote_cwd(plan['cwd']),
+                                    limits=limits, on_log=log_handle.write,
+                                    on_tick=tick)
         durations['execute'] = round(result.seconds, 2)
         marks = time.monotonic()
         peak_mib = max(peak_mib, (result.usage.memory_peak or 0) // 1048576)
@@ -500,6 +511,85 @@ def pull(driver, instance, relative, into):
         subprocess.run(['chmod', '-R', 'u+rwX', str(into)],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     return code == 0
+
+
+# Worst-first, for the session's verdict over its batches.
+BATCH_SEVERITY = {'cancelled': 6, 'lost': 5, 'oom': 4, 'timeout': 3, 'failed': 2, 'ok': 1}
+
+
+def queue_session(paths, ledger, run_id, plan, driver, instance, *, env, limits,
+                  tick, note, log, marker):
+    """A shard as a session: pull batches off the parent's queue until it ends.
+
+    Each batch is one `execute` on the same instance -- the boot is paid once --
+    with its spec pushed to `.pandora/batch.json` and its report pulled back
+    out per batch, so a shard that dies loses only the batch it was on. The
+    runner contract is three variables: PANDORA_BATCH_FILE (the spec),
+    PANDORA_BATCH_INDEX, and PANDORA_BATCH_REPORT (where the ids it ran go).
+    """
+    queue = batches.Queue(marker['queue'])
+    batch_dir = paths.attempt(run_id) / 'batches'
+    batch_dir.mkdir(exist_ok=True)
+    rows, seconds, peak = [], 0.0, 0
+    worst = None
+    while True:
+        if tick() == 'cancel':
+            break
+        spec = queue.claim(run_id)
+        if spec is None:
+            break
+        seq, ids = spec['batch'], spec['testIds']
+        note('batch %d: %d test%s (attempt %d)'
+             % (seq, len(ids), '' if len(ids) == 1 else 's', spec['attempt']))
+        spec_file = batch_dir / 'spec.json'
+        spec_file.write_text(json.dumps({'batch': seq, 'testIds': ids}))
+        driver.incus('file', 'push', '-p', str(spec_file),
+                     instance.name + '/work/' + sharding.BATCH_PATH,
+                     check=False, timeout=60)
+        report_rel = sharding.batch_report(seq)
+        batch_env = dict(env)
+        batch_env.update({'PANDORA_BATCH_FILE': sharding.BATCH_PATH,
+                          'PANDORA_BATCH_INDEX': str(seq),
+                          'PANDORA_BATCH_REPORT': report_rel})
+        result = driver.execute(instance, plan['argv'], env=batch_env,
+                                cwd=remote_cwd(plan['cwd']), limits=limits,
+                                on_log=log.write, on_tick=tick)
+        seconds += result.seconds
+        peak = max(peak, (result.usage.memory_peak or 0) // 1048576)
+        if result.outcome == 'lost':
+            # The instance is gone, so no report can exist. Leave the lease
+            # open: the parent requeues it once this run's row is finished.
+            rows.append({'batch': seq, 'attempt': spec['attempt'],
+                         'outcome': 'lost', 'exit': result.exit_code,
+                         'seconds': round(result.seconds, 2), 'tests': len(ids),
+                         'report': False})
+            worst = result
+            break
+        pulled = pull(driver, instance, report_rel, batch_dir)
+        queue.complete(seq, run_id, outcome=result.outcome, report=pulled)
+        rows.append({'batch': seq, 'attempt': spec['attempt'],
+                     'outcome': result.outcome, 'exit': result.exit_code,
+                     'seconds': round(result.seconds, 2), 'tests': len(ids),
+                     'report': pulled})
+        if worst is None or (BATCH_SEVERITY.get(result.outcome, 0)
+                             > BATCH_SEVERITY.get(worst.outcome, 0)):
+            worst = result
+        if result.outcome != 'ok' and not marker.get('keep_going'):
+            # Mirror the static rule -- a failure stops new dispatch -- at its
+            # queue shape: this shard stops pulling, and the parent's halt
+            # stops its siblings' next claims rather than their current batch.
+            note('batch %d did not pass; this shard stops pulling' % seq)
+            break
+    if worst is None:
+        # The queue drained before this shard claimed anything. That is a pass
+        # -- a narrow window at the tail is normal, not a shard that ran zero.
+        worst = Result(exit_code=0, outcome='ok', seconds=0.0,
+                       usage=Usage(), evidence={})
+    evidence = dict(worst.evidence)
+    evidence['batches'] = rows
+    return Result(exit_code=worst.exit_code, outcome=worst.outcome,
+                  seconds=seconds, usage=Usage(memory_peak=peak * 1048576),
+                  evidence=evidence)
 
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,

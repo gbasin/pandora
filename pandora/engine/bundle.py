@@ -28,6 +28,7 @@ MEMBERS = (
     'exits.py',
     'engine/__init__.py',
     'engine/admission.py',
+    'engine/batches.py',
     'engine/ledger.py',
     'engine/scheduler.py',
     'engine/result.py',

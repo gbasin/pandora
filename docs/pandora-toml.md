@@ -64,6 +64,15 @@ job also declares a `plan` step that builds once and lists the partition. The
 run is `verified` only when every shard filed a report and the observed test ids
 equal the planned partition exactly.
 
+`strategy = "queue"` is a third cut, on the same tier-2 `plan`: instead of
+fixing the partition at dispatch, the engine flattens the inventory into
+batches and each shard is a session that pulls them first-free-first-served.
+Its runner reads `PANDORA_BATCH_FILE` (a JSON spec: `{"batch": n, "testIds":
+[...]}`), runs those ids, and writes the report to `PANDORA_BATCH_REPORT`, once
+per pull. A shard that dies holds only the batch it was on; the parent requeues
+it up to `batch_attempts` times, then names it dead, and `verified` still means
+every planned id was observed exactly once.
+
 ### Top-level tables
 
 | Table | What it holds |
@@ -118,7 +127,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `outputs` | Entries `{ kind, paths, requires_option }`. `kind` is `artifacts` (remote paths brought home), `writeback` (files an armed option may rewrite, described below) or `evidence` (local jobs only: paths the receipt records as present or absent). A `writeback` output must name a `requires_option` that a `writeback = true` option sets. |
 | `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Acme's `--update` is one. |
 | `value_flags` | Flags whose value is not a path, so the subdirectory rule does not check it. |
-| `shards` | `strategy` (`argv` or `env`), `template` (`--shard={i}/{n}`), `env` (required with `strategy = "env"`), `default`, `max`, and for tier 2 `plan`, `expect_flag`, `report`, `plan_outputs`. Every shard also gets `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`. Remote only. |
+| `shards` | `strategy` (`argv`, `env` or `queue`), `template` (`--shard={i}/{n}`), `env` (required with `strategy = "env"`), `default`, `max`, and for tier 2 `plan`, `expect_flag`, `report`, `plan_outputs`. `queue` needs `plan` and takes `batch_size` (0: about four pulls per shard) and `batch_attempts` (default 2); `template`, `report` and `expect_flag` do not apply to it. Every shard also gets `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`. Remote only. |
 | `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. It does not take its worktree's `one_active_per_worktree` slot, so other local jobs still run there while it lives. |
 | `reject` | `[{ args, message }]`: arguments the job refuses, with the reason. Exit 1. |
 | `reject_if_set` | Environment variables that make the job refuse. Exit 1. |

@@ -171,6 +171,82 @@ def read(path):
     return json.loads(Path(path).read_text())
 
 
+# --- the queue strategy -----------------------------------------------------
+
+# Where a queue-fed batch's spec lands inside the instance, and where the
+# runner writes that batch's report. Both are named by the engine: a queue has
+# no static partition for a report template to describe.
+BATCH_PATH = '.pandora/batch.json'
+
+
+def batch_report(index):
+    """The report path for one batch, worktree-relative in the instance."""
+    return '.pandora/batch-%d.json' % index
+
+
+def flatten(inventory):
+    """One ordered id list from a plan's per-shard inventory.
+
+    A queue ignores the plan's own split -- that split described a static
+    partition that does not exist here -- but keeps its order, which is the
+    repository's ordering: slowest first, if the runner bothered.
+    """
+    return [test for rows in inventory for test in rows]
+
+
+def batch_size(tests, shards, requested):
+    """How many ids per pull. The default aims four pulls per shard: enough
+    work-stealing that a slow tail cannot strand a lane, few enough pulls that
+    per-batch cost stays noise."""
+    if requested:
+        return requested
+    return max(1, -(-len(tests) // max(1, shards * 4)))
+
+
+def batch_up(tests, size):
+    """[(seq, [ids]), ...], seq 1-based, order preserved."""
+    return [(index, tests[at:at + size])
+            for index, at in enumerate(range(0, len(tests), size), 1)]
+
+
+def verify_queue(tests, reports, dead):
+    """Did the batches, between them, run exactly the planned inventory?
+
+    `tests` is the flattened inventory; `reports` maps a batch number to the
+    ids its holder reported; `dead` maps a batch number to the ids whose
+    attempts ran out. Queue mode has no per-shard partition to match: the
+    proof is coverage -- every planned id observed exactly once -- plus no
+    batch still claimed by a shard that will never answer.
+    """
+    seen = []
+    for index in reports:
+        seen.extend(reports[index])
+    lost = sorted(set(tests) - set(seen))
+    strangers = sorted(set(seen) - set(tests))
+    counts = {}
+    for test in seen:
+        counts[test] = counts.get(test, 0) + 1
+    duplicated = sorted(test for test, n in counts.items() if n > 1)
+    missing = lost
+    verified = not missing and not strangers and not duplicated and not dead
+    result = {'verified': verified, 'batches': len(reports) + len(dead),
+              'planned_tests': len(tests), 'observed_tests': len(seen),
+              'missing': missing, 'unexpected': strangers,
+              'duplicated': duplicated, 'dead_batches': sorted(dead)}
+    if verified:
+        result['reason'] = 'observed test ids are exactly the planned inventory'
+    elif dead:
+        result['reason'] = ('%d batch(es) exhausted their attempts (batch %s)'
+                            % (len(dead), ', '.join(str(i) for i in sorted(dead))))
+    elif duplicated:
+        result['reason'] = '%d test(s) ran in more than one batch' % len(duplicated)
+    elif missing:
+        result['reason'] = '%d planned test(s) were never observed' % len(missing)
+    else:
+        result['reason'] = '%d observed test(s) were not in the plan' % len(strangers)
+    return result
+
+
 # --- the receipt ------------------------------------------------------------
 
 def verify(planned, reports):

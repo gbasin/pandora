@@ -73,7 +73,9 @@ out:
 
 The caller's `PANDORA_*` variables never reach a routed run. Pandora sets its
 own: `PANDORA_CPUS`, a shard's `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`,
-and in the local lane `PANDORA_RUN` and `PANDORA_RUN_DIR`. A command run with `PANDORA_OFF`, passed through or not
+a queue-fed batch's `PANDORA_BATCH_FILE`, `PANDORA_BATCH_INDEX` and
+`PANDORA_BATCH_REPORT`, and in the local lane `PANDORA_RUN` and
+`PANDORA_RUN_DIR`. A command run with `PANDORA_OFF`, passed through or not
 claimed gets the whole environment.
 
 ## Verbs
