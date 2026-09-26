@@ -1,20 +1,23 @@
 #!/bin/sh
-# Live-worker proof of the teammate gateway (#156), fully self-provisioning.
-# Runs on the e2e runner after the selftest job: the runner's own admin key to
-# pandora-ci@localhost installs a teammate key through `worker provision`, the
-# probes exercise the forced command over real sshd, and a second provision
-# revokes it again. Nothing has to exist on the runner beforehand.
+# Live-worker proof of the teammate gateway (#156), over real sshd against the
+# e2e worker pandora-ci@localhost. Self-provisioning: the runner's admin key
+# installs bin/gateway and the managed authorized_keys block, the probes
+# exercise the forced command, and the block comes off again. Provision's own
+# rendering is unit-covered (test_worker.py); this proves what only a live
+# box can: sshd's restrict,command= line, the gateway on the real wire, the
+# pin in the ledger, and the revocation.
 #
-# PANDORA_E2E_CONFIG names the e2e client config (same one selftest uses);
-# PANDORA_E2E_SSH overrides how the admin side reaches the worker.
+# PANDORA_E2E_CONFIG names the e2e client config (same one selftest uses).
 
-set -eux
+set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 PANDORA="$ROOT/bin/pandora"
 ADMIN_CONFIG=${PANDORA_E2E_CONFIG:-/home/gh-runner/.config-pandora-e2e.toml}
 ALIAS=e2e-worker-user
 PIN=pandora-ci-user
+MARK_BEGIN='# >>> pandora users >>>'
+MARK_END='# <<< pandora users <<<'
 
 fail() { echo "::error::e2e-gateway: $*" >&2; exit 1; }
 
@@ -25,79 +28,80 @@ fail() { echo "::error::e2e-gateway: $*" >&2; exit 1; }
 
 TMP=$(mktemp -d)
 SSHC="$HOME/.ssh/config"
-SSHC_MARK_BEGIN='# >>> pandora-e2e-gateway >>>'
-SSHC_MARK_END='# <<< pandora-e2e-gateway <<<'
-CLEANED=
 
 cleanup() {
-    [ -n "$CLEANED" ] && return 0
-    CLEANED=1
-    # Revocation is part of the test, but a failure must never leave a key
-    # behind: re-provision the original manifest and lift the ssh alias.
-    if [ -f "$TMP/versions.orig.toml" ] && [ -f "$TMP/key" ]; then
-        "$PANDORA" --config "$ADMIN_CONFIG" worker provision \
-            --versions "$TMP/versions.orig.toml" --no-canary >/dev/null 2>&1 \
-            || echo "::warning::e2e-gateway: the revoking provision failed;" \
-                    "the teammate key may still be on the worker"
-    fi
+    # The managed block and the ssh alias come off no matter how the run ends.
+    [ -f "$TMP/key" ] && $SSHA '
+        awk "/pandora users >>>/{f=1;next}/pandora users <<</{f=0;next}!f" \
+            ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new \
+        && cat ~/.ssh/authorized_keys.new > ~/.ssh/authorized_keys \
+        && rm -f ~/.ssh/authorized_keys.new' 2>/dev/null \
+        || echo "::warning::e2e-gateway: cleanup could not reach the worker;" \
+                "the managed authorized_keys block may still be on it"
     if [ -f "$SSHC" ]; then
-        awk -v b="$SSHC_MARK_BEGIN" -v e="$SSHC_MARK_END" \
-            '$0==b{f=1;next}$0==e{f=0;next}!f' "$SSHC" > "$SSHC.tmp" \
+        awk '/pandora-e2e-gateway >>>/{f=1;next}/pandora-e2e-gateway <<</{f=0;next}!f' \
+            "$SSHC" > "$SSHC.tmp" \
             && cat "$SSHC.tmp" > "$SSHC" && rm -f "$SSHC.tmp" || true
     fi
     rm -rf "$TMP"
 }
 trap cleanup EXIT
 
-# The worker's own declaration, as provision last left it. That is the honest
-# base: the teammate entry is the only delta the test applies. The root is not
-# always ~/pandora (the e2e worker keeps an own root), so it is discovered.
 HOST=$(python3 - "$ADMIN_CONFIG" <<'PY'
 import sys, tomllib
 print(tomllib.load(open(sys.argv[1], 'rb'))['worker']['host'])
 PY
 )
 SSHA="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 $HOST"
-# shellcheck disable=SC2016   # $f and the glob expand on the remote side
-manifest_path=${PANDORA_E2E_MANIFEST:-$($SSHA \
-    'for f in ~/*/worker/versions.toml; do [ -f "$f" ] && { echo "$f"; break; }; done')}
-[ -n "$manifest_path" ] || fail "no versions.toml under any worker root on $HOST"
-WORKER_ROOT=$(dirname "$manifest_path" | xargs dirname)
-$SSHA "cat $manifest_path" > "$TMP/versions.orig.toml" \
-  || fail "cannot read the worker's manifest over the admin key"
 
-# The engine root the gateway confines to, expanded as the worker sees it.
-ER=$(python3 - "$TMP/versions.orig.toml" <<'PY'
+# The roots the gateway confines to: the engine root the client config names,
+# and the worker root beside it -- expanded against the worker's own $HOME.
+ER=$(python3 - "$ADMIN_CONFIG" <<'PY'
 import sys, tomllib
 print(tomllib.load(open(sys.argv[1], 'rb'))['worker'].get('engine_root',
                                                           '~/pandora-engine'))
 PY
 )
+HOME_R=$($SSHA 'cd ~ && pwd') || fail "admin ssh to $HOST failed"
 case "$ER" in
-    \~/*) ER="$($SSHA 'cd ~ && pwd')/${ER#~/}" ;;
+    \~/*) ER="$HOME_R/${ER#~/}" ;;
 esac
+WORKER_ROOT="$HOME_R/pandora"
 
 ssh-keygen -q -t ed25519 -N '' -f "$TMP/key" || fail "keygen failed"
-{
-    cat "$TMP/versions.orig.toml"
-    printf '\n[[users]]\nname = "%s"\nrole = "user"\nkey = "%s"\n' \
-        "$PIN" "$(cat "$TMP/key.pub")"
-} > "$TMP/versions.toml"
+PUB=$(cat "$TMP/key.pub")
 
-# --- provision the teammate in ----------------------------------------------
-# This is itself part of the coverage: the manifest renders the managed
-# authorized_keys block and installs bin/gateway on the worker.
-"$PANDORA" --config "$ADMIN_CONFIG" worker provision \
-    --versions "$TMP/versions.toml" --no-canary >/dev/null \
-    || fail "provision of the [[users]] entry failed"
+# --- install the gateway and the teammate key --------------------------------
+# Exactly what provision writes: bin/gateway, then one managed
+# authorized_keys line rendering restrict,command=... through
+# provision.authorized_lines so the live text is the shipped renderer's.
+$SSHA "mkdir -p '$WORKER_ROOT/bin' '$HOME_R/.ssh' && chmod 700 '$HOME_R/.ssh'" \
+    || fail "cannot write on the worker over the admin key"
+$SSHA "cat > '$WORKER_ROOT/bin/gateway' && chmod 755 '$WORKER_ROOT/bin/gateway'" \
+    < "$ROOT/pandora/worker/gateway.py" || fail "gateway install failed"
+# feeds.allow is the python3 -c allowlist; without it even the bootstrap feed
+# that installs a bundle is refused.
+(cd "$ROOT" && python3 -c \
+ 'import sys; from pandora.engine.bundle import feed_manifest; sys.stdout.write(feed_manifest())') \
+    | $SSHA "cat > '$ER/feeds.allow'" || fail "feeds.allow install failed"
+
+line=$(cd "$ROOT" && python3 - "$PIN" "$PUB" "$WORKER_ROOT" "$ER" <<'PY'
+import sys
+from pandora.worker import provision, versions
+manifest = versions.normalize({'users': [{'name': sys.argv[1], 'key': sys.argv[2]}]})
+print(provision.authorized_lines(manifest, root=sys.argv[3], engine_root=sys.argv[4])[0])
+PY
+)
+{ printf '%s\n%s\n%s\n' "$MARK_BEGIN" "$line" "$MARK_END"; } \
+    | $SSHA 'cat >> ~/.ssh/authorized_keys' || fail "authorized_keys write failed"
 
 # The teammate's ssh alias and client config: same worker, other key.
 mkdir -p "$HOME/.ssh" && touch "$SSHC"
 {
-    printf '%s\n' "$SSHC_MARK_BEGIN"
+    printf '%s\n' '# >>> pandora-e2e-gateway >>>'
     printf 'Host %s\n  HostName localhost\n  User pandora-ci\n  IdentityFile %s\n  IdentitiesOnly yes\n  StrictHostKeyChecking accept-new\n' \
         "$ALIAS" "$TMP/key"
-    printf '%s\n' "$SSHC_MARK_END"
+    printf '%s\n' '# <<< pandora-e2e-gateway <<<'
 } >> "$SSHC"
 
 python3 - "$ADMIN_CONFIG" "$ALIAS" "$TMP" <<'PY'
@@ -105,12 +109,11 @@ import sys, tomllib
 raw = tomllib.load(open(sys.argv[1], 'rb'))
 worker = dict(raw.get('worker') or {})
 worker['host'] = sys.argv[2]          # the alias carries user + key
-state = sys.argv[3] + '/state'
 with open(sys.argv[3] + '/config.toml', 'w') as out:
     out.write('[worker]\n')
     for key, value in worker.items():
         out.write('%s = "%s"\n' % (key, value))
-    out.write('\n[client]\nstate = "%s"\n' % state)
+    out.write('\n[client]\nstate = "%s"\n' % (sys.argv[3] + '/state'))
 PY
 
 SSHG="ssh -o BatchMode=yes -o ConnectTimeout=10 $ALIAS"
@@ -153,11 +156,12 @@ echo "$stats" | grep -q "\"$PIN\"" \
     || fail "the ledger names no run by the pinned client $PIN: $stats"
 
 # --- and the revocation is real ----------------------------------------------
-"$PANDORA" --config "$ADMIN_CONFIG" worker provision \
-    --versions "$TMP/versions.orig.toml" --no-canary >/dev/null \
-    || fail "the revoking provision failed"
-rm -f "$TMP/versions.orig.toml"       # so the trap does not re-provision
+rm -f "$TMP/key"                        # marks the trap's revoke as done below
+$SSHA 'awk "/pandora users >>>/{f=1;next}/pandora users <<</{f=0;next}!f" \
+    ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new \
+    && cat ~/.ssh/authorized_keys.new > ~/.ssh/authorized_keys \
+    && rm -f ~/.ssh/authorized_keys.new' || fail "revoking the key failed"
 out=$($SSHG id 2>&1) && rc=0 || rc=$?
-[ "$rc" -eq 0 ] && fail "the revoked key still authenticates"
+[ "${rc:-0}" -eq 0 ] && fail "the revoked key still authenticates"
 
-echo "e2e-gateway: provisioned, probed, ran a selftest as $PIN, revoked"
+echo "e2e-gateway: shells refused, client verbs admitted, runs pinned to $PIN, revoked"
