@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.3](https://github.com/gbasin/pandora/compare/v0.3.2...v0.3.3) (2026-09-26)
+
+
+### Bug Fixes
+
+* source-manifest integrity, hint-rule rollup, per-run Perfetto trace ([#183](https://github.com/gbasin/pandora/issues/183)) ([d706c95](https://github.com/gbasin/pandora/commit/d706c95a828fd163abea5418b625e6a50df53393))
+
+
+### Documentation
+
+* install lands a release, and the fallback table names engine-version ([#171](https://github.com/gbasin/pandora/issues/171)) ([69927a1](https://github.com/gbasin/pandora/commit/69927a19a8cb4f14c2eb1044b2874d6498ac4a46))
+* scrub consumer names and host details from the public tree ([#174](https://github.com/gbasin/pandora/issues/174)) ([3cf0747](https://github.com/gbasin/pandora/commit/3cf074794c6d6f3f1d461d9c5007f19d4102d743))
+* the gateway e2e installs the block directly, not via provision ([#169](https://github.com/gbasin/pandora/issues/169)) ([0c69eae](https://github.com/gbasin/pandora/commit/0c69eae94badd87d49c550681d7a240f4ed6bbe7))
+
 ## [0.3.2](https://github.com/gbasin/pandora/compare/v0.3.1...v0.3.2) (2026-09-26)
 
 
