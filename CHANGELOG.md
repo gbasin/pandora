@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/gbasin/pandora/compare/v0.3.3...v0.3.4) (2026-09-26)
+
+
+### Features
+
+* {argN} templating in declared output paths ([#185](https://github.com/gbasin/pandora/issues/185)) ([007899b](https://github.com/gbasin/pandora/commit/007899ba70f04802671a274d25d92da9bc480723))
+
 ## [0.3.3](https://github.com/gbasin/pandora/compare/v0.3.2...v0.3.3) (2026-09-26)
 
 
