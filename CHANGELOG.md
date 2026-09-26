@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/gbasin/pandora/compare/v0.3.4...v0.3.5) (2026-09-26)
+
+
+### Features
+
+* queue-fed shard dispatch (strategy = "queue") ([#186](https://github.com/gbasin/pandora/issues/186)) ([82f5582](https://github.com/gbasin/pandora/commit/82f558259fa003aeef65394be95a685e6b162123))
+
 ## [0.3.4](https://github.com/gbasin/pandora/compare/v0.3.3...v0.3.4) (2026-09-26)
 
 
