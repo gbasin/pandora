@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/gbasin/pandora/compare/v0.3.1...v0.3.2) (2026-09-26)
+
+
+### Bug Fixes
+
+* the release upload runs where gh is not installed ([#166](https://github.com/gbasin/pandora/issues/166)) ([20d2dbd](https://github.com/gbasin/pandora/commit/20d2dbdbb4627e0fd75672f49e8ae91403d2647a))
+
 ## [0.3.1](https://github.com/gbasin/pandora/compare/v0.3.0...v0.3.1) (2026-09-26)
 
 
