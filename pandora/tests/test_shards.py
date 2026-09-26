@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path, PurePosixPath
 
 from pandora.config import loader
-from pandora.engine import fanout, runner
+from pandora.engine import batches, fanout, runner
 from pandora.engine import shards as sharding
 from pandora.engine.ledger import Ledger
 from pandora.errors import ConfigError
@@ -516,6 +516,263 @@ class FanoutTest(FanoutHarness):
         row = self.ledger.get('p1')
         self.assertEqual(row['reservation_mib'], 0)
         self.assertIsNone(row['instance'])
+
+
+QUEUE_SHARDS = {
+    'strategy': 'queue',
+    'default': 4,
+    'max': 8,
+    'plan': ['node', 'runner.mjs', 'plan', '{args}', '--build', '--shards', '{n}',
+             '--out', '{plan}'],
+    'plan_outputs': ['apps/desk/dist'],
+    'batch_size': 2,
+    'batch_attempts': 2,
+}
+
+QUEUE_BASE = json.loads(json.dumps(BASE))
+QUEUE_BASE['jobs'][0]['shards'] = dict(QUEUE_SHARDS)
+
+
+class QueueSchemaTest(unittest.TestCase):
+    def loaded(self, document):
+        return loader.validate(document)['jobs']['surface']['shards']
+
+    def test_a_queue_strategy_needs_a_plan(self):
+        document = json.loads(json.dumps(QUEUE_BASE))
+        document['jobs'][0]['shards'].pop('plan')
+        with self.assertRaises(ConfigError):
+            self.loaded(document)
+
+    def test_static_partition_keys_are_refused_under_queue(self):
+        for key in ('template', 'report', 'expect_flag'):
+            document = json.loads(json.dumps(QUEUE_BASE))
+            document['jobs'][0]['shards'][key] = ('--shard={i}/{n}' if key == 'template'
+                                                  else 'x')
+            with self.assertRaises(ConfigError, msg=key):
+                self.loaded(document)
+
+    def test_batch_knobs_are_refused_under_static_strategies(self):
+        for key in ('batch_size', 'batch_attempts'):
+            document = config(**{key: 3})
+            with self.assertRaises(ConfigError, msg=key):
+                self.loaded(document)
+
+    def test_the_defaults(self):
+        shards = self.loaded(json.loads(json.dumps(QUEUE_BASE)))
+        self.assertEqual(shards['batch_size'], 2)
+        self.assertEqual(shards['batch_attempts'], 2)
+
+    def test_batch_size_zero_means_the_engine_chooses(self):
+        document = json.loads(json.dumps(QUEUE_BASE))
+        document['jobs'][0]['shards'].pop('batch_size')
+        self.assertEqual(self.loaded(document)['batch_size'], 0)
+
+
+class QueueMathTest(unittest.TestCase):
+    def test_flatten_keeps_the_plan_order_across_shards(self):
+        inventory = [['t1', 't2'], ['t3']]
+        self.assertEqual(sharding.flatten(inventory), ['t1', 't2', 't3'])
+
+    def test_batch_up_splits_in_order(self):
+        self.assertEqual(sharding.batch_up(['a', 'b', 'c', 'd', 'e'], 2),
+                         [(1, ['a', 'b']), (2, ['c', 'd']), (3, ['e'])])
+
+    def test_the_default_size_aims_four_pulls_per_shard(self):
+        self.assertEqual(sharding.batch_size(list(range(40)), 2, 0), 5)
+        self.assertEqual(sharding.batch_size(list(range(3)), 8, 0), 1)
+
+    def test_exact_coverage_verifies(self):
+        out = sharding.verify_queue(['t1', 't2', 't3'], {1: ['t1'], 2: ['t2', 't3']}, {})
+        self.assertTrue(out['verified'])
+
+    def test_a_dead_batch_names_its_unrun_tests(self):
+        out = sharding.verify_queue(['t1', 't2'], {1: ['t1']}, {2: ['t2']})
+        self.assertFalse(out['verified'])
+        self.assertEqual(out['dead_batches'], [2])
+        self.assertEqual(out['missing'], ['t2'])
+
+    def test_an_id_seen_twice_is_named(self):
+        out = sharding.verify_queue(['t1', 't2'], {1: ['t1', 't2'], 2: ['t2']}, {})
+        self.assertFalse(out['verified'])
+        self.assertEqual(out['duplicated'], ['t2'])
+
+    def test_a_stranger_is_named(self):
+        out = sharding.verify_queue(['t1'], {1: ['t1', 't9']}, {})
+        self.assertFalse(out['verified'])
+        self.assertEqual(out['unexpected'], ['t9'])
+
+
+class BatchQueueTest(unittest.TestCase):
+    """The directory protocol, without a fan-out around it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / 'queue'
+        self.queue = batches.Queue(self.dir).seed(
+            sharding.batch_up(['t1', 't2', 't3', 't4'], 2))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_claims_are_first_free_first_served_and_each_runs_once(self):
+        one = self.queue.claim('rA')
+        two = self.queue.claim('rB')
+        self.assertEqual((one['batch'], two['batch']), (1, 2))
+        self.assertEqual(one['testIds'], ['t1', 't2'])
+
+    def test_a_completed_batch_leaves_the_queue(self):
+        spec = self.queue.claim('rA')
+        self.queue.complete(spec['batch'], 'rA', outcome='ok', report=True)
+        self.assertEqual(self.queue.snapshot()['done'], [1])
+
+    def test_a_dead_holders_lease_requeues_within_the_cap_then_dies(self):
+        gone = lambda rid: True
+        self.queue.claim('rA')
+        self.assertEqual(self.queue.release_dead(gone, cap=2), ([1], []))
+        again = self.queue.claim('rB')
+        self.assertEqual(again['attempt'], 2)
+        self.assertEqual(self.queue.release_dead(gone, cap=2), ([], [1]))
+
+    def test_a_live_holders_lease_is_left_alone(self):
+        self.queue.claim('rA')
+        requeued, dead = self.queue.release_dead(lambda rid: False, cap=2)
+        self.assertEqual((requeued, dead), ([], []))
+        self.assertEqual(self.queue.snapshot()['leased'], [1])
+
+    def test_halt_stops_claims_but_not_completions(self):
+        self.queue.claim('rA')
+        self.queue.halt()
+        self.assertIsNone(self.queue.claim('rB'))
+
+    def test_drained_needs_nothing_pending_and_nothing_leased(self):
+        self.queue.claim('rA')
+        self.assertFalse(self.queue.drained())
+
+
+class QueueDriver(WritingDriver):
+    """A WritingDriver that plays the queue-fed runner: each `execute` reads
+    the batch spec the supervisor pushed and writes that batch's report.
+
+    `scripts` maps a batch number to a list of behaviors, one consumed per
+    attempt -- 'lost' simulates the instance dying mid-batch (no report), any
+    other outcome writes the report and returns it. `reports` overrides what a
+    batch reports having observed.
+    """
+
+    def __init__(self, trees, outcomes=None, scripts=None, reports=None):
+        super().__init__(trees, outcomes)
+        self.scripts = scripts or {}
+        self.reports = reports or {}
+        self.executions = {}   # run_id -> [batch seq]
+
+    def incus(self, *args, check=True, timeout=None):
+        if args[:2] == ('file', 'push'):
+            # ('file', 'push', '-p', <src>, <instance>/<guest path>)
+            dest, source = args[-1], args[-2]
+            name, _, guest = dest.partition('/')
+            run_id = name[len('run-'):]
+            relative = guest[len('work/'):]
+            self.trees.setdefault(run_id, {})[relative] = Path(source).read_text()
+            return 0, '', ''
+        return super().incus(*args, check=check, timeout=timeout)
+
+    def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
+                on_tick=None, reattach=False):
+        if env is None or 'PANDORA_BATCH_INDEX' not in env:
+            return super().execute(instance, argv, env=env, cwd=cwd, limits=limits,
+                                   on_log=on_log, on_tick=on_tick, reattach=reattach)
+        run_id, seq = instance.run_id, int(env['PANDORA_BATCH_INDEX'])
+        self.executions.setdefault(run_id, []).append(seq)
+        spec = json.loads(self.trees[run_id][sharding.BATCH_PATH])
+        behaviors = self.scripts.get(seq, ['ok'])
+        behavior = behaviors.pop(0) if behaviors else 'ok'
+        if behavior == 'lost':
+            return Result(exit_code=-1, outcome='lost', seconds=0.1,
+                          usage=Usage(), evidence={})
+        observed = self.reports.get(seq, spec['testIds'])
+        if observed is not None:
+            report = env.get('PANDORA_BATCH_REPORT')
+            self.trees[run_id][report] = json.dumps(
+                {'observed': [{'id': test} for test in observed]})
+        self.trees[run_id]['apps/desk/test-results/batch-%d.txt' % seq] = 'ran'
+        return Result(exit_code=0 if behavior == 'ok' else 1, outcome=behavior,
+                      seconds=0.1, usage=Usage(memory_peak=900 * 1048576),
+                      evidence={'samples': []})
+
+
+class QueueFanoutTest(FanoutHarness):
+    """The same parent/plan/shards world, fed by a queue instead of a partition."""
+
+    BIG_PLAN = {'inventory': [{'shard': 1, 'testIds': ['t1', 't2', 't3', 't4']},
+                              {'shard': 2, 'testIds': ['t5', 't6', 't7', 't8']}]}
+
+    def setUp(self):
+        super().setUp()
+        self.config = loader.validate(QUEUE_BASE)['jobs']['surface']['shards']
+        self.driver = QueueDriver(self.trees, self.outcomes)
+
+    def arrange_queue(self, *, planned=None, scripts=None, reports=None):
+        planned = planned or self.BIG_PLAN
+        self.driver.scripts = scripts or {}
+        self.driver.reports = reports or {}
+        original = self.driver.clone
+
+        def clone(golden, run_id, limits=None):
+            if self.role_of(run_id)['role'] == 'plan':
+                self.trees[run_id] = {sharding.PLAN_PATH: json.dumps(planned),
+                                      'apps/desk/dist/app.js': 'built once'}
+            return original(golden, run_id, limits=limits)
+
+        self.driver.clone = clone
+
+    def test_every_batch_runs_once_and_the_fan_out_verifies(self):
+        self.arrange_queue()
+        result = self.parent(want=2)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertTrue(result['verification']['verified'])
+        self.assertEqual(result['verification']['planned_tests'], 8)
+        self.assertEqual(result['verification']['observed_tests'], 8)
+        seen = sorted(seq for seqs in self.driver.executions.values() for seq in seqs)
+        self.assertEqual(seen, [1, 2, 3, 4])
+
+    def test_a_shard_that_dies_mid_batch_loses_only_that_batch(self):
+        # Shard's first attempt at batch 3 dies with the instance; the lease is
+        # requeued and the suite still verifies. The dead shard is an incident
+        # recorded in evidence, not a reason the run fails.
+        self.arrange_queue(scripts={3: ['lost', 'ok']})
+        result = self.parent(want=2)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertTrue(result['verification']['verified'])
+        seen = sorted(seq for seqs in self.driver.executions.values() for seq in seqs)
+        self.assertEqual(seen.count(3), 2)
+        self.assertEqual([item['outcome']
+                          for item in result['evidence'].get('degraded_shards', [])],
+                         ['infra_failed'])
+
+    def test_a_poison_batch_exhausts_the_cap_and_is_named(self):
+        self.arrange_queue(scripts={2: ['lost', 'lost']})
+        result = self.parent(want=2)
+        self.assertNotEqual(result['outcome'], 'passed')
+        self.assertEqual(result['verification']['dead_batches'], [2])
+        self.assertEqual(sorted(result['verification']['missing']), ['t3', 't4'])
+
+    def test_a_failed_batch_stops_the_shard_and_halts_the_queue(self):
+        # One shard: a batch that fails stops it, so the rest of the queue
+        # stands unclaimed -- the static rule (a failure stops new dispatch)
+        # in its queue shape. Between shards the parent's halt does the same.
+        self.arrange_queue(scripts={1: ['failed']})
+        result = self.parent(want=1)
+        self.assertEqual(result['outcome'], 'command_failed')
+        self.assertFalse(result['verification']['verified'])
+        self.assertEqual(sorted(result['verification']['missing']),
+                         ['t3', 't4', 't5', 't6', 't7', 't8'])
+
+    def test_keep_going_drains_the_queue_past_a_failure(self):
+        self.arrange_queue(scripts={1: ['failed']})
+        result = self.parent(want=2, keep_going=True)
+        self.assertEqual(result['outcome'], 'command_failed')
+        self.assertTrue(result['verification']['verified'])
+        self.assertEqual(result['verification']['observed_tests'], 8)
 
 
 if __name__ == '__main__':

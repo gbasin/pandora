@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: pandora selftest
-        run: bin/pandora --config /home/gh-runner/.config-pandora-e2e.toml selftest --update --timeout 1800
+        run: bin/pandora --config /home/gh-runner/.config-pandora-e2e.toml selftest --update --queue --timeout 1800
 
   gateway:
     # The same worker reached through a key pinned to bin/gateway --name

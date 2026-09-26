@@ -87,6 +87,61 @@ run = {{ argv = ["sh", "selftest.sh", "{{args}}"] }}
 outputs = [{{ kind = "writeback", requires_option = "update", paths = ["{writeback}"] }}]
 '''
 
+QUEUE_TOML = '''
+
+[[jobs]]
+id = "qtest"
+summary = "The queue-fed fan-out smoke run"
+size = "small"
+args = "none"
+timeout_minutes = 10
+forms = [{{ prefix = ["qtest"] }}]
+run = {{ argv = ["sh", "qbatch.sh"] }}
+
+[jobs.shards]
+strategy = "queue"
+default = 2
+max = 4
+plan = ["sh", "qplan.sh", "{{n}}", "{{plan}}"]
+batch_size = 4
+batch_attempts = 2
+
+[[jobs.outputs]]
+kind = "artifacts"
+paths = ["test-results"]
+'''
+
+# The scratch plan: twelve ids in a fixed two-way split. The queue flattens it
+# into three batches of four, so on two shards whichever finishes first steals
+# the third -- the queue's whole point, in miniature.
+QPLAN_SH = '''#!/bin/sh
+mkdir -p "$(dirname "$2")"
+cat > "$2" <<'EOF'
+{"inventory": [{"shard": 1, "testIds": ["t01","t02","t03","t04","t05","t06"]},
+               {"shard": 2, "testIds": ["t07","t08","t09","t10","t11","t12"]}]}
+EOF
+'''
+
+# The batch half of the runner contract, in POSIX sh so it holds on a minimal
+# toolchain: read the pushed spec, "run" each id, write the report to
+# PANDORA_BATCH_REPORT, leave one artifact per batch.
+QBATCH_SH = '''#!/bin/sh
+ids=$(sed -n 's/.*"testIds" *: *\\[//; s/\\].*//p' "$PANDORA_BATCH_FILE" \\
+      | tr ',' '\\n' | tr -d ' "')
+seq=$(sed -n 's/.*"batch" *: *//; s/[^0-9].*//p' "$PANDORA_BATCH_FILE" | head -1)
+report='{"observed":['
+first=1
+for id in $ids; do
+    echo "ran $id"
+    if [ "$first" = 1 ]; then first=0; else report="$report,"; fi
+    report="$report{\\"id\\":\\"$id\\"}"
+done
+report="$report]}"
+mkdir -p "$(dirname "$PANDORA_BATCH_REPORT")" test-results
+printf '%s\\n' "$report" > "$PANDORA_BATCH_REPORT"
+printf '%s\\n' "$ids" > "test-results/batch-$seq.txt"
+'''
+
 SELFTEST_SH = '''#!/bin/sh
 # The scratch repository's runner. The marker on stdout proves the command
 # executed on the worker; the file proves the write-back path when the job's
@@ -195,14 +250,17 @@ def render_worker(spec):
     return '\n'.join(lines)
 
 
-def repo_toml(worker_spec):
+def repo_toml(worker_spec, *, queue=False):
     """The scratch repository's `pandora.toml`: one job, one claimed form."""
-    return PANDORA_TOML.format(repo=REPO_NAME, worker=render_worker(worker_spec),
+    text = PANDORA_TOML.format(repo=REPO_NAME, worker=render_worker(worker_spec),
                                writeback=WRITEBACK_PATH)
+    return text + (QUEUE_TOML.format() if queue else '')
 
 
-def write_repo(root, worker_spec):
-    """A git repository claiming `pnpm selftest`. Returns its pandora.toml's path."""
+def write_repo(root, worker_spec, *, queue=False):
+    """A git repository claiming `pnpm selftest` (and `pnpm qtest` when asked).
+
+    Returns its pandora.toml's path."""
     root.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(['git', 'init', '-q', '-b', 'main', str(root)],
                           capture_output=True, text=True)
@@ -213,8 +271,13 @@ def write_repo(root, worker_spec):
                                                        writeback=WRITEBACK_PATH,
                                                        writeback_text=WRITEBACK_TEXT))
     (root / 'selftest.sh').chmod(0o755)
+    if queue:
+        (root / 'qplan.sh').write_text(QPLAN_SH)
+        (root / 'qplan.sh').chmod(0o755)
+        (root / 'qbatch.sh').write_text(QBATCH_SH)
+        (root / 'qbatch.sh').chmod(0o755)
     toml = root / loader.FILENAME
-    toml.write_text(repo_toml(worker_spec))
+    toml.write_text(repo_toml(worker_spec, queue=queue))
     return toml
 
 
@@ -435,8 +498,8 @@ def render(report):
 
 # -- the verb ------------------------------------------------------------------
 
-def run(*, state=None, config_path=None, host=None, update=False, keep=False,
-        timeout=900.0, say=notice, environ=None):
+def run(*, state=None, config_path=None, host=None, update=False, queue=False,
+        keep=False, timeout=900.0, say=notice, environ=None):
     """Drive the whole path once. Returns (report, exit code)."""
     environ = os.environ if environ is None else environ
     real = read_real_config(config_path)
@@ -473,7 +536,7 @@ def run(*, state=None, config_path=None, host=None, update=False, keep=False,
             say('the chosen toolchain has no warm golden; this run builds it, which '
                 'is minutes, not seconds')
         repo = root / 'repo'
-        write_repo(repo, spec)
+        write_repo(repo, spec, queue=queue)
         say('scratch %s: repo %s, state %s' % (root, repo, state))
 
         daemon_started = time.monotonic()
@@ -510,12 +573,14 @@ def run(*, state=None, config_path=None, host=None, update=False, keep=False,
         submissions = [['selftest']]
         if update:
             submissions.append(['selftest', '--update'])
+        if queue:
+            submissions.append(['qtest'])
         for argv in submissions:
             code, out, err, wall = submit(repo, argv, shim_env, timeout=timeout)
             meta, result = receipt(state, argv)
             record = run_report(meta, result or {}, wall)
             report['runs'].append(record)
-            if MARKER not in (out or ''):
+            if argv[0] == 'selftest' and MARKER not in (out or ''):
                 say('the run\'s marker is missing from its stdout; stdout tail: %s'
                     % (out or '')[-300:])
             if code != 0 or (result or {}).get('outcome') != 'passed':
@@ -524,6 +589,16 @@ def run(*, state=None, config_path=None, host=None, update=False, keep=False,
                 raise SelftestError('run %s failed: exit %s, outcome %s'
                                     % (record['id'], code, (result or {}).get('outcome')),
                                     exit=code if code else 1)
+            if argv == ['qtest']:
+                # The queue's receipt is its verification: every planned id
+                # observed exactly once, no batch left dead or dangling.
+                verification = (((result or {}).get('evidence') or {})
+                                .get('verification') or {})
+                record['verification'] = verification
+                if not verification.get('verified'):
+                    raise SelftestError(
+                        'the queue fan-out passed but did not verify: %s'
+                        % verification.get('reason'), exit=1)
         if update:
             written = repo / WRITEBACK_PATH
             if not written.is_file() or WRITEBACK_TEXT not in written.read_text():

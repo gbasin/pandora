@@ -40,7 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
-  pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update]
+  pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update] [--queue]
 """
 import argparse
 import json
@@ -867,7 +867,8 @@ def cmd_selftest(args):
     try:
         report, code = selftest.run(state=args.state, config_path=args.config,
                                     host=args.host, update=args.update,
-                                    keep=args.keep, timeout=args.timeout)
+                                    queue=args.queue, keep=args.keep,
+                                    timeout=args.timeout)
     except selftest.SelftestError as error:
         if args.json and error.report is not None:
             print(json.dumps(error.report, indent=1, sort_keys=True))
@@ -1086,6 +1087,10 @@ def main(argv=None):
                           help='a second submission, `pnpm selftest --update`, whose '
                                'declared write-back file must land in the scratch '
                                'worktree')
+    selftest.add_argument('--queue', action='store_true',
+                          help='a submission through a `strategy = "queue"` job: '
+                               'the plan, the batch claims, the per-batch reports '
+                               'and the coverage verification, on the real worker')
     selftest.add_argument('--host', default=None,
                           help='the worker to submit to (default: [worker] host in '
                                'the client configuration)')

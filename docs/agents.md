@@ -73,7 +73,9 @@ out:
 
 The caller's `PANDORA_*` variables never reach a routed run. Pandora sets its
 own: `PANDORA_CPUS`, a shard's `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`,
-and in the local lane `PANDORA_RUN` and `PANDORA_RUN_DIR`. A command run with `PANDORA_OFF`, passed through or not
+a queue-fed batch's `PANDORA_BATCH_FILE`, `PANDORA_BATCH_INDEX` and
+`PANDORA_BATCH_REPORT`, and in the local lane `PANDORA_RUN` and
+`PANDORA_RUN_DIR`. A command run with `PANDORA_OFF`, passed through or not
 claimed gets the whole environment.
 
 ## Verbs
@@ -88,7 +90,7 @@ claimed gets the whole environment.
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
 | `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, how long runs waited in the worker queue (p50, p95) and how many ended `queue-timeout`, what fell back and why, which hint rules fired and on which jobs, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
-| `pandora selftest [--update] [--json]` | One real submission through the whole routed path on the real worker: the shim claims `pnpm selftest` in a scratch repository, an isolated test daemon on a scratch socket submits it, the engine runs it in an incus instance, and the receipt comes home. It costs one small incus run, recorded on the worker as client `e2e-<host>`, and it never touches the live daemon, config or state. Exits 0 the path worked, 1 a run failed, 70 the path could not be exercised. `--update` adds a second run whose declared write-back must land in the scratch worktree. |
+| `pandora selftest [--update] [--queue] [--json]` | One real submission through the whole routed path on the real worker: the shim claims `pnpm selftest` in a scratch repository, an isolated test daemon on a scratch socket submits it, the engine runs it in an incus instance, and the receipt comes home. It costs one small incus run, recorded on the worker as client `e2e-<host>`, and it never touches the live daemon, config or state. Exits 0 the path worked, 1 a run failed, 70 the path could not be exercised. `--update` adds a run whose declared write-back must land in the scratch worktree. `--queue` adds a `pnpm qtest` through a `strategy = "queue"` job whose coverage verification must hold. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return: at `accepted`, or at once when the run is queued on the worker. For orchestrators. `--local` and `--remote` place the run. |
 
 `ps` reads the daemon's published status without probing the host or worker.

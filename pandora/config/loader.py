@@ -375,10 +375,12 @@ def _plan_argv(value, where):
 def _shards(value, where):
     """How a job is cut into shards, and what proves the cut was honest.
 
-    Two strategies, because two real repositories need different ones: `argv`
-    appends a rendered flag to the command, `env` sets named variables. Both
-    also get `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`, so a runner that
-    wants neither spelling can read the pair.
+    Three strategies. `argv` appends a rendered flag to the command, `env`
+    sets named variables, and `queue` flattens the plan's inventory into
+    batches the shards pull first-free-first-served -- a session per instance
+    instead of one fixed slice per instance. All three set
+    `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`, so a runner that wants
+    neither spelling can read the pair.
 
     `plan` is what makes a result *verified*. Without it Pandora can say a shard
     ran; with it Pandora holds the planned partition beside every shard's own
@@ -388,12 +390,17 @@ def _shards(value, where):
     """
     _keys(value, where, {'strategy'},
           {'template', 'env', 'default', 'max', 'plan', 'expect_flag', 'report',
-           'plan_outputs'})
-    strategy = _choice(value['strategy'], where + '.strategy', ('argv', 'env'))
+           'plan_outputs', 'batch_size', 'batch_attempts'})
+    strategy = _choice(value['strategy'], where + '.strategy', ('argv', 'env', 'queue'))
     shards = {'strategy': strategy, 'template': None, 'env': {},
               'plan': None, 'plan_args_at': None, 'expect_flag': None,
-              'report': None, 'plan_outputs': []}
+              'report': None, 'plan_outputs': [],
+              'batch_size': 0, 'batch_attempts': 2}
 
+    if strategy in ('argv', 'env'):
+        for key in ('batch_size', 'batch_attempts'):
+            if key in value:
+                raise ConfigError('%s.%s belongs to strategy = "queue"' % (where, key))
     if strategy == 'argv':
         if 'env' in value:
             raise ConfigError(where + ".env belongs to strategy = 'env'")
@@ -402,7 +409,7 @@ def _shards(value, where):
         shards['template'] = _shard_text(_str(value['template'], where + '.template'),
                                          where + '.template', SHARD_TOKEN,
                                          required=('{i}', '{n}'))
-    else:
+    elif strategy == 'env':
         if 'template' in value:
             raise ConfigError(where + ".template belongs to strategy = 'argv'")
         shards['env'] = _env(value.get('env', {}), where + '.env')
@@ -410,6 +417,27 @@ def _shards(value, where):
             raise ConfigError(where + " with strategy = 'env' needs at least one variable")
         for key, item in shards['env'].items():
             _shard_text(item, '%s.env.%s' % (where, key), SHARD_TOKEN)
+    else:
+        # `queue`: the plan's inventory is flattened and fed to the shards in
+        # batches, first free first served, rather than fixed at `total`. There
+        # is no partition for a template or a per-shard report to describe: the
+        # batch spec and report paths are named by the engine
+        # (`PANDORA_BATCH_*`), not by the job.
+        for key in ('template', 'report', 'expect_flag'):
+            if key in value:
+                raise ConfigError('%s.%s belongs to a static partition; a queue names '
+                                  'each batch itself' % (where, key))
+        if 'plan' not in value:
+            raise ConfigError(where + " with strategy = 'queue' needs a plan: a queue "
+                                      "with no inventory has nothing to feed")
+        if 'env' in value:
+            shards['env'] = _env(value.get('env', {}), where + '.env')
+            for key, item in shards['env'].items():
+                _shard_text(item, '%s.env.%s' % (where, key), SHARD_TOKEN)
+        shards['batch_size'] = _int(value.get('batch_size', 0), where + '.batch_size',
+                                    0, 100000)
+        shards['batch_attempts'] = _int(value.get('batch_attempts', 2),
+                                        where + '.batch_attempts', 1, 16)
 
     shards['default'] = _int(value.get('default', 1), where + '.default', 1, 64)
     shards['max'] = _int(value.get('max', shards['default']), where + '.max', 1, 64)
@@ -419,14 +447,15 @@ def _shards(value, where):
 
     if 'plan' in value:
         shards['plan'], shards['plan_args_at'] = _plan_argv(value['plan'], where + '.plan')
-        if value.get('expect_flag'):
+        if strategy != 'queue' and value.get('expect_flag'):
             shards['expect_flag'] = _str(value['expect_flag'], where + '.expect_flag', FLAG)
-        if 'report' not in value:
-            raise ConfigError(where + '.plan needs a report path: an inventory nothing is '
-                                      'checked against proves nothing')
-        shards['report'] = _inside(_shard_text(_str(value['report'], where + '.report'),
-                                               where + '.report', REPORT_TOKEN),
-                                   where + '.report')
+        if strategy != 'queue':
+            if 'report' not in value:
+                raise ConfigError(where + '.plan needs a report path: an inventory nothing is '
+                                          'checked against proves nothing')
+            shards['report'] = _inside(_shard_text(_str(value['report'], where + '.report'),
+                                                   where + '.report', REPORT_TOKEN),
+                                       where + '.report')
         shards['plan_outputs'] = _strs(value.get('plan_outputs', []),
                                        where + '.plan_outputs', unique=True)
         for path in shards['plan_outputs']:

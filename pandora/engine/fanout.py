@@ -40,7 +40,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import admission, history, retry, runner, writeback
+from . import admission, batches, history, retry, runner, writeback
 from . import shards as sharding
 from .ledger import Ledger, row_to_dict
 from .scheduler import Scheduler, gate
@@ -125,11 +125,23 @@ def supervise_parent(root, run_id, *, driver=None):
                  % (sum(len(x) for x in planned), '' if sum(len(x) for x in planned) == 1 else 's',
                     len(planned), '' if len(planned) == 1 else 's', len(dispatch)))
 
-        children = dispatch_shards(paths, ledger, plan, config, run_id, total, dispatch,
-                                   plan_result=plan_result, note=note, tails=tails,
-                                   log=log, keep_going=bool(control.get('keep_going')))
-        outcome, layer, exit_code, reports, evidence = finish(
-            paths, ledger, plan, config, run_id, total, planned, children, evidence, note)
+        if config['strategy'] == 'queue':
+            tests = sharding.flatten(planned)
+            children = dispatch_queue(paths, ledger, plan, config, run_id, total,
+                                      tests, plan_result=plan_result, note=note,
+                                      tails=tails, log=log,
+                                      keep_going=bool(control.get('keep_going')))
+            outcome, layer, exit_code, reports, evidence = finish_queue(
+                paths, ledger, plan, config, run_id, total, tests, children,
+                evidence, note)
+        else:
+            children = dispatch_shards(paths, ledger, plan, config, run_id, total,
+                                       dispatch, plan_result=plan_result, note=note,
+                                       tails=tails, log=log,
+                                       keep_going=bool(control.get('keep_going')))
+            outcome, layer, exit_code, reports, evidence = finish(
+                paths, ledger, plan, config, run_id, total, planned, children,
+                evidence, note)
     except _Stop:
         pass
     except Exception as error:                     # noqa: BLE001 - recorded, never swallowed
@@ -239,7 +251,8 @@ def run_plan(paths, ledger, plan, config, parent, total, args, *, note, tails, l
 # --- dispatching ------------------------------------------------------------
 
 def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
-                request_suffix, index=None, total=None, graft=None, retry_of=None):
+                request_suffix, index=None, total=None, graft=None, retry_of=None,
+                queue_dir=None, keep_going=False):
     """Create one child row and everything its supervisor reads from disk."""
     run_id = 'r' + uuid.uuid4().hex[:15]
     with gate(paths.root):
@@ -262,6 +275,9 @@ def start_child(paths, ledger, plan, parent, *, role, argv, env, outputs,
         # not carry -- timeout_minutes, the cancel contract, git -- from the
         # request beside the attempt. A child's request is its parent's.
         shutil.copyfile(request, attempt / 'request.json')
+    if queue_dir is not None:
+        (attempt / 'batchqueue.json').write_text(json.dumps(
+            {'queue': str(queue_dir), 'keep_going': keep_going}))
     paths.log(run_id).touch()
     if graft is not None:
         # A symlink, not a copy: N shards share one build-once tree on the host
@@ -435,6 +451,110 @@ def dispatch_shards(paths, ledger, plan, config, parent, total, indices, *,
             'retries': [retried[index] for index in sorted(retried)]}
 
 
+def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
+                   plan_result, note, tails, log, keep_going):
+    """Feed the plan's inventory to long-lived shards a batch at a time.
+
+    A shard is a session, not a slice: its supervisor claims batch specs off
+    the parent's `queue/` directory until it drains or halts. A shard that dies
+    holding a batch leaves a lease the parent returns to `pending` while
+    `batch_attempts` lasts, so a poison test or a lost instance costs a batch,
+    not a partition.
+    """
+    graft = paths.outputs(plan_result['run_id'])
+    size = sharding.batch_size(tests, total, config['batch_size'])
+    cuts = sharding.batch_up(tests, size)
+    queue = batches.Queue(paths.attempt(parent) / 'queue').seed(cuts)
+    cap = config['batch_attempts']
+    note('queue: %d tests in %d batches of %d, attempt cap %d'
+         % (len(tests), len(cuts), size, cap))
+    # Fewer batches than lanes means some slots would never see work.
+    total = min(total, len(cuts))
+
+    def finished(rid):
+        row = ledger.get(rid)
+        return row is not None and row['state'] == 'finished'
+
+    def make(index, suffix):
+        env = sharding.child_env(plan['env'], config, index=index, total=total)
+        child = start_child(paths, ledger, plan, parent, role='shard',
+                            argv=list(plan['argv']), env=env,
+                            outputs=plan['outputs'], request_suffix=suffix,
+                            index=index, total=total, graft=graft,
+                            queue_dir=queue.dir, keep_going=keep_going)
+        return child
+
+    live, done = {}, {}
+
+    def launch(index, run_id):
+        tails[run_id] = {'label': 'shard %d/%d' % (index, total), 'offset': 0,
+                         'path': str(paths.log(run_id))}
+        admit_and_spawn(paths, ledger, run_id, plan, note=note,
+                        label='shard %d/%d' % (index, total))
+        live[index] = run_id
+
+    created, every = {}, []
+    for index in range(1, total + 1):
+        created[index] = make(index, 'shard:%d' % index)
+        every.append(created[index])
+        launch(index, created[index])
+        note('shard %d/%d is %s' % (index, total, created[index]))
+
+    def settle():
+        requeued, dead = queue.release_dead(finished, cap=cap)
+        for seq in requeued:
+            note('batch %d\'s shard is gone; it rejoins the queue' % seq)
+        for seq in dead:
+            note('batch %d exhausted its %d attempts; its tests will read as unrun'
+                 % (seq, cap))
+
+    respawns, degraded = 0, []
+    while live:
+        settle()
+        if not keep_going and not queue.halted() and queue.failed():
+            queue.halt()
+            note('a batch failed; the queue is halted. Shards finish their '
+                 'current batch, then stop.')
+        finished_now = poll(paths, ledger, list(live.values()), tails=tails, log=log)
+        for index in [i for i, rid in sorted(live.items()) if rid in finished_now]:
+            rid = live.pop(index)
+            result = finished_now[rid]
+            done[index] = result
+            if result['outcome'] not in ('passed', 'command_failed', 'cancelled'):
+                # An abnormal shard death, whether or not a successor replaces
+                # it -- `done` only remembers the slot's last run, so the
+                # incident is kept here for the receipt.
+                degraded.append({'shard': index, 'run_id': rid,
+                                 'outcome': result['outcome'],
+                                 'exit_code': result.get('observed_exit')})
+            parent_row = ledger.get(parent)
+            cancelled = parent_row is not None and parent_row['cancel_requested']
+            if (queue.snapshot()['pending'] and not queue.halted()
+                    and respawns < total and not cancelled
+                    and result['outcome'] not in ('passed', 'command_failed',
+                                                  'cancelled')):
+                # A shard that died abnormally while work stood unclaimed gets
+                # a successor rather than leaving the queue staffed by whoever
+                # outlived it. A shard that ended on a failed batch or a clean
+                # drain earns none. `total` extra boots bound what flapping
+                # instances can cost; the attempt cap bounds a poison batch.
+                fresh = make(index, 'shard:%d:respawn%d' % (index, respawns + 1))
+                respawns += 1
+                note('shard %d ended with batch(es) still pending; a successor '
+                     'is %s' % (index, fresh))
+                created[index] = fresh
+                every.append(fresh)
+                launch(index, fresh)
+        if not finished_now:
+            time.sleep(POLL)
+    # The last child's finish orphans its lease in the same pass that ends the
+    # loop; one settle pass afterward moves it to dead or back to pending, so
+    # verification sees it rather than a lease nobody holds.
+    settle()
+    return {'runs': created, 'results': done, 'not_dispatched': [],
+            'retries': [], 'queue': queue, 'every': every, 'degraded': degraded}
+
+
 def shard_retryable(paths, ledger, parent, run_id, result):
     """Whether one finished shard earns its one retry. See `retry` for the rules."""
     if result.get('outcome') != 'infra_failed':
@@ -589,6 +709,96 @@ def finish(paths, ledger, plan, config, run_id, total, planned, children, eviden
     if 'passed' not in outcomes:
         evidence['cause'] = 'engine-error'
         return 'infra_failed', 'engine', None, reports, evidence
+    return 'passed', 'command', 0, reports, evidence
+
+
+def finish_queue(paths, ledger, plan, config, run_id, total, tests, children,
+                 evidence, note):
+    """The queue fan-out's receipt: every batch report, coverage, and verdict.
+
+    `tests` is the flattened inventory. Reports map a batch number to the ids
+    its holder pulled home; the queue directory itself says which batches died
+    unrun. The proof is coverage of the whole inventory, not a match against a
+    per-shard split that never existed.
+    """
+    results, runs = children['results'], children['runs']
+    queue = children['queue']
+    reports, rows = {}, []
+    for index in sorted(runs):
+        child = runs[index]
+        result = results.get(index)
+        row = {'shard': index, 'run_id': child,
+               'outcome': result['outcome'] if result else 'not_dispatched',
+               'exit_code': result.get('observed_exit') if result else None,
+               'peak_mib': result.get('peak_mib') if result else None,
+               'seconds': result.get('wall_seconds') if result else None,
+               'durations': result.get('durations') if result else None,
+               'batches': ((result.get('evidence') or {}).get('batches')
+                           if result else None)}
+        rows.append(row)
+    for child in children.get('every') or runs.values():
+        # Every attempt the slot ever ran, not only the last: a dead shard's
+        # pulled batch reports are evidence the successor does not carry.
+        batch_dir = paths.attempt(child) / 'batches'
+        for report in sorted(batch_dir.glob('batch-*.json')) if batch_dir.is_dir() else []:
+            try:
+                reports[int(report.stem[len('batch-'):])] = sharding.observed(
+                    sharding.read(report))
+            except (ValueError, OSError) as error:
+                note('run %s left an unreadable batch report %s: %s'
+                     % (child, report.name, error))
+    evidence['shards'] = rows
+    evidence['queue'] = queue.snapshot()
+    evidence['peak_mib'] = max([row['peak_mib'] or 0 for row in rows] or [0])
+
+    dead = {}
+    for seq in queue.snapshot()['dead']:
+        try:
+            dead[seq] = sharding.ids(json.loads(
+                (queue.dir / 'dead' / ('%06d.json' % seq)).read_text()).get('testIds'))
+        except (ValueError, OSError):
+            dead[seq] = []
+    verification = sharding.verify_queue(tests, reports, dead)
+    evidence['verification'] = verification
+    note('verification: %s' % verification['reason'])
+
+    merged, collisions = merge_outputs(paths, run_id, runs, results)
+    evidence['collisions'] = collisions
+    evidence['merged_files'] = merged
+    if collisions:
+        note('%d output path(s) were written differently by more than one shard; '
+             'every version is kept under .pandora-shards/' % len(collisions))
+
+    failed = [row for row in rows if row['outcome'] != 'passed']
+    # A failed batch is a test verdict. A dead shard is not: under a queue the
+    # unit of truth is coverage, and a shard whose leased batches were absorbed
+    # by the survivors is an incident to record, not a reason to fail.
+    command_failed = [row for row in rows if row['outcome'] == 'command_failed']
+    if command_failed:
+        return ('command_failed', 'command',
+                command_failed[0]['exit_code'] or 1, reports, evidence)
+    seen = set()
+    degraded = []
+    for row in failed + (children.get('degraded') or []):
+        if row['run_id'] in seen or row['outcome'] in ('not_dispatched',):
+            continue
+        seen.add(row['run_id'])
+        degraded.append(row)
+    if degraded and not verification['verified']:
+        worst = degraded[0]
+        if worst['outcome'] == 'infra_failed':
+            evidence['cause'] = 'shard-failed'
+        return worst['outcome'], 'engine', worst['exit_code'], reports, evidence
+    if not verification['verified']:
+        # Every shard said it passed and the queue says they did not, between
+        # them, run the suite. That is an engine verdict, and it is not a pass.
+        evidence['cause'] = 'partition-unverified'
+        return 'infra_failed', 'engine', None, reports, evidence
+    if degraded:
+        note('shard %s ended %s; the queue absorbed its work'
+             % (', '.join(str(row['shard']) for row in degraded),
+                degraded[0]['outcome']))
+        evidence['degraded_shards'] = degraded
     return 'passed', 'command', 0, reports, evidence
 
 
