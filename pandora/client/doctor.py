@@ -494,6 +494,7 @@ def check_outputs(root, fallback=None, *, run=subprocess.run):
     `writeback` paths are fixtures -- tracked is the point of them.
     """
     import glob
+    import itertools
     try:
         config = loader.load_for(root, fallback)
     except (ConfigError, OSError):
@@ -507,8 +508,12 @@ def check_outputs(root, fallback=None, *, run=subprocess.run):
         return []
     dirty = []
     for pattern in patterns:
-        for match in glob.glob(str(Path(root) / pattern), recursive=True)[:10]:
-            rel = str(Path(match).resolve().relative_to(Path(root).resolve()))
+        for match in itertools.islice(
+                glob.iglob(str(Path(root) / pattern), recursive=True), 10):
+            try:
+                rel = str(Path(match).resolve().relative_to(Path(root).resolve()))
+            except ValueError:
+                continue
             ignored = run(['git', '-C', str(root), 'check-ignore', '-q', rel],
                           capture_output=True).returncode == 0
             if ignored:
