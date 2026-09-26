@@ -1,4 +1,4 @@
-# Manifest for the RISE-L worker pandora-rbx (OVHcloud Roubaix, Ryzen 9 9950X).
+# Manifest for the live worker the team's clients point at.
 # Reproduce with:
 # `pandora worker --host ubuntu@<worker> provision --versions deploy/workers/pandora-rbx.toml`
 

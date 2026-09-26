@@ -2,8 +2,8 @@
   {
     "phase": "codex-a",
     "commands": [
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-dependency.spec.ts'",
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-dependency.spec.ts'"
+      "/bin/zsh -lc 'pnpm test:surface web pandora-dependency.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface web pandora-dependency.spec.ts'"
     ],
     "interventions": 0,
     "result": "passed"
@@ -11,8 +11,8 @@
   {
     "phase": "opus-b",
     "commands": [
-      "pnpm test:surface borrower-web pandora-dependency.spec.ts 2>&1 | tail -80",
-      "pnpm test:surface borrower-web pandora-dependency.spec.ts 2>&1 | tail -30"
+      "pnpm test:surface web pandora-dependency.spec.ts 2>&1 | tail -80",
+      "pnpm test:surface web pandora-dependency.spec.ts 2>&1 | tail -30"
     ],
     "interventions": 0,
     "result": "passed"

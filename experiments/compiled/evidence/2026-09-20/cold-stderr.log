@@ -53,10 +53,10 @@
 #11 [build  5/35] COPY [apps/api/package.json, ./apps/api/package.json]
 #11 DONE 0.0s
 
-#12 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#12 [build  6/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #12 DONE 0.0s
 
-#13 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#13 [build  7/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #13 DONE 0.0s
 
 #14 [build  8/35] COPY [apps/brand-tour/package.json, ./apps/brand-tour/package.json]
@@ -86,10 +86,10 @@
 #22 [build 16/35] COPY [legacy/apps/blueprint-viewer/package.json, ./legacy/apps/blueprint-viewer/package.json]
 #22 DONE 0.0s
 
-#23 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#23 [build 17/35] COPY [legacy/apps/app-api/package.json, ./legacy/apps/app-api/package.json]
 #23 DONE 0.0s
 
-#24 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#24 [build 18/35] COPY [legacy/apps/app-web/package.json, ./legacy/apps/app-web/package.json]
 #24 DONE 0.0s
 
 #25 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
@@ -104,7 +104,7 @@
 #28 [build 22/35] COPY [legacy/packages/core/package.json, ./legacy/packages/core/package.json]
 #28 DONE 0.0s
 
-#29 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#29 [build 23/35] COPY [legacy/packages/app-ui/package.json, ./legacy/packages/app-ui/package.json]
 #29 DONE 0.0s
 
 #30 [build 24/35] COPY [package.json, ./package.json]
@@ -182,7 +182,7 @@
 #40 10.00 Done in 9.9s using pnpm v12.3.4
 #40 DONE 10.3s
 
-#41 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#41 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @acme/web build
 #41 1.381 $ vite build
 #41 1.566 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
 #41 1.617 transforming...
@@ -212,7 +212,7 @@
 #41 3.711 [32m✓ built in 2.12s[39m
 #41 DONE 3.8s
 
-#42 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#42 [stage-1 3/4] COPY --from=build /workspace/apps/web/dist /workspace/dist
 #42 DONE 0.0s
 
 #43 [stage-1 4/4] COPY pandora-check-build.cjs /workspace/check.cjs

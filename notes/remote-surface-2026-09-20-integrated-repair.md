@@ -1,7 +1,7 @@
 # Integrated surface repair and output return
 
 Dated evidence, 2026-09-20 UTC. This extends the real SSH surface route, rather
-than the small output fixture. No changes were merged into Eichler. All seeded
+than the small output fixture. No changes were merged into Acme. All seeded
 source changes belong to evaluator-owned worktrees.
 
 ## What changed
@@ -14,8 +14,8 @@ container and worker lease. The recipe includes the pinned runtime Dockerfile,
 workspace package manifests, lockfile, pnpm settings, and patches. Each test
 container still gets its own writable installation. Vite builds run each time.
 
-A successful command returns both `apps/borrower-web/dist` and
-`apps/borrower-web/e2e/dist`. It replaces each ignored generated directory with a
+A successful command returns both `apps/web/dist` and
+`apps/web/e2e/dist`. It replaces each ignored generated directory with a
 verified generation and retains the previous directory. Tracked output files and
 symlink destinations are refused. No source files are written back. The request
 stays active until local publication completes. Retrying interrupted delivery
@@ -34,9 +34,9 @@ that supports atomic directory exchange.
   recovery regression test landed in `d05a673` during the first pair. That change
   closes a file descriptor on function return; it does not change the command,
   source, or publication protocol. The remaining pairs used `d05a673`.
-- Eichler base: `fbeb008a2`, current origin/main when the evaluation began.
-- Evaluator foundation: `c90d2cf3d`. It changes the HTML document title from Ike
-  to Application preview and adds one Playwright assertion expecting Ike.
+- Acme base: `fbeb008a2`, current origin/main when the evaluation began.
+- Evaluator foundation: `c90d2cf3d`. It changes the HTML document title from App
+  to Application preview and adds one Playwright assertion expecting App.
 - Each lane starts from that foundation, has its own frozen pnpm installation,
   and has deliberately stale dist and e2e/dist directories with an obsolete file.
 - Six fresh sessions: Codex default CLI model and Claude's subscribed `opus`
@@ -49,13 +49,13 @@ that supports atomic directory exchange.
 
 The common brief requires the first normal command before editing, then a local
 repair, the same command again, and inspection of test evidence plus both local
-builds. The only editable source is apps/borrower-web/index.html. Tests, tooling,
+builds. The only editable source is apps/web/index.html. Tests, tooling,
 dependencies, commits, and new worktrees are outside the agent's scope. The brief
 explains that the shell routes validation remotely, but gives no delivery-recovery
 strategy or workaround. The task is intentionally narrow; this is not a measure
 of general debugging ability.
 
-Command: `pnpm test:surface borrower-web pandora-iteration.spec.ts`.
+Command: `pnpm test:surface web pandora-iteration.spec.ts`.
 
 ## Agent results
 

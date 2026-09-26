@@ -40,7 +40,7 @@
         "time": "86.277561"
       },
       "memory_peak_bytes": 1453117440,
-      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/380a273ef6df470395fc4613de4dc3bb"
+      "durable_evidence": "/Users/you/.local/state/pandora/evidence/2026-09-19/380a273ef6df470395fc4613de4dc3bb"
     },
     {
       "scenario": "informed-codex",
@@ -82,7 +82,7 @@
         "time": "86.528491"
       },
       "memory_peak_bytes": 1451380736,
-      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/2f00c49fd73249afb566937045236205"
+      "durable_evidence": "/Users/you/.local/state/pandora/evidence/2026-09-19/2f00c49fd73249afb566937045236205"
     },
     {
       "scenario": "informed-opus",
@@ -124,7 +124,7 @@
         "time": "85.513072"
       },
       "memory_peak_bytes": 1463181312,
-      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/8c223c579d60434aa743989b6504eefa"
+      "durable_evidence": "/Users/you/.local/state/pandora/evidence/2026-09-19/8c223c579d60434aa743989b6504eefa"
     },
     {
       "scenario": "failure-opus",
@@ -166,7 +166,7 @@
         "time": "1.77119"
       },
       "memory_peak_bytes": 596561920,
-      "durable_evidence": "/Users/garybasin/.local/state/pandora/evidence/2026-09-19/9b7d39bbf1984a09917b34d56e632fd1"
+      "durable_evidence": "/Users/you/.local/state/pandora/evidence/2026-09-19/9b7d39bbf1984a09917b34d56e632fd1"
     }
   ],
   "resource_samples": [

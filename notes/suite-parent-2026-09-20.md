@@ -84,7 +84,7 @@ when the launcher shard count changes. Every unsupported suite environment
 override is rejected before state creation.
 
 Five sequential parent invocations ran on the authorized OVH worker against
-Eichler `8fda4d56c3251bc887526e98f033608a30e2a52b`:
+Acme `8fda4d56c3251bc887526e98f033608a30e2a52b`:
 
 | Probe | Exit | Observed result |
 | --- | ---: | --- |

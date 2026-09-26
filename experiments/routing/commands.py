@@ -85,11 +85,11 @@ def surface_suite_request(argv, shard_count):
     command = argv[1:] if argv[:1] == ['run'] else argv
     if command[:1] == ['test:surface']:
         if len(command) < 2 or command[1] not in APPS:
-            raise ValueError('Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going].')
+            raise ValueError('Use pnpm test:surface <web|desk> [files] [--grep PATTERN] [--keep-going].')
         app, options = command[1], command[2:]
     elif command[:2] == ['validate', 'surface']:
         if len(command) < 3 or command[2] not in APPS:
-            raise ValueError('Use pnpm validate surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going].')
+            raise ValueError('Use pnpm validate surface <web|desk> [files] [--grep PATTERN] [--keep-going].')
         app, options = command[2], command[3:]
     else:
         raise ValueError('Not a surface command')
@@ -144,20 +144,20 @@ def classify(argv, treatment='normal'):
             return 'reject', [], str(error)
     if command[:1] == ['test:surface']:
         if len(command) < 2 or command[1] not in APPS:
-            return 'reject', [], 'Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN].'
+            return 'reject', [], 'Use pnpm test:surface <web|desk> [files] [--grep PATTERN].'
         selectors = command[2:]
     elif command[:2] == ['validate', 'surface']:
         if len(command) < 3 or command[2] not in APPS:
-            return 'reject', [], 'Use pnpm validate surface <borrower-web|desk> [files] [--grep PATTERN].'
+            return 'reject', [], 'Use pnpm validate surface <web|desk> [files] [--grep PATTERN].'
         selectors = command[3:]
-    elif command[:3] == ['--filter', '@eichler/borrower-web', 'test:e2e']:
+    elif command[:3] == ['--filter', '@acme/web', 'test:e2e']:
         if treatment == 'normal':
             return 'local', [], ''
         # Only known ordinary selectors and exact trial runner flags are recognized.
         selectors = [x for x in command[3:] if x not in {'--workers=1', '--reporter=line,junit'}]
         if any(x.startswith('-') for x in selectors):
             return 'reject', [], 'This trial supports file selectors only. No validation started.'
-        alternative = shlex.join(['pnpm', 'test:surface', 'borrower-web', *selectors])
+        alternative = shlex.join(['pnpm', 'test:surface', 'web', *selectors])
         if treatment == 'block':
             return 'reject', [], 'This direct surface entry is blocked in this trial. Run: ' + alternative
     else:
@@ -175,4 +175,4 @@ def selected_surface(argv):
         return command[1]
     if command[:2] == ['validate', 'surface']:
         return command[2]
-    return 'borrower-web'  # Historical direct-package experiment treatment.
+    return 'web'  # Historical direct-package experiment treatment.

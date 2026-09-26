@@ -23,27 +23,27 @@
   {
     "tool": "Bash",
     "input": {
-      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux && cat bridge.py; echo \"--- dist/report.json ---\"; cat fixture/dist/report.json; echo; echo \"--- fixtures/receipt.json ---\"; cat fixture/fixtures/receipt.json",
+      "command": "cd /Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux && cat bridge.py; echo \"--- dist/report.json ---\"; cat fixture/dist/report.json; echo; echo \"--- fixtures/receipt.json ---\"; cat fixture/fixtures/receipt.json",
       "description": "Show build bridge and current outputs"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/publish.py"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/publish.py"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture/src/schema.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture/src/schema.json"
     }
   },
   {
     "tool": "Edit",
     "input": {
       "replace_all": false,
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture/src/schema.json",
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture/src/schema.json",
       "old_string": "{\"title\":\"Draft\",",
       "new_string": "{\"title\":\"Ready\","
     }
@@ -51,7 +51,7 @@
   {
     "tool": "Bash",
     "input": {
-      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture && pnpm build; echo \"EXIT=$?\"",
+      "command": "cd /Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-2/experiments/output-ux/fixture && pnpm build; echo \"EXIT=$?\"",
       "description": "Run the fixture build",
       "timeout": 180000
     }

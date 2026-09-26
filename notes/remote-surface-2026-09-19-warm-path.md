@@ -4,7 +4,7 @@ status: log
 
 # Remote surface experiment: warm source and dependencies, 2026-09-19
 
-The warm-path experiment passed two 45-test borrower-web smoke runs. It reuses
+The warm-path experiment passed two 45-test web smoke runs. It reuses
 remote source files and installed dependencies without sharing a writable test
 workspace. This addresses the cold-transfer problem recorded in the
 [first baseline](remote-surface-2026-09-19-baseline.md).
@@ -42,7 +42,7 @@ was removed. The corrected image is
 
 ## Measured runs
 
-Both successful runs used Eichler revision `b18725e9c` in a dedicated trial
+Both successful runs used Acme revision `b18725e9c` in a dedicated trial
 worktree. That is newer than the initial baseline, so these are not a controlled
 performance comparison against its test duration. Both use two CPUs, a 6 GiB
 memory limit, and one Playwright worker.
@@ -100,7 +100,7 @@ manual responsibility for this trial.
 This establishes warm source transfer, installed-dependency reuse, frozen queued
 input, and serialized remote execution for this workload. It does not yet
 establish transparent agent UX, duplicate-request behavior, robust cancellation,
-or recovery after CLI/network loss. The implementation is specific to Eichler's
+or recovery after CLI/network loss. The implementation is specific to Acme's
 install inputs; arbitrary source-dependent installation hooks require an expanded
 cache key/context. Disk retention is manual and the image-build phase lacks an
 independent deadline. These limitations must be addressed or bounded before

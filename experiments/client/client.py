@@ -31,7 +31,7 @@ REATTACH_PAUSE = 0.25
 # daemon must never receive an agent's whole environment.
 ENV_KEYS = ('CI', 'TZ', 'NODE_ENV', 'PANDORA_TREATMENT', 'PANDORA_SESSION',
             'JOURNEY_FILTER', 'JOURNEY_SHARD', 'JOURNEY_CONCURRENCY',
-            'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'IKE_WORLD')
+            'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'APP_WORLD')
 
 
 def notice(text):

@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: ghcr.io/ike/postgres:16
+        image: ghcr.io/app/postgres:16
         credentials:
           username: ci
           password: token

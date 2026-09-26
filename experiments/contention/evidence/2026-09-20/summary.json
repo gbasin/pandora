@@ -1,7 +1,7 @@
 {
   "agents": {
     "codex-1": {
-      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-codex-1",
+      "worktree": "/Users/you/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-codex-1",
       "runs": [
         {
           "attempt": "49f9ba9be1ae47a09b83a868022ecfe2",
@@ -147,7 +147,7 @@
       }
     },
     "codex-2": {
-      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-codex-2",
+      "worktree": "/Users/you/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-codex-2",
       "runs": [
         {
           "attempt": "128bfc8d0dd043c0b2a6eb6d59713521",
@@ -293,7 +293,7 @@
       }
     },
     "opus-1": {
-      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-1",
+      "worktree": "/Users/you/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-1",
       "runs": [
         {
           "attempt": "075c1d49bd064db1aa39dbd66b406fba",
@@ -439,7 +439,7 @@
       }
     },
     "opus-2": {
-      "worktree": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-2",
+      "worktree": "/Users/you/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-2",
       "runs": [
         {
           "attempt": "11cffeefd5c44d69a5892d073fb3534e",

@@ -80,65 +80,65 @@ def healthy(**extra):
 class BudgetRules(unittest.TestCase):
     def test_one_active_per_worktree_refuses_rather_than_queues(self):
         pool = budget()
-        pool.reserve('a', repo='eichler', job='check', worktree='.', singleton=False)
+        pool.reserve('a', repo='acme', job='check', worktree='.', singleton=False)
         with self.assertRaises(Busy) as caught:
-            pool.reserve('b', repo='eichler', job='unit', worktree='.', singleton=False)
+            pool.reserve('b', repo='acme', job='unit', worktree='.', singleton=False)
         self.assertIn('already has an active local job', str(caught.exception))
         self.assertIn('a', str(caught.exception))
 
     def test_the_rule_is_configurable_off(self):
         pool = budget(one_active_per_worktree=False)
-        pool.reserve('a', repo='eichler', job='check', worktree='.', singleton=False)
-        pool.reserve('b', repo='eichler', job='unit', worktree='.', singleton=False)
+        pool.reserve('a', repo='acme', job='check', worktree='.', singleton=False)
+        pool.reserve('b', repo='acme', job='unit', worktree='.', singleton=False)
 
     def test_two_worktrees_are_independent(self):
         pool = budget()
         with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two:
-            pool.reserve('a', repo='eichler', job='check', worktree=one, singleton=False)
-            pool.reserve('b', repo='eichler', job='check', worktree=two, singleton=False)
+            pool.reserve('a', repo='acme', job='check', worktree=one, singleton=False)
+            pool.reserve('b', repo='acme', job='check', worktree=two, singleton=False)
 
     def test_a_singleton_owns_the_machine(self):
         pool = budget()
         with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two:
-            pool.reserve('a', repo='eichler', job='dev-stack', worktree=one, singleton=True)
+            pool.reserve('a', repo='acme', job='dev-stack', worktree=one, singleton=True)
             with self.assertRaises(Busy) as caught:
-                pool.reserve('b', repo='eichler', job='dev-stack', worktree=two, singleton=True)
+                pool.reserve('b', repo='acme', job='dev-stack', worktree=two, singleton=True)
         self.assertIn('pandora cancel a', str(caught.exception))
 
     def test_a_singleton_does_not_take_its_worktrees_slot(self):
         pool = budget()
-        pool.reserve('stack', repo='eichler', job='dev-stack', worktree='.', singleton=True)
-        pool.reserve('a', repo='eichler', job='check', worktree='.', singleton=False)
+        pool.reserve('stack', repo='acme', job='dev-stack', worktree='.', singleton=True)
+        pool.reserve('a', repo='acme', job='check', worktree='.', singleton=False)
         with self.assertRaises(Busy) as caught:
-            pool.reserve('b', repo='eichler', job='unit', worktree='.', singleton=False)
+            pool.reserve('b', repo='acme', job='unit', worktree='.', singleton=False)
         self.assertIn('active local job (a)', str(caught.exception))
         with self.assertRaises(Busy):
-            pool.reserve('c', repo='eichler', job='dev-stack', worktree='.', singleton=True)
+            pool.reserve('c', repo='acme', job='dev-stack', worktree='.', singleton=True)
         # Releasing the singleton leaves the slot it never took with its owner.
         pool.finish('stack', 100, 'ok')
         with self.assertRaises(Busy):
-            pool.reserve('d', repo='eichler', job='unit', worktree='.', singleton=False)
+            pool.reserve('d', repo='acme', job='unit', worktree='.', singleton=False)
 
     def test_releasing_frees_both_holds(self):
         pool = budget()
-        pool.reserve('a', repo='eichler', job='dev-stack', worktree='.', singleton=True)
-        pool.admit('a', repo='eichler', job='dev-stack')
+        pool.reserve('a', repo='acme', job='dev-stack', worktree='.', singleton=True)
+        pool.admit('a', repo='acme', job='dev-stack')
         pool.finish('a', 100, 'ok')
-        pool.reserve('b', repo='eichler', job='dev-stack', worktree='.', singleton=True)
+        pool.reserve('b', repo='acme', job='dev-stack', worktree='.', singleton=True)
 
     def test_a_stopping_daemon_closes_the_store_and_admits_nothing_more(self):
         pool = budget()
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
-        pool.admit('a', repo='eichler', job='check')
-        pool.reserve('b', repo='eichler', job='unit', worktree='/b', singleton=False)
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
+        pool.admit('a', repo='acme', job='check')
+        pool.reserve('b', repo='acme', job='unit', worktree='/b', singleton=False)
         pool.close()
         pool.close()                               # a second stop is harmless
         with self.assertRaises(sqlite3.ProgrammingError):
-            pool.admission.store.peaks('eichler', 'check')
+            pool.admission.store.peaks('acme', 'check')
         with self.assertRaisesRegex(Busy, 'stopping'):
-            pool.admit('b', repo='eichler', job='unit')
+            pool.admit('b', repo='acme', job='unit')
         with self.assertRaisesRegex(Busy, 'stopping'):
-            pool.reserve('c', repo='eichler', job='lint', worktree='/c', singleton=False)
+            pool.reserve('c', repo='acme', job='lint', worktree='/c', singleton=False)
         # A run that ends after the close gives its holds back; no peak is learned.
         self.assertIsNone(pool.finish('a', 100, 'ok'))
         self.assertIsNone(pool.finish('b', 0, 'lost'))
@@ -148,20 +148,20 @@ class BudgetRules(unittest.TestCase):
         # A cold `medium` reserves its whole 4096 MiB ceiling, so a 4096 MiB
         # budget holds exactly one of them and the second has to wait.
         pool = budget(budget_mib=4096)
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
-        pool.reserve('b', repo='eichler', job='check', worktree='/b', singleton=False)
-        self.assertIsNotNone(pool.admit('a', repo='eichler', job='check'))
-        self.assertIsNone(pool.admit('b', repo='eichler', job='check', timeout=0.2))
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
+        pool.reserve('b', repo='acme', job='check', worktree='/b', singleton=False)
+        self.assertIsNotNone(pool.admit('a', repo='acme', job='check'))
+        self.assertIsNone(pool.admit('b', repo='acme', job='check', timeout=0.2))
 
     def test_a_release_wakes_the_waiter(self):
         pool = budget(budget_mib=4096)
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
-        pool.reserve('b', repo='eichler', job='check', worktree='/b', singleton=False)
-        pool.admit('a', repo='eichler', job='check')
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
+        pool.reserve('b', repo='acme', job='check', worktree='/b', singleton=False)
+        pool.admit('a', repo='acme', job='check')
         admitted = []
         waiter = threading.Thread(
             target=lambda: admitted.append(
-                pool.admit('b', repo='eichler', job='check', timeout=10)))
+                pool.admit('b', repo='acme', job='check', timeout=10)))
         waiter.start()
         time.sleep(0.3)
         self.assertEqual(admitted, [])
@@ -176,26 +176,26 @@ class BudgetRules(unittest.TestCase):
 
     def test_the_declared_size_class_is_the_ceiling(self):
         pool = budget()
-        pool.reserve('a', repo='eichler', job='validate-node', worktree='/a',
+        pool.reserve('a', repo='acme', job='validate-node', worktree='/a',
                      singleton=False, size='small')
-        admitted = pool.admit('a', repo='eichler', job='validate-node')
+        admitted = pool.admit('a', repo='acme', job='validate-node')
         self.assertEqual(admitted['size_class'], 'small')
         self.assertEqual(admitted['ceiling_mib'], 1024)
         self.assertEqual(admitted['reservation_mib'], 1024)
 
     def test_a_job_that_can_never_fit_is_refused_rather_than_queued(self):
         pool = budget(budget_mib=1024)
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         with self.assertRaises(Busy) as caught:
-            pool.admit('a', repo='eichler', job='check')
+            pool.admit('a', repo='acme', job='check')
         self.assertIn('budget_mib', str(caught.exception))
 
     def test_a_canceled_wait_is_not_an_admission(self):
         pool = budget(budget_mib=4096)
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
-        pool.reserve('b', repo='eichler', job='check', worktree='/b', singleton=False)
-        pool.admit('a', repo='eichler', job='check')
-        self.assertIsNone(pool.admit('b', repo='eichler', job='check',
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
+        pool.reserve('b', repo='acme', job='check', worktree='/b', singleton=False)
+        pool.admit('a', repo='acme', job='check')
+        self.assertIsNone(pool.admit('b', repo='acme', job='check',
                                      canceled=lambda: True, timeout=10))
 
 
@@ -245,8 +245,8 @@ class PauseGate(unittest.TestCase):
         reader = Fake(healthy(psi_full_avg10=50.0), healthy())
         pool = budget(gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 30}, reader=reader))
         notes = []
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
-        admitted = pool.admit('a', repo='eichler', job='check', poll=0.01, note=notes.append)
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
+        admitted = pool.admit('a', repo='acme', job='check', poll=0.01, note=notes.append)
         self.assertTrue(admitted['admitted'])
         self.assertTrue(any('local lane paused' in note for note in notes), notes)
         self.assertTrue(any('resumed' in note for note in notes), notes)
@@ -254,9 +254,9 @@ class PauseGate(unittest.TestCase):
     def test_a_pause_that_never_clears_refuses_rather_than_running_anyway(self):
         pool = budget(gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 0.2},
                                 reader=Fake(healthy(psi_full_avg10=50.0))))
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         with self.assertRaises(Paused) as caught:
-            pool.admit('a', repo='eichler', job='check', poll=0.01)
+            pool.admit('a', repo='acme', job='check', poll=0.01)
         self.assertIn('PSI', str(caught.exception))
         self.assertIn('memory pressure', str(caught.exception))
         self.assertIn('Do not bypass this with PANDORA_OFF=1', str(caught.exception))
@@ -266,9 +266,9 @@ class PauseGate(unittest.TestCase):
         gate = Gate({'sample_seconds': 0, 'max_wait_seconds': 0.1},
                     reader=Fake(healthy(psi_full_avg10=50.0)))
         pool = budget(gate=gate)
-        pool.reserve('a', repo='eichler', job='check', worktree='/a', singleton=False)
+        pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         with self.assertRaises(Paused):
-            pool.admit('a', repo='eichler', job='check', poll=0.01)
+            pool.admit('a', repo='acme', job='check', poll=0.01)
         state = pool.snapshot()['pause']
         self.assertTrue(state['paused'])
         self.assertEqual(state['episodes'], 1)
@@ -553,9 +553,9 @@ class ExecutorEndToEnd(unittest.TestCase):
         executor = LocalExecutor(pool, drift=drift)
         run = FakeRun(self.root / 'run', run_id)
         run.dir.mkdir(parents=True, exist_ok=True)
-        pool.reserve(run.id, repo='eichler', job='fake', worktree=worktree, singleton=False)
-        admission = pool.admit(run.id, repo='eichler', job='fake')
-        result = executor.execute(run, plan_for(argv, **plan), repo='eichler', job='fake',
+        pool.reserve(run.id, repo='acme', job='fake', worktree=worktree, singleton=False)
+        admission = pool.admit(run.id, repo='acme', job='fake')
+        result = executor.execute(run, plan_for(argv, **plan), repo='acme', job='fake',
                                   worktree=worktree, request_env={}, admission=admission,
                                   note=run.note)
         return run, result, pool
@@ -627,7 +627,7 @@ class ExecutorEndToEnd(unittest.TestCase):
         self.assertEqual(result['cli_exit'], 75)
 
     def test_declared_evidence_paths_are_recorded_in_the_receipt(self):
-        # The answer to EICHLER_VALIDATION_DIRECTORY: the job says where it
+        # The answer to ACME_VALIDATION_DIRECTORY: the job says where it
         # writes, and the receipt says what was there afterward.
         outputs = [{'kind': 'evidence', 'paths': ['cleanup-required', 'logs/*.txt']}]
         _run, result, _pool = self.execute(
@@ -654,10 +654,10 @@ class ExecutorEndToEnd(unittest.TestCase):
         executor = LocalExecutor(pool, drift='off')
         run = FakeRun(self.root / 'run')
         run.dir.mkdir(parents=True, exist_ok=True)
-        pool.reserve(run.id, repo='eichler', job='fake', worktree=self.root, singleton=False)
-        admission = pool.admit(run.id, repo='eichler', job='fake')
+        pool.reserve(run.id, repo='acme', job='fake', worktree=self.root, singleton=False)
+        admission = pool.admit(run.id, repo='acme', job='fake')
         threading.Timer(0.8, run.canceled.set).start()
-        result = executor.execute(run, plan_for(['sh', '-c', 'sleep 30']), repo='eichler',
+        result = executor.execute(run, plan_for(['sh', '-c', 'sleep 30']), repo='acme',
                                   job='fake', worktree=self.root, request_env={},
                                   admission=admission, note=run.note)
         self.assertEqual(result['outcome'], 'cancelled')

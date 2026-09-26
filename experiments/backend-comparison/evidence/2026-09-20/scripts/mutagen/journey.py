@@ -5,7 +5,7 @@ sys.path.insert(0,str(base/'experiments/warm'))
 from snapshot import freeze,encode
 from worker_bundle import bundle
 from transport import SSH_OPTIONS,follow,query
-repo=Path('/Users/garybasin/Code/eichler/.worktrees/pandora-journey-preflight')
+repo=Path('/Users/you/Code/acme/.worktrees/pandora-journey-preflight')
 env=dict(os.environ,MUTAGEN_DATA_DIRECTORY=str(poc/'state'))
 mutagen=str(poc/'mutagen');host='ubuntu@WORKER';ssh=['ssh',*SSH_OPTIONS,host]
 def cmd(args,**kwargs):return subprocess.run(args,check=True,**kwargs)

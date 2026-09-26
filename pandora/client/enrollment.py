@@ -194,7 +194,7 @@ def render(*, socket_path, repo, claims, heavy=(), strip_prefixes=(), origin=Non
     lines += ['claim ' + ' '.join(claim) for claim in claims]
     lines += ['heavy ' + ' '.join(item) for item in heavy]
     # Everything the shim reads is above `end`, and it stops there: the policy
-    # lines (one per claimed form, 34 for eichler) are the Python client's.
+    # lines (one per claimed form, 34 for acme) are the Python client's.
     lines.append('end')
     lines += ['policy %s %s %d %s' % (item['size'], item['fallback'],
                                       1 if item.get('writeback') else 0,

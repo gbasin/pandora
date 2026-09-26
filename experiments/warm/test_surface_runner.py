@@ -35,8 +35,8 @@ class SurfaceRunnerTest(unittest.TestCase):
             'printf "%s\\n" "$@" > "$PANDORA_PNPM_ARGS"\n'
             'printf "%s" "$PLAYWRIGHT_JUNIT_OUTPUT_FILE" > "$PANDORA_JUNIT_PATH"\n'
             'case "$2" in\n'
-            "  @eichler/borrower-web) app='borrower-web' ;;\n"
-            "  @eichler/desk) app='desk' ;;\n"
+            "  @acme/web) app='web' ;;\n"
+            "  @acme/desk) app='desk' ;;\n"
             '  *) exit 91 ;;\n'
             'esac\n'
             'mkdir -p "$PANDORA_WORKSPACE_ROOT/results/playwright"\n'
@@ -67,22 +67,22 @@ class SurfaceRunnerTest(unittest.TestCase):
         return subprocess.run(['bash', str(SCRIPT), *selectors], env=env,
                               text=True, capture_output=True)
 
-    def test_default_borrower_web_preserves_selectors_and_collects_outputs(self):
+    def test_default_web_web_preserves_selectors_and_collects_outputs(self):
         result = self.run_adapter('e2e/loan.spec.ts', '--grep', 'document access')
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads((self.workspace / 'results/surface.json').read_text()),
-                         {'app': 'borrower-web'})
+                         {'app': 'web'})
         self.assertEqual(self.args.read_text().splitlines(), [
-            '--filter', '@eichler/borrower-web', 'test:e2e', 'e2e/loan.spec.ts',
+            '--filter', '@acme/web', 'test:e2e', 'e2e/loan.spec.ts',
             '--grep', 'document access', '--workers=1', '--reporter=line,junit',
             '--output=' + str(self.workspace / 'results/playwright'),
         ])
         self.assertEqual(self.junit.read_text(), str(self.workspace / 'results/junit.xml'))
         self.assertEqual((self.workspace / 'results/playwright/result.txt').read_text(), 'artifact')
-        self.assertEqual((self.workspace / 'results/outputs/apps/borrower-web/dist/index.html').read_text(),
+        self.assertEqual((self.workspace / 'results/outputs/apps/web/dist/index.html').read_text(),
                          'production')
-        self.assertEqual((self.workspace / 'results/outputs/apps/borrower-web/e2e/dist/index.html').read_text(),
+        self.assertEqual((self.workspace / 'results/outputs/apps/web/e2e/dist/index.html').read_text(),
                          'fixture')
         self.assertEqual((self.workspace / 'results/memory-peak-bytes').read_text(), '1048576\n')
 
@@ -92,7 +92,7 @@ class SurfaceRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads((self.workspace / 'results/surface.json').read_text()), {'app': 'desk'})
         self.assertEqual(self.args.read_text().splitlines()[0:3],
-                         ['--filter', '@eichler/desk', 'test:e2e'])
+                         ['--filter', '@acme/desk', 'test:e2e'])
         self.assertTrue((self.workspace / 'results/outputs/apps/desk/dist/index.html').is_file())
         self.assertTrue((self.workspace / 'results/outputs/apps/desk/e2e/dist/index.html').is_file())
 

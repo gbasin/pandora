@@ -14,9 +14,9 @@ Playwright worker. All lane worktrees had separate frozen dependency installs.
 
 ## Tasks and controls
 
-The evaluator committed two isolated regressions at Eichler `8ba797c84`, based on
-`53c28ae52`: a missing closing-disclosure milestone card and the borrower-web title
-changed from `Ike` to `Application preview`. Four surface cases asserted the title.
+The evaluator committed two isolated regressions at Acme `8ba797c84`, based on
+`53c28ae52`: a missing closing-disclosure milestone card and the web title
+changed from `App` to `Application preview`. Four surface cases asserted the title.
 The briefs required the ordinary focused test before and after a one-file repair.
 They supplied no Pandora recovery strategy. These evaluation changes are not
 product changes.

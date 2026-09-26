@@ -16,19 +16,19 @@
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/package.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/package.json"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/fixtures/receipt.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/fixtures/receipt.json"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/src/schema.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/src/schema.json"
     }
   },
   {
@@ -41,7 +41,7 @@
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/remote.py"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/remote.py"
     }
   },
   {
@@ -55,20 +55,20 @@
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/.pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/changes.patch"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/.pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/changes.patch"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/.pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/fixtures/receipt.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/.pandora-artifacts/8a07794271f24ebc9339884ffdb820a5/fixtures/receipt.json"
     }
   },
   {
     "tool": "Edit",
     "input": {
       "replace_all": false,
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/fixtures/receipt.json",
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate/experiments/output-ux/fixture/fixtures/receipt.json",
       "old_string": "  \"title\": \"Legacy\",",
       "new_string": "  \"title\": \"Draft\","
     }
@@ -84,7 +84,7 @@
   {
     "tool": "Bash",
     "input": {
-      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate && git status --short && echo \"--- diff ---\" && git diff",
+      "command": "cd /Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-generate && git status --short && echo \"--- diff ---\" && git diff",
       "description": "Show working tree changes"
     }
   }

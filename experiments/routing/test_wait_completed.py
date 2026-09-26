@@ -11,7 +11,7 @@ import route
 import wait
 
 
-COMMAND = ['test:surface', 'borrower-web']
+COMMAND = ['test:surface', 'web']
 
 
 class WaitCompletedTests(unittest.TestCase):

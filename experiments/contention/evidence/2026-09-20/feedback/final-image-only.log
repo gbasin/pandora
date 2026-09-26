@@ -1,4 +1,4 @@
-[pandora] After a successful run, declared outputs return automatically: /workspace/dist -> /Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build/apps/borrower-web/dist. No output-directory mount is needed; use docker run --rm TAG for an image-only test.
+[pandora] After a successful run, declared outputs return automatically: /workspace/dist -> /Users/you/Code/acme/.worktrees/pandora-compiled-build/apps/web/dist. No output-directory mount is needed; use docker run --rm TAG for an image-only test.
 [pandora] image-only run uses the built image; rebuild to include local source edits
 [pandora] pinned compiled:test to sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1; built source 79bb29717bd1
 [pandora] preparing image-only request
@@ -6,7 +6,7 @@
 [pandora] input verification complete; waiting for the experiment worker
 [pandora] running compiled:test at pinned image sha256:6c16d2b325f08e5aa59204dfe882dc8128511c43441aae197004753cbbc6d7f1; worktree da14a27f44e3
 Compiled application verified source-edit-20260920
-[pandora] attempt=5a805a210436413bab1a8a5e0c6169de; exit=0; evidence=/Users/garybasin/.local/state/pandora/docker-feedback-20260920/da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5/5a805a210436413bab1a8a5e0c6169de
-[pandora] Docker report: /Users/garybasin/.local/state/pandora/docker-feedback-20260920/da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5/5a805a210436413bab1a8a5e0c6169de/results/docker.json
-[pandora] output ready: /Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build/apps/borrower-web/dist
-[pandora] previous output retained: /Users/garybasin/.local/state/pandora/docker-feedback-20260920/da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5/5a805a210436413bab1a8a5e0c6169de/publication/0/generation
+[pandora] attempt=5a805a210436413bab1a8a5e0c6169de; exit=0; evidence=/Users/you/.local/state/pandora/docker-feedback-20260920/da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5/5a805a210436413bab1a8a5e0c6169de
+[pandora] Docker report: /Users/you/.local/state/pandora/docker-feedback-20260920/da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5/5a805a210436413bab1a8a5e0c6169de/results/docker.json
+[pandora] output ready: /Users/you/Code/acme/.worktrees/pandora-compiled-build/apps/web/dist
+[pandora] previous output retained: /Users/you/.local/state/pandora/docker-feedback-20260920/da14a27f44e320bbd3687153ac199138edd25fa009ea3f9af7be44958af54cc5/5a805a210436413bab1a8a5e0c6169de/publication/0/generation

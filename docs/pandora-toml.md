@@ -38,9 +38,9 @@ is a mistake, fix the file. The claim cache keeps the file's claimed forms meanw
 commands reach the refusal instead of running unmanaged. A file that is not
 valid TOML, or that the daemon cannot read, claims nothing, and every command
 runs as if Pandora were not installed. The reference is
-[`pandora/config/examples/eichler.pandora.toml`](../pandora/config/examples/eichler.pandora.toml),
+[`pandora/config/examples/acme.pandora.toml`](../pandora/config/examples/acme.pandora.toml),
 with the sharded surface job in
-[`eichler-surfaces.pandora.toml`](../pandora/config/examples/eichler-surfaces.pandora.toml).
+[`acme-surfaces.pandora.toml`](../pandora/config/examples/acme-surfaces.pandora.toml).
 Both carry the reasoning behind each value as comments.
 
 ### Ownership
@@ -75,7 +75,7 @@ equal the planned partition exactly.
 | `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`. `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
 | `[worker]` | Required. Golden toolchain, with `base_image` required: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `workdir` sets only the canary's working directory. Routed runs ignore it. `prepare_command` is an optional per-run hook described below. It does not change the golden fingerprint. |
-| `[fallback]` | Optional repository-wide fallback. Eichler declares none on purpose. |
+| `[fallback]` | Optional repository-wide fallback. Acme declares none on purpose. |
 | `[[jobs]]` | One entry per routed job. |
 
 The invoking worktree's `pandora.toml` owns its routing. An enrollment config
@@ -116,7 +116,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `validate` | `{ argv, timeout_ms, cwd, env }`: the repository's own pre-flight check, run in the worktree before anything is frozen or queued. `timeout_ms` defaults to 5000, range 50 to 60000. Exit 0 means "I would run this". Anything else is the repository's refusal, shown as is, with the validator's own exit code. |
 | `run` | `{ argv, env, unset, cwd }`: the command. `{args}` places the caller's arguments. `cwd` applies to local runs only. A remote run always starts in `/work`, the worktree root. |
 | `outputs` | Entries `{ kind, paths, requires_option }`. `kind` is `artifacts` (remote paths brought home), `writeback` (files an armed option may rewrite, described below) or `evidence` (local jobs only: paths the receipt records as present or absent). A `writeback` output must name a `requires_option` that a `writeback = true` option sets. |
-| `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Eichler's `--update` is one. |
+| `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Acme's `--update` is one. |
 | `value_flags` | Flags whose value is not a path, so the subdirectory rule does not check it. |
 | `shards` | `strategy` (`argv` or `env`), `template` (`--shard={i}/{n}`), `env` (required with `strategy = "env"`), `default`, `max`, and for tier 2 `plan`, `expect_flag`, `report`, `plan_outputs`. Every shard also gets `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`. Remote only. |
 | `singleton` | One at a time on this Mac across every worktree. Local only. For a job that holds ports, such as a dev stack. It does not take its worktree's `one_active_per_worktree` slot, so other local jobs still run there while it lives. |

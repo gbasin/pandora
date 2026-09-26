@@ -30,7 +30,7 @@ Three sweeps, in the order of how much they are trusted:
 A toolchain family is `(repo, source_id)`: the `[worker]` table's own name for
 the tree it bakes in, which survives a node bump or a new package where the
 fingerprint does not. Ranking per repository instead (issue #81) let
-`--keep 1` delete eichler's only surfaces golden because its journeys golden
+`--keep 1` delete acme's only surfaces golden because its journeys golden
 had been used more recently. A toolchain with no `source_id` is its own
 family, so `keep` never prunes it against a different toolchain -- only
 against nothing, which means it is kept while enrollment names it, and

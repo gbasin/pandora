@@ -16,15 +16,15 @@ import time
 from admission import Admission, Store, classify
 from incus_driver import IncusDriver
 from interface import Limits
-from poc import EICHLER, JOURNEY, ROOT, SOURCE, emit, host_pressure, one_run
+from poc import ACME, JOURNEY, ROOT, SOURCE, emit, host_pressure, one_run
 
 # A real CPU-heavy job from the repo: 14 turbo tasks, most of them
 # `tsc --noEmit`, four at a time, three passes so it spans a journey.
-# `@eichler/progress` is excluded because its typecheck shells out to
+# `@acme/progress` is excluded because its typecheck shells out to
 # `git rev-parse HEAD`, and Pandora ships tracked files, not a checkout --
 # a real finding about what a repo's own jobs assume, not a driver problem.
 HEAVY = ['bash', '-c', 'for i in 1 2 3; do pnpm exec turbo run typecheck --force '
-                       '--concurrency=4 --filter=!@eichler/progress || exit 1; done']
+                       '--concurrency=4 --filter=!@acme/progress || exit 1; done']
 
 
 class Sampler(threading.Thread):
@@ -55,7 +55,7 @@ class Sampler(threading.Thread):
 
 
 def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, tag='', force=False):
-    golden = driver.prepare(EICHLER, source=SOURCE)
+    golden = driver.prepare(ACME, source=SOURCE)
     # 15 GiB host, 1 GiB left outside the runs: the budget admission holds.
     budget = 14336
     if force:
@@ -65,15 +65,15 @@ def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, ta
     admission = Admission(budget_mib=budget, max_running=count)
     store = admission.store
     for _ in range(3):
-        store.record('eichler', 'journey', reservation, 'ok')
+        store.record('acme', 'journey', reservation, 'ok')
     # The policy's own classifier, applied to the observed peaks: `medium`
     # (4096 MiB) would make the ceiling bind before the reservation does.
-    store.set_class('eichler', 'journey', classify(store.peaks('eichler', 'journey')))
+    store.set_class('acme', 'journey', classify(store.peaks('acme', 'journey')))
     hint = cpus_hint or max(1, (os.cpu_count() or 1) // count)
     decisions, results, lock = [], {}, threading.Lock()
 
     for index in range(count):
-        decisions.append(admission.admit('c%d' % index, 'eichler', 'journey'))
+        decisions.append(admission.admit('c%d' % index, 'acme', 'journey'))
     admitted = [d for d in decisions if d['admitted']]
 
     def lane(index, decision):
@@ -117,7 +117,7 @@ def concurrent(driver, count, cpus_hint=None, reservation=3800, ceiling=5120, ta
 
 def mixed(driver, priority=None):
     """Two journeys beside a CPU-heavy job. CPU is soft, so nothing is capped."""
-    golden = driver.prepare(EICHLER, source=SOURCE)
+    golden = driver.prepare(ACME, source=SOURCE)
     # Two journeys share the box with the heavy job: a share, not the
     # host core count (see the PANDORA_CPUS result).
     hint = max(1, (os.cpu_count() or 1) // 2)

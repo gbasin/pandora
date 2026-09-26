@@ -3,8 +3,8 @@ status: log
 ---
 # The memory watchdog on fast storage, 2026-09-25
 
-Why the canary's `oom verdict inside 60s` flaked on the RISE-L worker
-(Ryzen 9 9950X, btrfs on local enterprise NVMe, kernel 7.0.0-31-generic)
+Why the canary's `oom verdict inside 60s` flaked on the live worker
+(fast CPU, btrfs on local enterprise NVMe, kernel 7.0.0-31-generic)
 and what the threshold numbers look like there, measured with the
 replay script from the filing session (#150).
 
@@ -16,7 +16,7 @@ failed. Three verdicts on 2026-09-25: **79.9 s** (cold golden, FAIL),
 
 ## What the replay measured
 
-The canary's own `file` hog replayed against the reused eichler golden
+The canary's own `file` hog replayed against the reused acme golden
 on the worker, printing every sample. Unpatched driver: verdict in
 43.9 s. Patched: 24.0 s.
 

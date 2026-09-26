@@ -223,7 +223,7 @@ def _fallback(value, where):
 def _cancel(value, where):
     """How a cancel reaches this job's process tree: one signal, then a grace.
 
-    Real suites need real graces -- eichler's journeys ask for 240 s to tear down
+    Real suites need real graces -- acme's journeys ask for 240 s to tear down
     a compose stack, its surfaces ask for SIGINT so Playwright writes its trace.
     Pandora's own escalation to SIGKILL is not configurable: the grace is how
     long a job gets to clean up, never whether it may refuse to die.
@@ -513,7 +513,7 @@ def _job(value, index, warnings):
     # A local job's outputs are not brought home -- it ran in the worktree, the
     # files are already there. What it declares is *evidence*: the paths a reader
     # of the receipt must look at, which is the answer to "should the local lane
-    # set EICHLER_VALIDATION_DIRECTORY". No, it should not: a job that writes a
+    # set ACME_VALIDATION_DIRECTORY". No, it should not: a job that writes a
     # cleanup marker declares where it writes it, and the receipt records it.
     for output in job['outputs']:
         if job['where'] == 'local' and output['kind'] != 'evidence':
@@ -787,7 +787,7 @@ def resolve(repo_root, fallback_path=None):
     """Where this repository's configuration lives.
 
     Repo root first: that is where v0.2 expects it, and where the combined
-    Eichler PR will put it. The enrollment-referenced path second, so a repository
+    Acme PR will put it. The enrollment-referenced path second, so a repository
     can be routed before its own PR lands -- which is exactly the slice's
     position. Returning the path rather than the configuration keeps the
     precedence rule testable without a filesystem full of valid TOML.

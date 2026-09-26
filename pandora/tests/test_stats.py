@@ -81,7 +81,7 @@ class Build(unittest.TestCase):
         s.run('r5', job='unit', lane='remote', outcome='passed', started=5,
               queue_ms=1000, execute=5.0, drifted=True, drift='fail')
         s.passthrough(['pnpm', 'test:surface', 'desk'], 200_000, ts=150)
-        s.passthrough(['pnpm', 'test:surface', 'borrower-web'], 100_000, ts=250)
+        s.passthrough(['pnpm', 'test:surface', 'web'], 100_000, ts=250)
         s.passthrough(['pnpm', 'build'], 30_000, ts=1)
 
     def test_counts_by_job_lane_outcome(self):

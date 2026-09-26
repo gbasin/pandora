@@ -33,7 +33,7 @@ if [ -z "$real" ]; then
 fi
 
 # --- 1. kill switches --------------------------------------------------------
-# PANDORA_ROUTE_DEPTH is the recursion guard.  eichler's own scripts re-enter
+# PANDORA_ROUTE_DEPTH is the recursion guard.  acme's own scripts re-enter
 # this shim up to three times for one `pnpm check` (root script -> `pnpm
 # validate check` -> tools/validation/run.mjs spawning a bare `pnpm`), so only
 # the outermost invocation is ever allowed to route.

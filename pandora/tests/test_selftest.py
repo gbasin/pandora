@@ -24,7 +24,7 @@ WORKER_SPEC = {'base_image': 'images:ubuntu/26.04',
                'packages': ['docker.io', 'ca-certificates'],
                'node_version': '24.9.0', 'pnpm_version': '',
                'service_images': [], 'install_command': 'true',
-               'prepare_command': 'echo build', 'source_id': 'eichler',
+               'prepare_command': 'echo build', 'source_id': 'acme',
                'env': {'CI': 'true'}, 'workdir': '/work'}
 
 
@@ -158,14 +158,14 @@ class ToolchainChoice(Scratch):
         spec = dict(WORKER_SPEC, prepare_command='')
         warm = 'golden-' + toolchain_of(spec).fingerprint()
         chosen, label, reused = selftest.choose_toolchain(
-            [('eichler', spec)], FakeLink(warm=[warm]), say=lambda text: None)
+            [('acme', spec)], FakeLink(warm=[warm]), say=lambda text: None)
         self.assertTrue(reused)
-        self.assertIn('borrowed from eichler', label)
+        self.assertIn('borrowed from acme', label)
         self.assertEqual(chosen['prepare_command'], '')
 
     def test_no_warm_golden_falls_to_the_minimal_toolchain(self):
         spec, label, reused = selftest.choose_toolchain(
-            [('eichler', dict(WORKER_SPEC))], FakeLink(), say=lambda text: None)
+            [('acme', dict(WORKER_SPEC))], FakeLink(), say=lambda text: None)
         self.assertFalse(reused)
         self.assertIn('minimal', label)
         self.assertEqual(spec['source_id'], 'pandora-selftest')

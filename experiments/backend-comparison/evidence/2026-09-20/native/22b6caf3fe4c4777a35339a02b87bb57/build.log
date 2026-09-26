@@ -53,7 +53,7 @@
 #16 [build 30/35] COPY [packages/web-ui/package.json, ./packages/web-ui/package.json]
 #16 CACHED
 
-#17 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#17 [stage-1 3/4] COPY --from=build /workspace/apps/web/dist /workspace/dist
 #17 CACHED
 
 #18 [build 34/35] RUN --mount=type=cache,id=pandora-compiled-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
@@ -68,16 +68,16 @@
 #21 [build  2/35] RUN npm install --global pnpm@12.3.3
 #21 CACHED
 
-#22 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#22 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @acme/web build
 #22 CACHED
 
 #23 [build 20/35] COPY [legacy/apps/journey/package.json, ./legacy/apps/journey/package.json]
 #23 CACHED
 
-#24 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#24 [build  6/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #24 CACHED
 
-#25 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#25 [build 23/35] COPY [legacy/packages/app-ui/package.json, ./legacy/packages/app-ui/package.json]
 #25 CACHED
 
 #26 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
@@ -86,7 +86,7 @@
 #27 [build 11/35] COPY [apps/film/package.json, ./apps/film/package.json]
 #27 CACHED
 
-#28 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#28 [build  7/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #28 CACHED
 
 #29 [build  9/35] COPY [apps/brief/package.json, ./apps/brief/package.json]
@@ -95,10 +95,10 @@
 #30 [build 29/35] COPY [packages/vendors/package.json, ./packages/vendors/package.json]
 #30 CACHED
 
-#31 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#31 [build 17/35] COPY [legacy/apps/app-api/package.json, ./legacy/apps/app-api/package.json]
 #31 CACHED
 
-#32 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#32 [build 18/35] COPY [legacy/apps/app-web/package.json, ./legacy/apps/app-web/package.json]
 #32 CACHED
 
 #33 [build 33/35] COPY [pnpm-workspace.yaml, ./pnpm-workspace.yaml]

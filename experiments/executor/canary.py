@@ -13,7 +13,7 @@ import time
 
 from incus_driver import IncusDriver, run
 from interface import DestroyIncomplete, Limits
-from poc import EICHLER, JOURNEY, ROOT, SOURCE
+from poc import ACME, JOURNEY, ROOT, SOURCE
 
 FAILURES = []
 STARTED = time.monotonic()
@@ -37,7 +37,7 @@ def main(keep=False):
     rc, out, _ = run(['sudo', 'incus', 'storage', 'list', '--format', 'csv'], check=False)
     check('pool %s exists' % driver.pool, driver.pool in out, '')
 
-    golden = driver.prepare(EICHLER, source=SOURCE)
+    golden = driver.prepare(ACME, source=SOURCE)
     check('golden %s ready' % golden.name, bool(golden.name),
           'reused' if golden.reused else 'built in %.1fs' % golden.built_seconds)
 

@@ -4,7 +4,7 @@ status: log
 # Repository source caches, 2026-09-20
 
 The previous global `latest` pointer alternated between unrelated repositories.
-After a Docker fixture build, Eichler uploaded its source again despite having
+After a Docker fixture build, Acme uploaded its source again despite having
 an older complete snapshot on the worker. The recorded transfer took 69.1 seconds.
 
 The cache now uses SHA-256 of the client's canonical Git common-directory path.
@@ -34,6 +34,6 @@ but new clients neither use nor replace it. Existing repositories incur one cold
 upload to establish their keyed cache.
 
 VM validation passed both service-backed S0-01 runs with an unrelated fixture
-build between them. The first Eichler transfer took 63.9 seconds; the second took
+build between them. The first Acme transfer took 63.9 seconds; the second took
 2.7 seconds. All three requests exited zero with cleanup verified. Local tests
 passed: 13 warm-worker tests, 13 routing tests, and 7 publication tests.

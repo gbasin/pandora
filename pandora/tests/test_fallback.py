@@ -1211,7 +1211,7 @@ class WithoutADaemon(unittest.TestCase):
     def test_a_large_job_runs_here_too_because_no_daemon_means_no_pandora(self):
         # The owner's rule for a machine without Pandora is "run directly", and
         # a dead daemon is that machine. Refusing here cost an engineer their
-        # `pnpm journey` on 2026-09-23 (eichler #1536).
+        # `pnpm journey` on 2026-09-23 (acme #1536).
         self.enroll([{'prefix': ['surface'], 'size': 'large', 'fallback': 'auto',
                      'writeback': False}])
         self.assertEqual(self.run_shim(['surface']), 0)

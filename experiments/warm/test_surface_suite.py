@@ -18,10 +18,10 @@ def plan():
         {'id': 'b', 'project': 'chromium', 'file': 'e2e/b.spec.ts', 'title': 'b'},
     ]
     value = {'version': 1, 'parent_attempt': 'a' * 32, 'source_digest': 'b' * 64,
-             'app': 'borrower-web', 'selectors': ['e2e/a.spec.ts', '--grep', 'loan'],
+             'app': 'web', 'selectors': ['e2e/a.spec.ts', '--grep', 'loan'],
              'shard_count': 3, 'keep_going': False,
-             'build': {'app': 'borrower-web', 'files': [{'path': 'apps/borrower-web/dist/x', 'sha256': 'c' * 64}],
-                       'sha256': digest({'app': 'borrower-web', 'files': [{'path': 'apps/borrower-web/dist/x', 'sha256': 'c' * 64}]})},
+             'build': {'app': 'web', 'files': [{'path': 'apps/web/dist/x', 'sha256': 'c' * 64}],
+                       'sha256': digest({'app': 'web', 'files': [{'path': 'apps/web/dist/x', 'sha256': 'c' * 64}]})},
              'tests': tests,
              'shards': [
                  {'index': 1, 'test_ids': ['a'], 'inventory_sha256': digest(['a'])},
@@ -99,9 +99,9 @@ class SurfaceSuiteTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text())['outcomes'], [{'id': 'x', 'status': 'unexpected'}])
 
     def test_plan_rejects_unsafe_duplicate_and_empty_build_manifests(self):
-        value = plan(); value['build']['files'] = []; value['build']['sha256'] = digest({'app': 'borrower-web', 'files': []}); value['plan_id'] = plan_digest(value)
+        value = plan(); value['build']['files'] = []; value['build']['sha256'] = digest({'app': 'web', 'files': []}); value['plan_id'] = plan_digest(value)
         with self.assertRaises(ValueError): validate_plan(value)
-        value = plan(); value['build']['files'][0]['path'] = '../outside'; value['build']['sha256'] = digest({'app': 'borrower-web', 'files': value['build']['files']}); value['plan_id'] = plan_digest(value)
+        value = plan(); value['build']['files'][0]['path'] = '../outside'; value['build']['sha256'] = digest({'app': 'web', 'files': value['build']['files']}); value['plan_id'] = plan_digest(value)
         with self.assertRaises(ValueError): validate_plan(value)
 
 

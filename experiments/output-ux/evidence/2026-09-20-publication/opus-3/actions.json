@@ -23,13 +23,13 @@
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/src/schema.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/src/schema.json"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/bridge.py"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/bridge.py"
     }
   },
   {
@@ -43,7 +43,7 @@
     "tool": "Edit",
     "input": {
       "replace_all": false,
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/src/schema.json",
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3/experiments/output-ux/fixture/src/schema.json",
       "old_string": "{\"title\":\"Draft\",",
       "new_string": "{\"title\":\"Ready\","
     }
@@ -73,7 +73,7 @@
   {
     "tool": "Bash",
     "input": {
-      "command": "cd /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3 && echo \"=== git status ===\" && git status --short && echo \"=== git diff ===\" && git diff && echo \"=== retained previous contents ===\" && cat experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/generation/report.json && echo \"=== publication.json ===\" && cat experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/publication.json",
+      "command": "cd /Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3 && echo \"=== git status ===\" && git status --short && echo \"=== git diff ===\" && git diff && echo \"=== retained previous contents ===\" && cat experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/generation/report.json && echo \"=== publication.json ===\" && cat experiments/output-ux/fixture/.pandora-artifacts/4699a9ce0164487f812749b5a05547e8/publication.json",
       "description": "Show repo diff and publication metadata"
     }
   }

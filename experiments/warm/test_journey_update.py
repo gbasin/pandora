@@ -68,7 +68,7 @@ class JourneyUpdateTests(unittest.TestCase):
                 };
             """,
             '/workspace/source/packages/scenarios/src/journeys/index.ts': """
-                export const loadJourneys = async () => [{ id: 'S0-01', surfaces: ['api'] }, { id: 'S1-02', surfaces: ['api'] }, { id: 'SX-29', surfaces: ['api'] }, { id: 'SX-20', surfaces: ['borrower-web'] }];
+                export const loadJourneys = async () => [{ id: 'S0-01', surfaces: ['api'] }, { id: 'S1-02', surfaces: ['api'] }, { id: 'SX-29', surfaces: ['api'] }, { id: 'SX-20', surfaces: ['web'] }];
             """,
             '/workspace/source/packages/scenarios/src/runner.ts': """
                 export const runJourney = async (_journey, options) => {

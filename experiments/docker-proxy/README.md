@@ -10,7 +10,7 @@ python3 -B proxy.py serve \
   --run r-123 \
   --socket /run/pandora/r-123/docker.sock \
   --run-dir /srv/pandora/runs/r-123/source \
-  --client-root /Users/dev/Code/eichler-wt/feature \
+  --client-root /Users/dev/Code/acme-wt/feature \
   --cgroup-parent pandora-r-123.slice \
   --memory 1073741824 --nanocpus 2000000000
 
@@ -66,7 +66,7 @@ The integration module labels and names everything it creates after
 `it-<pid>-<n>` and sweeps that label in teardown whether the test passed or
 not, so it is safe on a machine running other work.
 
-`evidence/2026-09-21/` holds the run of eichler's journey `S0-01` through the
+`evidence/2026-09-21/` holds the run of acme's journey `S0-01` through the
 proxy, the SIGKILL and sweep receipt, and what a refused request looks like to
 `docker compose`. [`../../notes/docker-proxy-poc-2026-09-21.md`](../../notes/docker-proxy-poc-2026-09-21.md)
 reads them.

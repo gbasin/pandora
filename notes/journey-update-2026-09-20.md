@@ -24,7 +24,7 @@ creation forbidden. Retry completed publication without another remote run. Othe
 tests cover unchanged outputs, additions/deletions, preflight and partial conflicts,
 unsafe paths, unrelated manifest entries, and update propagation to the JS runner.
 
-The dedicated Eichler worktree was created from origin/main at
+The dedicated Acme worktree was created from origin/main at
 `fbeb008a283221bfedccc8fd47a6f6337d1ddf4d` and bootstrapped independently. Only its
 S0-01 ledger and S0-01 route entry were removed to seed the update test; the other
 199 route entries remained. No existing developer worktree was altered.

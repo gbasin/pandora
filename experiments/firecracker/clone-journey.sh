@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run journey S0-01 in N restored clones at the same time and report each one's
 # wall time, exit code and the host RSS of its firecracker process.
-# Each clone already has dockerd up and eichler's compose stack running on the
+# Each clone already has dockerd up and acme's compose stack running on the
 # SAME fixed ports (127.0.0.1:5432 / :5433) inside its own VM.
 set -euo pipefail
 SPIKE=${SPIKE:-$HOME/spike-fc}

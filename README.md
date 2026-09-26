@@ -90,10 +90,10 @@ flowchart LR
     worker -- "output, results" --> home
 ```
 
-Pandora v0.3 has been tested with one repository (eichler), one worker (4 vCPU,
-15.6 GiB, x86_64 Ubuntu 26.04) and one Mac; a second client on a teammate key
-shares that worker, a path the e2e proves against a live worker every run
-([Sharing a worker](docs/worker.md#sharing-a-worker)). Read
+Pandora v0.3 has been tested with one repository and one shared Linux worker,
+with Macs and a teammate-key client talking to it; the e2e proves that path
+against a live worker every run ([Sharing a
+worker](docs/worker.md#sharing-a-worker)). Read
 [Operating limits](docs/operations.md#operating-limits) before you rely on it.
 
 ## Install

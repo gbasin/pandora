@@ -3,8 +3,8 @@
     "phase": "codex-1",
     "model": "codex",
     "validation_commands": [
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'",
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'"
+      "/bin/zsh -lc 'pnpm test:surface web pandora-iteration.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface web pandora-iteration.spec.ts'"
     ],
     "attempts": [
       {
@@ -87,8 +87,8 @@
     "phase": "codex-2",
     "model": "codex",
     "validation_commands": [
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'",
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'"
+      "/bin/zsh -lc 'pnpm test:surface web pandora-iteration.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface web pandora-iteration.spec.ts'"
     ],
     "attempts": [
       {
@@ -171,8 +171,8 @@
     "phase": "codex-3",
     "model": "codex",
     "validation_commands": [
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'",
-      "/bin/zsh -lc 'pnpm test:surface borrower-web pandora-iteration.spec.ts'"
+      "/bin/zsh -lc 'pnpm test:surface web pandora-iteration.spec.ts'",
+      "/bin/zsh -lc 'pnpm test:surface web pandora-iteration.spec.ts'"
     ],
     "attempts": [
       {
@@ -255,8 +255,8 @@
     "phase": "opus-1",
     "model": "opus",
     "validation_commands": [
-      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -60",
-      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -30"
+      "pnpm test:surface web pandora-iteration.spec.ts 2>&1 | tail -60",
+      "pnpm test:surface web pandora-iteration.spec.ts 2>&1 | tail -30"
     ],
     "attempts": [
       {
@@ -339,8 +339,8 @@
     "phase": "opus-2",
     "model": "opus",
     "validation_commands": [
-      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -80",
-      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -30"
+      "pnpm test:surface web pandora-iteration.spec.ts 2>&1 | tail -80",
+      "pnpm test:surface web pandora-iteration.spec.ts 2>&1 | tail -30"
     ],
     "attempts": [
       {
@@ -423,8 +423,8 @@
     "phase": "opus-3",
     "model": "opus",
     "validation_commands": [
-      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -60",
-      "pnpm test:surface borrower-web pandora-iteration.spec.ts 2>&1 | tail -30"
+      "pnpm test:surface web pandora-iteration.spec.ts 2>&1 | tail -60",
+      "pnpm test:surface web pandora-iteration.spec.ts 2>&1 | tail -30"
     ],
     "attempts": [
       {

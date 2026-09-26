@@ -20,7 +20,7 @@ The final-eval routing records contain 23 accepted captures: 21 terminal records
 (ten product failures, ten product passes, and one infrastructure exit 70) and
 two unresolved captures from those early exits. The valid journeys changed only
 `apps/api/src/closing/projections.ts`; valid surfaces changed only
-`apps/borrower-web/index.html`.
+`apps/web/index.html`.
 
 ## Other evidence
 

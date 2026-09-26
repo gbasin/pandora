@@ -5,7 +5,7 @@ status: log
 
 A six-operation executor seam and an Incus implementation of it, measured on
 the same OVHcloud b3-16 the Firecracker spike used (Ubuntu 26.04, kernel
-7.0.0-14-generic, 4 vCPU, 15 GiB RAM, ext4 root, no swap). Eichler's own
+7.0.0-14-generic, 4 vCPU, 15 GiB RAM, ext4 root, no swap). Acme's own
 `journey-runner.mjs` runs `S0-01` to a pass inside a clone with its own
 dockerd, in **56 s wall from nothing to a destroyed instance**, of which the
 driver's own work — clone, inject, destroy — is **1.5 s**.
@@ -75,7 +75,7 @@ images, stops, and snapshots as `warm`.
 | --- | --- | --- |
 | launch + systemd ready | 8.29 s | 0.37 s |
 | apt toolchain + node 24.9.0 + pnpm 12.3.4 | 22.81 s | 22.93 s |
-| eichler source in (375 MiB, 4,852 files) | 1.28 s | 1.70 s |
+| acme source in (375 MiB, 4,852 files) | 1.28 s | 1.70 s |
 | dockerd up + `pnpm install --frozen-lockfile` + 3 image pulls | 18.74 s | 19.28 s |
 | stop + `incus snapshot create warm` | 0.93 s | 1.05 s |
 | **total** | **52.0 s** | **45.3 s** |
@@ -103,7 +103,7 @@ with `security.idmap.isolated=true`.
 ## 3. Source injection into a clone
 
 The golden already carries the source at its fingerprint; a run puts *its*
-tree over the top. Four ways, all measured against eichler's 375 MiB /
+tree over the top. Four ways, all measured against acme's 375 MiB /
 4,852-file tracked tree, each into a fresh clone of the same golden.
 "Exclusive" is the btrfs qgroup's exclusive bytes — what the clone costs on
 top of the extents it shares with the golden.
@@ -418,7 +418,7 @@ spans `cpu.weight` 90–100 only (the spike measured `priority=5 → weight 95`)
 an 11 % differential that cannot express "this job matters less".
 
 One incidental finding from making the heavy job run at all:
-`@eichler/progress`'s typecheck shells out to `git rev-parse HEAD`, and
+`@acme/progress`'s typecheck shells out to `git rev-parse HEAD`, and
 Pandora ships **tracked files, not a checkout**, so it fails with
 `fatal: not a git repository` and then, after `git init`, with
 `detected dubious ownership` and then `Command failed: git rev-parse HEAD`. It
@@ -578,7 +578,7 @@ ok   oom run destroyed cleanly            93.2s 0.99s
 0 checks failed
 ```
 
-Three of these are the ones worth having. `compose stack up` brings eichler's
+Three of these are the ones worth having. `compose stack up` brings acme's
 own `tools/stack/compose.yml` up on the run's private dockerd with its fixed
 ports and takes it down again — the property the whole design rests on.
 `soft limit was crossed without killing the run` catches a regression where
@@ -632,7 +632,7 @@ zero veths and `/sys/fs/cgroup` has no `lxc.payload.*`.
 | Network | `pandorabr0`, 10.141.0.1/24, `ipv4.nat=true`, `ipv6.address=none`, plus two `iptables -I FORWARD` ACCEPT rules for it |
 | Project | `pandora` (`features.networks=false`, `features.images/profiles/storage.volumes=true`) with profile `runner` carrying `security.nesting`, `security.syscalls.intercept.mknod`, `security.syscalls.intercept.setxattr`, `security.idmap.isolated` |
 | `~/incus-exec/driver` | 260 KiB — this experiment directory |
-| `~/incus-exec/eichler` | 375 MiB — eichler's **tracked files only**, shipped with `git ls-files -z \| rsync --from0 --files-from=-`. No `.env`, no `.dev.vars`, no keys; `.git` was not shipped either |
+| `~/incus-exec/acme` | 375 MiB — acme's **tracked files only**, shipped with `git ls-files -z \| rsync --from0 --files-from=-`. No `.env`, no `.dev.vars`, no keys; `.git` was not shipped either |
 | `~/incus-exec/logs` | 4.1 MiB — `poc.jsonl` (every measurement in this note), per-run journey logs, `memtrace-*.json` |
 | `~/incus-exec/out` | 4.1 MiB — collected artifacts from `collect` |
 | Disk | 29 GiB free of 96 GiB |
@@ -699,7 +699,7 @@ In the order I would fix them.
     `incus file pull -r` into a directory. A run that produces a large
     artifact tree has not been tried.
 11. **One architecture, one distro.** x86_64 Ubuntu 26.04 only. **NOT RUN:**
-    arm64, any other base image, any other repo than eichler.
+    arm64, any other base image, any other repo than acme.
 12. **`MemoryExceeded` is declared and never raised.** The driver returns
     `Result(outcome='oom')` instead, because a killed run still has usage and
     evidence worth returning. Either the exception should go or `execute`

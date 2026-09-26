@@ -43,7 +43,7 @@ class ShimDecisions(unittest.TestCase):
         self.assertEqual(result.stdout, b'REAL test:unit\n')
 
     def test_recursion_guard_forces_local(self):
-        """eichler re-enters this shim up to three times for one `pnpm check`."""
+        """acme re-enters this shim up to three times for one `pnpm check`."""
         result = self.box.pnpm(['test:unit'], PANDORA_ROUTE_DEPTH='1')
         self.assertEqual(result.stdout, b'REAL test:unit\n')
 
@@ -123,7 +123,7 @@ class WorktreeEnrolment(unittest.TestCase):
 class NestedReentry(unittest.TestCase):
     """The shim is re-entered by the repository's own scripts.
 
-    Measured in eichler: ``pnpm check`` is ``pnpm validate check`` in the root
+    Measured in acme: ``pnpm check`` is ``pnpm validate check`` in the root
     package.json, and tools/validation/run.mjs spawns a bare ``pnpm`` again, so
     one typed command passes through this shim up to three times.  Only the
     outermost may route.
@@ -171,7 +171,7 @@ class NestedReentry(unittest.TestCase):
         self.assertEqual(len(list((self.box.state / 'runs').glob('*/meta.json'))), 0)
 
     def test_an_env_scrubbing_hop_loses_the_guard(self):
-        """The known hole: eichler's safeEnvironment() allowlist drops the marker.
+        """The known hole: acme's safeEnvironment() allowlist drops the marker.
 
         tools/validation/state.mjs keeps 16 names and PANDORA_ROUTE_DEPTH is not
         one of them, so anything spawned past `pueue add` starts guard-free.

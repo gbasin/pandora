@@ -519,7 +519,7 @@
       {
         "tool": "Write",
         "input": {
-          "file_path": "/Users/garybasin/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-1/value.txt",
+          "file_path": "/Users/you/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-1/value.txt",
           "content": "opus-1\n"
         }
       },
@@ -542,7 +542,7 @@
       {
         "tool": "Read",
         "input": {
-          "file_path": "/Users/garybasin/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-1/dist/result.json"
+          "file_path": "/Users/you/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-1/dist/result.json"
         }
       }
     ],
@@ -731,7 +731,7 @@
       {
         "tool": "Write",
         "input": {
-          "file_path": "/Users/garybasin/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-2/value.txt",
+          "file_path": "/Users/you/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-2/value.txt",
           "content": "opus-2\n"
         }
       },
@@ -754,7 +754,7 @@
       {
         "tool": "Read",
         "input": {
-          "file_path": "/Users/garybasin/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-2/dist/result.json"
+          "file_path": "/Users/you/.local/state/pandora/docker-trials/seed/.worktrees/_int-pandora-docker-20260920/.worktrees/pandora-docker-20260920-opus-2/dist/result.json"
         }
       }
     ],

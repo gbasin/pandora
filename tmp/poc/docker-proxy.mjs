@@ -7,12 +7,12 @@ import net from 'node:net';
 import fs from 'node:fs';
 
 const LISTEN = process.env.PROXY_SOCK || '/tmp/pandora-poc/proxy.sock';
-const UPSTREAM = process.env.DOCKER_SOCK || '/Users/garybasin/.docker/run/docker.sock';
+const UPSTREAM = process.env.DOCKER_SOCK || '/Users/you/.docker/run/docker.sock';
 const SRC_PREFIX = process.env.SRC_PREFIX || '/tmp/pandora-poc/fakelocal';
 const DST_PREFIX = process.env.DST_PREFIX || '/tmp/pandora-poc/runs/r1';
 const RUN_ID = process.env.RUN_ID || 'r1';
 const CGROUP_PARENT = process.env.CGROUP_PARENT || 'pandora-r1.slice';
-const SOCKET_PATHS = new Set(['/var/run/docker.sock', '/run/docker.sock', UPSTREAM, '/Users/garybasin/.docker/run/docker.sock']);
+const SOCKET_PATHS = new Set(['/var/run/docker.sock', '/run/docker.sock', UPSTREAM, '/Users/you/.docker/run/docker.sock']);
 
 const log = (...a) => console.error(new Date().toISOString(), ...a);
 

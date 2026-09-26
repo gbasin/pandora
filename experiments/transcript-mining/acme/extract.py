@@ -5,7 +5,7 @@ def clip(s, head=5000, tail=5000):
     return s[:head]+"\n...[CLIPPED %d chars]...\n"%(len(s)-head-tail)+s[-tail:]
 
 ROOT = os.path.expanduser("~/.claude/projects")
-dirs = sorted(d for d in glob.glob(os.path.join(ROOT, "*eichler*")) if "pandora" not in d.lower())
+dirs = sorted(d for d in glob.glob(os.path.join(ROOT, "*acme*")) if "pandora" not in d.lower())
 files = []
 for d in dirs: files += sorted(glob.glob(os.path.join(d, "*.jsonl")))
 

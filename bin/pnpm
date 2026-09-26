@@ -61,7 +61,7 @@ fi
 
 # --- 2. recursion guard ------------------------------------------------------
 # PANDORA_ROUTE_DEPTH is the recursion guard.  A repository's own scripts
-# re-enter this shim several times for one command (eichler's `pnpm check` is
+# re-enter this shim several times for one command (acme's `pnpm check` is
 # three levels deep), so only the outermost invocation may route.  It is a
 # counter rather than a flag so that a shim that somehow finds itself is bounded
 # instead of looping.  A nested PANDORA_OFF invocation is not the outermost one,
@@ -82,7 +82,7 @@ fi
 # --- 3. repo root, without running git ---------------------------------------
 # `git rev-parse --git-common-dir` costs 16 ms p50 on this Mac, which is more
 # than the entire per-invocation budget.  This walk costs nothing measurable and
-# agreed with git on all 57 eichler worktrees.
+# agreed with git on all 57 acme worktrees.
 common=
 gitdir=
 dir=$PWD

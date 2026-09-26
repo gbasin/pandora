@@ -13,7 +13,7 @@ import {
 } from './validation.mjs';
 
 test('counts Node TAP passes and Jest summaries from runner output', () => {
-  assert.equal(tapCount('# pass 2\n@eichler/brief:test: ℹ pass 3\n'), 5);
+  assert.equal(tapCount('# pass 2\n@acme/brief:test: ℹ pass 3\n'), 5);
   assert.equal(consoleCount('Tests:       4 passed, 4 total\n'), 4);
   assert.equal(browserCount('  3 passed (2.3s)\n'), 3);
   assert.equal(postgresCount('Postgres invariants passed.\n'), 1);
@@ -90,9 +90,9 @@ test('retains a genuine JSON report and preserves a failed test receipt', async 
   assert.equal(receipt.steps[0].report, 'step-1.tap');
 });
 
-test('full suite replaces only the unbounded borrower Jest task', () => {
+test('full suite replaces only the unbounded web Jest task', () => {
   const original = [
-    ['pnpm', 'exec', 'turbo', 'run', 'test', '--filter=!@eichler/agent', '--concurrency=2'],
+    ['pnpm', 'exec', 'turbo', 'run', 'test', '--filter=!@acme/agent', '--concurrency=2'],
   ];
   const { commands, adapted } = fullCommands(original);
   assert.deepEqual(commands[0], [
@@ -101,20 +101,20 @@ test('full suite replaces only the unbounded borrower Jest task', () => {
     'turbo',
     'run',
     'test',
-    '--filter=!@eichler/agent',
-    '--filter=!@eichler/borrower',
+    '--filter=!@acme/agent',
+    '--filter=!@acme/web',
     '--concurrency=2',
     '--force',
   ]);
   assert.deepEqual(commands.at(-1), [
     'pnpm',
     '--filter',
-    '@eichler/borrower',
+    '@acme/web',
     'exec',
     'jest',
     '--maxWorkers=1',
   ]);
-  assert.ok(commands.some((argv) => argv.includes('--filter=@eichler/borrower^...')));
+  assert.ok(commands.some((argv) => argv.includes('--filter=@acme/web^...')));
   assert.equal(adapted.length, 1);
   assert.equal(adapted[0].turbo_force, true);
 });

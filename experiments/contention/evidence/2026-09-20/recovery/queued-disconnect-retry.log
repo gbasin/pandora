@@ -1,4 +1,4 @@
-[pandora] Recovering existing request, without resubmitting source. Evidence: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/9efc3fd1a19944be8e10fb417c8eef37
+[pandora] Recovering existing request, without resubmitting source. Evidence: /Users/you/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/9efc3fd1a19944be8e10fb417c8eef37
 [pandora] source verified; waiting for the experiment worker
 [pandora] queued; worker occupied; no local validation started
 [pandora] queued; worker occupied; no local validation started
@@ -18,6 +18,6 @@ CHECK_STARTED recovery
 [pandora] Docker run active; no local container started
 [pandora] Docker run active; no local container started
 Validated recovery
-[pandora] attempt=9efc3fd1a19944be8e10fb417c8eef37; exit=0; evidence=/Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/9efc3fd1a19944be8e10fb417c8eef37
-[pandora] Docker report: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/9efc3fd1a19944be8e10fb417c8eef37/results/docker.json
-[pandora] output ready: /Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-recovery/dist
+[pandora] attempt=9efc3fd1a19944be8e10fb417c8eef37; exit=0; evidence=/Users/you/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/9efc3fd1a19944be8e10fb417c8eef37
+[pandora] Docker report: /Users/you/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/9efc3fd1a19944be8e10fb417c8eef37/results/docker.json
+[pandora] output ready: /Users/you/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-recovery/dist

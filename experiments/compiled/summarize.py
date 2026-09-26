@@ -27,7 +27,7 @@ for label in ['cold', 'cold-output', 'identical', 'identical-output', 'source-ed
     record = {'label': label, 'attempt': identity, 'source_digest': submission['source_digest'],
               'transfer_seconds': submission['transfer_seconds'], 'request_seconds': submission['total_seconds'],
               'metrics': metrics, 'docker': docker, 'cleanup_verified': True}
-    output = attempt / 'results/outputs/apps/borrower-web/dist/index.html'
+    output = attempt / 'results/outputs/apps/web/dist/index.html'
     if output.exists():
         html = output.read_bytes()
         record['html_sha256'] = hashlib.sha256(html).hexdigest()

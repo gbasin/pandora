@@ -2,7 +2,7 @@
 
 Enrolment is a property of a repository, not of a worktree.  Every worktree of
 one repository shares one git *common directory*, so one marker file written
-there enrols all of them at once -- the ~135 eichler worktrees on this machine
+there enrols all of them at once -- the ~135 acme worktrees on this machine
 are covered by a single file, and a worktree created tomorrow is covered the
 moment it is created.
 

@@ -2,7 +2,7 @@
 
 This dated record evaluates proposed extensions. It does not change the v0.1
 contract or claim the extensions are implemented. Pandora baseline:
-`8acfc91148f7da0911c887ef729ec809ec9bd705`. Eichler planner baseline:
+`8acfc91148f7da0911c887ef729ec809ec9bd705`. Acme planner baseline:
 `5fddeb6b081a72af4d690a171c9e00cc007c3c01`.
 
 ## Decisions and boundaries
@@ -23,7 +23,7 @@ supporting services and internal test concurrency.
 
 | Claim | Evidence | Status | Consequence |
 | --- | --- | --- | --- |
-| Reuse existing journey partitioning | Executed actual Eichler planner against 200 catalog entries, 200 manifest entries and 198 fixture weights. Four shards contained 48, 55, 48 and 49 journeys. All 57 selected replay journeys were assigned, with 15, 12, 18 and 12 per shard. Repeated frozen input produced identical, disjoint, complete membership. | POC-confirmed for planning | Reuse the planner. This did not execute 200 journeys or establish runtime capacity. |
+| Reuse existing journey partitioning | Executed actual Acme planner against 200 catalog entries, 200 manifest entries and 198 fixture weights. Four shards contained 48, 55, 48 and 49 journeys. All 57 selected replay journeys were assigned, with 15, 12, 18 and 12 per shard. Repeated frozen input produced identical, disjoint, complete membership. | POC-confirmed for planning | Reuse the planner. This did not execute 200 journeys or establish runtime capacity. |
 | Return each shard's entire route manifest | Actual `checkRoutes` reads and rewrites shared `write-routes.json`. A synthetic two-shard example overwrote shard A's changed entry with B's unchanged copy. | Contradicted | Extract deltas only for explicitly owned journey IDs, then merge centrally once. Reject overlapping ownership and unexpected edits. |
 | Count successful responses to determine completion | Two identical receipts for shard 1 satisfied a naive count of two while shard 2 was missing. | Contradicted | Freeze expected task identities and verify unique receipts, snapshot/plan identity, cleanup and coverage. |
 | Compare a file before atomic replacement to protect all writers | A deterministic open-file-descriptor editor wrote the old inode after replacement; its change was absent at the named path. | Contradicted | Use the accepted cooperative fixture-ownership contract. Atomic replacement alone is not conditional publication. |
@@ -91,7 +91,7 @@ this environment behavior rather than accidentally relying on `CI=true`.
 Coverage JSON is informational in the current journey runner. Its presence alone
 is not a gate. Preserve the runner's status meanings and record planned/completed
 replay identities; any stronger coverage acceptance rule requires its own explicit
-decision rather than silently changing Eichler test semantics.
+decision rather than silently changing Acme test semantics.
 
 ## Proposed implementation order, not ratified scope
 
@@ -139,7 +139,7 @@ reviewing the POC and identifying the existing stale-source integration conflict
 
 ## Real remote update POC
 
-An isolated experiment adapter invoked the actual Eichler CLI for
+An isolated experiment adapter invoked the actual Acme CLI for
 `S0-01 --update`, then invoked the same CLI without `--update` against the generated
 expectations. Both returned exit zero. The source fixture was based on
 `fbeb008a283221bfedccc8fd47a6f6337d1ddf4d`; the local fixture worktree was not edited.

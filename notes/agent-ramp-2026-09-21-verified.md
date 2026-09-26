@@ -7,12 +7,12 @@ status: log
 Twelve concurrent local coding-agent sessions completed unassisted failure,
 repair, and passing-validation loops against Pandora runtime `e779a84` (merged
 in PR #61). Six used Codex Terra and six used Claude Opus. Six exercised the
-service-backed S0-01 journey and six exercised borrower browser validation with
+service-backed S0-01 journey and six exercised web browser validation with
 four native Playwright shards. The commands were unchanged:
 
 ```sh
 pnpm journey S0-01
-pnpm test:surface borrower-web chrome.spec.ts
+pnpm test:surface web chrome.spec.ts
 ```
 
 The agents received only their assigned worktree, allowed source file, command,
@@ -47,7 +47,7 @@ All 24 task receipts verified: twelve intended test failures and twelve passes,
 with verified cleanup. There were no infrastructure failures, duplicate attempts,
 local-validation fallbacks, hidden test changes, or wrong-source passes.
 Each journey agent changed only `apps/api/src/closing/projections.ts`; each surface
-agent changed only `apps/borrower-web/index.html`. All six surface repairs returned
+agent changed only `apps/web/index.html`. All six surface repairs returned
 15 declared output files each, with no hash mismatch. Worktrees remain dirty and
 preserved as evidence. All twelve controller lanes finished successfully, all
 local active records became terminal, and the final Docker inventory was empty.
@@ -80,7 +80,7 @@ this result.
 
 ## Setup deviation
 
-The preparatory lane-install commands mistakenly ran in the canonical Eichler
+The preparatory lane-install commands mistakenly ran in the canonical Acme
 checkout instead of the twelve assigned worktrees. Only the integration worktree
 was correctly bootstrapped beforehand. Agents found their own dependencies absent
 and ran frozen installs in their assigned worktrees before validation. These

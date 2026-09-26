@@ -7,7 +7,7 @@ from pathlib import Path
 from pandora.config import classify, loader
 from pandora.errors import ConfigError, NotClaimed
 
-EXAMPLE = Path(__file__).resolve().parents[1] / 'config/examples/eichler.pandora.toml'
+EXAMPLE = Path(__file__).resolve().parents[1] / 'config/examples/acme.pandora.toml'
 
 MINIMAL = '''
 version = 1
@@ -28,9 +28,9 @@ def load_text(text):
 
 
 class LoaderTest(unittest.TestCase):
-    def test_the_shipped_eichler_example_loads(self):
+    def test_the_shipped_acme_example_loads(self):
         config = loader.load(EXAMPLE)
-        self.assertEqual(config['repo']['name'], 'eichler')
+        self.assertEqual(config['repo']['name'], 'acme')
         self.assertIn('journey', config['jobs'])
         self.assertEqual(config['jobs']['journey']['size'], 'large')
 
@@ -347,7 +347,7 @@ class ClassifyTest(unittest.TestCase):
         self.assertTrue(armed['options']['update'])
 
     def test_an_unknown_flag_is_forwarded_not_refused(self):
-        # Pandora does not know eichler's flags. The repository's own validator
+        # Pandora does not know acme's flags. The repository's own validator
         # is what refuses them, one step later and in its own words.
         verdict = classify.classify(self.config, ['pnpm', 'journey', 'S0-01', '--nope'])
         self.assertEqual(verdict['decision'], 'remote')

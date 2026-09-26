@@ -3,9 +3,9 @@ status: log
 ---
 # One Firecracker microVM per run, 2026-09-21
 
-Eichler's own `journey-runner.mjs` booted eichler's own Compose stack on a
+Acme's own `journey-runner.mjs` booted acme's own Compose stack on a
 dockerd **inside a Firecracker microVM** and ran journey `S0-01` to a pass, with
-no Docker API proxy, no label scheme, no port brokering and no eichler change of
+no Docker API proxy, no label scheme, no port brokering and no acme change of
 any kind. Two restored clones of one snapshot ran the same journey at the same
 time, each with its own Postgres on its own `127.0.0.1:5432`. `SIGKILL` of the
 firecracker process removed 3 containers and 105 processes instantly and left
@@ -125,7 +125,7 @@ present if a guest agent is preferred later.
 
 ## 2. Workspace hand-off without virtiofs
 
-Eichler: **375 MiB, 4,852 tracked files** (shipped with
+Acme: **375 MiB, 4,852 tracked files** (shipped with
 `git ls-files -z | rsync --from0 --files-from=-`, 90 s over the wire, tracked
 files only). Warm base adds `node_modules` 1.2 GiB, pnpm store 29 MiB, and a
 docker data root with the three stack images pre-pulled, 510 MiB. Host root is
@@ -143,7 +143,7 @@ ext4: **no reflink**.
 Warm base itself: 9 GiB apparent, **2.3 GiB on disk**.
 
 **`mke2fs -d` is fast enough that a per-run source snapshot needs no cleverness
-at all**: 1.5 s and 409 MiB for the whole of eichler. The interesting question is
+at all**: 1.5 s and 409 MiB for the whole of acme. The interesting question is
 only the 1.4 GiB of dependencies, and there `dm-snapshot` wins outright — 0.06 s
 and a COW file that grows by what the run actually writes.
 
@@ -206,12 +206,12 @@ Phase breakdown:
 The mid-run guest state is the whole argument:
 
 ```
-Stack ike-validation-6da1a395: API http://127.0.0.1:36651, Postgres 127.0.0.1:32768.
+Stack app-validation-6da1a395: API http://127.0.0.1:36651, Postgres 127.0.0.1:32768.
 ```
 
 `wrangler dev --local` is a host process in the guest; Postgres is a container in
 the same guest; they talk over the guest's own loopback. There is no netns seam,
-because the run *is* the host. Separately, with eichler's plain `compose.yml`
+because the run *is* the host. Separately, with acme's plain `compose.yml`
 (fixed `127.0.0.1:5432:5432` and `127.0.0.1:5433:80`, no ephemeral override) the
 stack came up and `ss -ltn` showed both ports bound — in a VM, fixed ports are
 free, and two runs on fixed ports do not collide.
@@ -238,7 +238,7 @@ is why the warm base exists.
 
 ## 4. Snapshot and restore
 
-Snapshot taken of a VM with dockerd up **and eichler's compose stack running and
+Snapshot taken of a VM with dockerd up **and acme's compose stack running and
 healthy** (postgres healthy, pgbouncer, wsproxy, fixed ports bound):
 
 ```
@@ -294,7 +294,7 @@ is the caller's problem:
    | 16 bytes of `/dev/urandom` | `bb16319d…` | `ba4ffb86…` (differ) |
 
    So each clone got its own **network namespace** with the tap and addresses
-   reused verbatim. Hostname and machine-id collisions did not break eichler
+   reused verbatim. Hostname and machine-id collisions did not break acme
    (the stack names its project from a content hash, not the hostname) but they
    would break anything that registers by hostname.
 4. **The clock is frozen at the snapshot instant** — 14 minutes behind the host
@@ -351,7 +351,7 @@ and needs no enforcement code. **NOT RUN: an actual in-guest OOM.**
 **CPU.** `vcpu_count` fixes the number of vCPU threads; host `cpu.weight` over
 those threads is the soft-CPU knob. **NOT RUN.**
 
-**Kill and cleanup.** VM 2 was running eichler's stack (3 containers, 105
+**Kill and cleanup.** VM 2 was running acme's stack (3 containers, 105
 processes in the guest). `kill -9` of the firecracker pid:
 
 | | Before | After kill | After reap |
@@ -410,7 +410,7 @@ ACCEPT`.
 | --- | --- | --- |
 | launch `images:ubuntu/26.04` | 0.38 s | 5.6 s including the first image download |
 | toolchain (docker, compose, node 24, pnpm 12.3.4, git, python3) | 21.7 s | |
-| eichler source in, `tar` through `incus exec` | 2.2 s | 375 MiB, no image build |
+| acme source in, `tar` through `incus exec` | 2.2 s | 375 MiB, no image build |
 | `pnpm install --frozen-lockfile` + 3 image pulls | 19.0 s | pnpm alone: "Done in 11s" |
 | stop + `incus snapshot create` | 0.9 s | |
 | **golden instance, total** | **44.2 s** | vs ~35 s for the microVM rootfs build *plus* a separate 160 s warm-disk prep |
@@ -480,7 +480,7 @@ VM.
 | Gone | Evidence |
 | --- | --- |
 | **The Docker API proxy, ~1,152 production LOC + 884 test** | a run talks to its own dockerd over its own socket; there is nothing to police |
-| **The 0–300 unbuilt LOC for the Linux netns question** | `wrangler` reached `127.0.0.1:32768` in the guest and the journey passed; option 3 of the proxy note (an eichler seam saying "I share your network") is unnecessary |
+| **The 0–300 unbuilt LOC for the Linux netns question** | `wrangler` reached `127.0.0.1:32768` in the guest and the journey passed; option 3 of the proxy note (an acme seam saying "I share your network") is unnecessary |
 | **The label scheme and `sweep`** | a run creates no host objects; kill the process and 3 containers plus 105 processes are gone at once |
 | **Port-collision handling** | fixed ports `127.0.0.1:5432`/`:5433` bound inside two guests at once |
 | **Tracking the Docker client's API surface** | a Compose upgrade that adds a call is not Pandora's problem any more; this was named as the proxy's main ongoing maintenance cost |
@@ -550,7 +550,7 @@ bases are `mke2fs -d` + one prep run, and per-run is a dm-snapshot.
 | | Docker API proxy (POC) | **Firecracker per run** | **Incus system container per run** |
 | --- | --- | --- | --- |
 | Pandora LOC | 1,152 prod + 884 test, plus 0–300 unbuilt for the netns question | ~600 across 14 scripts here; no protocol handling | ~120 in one script; the rest is `incus` |
-| Eichler LOC | 0, or "a handful" for the network seam | **0** | **0** |
+| Acme LOC | 0, or "a handful" for the network seam | **0** | **0** |
 | `S0-01` result | pass (on Mac, loaded host) | **pass**, 45/45 stage-routes | **pass**, 45/45 stage-routes |
 | `S0-01` wall | 710.8 s (load avg 53, not comparable) | **141.4 s** (journey 89.9 s) | **62.7 s** (journey 50.3 s) |
 | Time to first command | n/a | 7.8 s cold, 0.5 s from snapshot | **0.3 s** from a clone |

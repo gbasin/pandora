@@ -30,7 +30,7 @@ is US$20, excluding existing model subscriptions.
 Agents, editing, and worktrees stay on the dedicated Mac in tmux/agentboard.
 Only selected validation executes remotely. Other engineers and ordinary
 terminals retain their current behavior. No tracked changes or permanent hooks
-are required in Eichler or another target repo. Pandora owns the experiment,
+are required in Acme or another target repo. Pandora owns the experiment,
 profiles, launcher, telemetry, and evaluation artifacts.
 
 Use existing tools for the MVP, and defer any decision about a custom
@@ -39,8 +39,8 @@ manager, or learned scheduler for this MVP.
 
 ## First workload
 
-Use `pnpm test:surface borrower-web`, including supported selectors.
-`pnpm validate surface borrower-web` is the equivalent entry point. The current
+Use `pnpm test:surface web`, including supported selectors.
+`pnpm validate surface web` is the equivalent entry point. The current
 surface runner builds static fixtures and runs Playwright without Postgres or
 Docker services. The subsequent S0-01 profile adds isolated service setup and
 teardown without exposing Docker inside the execution container.

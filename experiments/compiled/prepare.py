@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add untracked Docker evaluation inputs to a disposable Eichler worktree."""
+"""Add untracked Docker evaluation inputs to a disposable Acme worktree."""
 import argparse
 import json
 from pathlib import Path
@@ -21,10 +21,10 @@ for item in inputs:
     recipe += 'COPY ' + json.dumps([item, './' + item]) + '\n'
 recipe += '''RUN --mount=type=cache,id=pandora-compiled-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
 # Preserve dependency input timestamps while overlaying current application source.
-RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @acme/web build
 FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 WORKDIR /workspace
-COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+COPY --from=build /workspace/apps/web/dist /workspace/dist
 COPY pandora-check-build.cjs /workspace/check.cjs
 CMD ["node", "check.cjs"]
 '''
@@ -55,4 +55,4 @@ if (expected && !html.includes(expected)) throw Error('Stale build: missing '+ex
 console.log('Compiled application verified'+(expected?' '+expected:''));
 ''')
 print(json.dumps({'dockerfiles':['Pandora.Dockerfile'], 'mounts':[],
-                  'outputs':[{'container':'/workspace/dist','workspace':'apps/borrower-web/dist'}], 'network':'none'},indent=2))
+                  'outputs':[{'container':'/workspace/dist','workspace':'apps/web/dist'}], 'network':'none'},indent=2))

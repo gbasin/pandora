@@ -7,7 +7,7 @@ enough to justify rewriting the welded adapters.
 Working proof: `experiments/repo-config/` (loader, classifier, CI-fact importer,
 CLI, two example configurations, 97 unittest cases including a 77-case parity
 table against the shipped `experiments/routing/commands.py` and a trimmed
-verbatim copy of eichler's real `ci.yml` under `fixtures/`).
+verbatim copy of acme's real `ci.yml` under `fixtures/`).
 
 Read §10 first if you have read this document before: it is the second pass,
 and it changes the recommendation in §9.4.
@@ -19,28 +19,28 @@ and it changes the recommendation in §9.4.
 Roughly 60% of Pandora is repo-agnostic plumbing: snapshot and manifest,
 transport, admission and scheduling, container lifecycle, evidence
 authentication, retention, publication fences, wait/recovery. The other 40% is
-Eichler. It is welded in nine places:
+Acme. It is welded in nine places:
 
-| Where | What is Eichler-specific |
+| Where | What is Acme-specific |
 | --- | --- |
 | `experiments/routing/commands.py` | Literal argv `if`/`elif` for every accepted spelling |
 | `experiments/warm/validation_request.py` | A second copy of the suite table |
-| `experiments/warm/workflow_options.py` | `APPS = ('borrower-web','desk')`, `apps/<app>/dist` |
+| `experiments/warm/workflow_options.py` | `APPS = ('web','desk')`, `apps/<app>/dist` |
 | `experiments/routing/journey_updates.py` | `packages/scenarios/fixtures/...` paths |
 | `experiments/warm/journey.py` | Postgres credentials, three pinned service digests, `-w packages/scenarios` |
 | `experiments/warm/worker_config.py` | `demand()` hardcodes which workflows need db/pool/proxy |
-| `experiments/warm/validation-stack.mjs` | Textual surgery on Eichler's `startInstance({...})` |
+| `experiments/warm/validation-stack.mjs` | Textual surgery on Acme's `startInstance({...})` |
 | `experiments/warm/validation.mjs` | Turbo-argv rewriting, planner import, reporter sniffing |
-| `experiments/warm/suite.mjs`, `journey.mjs` | Absolute imports of Eichler `.ts` internals |
+| `experiments/warm/suite.mjs`, `journey.mjs` | Absolute imports of Acme `.ts` internals |
 | `experiments/surface/Dockerfile` | Node 24 / pnpm 12.3.4 / Playwright 1.62.1 pins |
 
 Every one of those is knowledge the repository already has, expressed twice, in
 the wrong repository, released on Pandora's cadence rather than the repo's.
 
-The lever: Eichler's `.github/workflows/ci.yml` already states the same facts in
+The lever: Acme's `.github/workflows/ci.yml` already states the same facts in
 GitHub-Actions shape — job list, runner size, a journeys matrix
 (`JOURNEY_SHARD: '1/4' … '4/4'`), surface shards
-(`pnpm --filter @eichler/<app> test:e2e --shard=${{ matrix.shard }}`), service
+(`pnpm --filter @acme/<app> test:e2e --shard=${{ matrix.shard }}`), service
 containers with env and healthchecks, and artifact paths. The proposed config is
 that document, minus GitHub, plus the three things CI does not need: an argv
 boundary for agents, resource requests in Pandora's admission units, and an
@@ -93,7 +93,7 @@ repository knowledge.
 version = 1
 
 [repo]
-name = "eichler"
+name = "acme"
 entrypoints = ["pnpm"]              # which shimmed tools this config claims
 root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
@@ -104,7 +104,7 @@ subdirectory = "reroot"             # reroot | local | reject
 
 `entrypoints` exists because a repo may shim more than one tool; each job may
 name a `tool`, defaulting to the first entrypoint. Pandora today shims `pnpm`
-only, so Eichler's config names one.
+only, so Acme's config names one.
 
 ### 3.2 Runtime image
 
@@ -119,11 +119,11 @@ user = "node"
 
 A Dockerfile *fragment* as data, not a Dockerfile path — Pandora must control the
 build context, the cache mount and the final `USER`, and the survey confirms
-Eichler has no Dockerfile at all (nor `.nvmrc`: Node 24 comes from `engines` and
+Acme has no Dockerfile at all (nor `.nvmrc`: Node 24 comes from `engines` and
 the CI `setup-node` pin, pnpm from `packageManager: pnpm@12.3.4`).
 
 `base_image` and every service image **must be digest-pinned**; the loader
-refuses a floating tag. Eichler's own `compose.yml` and CI use `postgres:16`,
+refuses a floating tag. Acme's own `compose.yml` and CI use `postgres:16`,
 `edoburu/pgbouncer:latest`, `ghcr.io/neondatabase/wsproxy:latest`. That is fine
 for CI, which re-pulls every run; it is not fine for a warm-image worker that
 must reproduce a result. Keeping the digests in the repo's config is where the
@@ -142,7 +142,7 @@ check_argv = ["node", "tools/check-worktree-deps.mjs"]
 
 `cache_key_paths` are globs over the frozen manifest; their content digests key
 the dependency image, replacing today's hardcoded install-input set.
-`check_argv` is the repo's own "are the installed deps right" gate — Eichler sets
+`check_argv` is the repo's own "are the installed deps right" gate — Acme sets
 `verifyDepsBeforeRun: error` in `pnpm-workspace.yaml` and runs
 `tools/check-worktree-deps.mjs` in seven pre-hooks, so Pandora must run the
 install (exempt from the gate) and may then assert the gate itself.
@@ -151,7 +151,7 @@ install (exempt from the gate) and may then assert the gate itself.
 
 A job is claimed by one or more **forms**: a literal token prefix. Aliases are
 just extra forms, which is the whole answer to `pnpm test:unit` ≡
-`pnpm validate unit` — because in Eichler that equivalence is literally
+`pnpm validate unit` — because in Acme that equivalence is literally
 `"test:unit": "pnpm validate unit"` in `package.json`.
 
 ```toml
@@ -159,7 +159,7 @@ just extra forms, which is the whole answer to `pnpm test:unit` ≡
 id = "surface"
 forms = [{ prefix = ["test:surface"] }, { prefix = ["validate", "surface"] }]
 params = [
-  { name = "app", kind = "enum", values = ["borrower-web", "desk"] },
+  { name = "app", kind = "enum", values = ["web", "desk"] },
   { name = "selectors", kind = "rest", required = false,
     allow_flags = [{ name = "--grep", arity = 1, max = 1 }] },
 ]
@@ -168,7 +168,7 @@ flags = [{ name = "--keep-going", kind = "pandora", sets = "keep_going" }]
 
 Three parameter kinds and two flag kinds cover the whole current boundary:
 
-- `enum` — a closed positional (`borrower-web|desk`, `api|scenarios`).
+- `enum` — a closed positional (`web|desk`, `api|scenarios`).
 - `pattern` — a regex positional (`(?:S[0-6]|SX)-[0-9]{2}`).
 - `rest` — everything after the positionals, in original order, with
   `path_like` validation (nonempty, no leading `-`, no absolute path, no `..`)
@@ -183,7 +183,7 @@ Three parameter kinds and two flag kinds cover the whole current boundary:
   (`keep_going`, `update`). `forward = true` additionally passes it through, which
   `--update` needs.
 
-**Focused forms stay local** is a per-form decision, because in Eichler it
+**Focused forms stay local** is a per-form decision, because in Acme it
 genuinely differs by spelling:
 
 ```toml
@@ -237,15 +237,15 @@ cpu_millis = 500
 memory_mib = 768
 host = "127.0.0.1"
 port = 5432
-env = { POSTGRES_USER = "ike_owner", … }
-exports = { DATABASE_OWNER_URL = "postgres://ike_owner:local-owner@{host}:{port}/ike" }
-healthcheck = { argv = ["pg_isready", "-U", "ike_owner", "-d", "ike"], attempts = 60, interval_ms = 500 }
+env = { POSTGRES_USER = "app_owner", … }
+exports = { DATABASE_OWNER_URL = "postgres://app_owner:local-owner@{host}:{port}/app" }
+healthcheck = { argv = ["pg_isready", "-U", "app_owner", "-d", "app"], attempts = 60, interval_ms = 500 }
 ```
 
 `exports` is how a service URL reaches a job: the service's `{host}` and
 `{port}` are substituted at load time, and the resulting variables are merged
 into every shard's environment underneath the job's own `run.env`. That is
-precisely the `DATABASE_OWNER_URL` / `DATABASE_WS_PROXY` / `IKE_API_URL` triple
+precisely the `DATABASE_OWNER_URL` / `DATABASE_WS_PROXY` / `APP_API_URL` triple
 that `tools/validation/heavy.mjs` sets for itself, and it is what lets
 `startInstance({ external: true })` attach instead of booting Compose.
 
@@ -254,7 +254,7 @@ that `tools/validation/heavy.mjs` sets for itself, and it is what lets
 
 ### 3.7 Shards
 
-Two strategies, because Eichler genuinely uses two:
+Two strategies, because Acme genuinely uses two:
 
 ```toml
 # journeys: env matrix, exactly like ci.yml's JOURNEY_SHARD: '1/4' … '4/4'
@@ -268,7 +268,7 @@ default = 4
 argv_append = ["--shard={shard.index}/{shard.total}"]
 
 [jobs.shards.plan]                 # optional build-once / fan-out step
-run = { argv = ["pnpm", "--filter", "@eichler/{p.app}", "run", "plan:e2e"] }
+run = { argv = ["pnpm", "--filter", "@acme/{p.app}", "run", "plan:e2e"] }
 emits = "apps/{p.app}/e2e/dist/pandora-inventory.json"
 services = []
 ```
@@ -330,7 +330,7 @@ jobs use `CI = ""`, which is the declarative form of today's `env -u CI` child i
 
 `reject_if_set` is per-job. `pnpm journeys` refuses to start when `JOURNEY_SHARD`,
 `JOURNEY_FILTER`, `JOURNEY_CONCURRENCY`, `JOURNEY_REPLAY`, `JOURNEY_TEMPLATE` or
-`IKE_WORLD` is set in the agent's shell, because those would silently change what
+`APP_WORLD` is set in the agent's shell, because those would silently change what
 "the catalog" means. `pnpm test:unit` does not care and is not blocked — today's
 `route.py` applies the guard only to suite runs, and putting it on the job
 preserves that.
@@ -354,7 +354,7 @@ from the top-level table. Semantics:
   and the fallback is recorded in `submission.json` so the evidence path shows
   a locally-produced result was not remote evidence.
 - `action = "fail"` keeps today's behavior for jobs that cannot run on a Mac
-  (nothing in the Eichler config needs it yet; `test:postgres` arguably does,
+  (nothing in the Acme config needs it yet; `test:postgres` arguably does,
   since it needs a local Docker stack — see open questions).
 
 ---
@@ -380,43 +380,43 @@ Every table row in §1, plus: which jobs need services, per-job resource request
 shard defaults and bounds, artifact/generated/writeback paths, env guards, the
 fallback policy, and the image pins.
 
-## 6. What needs a seam inside Eichler
+## 6. What needs a seam inside Acme
 
 Four, each small, each with a file reference. The example config marks them
 `SEAM-n`.
 
 **SEAM-1 — an explicit direct-exec flag, separate from `GITHUB_ACTIONS`.**
-`/Users/garybasin/Code/eichler/tools/validate.mjs:85` is
+`/Users/you/Code/acme/tools/validate.mjs:85` is
 `const direct = process.env.GITHUB_ACTIONS === 'true';`. Pandora needs `direct`
 (skip Pueue, no queue slot, no worktree reservation) but *not* the rest of CI
 semantics — notably `tools/validation/plan.mjs:159` refuses `--update` when
 `GITHUB_ACTIONS || CI`, which is why Pandora's `journey_command()` today spawns
-`env -u CI`. Change: introduce `EICHLER_VALIDATION_DIRECT=1`, set
-`direct = process.env.EICHLER_VALIDATION_DIRECT === '1' || process.env.GITHUB_ACTIONS === 'true'`,
+`env -u CI`. Change: introduce `ACME_VALIDATION_DIRECT=1`, set
+`direct = process.env.ACME_VALIDATION_DIRECT === '1' || process.env.GITHUB_ACTIONS === 'true'`,
 and gate the `--update` refusal on `GITHUB_ACTIONS` alone. ~3 lines.
 *Until then the example config sets `GITHUB_ACTIONS = "true"` for the
 `validate.mjs` jobs and bypasses `validate.mjs` entirely for journeys.*
 
 **SEAM-2 — `startInstance` must be able to attach to a fully external stack.**
-`/Users/garybasin/Code/eichler/tools/stack/instance.mjs:148` already has
+`/Users/you/Code/acme/tools/stack/instance.mjs:148` already has
 `external: true` ("Under GitHub Actions the job supplies the database services"),
 but it (a) hardcodes `proxy = 'localhost:5433'` instead of reading
 `DATABASE_WS_PROXY`, and (b) still starts its own `wrangler dev` worker, so
 there is no "an API is already listening" mode. Change: read
-`DATABASE_WS_PROXY` in the `external` branch, and add `api` / `IKE_API_URL` so
+`DATABASE_WS_PROXY` in the `external` branch, and add `api` / `APP_API_URL` so
 `startInstance` returns the existing origin instead of spawning a worker.
-Additionally, `/Users/garybasin/Code/eichler/tools/browser-integration/run.mjs:108`
+Additionally, `/Users/you/Code/acme/tools/browser-integration/run.mjs:108`
 should read that mode from the environment rather than hardcoding
 `startInstance({ signal, deployment, env, output, log })` — that exact call shape
 is what `warm/validation-stack.mjs` (95 lines) currently rewrites textually, and
 the rewrite breaks whenever anyone reorders those five options.
 
 **SEAM-3 — split the surface build from the surface run.**
-`apps/desk/package.json` and `apps/borrower-web/package.json` have
+`apps/desk/package.json` and `apps/web/package.json` have
 `"test:e2e": "vite build && vite build --mode e2e && playwright test"`. Sharding
 that N ways rebuilds N times. Change: add
 `"build:e2e": "vite build && vite build --mode e2e"` and make `test:e2e` call it,
-so `pnpm --filter @eichler/<app> exec playwright test --shard=i/n` is a legal
+so `pnpm --filter @acme/<app> exec playwright test --shard=i/n` is a legal
 standalone shard invocation. ~2 lines per app.
 
 **SEAM-4 — a plan step that emits its partition.**
@@ -426,7 +426,7 @@ This lets Pandora keep the anti-fabrication receipt it has today
 ids) without importing Playwright's internals. The journeys equivalent already
 exists inside `packages/scenarios/src/cli/plan.ts` (`shardJourneys`), but it is
 reachable only by importing `.ts` from `warm/suite.mjs`; a
-`pnpm --filter @eichler/scenarios journeys --plan-only --json` verb would remove
+`pnpm --filter @acme/scenarios journeys --plan-only --json` verb would remove
 those absolute-path imports too. ~5 lines.
 
 Nice-to-have, not required: `node tools/validate.mjs plan <suite> [args]` already
@@ -467,8 +467,8 @@ Each step deletes something. No step requires the next one.
 6. **Runtime image** — `experiments/surface/Dockerfile` becomes generated from
    `[runtime]`. *Deletes:* the Dockerfile (8 lines) and the pin drift between it
    and the repo.
-7. **Delete `notes/eichler-command-catalog-2026-09-21.json`** or, better, turn
-   it into a CI check in Eichler that every `pandora.toml` form corresponds to a
+7. **Delete `notes/acme-command-catalog-2026-09-21.json`** or, better, turn
+   it into a CI check in Acme that every `pandora.toml` form corresponds to a
    real `package.json` script. The catalog is unused data today; as a lint it
    would be the thing that catches a renamed script before an agent does.
 
@@ -523,7 +523,7 @@ before any writeback or service semantics depend on them.
 
 | | lines |
 | --- | --- |
-| `examples/eichler.pandora.toml`, total | 306 |
+| `examples/acme.pandora.toml`, total | 306 |
 | …non-comment, non-blank | **232** |
 | `examples/generic.pandora.toml`, non-comment | 63 |
 | Welded adapters replaced outright | **685** |
@@ -533,7 +533,7 @@ before any writeback or service semantics depend on them.
 | …`warm/workflow_options.py` | 32 |
 | …`warm/validation_request.py` | 30 |
 | …`experiments/surface/Dockerfile` | 8 |
-| Eichler-specific lines inside surviving files | ~92 |
+| Acme-specific lines inside surviving files | ~92 |
 | …`warm/journey.py` (services, id pattern, journey argv) | 44 |
 | …`routing/journey_updates.py` (fixture paths, declarations) | 43 |
 | …`warm/worker_config.py` (`demand()` role branch) | 5 |
@@ -548,7 +548,7 @@ raw LOC. The win is not size, it is three other things:
 1. The 232 lines live in the repository that knows the answers, and change on
    that repository's cadence. Adding a command no longer requires cutting a
    Pandora release.
-2. The 919 lines have no `eichler` in them (verifiable: `grep -ci eichler` over
+2. The 919 lines have no `acme` in them (verifiable: `grep -ci acme` over
    `config.py`, `classify.py`, `plan.py` is 0), so they are paid once and the
    second repository costs 63 lines, not another 777.
 3. The duplicated suite tables collapse. There is exactly one list of jobs
@@ -590,12 +590,12 @@ difference between the two, besides subdirectory handling.
 Honest list.
 
 - **Turbo argv rewriting does not fit.** `warm/validation.mjs`'s `fullCommands()`
-  takes the planner's `pnpm exec turbo run test --filter=!@eichler/agent`, splits
-  out `@eichler/borrower`, appends `--force` so Turbo cannot replay a cached
-  TAP transcript, and re-runs borrower's Jest with `--maxWorkers=1`. That is a
+  takes the planner's `pnpm exec turbo run test --filter=!@acme/agent`, splits
+  out `@acme/web`, appends `--force` so Turbo cannot replay a cached
+  TAP transcript, and re-runs web's Jest with `--maxWorkers=1`. That is a
   *correctness* adaptation (a cached test result is not evidence for this
   attempt) expressed as argv surgery. Nothing in the schema can state it. It has
-  to either move into Eichler (a `validate full --no-cache` mode) or stay as a
+  to either move into Acme (a `validate full --no-cache` mode) or stay as a
   Pandora escape hatch. I did not model an escape hatch on purpose — once a
   config can carry arbitrary rewrite rules it stops being data.
 - **Build-once surface planning is half-declarative.** `[jobs.shards.plan]`
@@ -607,7 +607,7 @@ Honest list.
   gives today. `emits` is the proposed bridge, but it is unproven; a real
   implementation needs a declared *schema* for the emitted manifest, which is
   more contract surface than I would like.
-- **Journey shard balance depends on checked-out fixtures.** Eichler's
+- **Journey shard balance depends on checked-out fixtures.** Acme's
   `shardJourneys` weights by `.ledger.jsonl` line counts. That is invisible to the
   config and means two agents with different local fixtures get different shard
   boundaries for the same command. Not a config problem, but the config makes it
@@ -616,7 +616,7 @@ Honest list.
   declare the writeback allowlist, but base/target checksum comparison, the
   "focused update modified unrelated route entries" check, `PublicationConflict`
   and `pandora resolve-expectations --keep-local` are all about *identity*, not
-  about Eichler. Those survive untouched — `journey_updates.declarations()` keeps
+  about Acme. Those survive untouched — `journey_updates.declarations()` keeps
   its fences and loses only its path literals. This is the part of the split I am
   most confident about.
 - **`CI = ""` as "unset" is a wart.** It works (Node treats `''` as falsy) but it
@@ -625,7 +625,7 @@ Honest list.
 - **Per-form `on_extra` is more machinery than it looks.** It exists for exactly
   one asymmetry (`pnpm test:tools` rejects, `pnpm validate tools` falls back).
   Justifiable, but it is the kind of key that accumulates.
-- **Two spellings per job is duplication the repo already has.** Every Eichler
+- **Two spellings per job is duplication the repo already has.** Every Acme
   job lists `["test:unit"]` and `["validate","unit"]`, which is literally
   restating `"test:unit": "pnpm validate unit"` from `package.json`. Deriving
   forms from `package.json` scripts would remove ~13 lines and one class of
@@ -641,7 +641,7 @@ Go, because the split is real and the seam falls in a defensible place. The
 classifier reproduced 77 of 77 argv cases from the shipped boundary — accepted,
 rejected, passthrough, `run`-prefixed, and the nasty ones (`--grep --keep-going`,
 `--foundation-only` conditionality, `test:tools` versus `validate tools`) —
-without a line of Eichler knowledge in the engine. The second example
+without a line of Acme knowledge in the engine. The second example
 configuration (npm + pytest + Redis, 63 lines) plans correctly through the same
 code path. The identity and evidence machinery, which is where Pandora's actual
 value is, does not move at all.
@@ -653,8 +653,8 @@ The changes:
    suite table, and live with it for a week of agent loops. If the config file
    goes stale or the error messages get worse in practice, the remaining steps
    are not worth it.
-2. **Get SEAM-1 and SEAM-2 merged into Eichler first.** Both are small and both
-   are independently good for Eichler (an explicit direct-exec flag is clearer
+2. **Get SEAM-1 and SEAM-2 merged into Acme first.** Both are small and both
+   are independently good for Acme (an explicit direct-exec flag is clearer
    than overloading `GITHUB_ACTIONS`; an `external` stack that honors
    `DATABASE_WS_PROXY` is a bug fix). If they cannot land, the config buys much
    less, because `validation-stack.mjs`'s textual surgery survives.
@@ -662,11 +662,11 @@ The changes:
    change a resource request, changing the unit later is a breaking change.
 4. **Do not ship an escape hatch.** If a repo needs argv surgery, that is a
    signal the repo should grow a command, not that the config should grow a
-   rewrite rule. `fullCommands()` is the test case: fix it in Eichler or leave it
+   rewrite rule. `fullCommands()` is the test case: fix it in Acme or leave it
    welded, but do not make it configurable.
 
 No-go conditions, stated in advance so they are falsifiable: if step 1 requires
-more than two new schema keys to cover the seven jobs, or if any Eichler seam
+more than two new schema keys to cover the seven jobs, or if any Acme seam
 turns out to need more than ~20 lines, the split is in the wrong place and the
 welded adapters should stay.
 
@@ -679,9 +679,9 @@ This section is the result of testing one idea against the real file: a
 repository already maintains in its workflow, instead of restating them.
 
 Everything below was measured against a verbatim trim of
-`/Users/garybasin/Code/eichler/.github/workflows/ci.yml` (596 lines; the jobs
+`/Users/you/Code/acme/.github/workflows/ci.yml` (596 lines; the jobs
 `postgres`, `journeys`, `surfaces`, `browser-integration` copied line for line
-into `experiments/repo-config/fixtures/eichler/.github/workflows/ci.yml`). The
+into `experiments/repo-config/fixtures/acme/.github/workflows/ci.yml`). The
 importer is `experiments/repo-config/ci_import.py`; its tests are
 `test_ci_import.py`.
 
@@ -692,7 +692,7 @@ hand-holding:
 
 | Job | Inherited |
 | --- | --- |
-| `postgres` | services `postgres` and `wsproxy` — image, env, `ports`, and the `options:` string parsed into a healthcheck (`pg_isready -U ike_owner -d ike`, 10 retries, 5 s); job env `DATABASE_OWNER_URL`; `timeout-minutes: 15`; node 24 |
+| `postgres` | services `postgres` and `wsproxy` — image, env, `ports`, and the `options:` string parsed into a healthcheck (`pg_isready -U app_owner -d app`, 10 retries, 5 s); job env `DATABASE_OWNER_URL`; `timeout-minutes: 15`; node 24 |
 | `journeys` | services `postgres`, `pgbouncer`, `wsproxy`; four job env vars; the matrix shard axis `['1/4'…'4/4']` → total 4 **and** where it is consumed (`JOURNEY_SHARD=${{ matrix.shard }}`, found inside the 15-line shell step); `timeout-minutes: 60`; node 24 |
 | `surfaces` | shard axis total 2, consumed as `--shard=${{ matrix.shard }}`; `timeout-minutes: 30`; node 24 — **after** declaring `ci_matrix_params = ["app"]` |
 | `browser-integration` | `timeout-minutes: 15`; the artifact path `test-results/browser-integration/`; node 24; no services and no shards, which is itself the fact |
@@ -716,7 +716,7 @@ and it is an argument for *comparing*, not necessarily for *inheriting*.
 Strictness is the point: nothing is skipped silently. Every item here is a
 named `CiImportError` quoting file, job, field and offending text.
 
-1. **The journeys artifact list.** `path:` begins with `/tmp/ike-stack.log`,
+1. **The journeys artifact list.** `path:` begins with `/tmp/app-stack.log`,
    which is outside the snapshot a worker returns. Inheriting it is refused;
    the job must declare `outputs` itself. (Verified: `test_config.py`
    temporarily strips the declaration and asserts the refusal.)
@@ -791,12 +791,12 @@ service plus the job container joins it with `--network container:<pause>`.
 Reproduced for free:
 
 - **`localhost:<port>` URLs work verbatim.** CI's
-  `DATABASE_OWNER_URL=postgres://…@localhost:5432/ike` is imported and used
+  `DATABASE_OWNER_URL=postgres://…@localhost:5432/app` is imported and used
   unchanged. This is the single best reason to use a pod.
 - **No host ports are published**, so concurrent runs cannot collide on 5432 or
   5433 the way the current implementation can.
 
-Not reproduced, and each one bites eichler's real configuration:
+Not reproduced, and each one bites acme's real configuration:
 
 - **Service-to-service names do not resolve.** Joining another container's
   namespace inherits the namespace, not Docker's embedded DNS — name resolution
@@ -808,7 +808,7 @@ Not reproduced, and each one bites eichler's real configuration:
   plan emits that exact list (`network.add_host`), using CI's service names, not
   Pandora's role names.
 - **A non-identity `ports:` mapping does not survive.** This is the one place
-  the "mappings work verbatim" premise is false, and eichler hits it: wsproxy is
+  the "mappings work verbatim" premise is false, and acme hits it: wsproxy is
   `ports: ['5433:80']`. In CI the job dials `localhost:5433`; in a shared
   namespace wsproxy listens on 80 and 5433 is dead. The plan emits
   `network.port_forwards` for every such mapping; each needs either a forwarder
@@ -852,7 +852,7 @@ The import works. All four real jobs import, the strictness is real (ten named
 refusals, each with a fixture), and it caught two facts the hand-written
 configuration had wrong. But weigh the two sides honestly:
 
-- **What inheritance bought:** the eichler example went from 232 to 187
+- **What inheritance bought:** the acme example went from 232 to 187
   non-comment lines. Roughly 45 lines, of which the service definitions are 24.
 - **What inheritance costs:** a YAML parse (or a snapshot freshness check) on
   the critical path of every agent command, and a new class of load-time failure
@@ -892,8 +892,8 @@ less than a parser, but it is not zero.
 
 The price is measured, not asserted: **8 of 77 parity cases now diverge**, all
 in the same direction — v0.1.1 refused locally, the configuration forwards and
-lets eichler's runner refuse. Each is pinned in `test_parity.DIVERGENT` with the
-knowledge Pandora gave up: the journey-id pattern, the `borrower-web|desk` enum,
+lets acme's runner refuse. Each is pinned in `test_parity.DIVERGENT` with the
+knowledge Pandora gave up: the journey-id pattern, the `web|desk` enum,
 `--fault`'s closed value list, which positional `--foundation-only` belongs to,
 argument counts, and "at most one `--grep`". Recovered by `args = "required"`:
 bare `pnpm journey`, `pnpm test:surface` and `pnpm test:postgres` still refuse
@@ -944,7 +944,7 @@ refusal that lists the roles it does have.
 
 | | lines |
 | --- | --- |
-| `examples/eichler.pandora.toml`, non-comment — first draft | 232 |
+| `examples/acme.pandora.toml`, non-comment — first draft | 232 |
 | …after items 3–5 and CI import | **187** (−19%) |
 | …of which the CI import removed | ~45 (three service definitions, their env, `DATABASE_OWNER_URL`, the shard env template, three timeouts) |
 | …and added | 5 (`ci_workflow`, `ci_service_roles`, three `[pins]`) |

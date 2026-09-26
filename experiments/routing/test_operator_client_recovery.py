@@ -60,7 +60,7 @@ class OperatorRecoveryTests(unittest.TestCase):
             import shutil
             shutil.copytree(output, state / attempt)
             output = state / attempt
-            record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'borrower-web'],
+            record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'web'],
                       'host': 'unused', 'attempt': attempt}
             route.write(state / 'active.json', record)
             child = type('Child', (), {'wait': lambda self: 70})()
@@ -78,7 +78,7 @@ class OperatorRecoveryTests(unittest.TestCase):
             output.mkdir(parents=True)
             (output / 'submission.json').write_text(json.dumps(submission(attempt)))
             acknowledged = receipt(output, attempt)
-            record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'borrower-web'],
+            record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'web'],
                       'host': 'unused', 'attempt': attempt}
             route.write(state / 'active.json', record)
             env = {'PANDORA_STATE': str(state_root), 'PANDORA_HOST': 'unused'}

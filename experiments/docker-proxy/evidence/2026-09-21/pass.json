@@ -16,7 +16,7 @@
       "replay": "cover",
       "concurrency": 1,
       "stack": {
-        "project": "ike-validation-e909988c",
+        "project": "app-validation-e909988c",
         "api": "http://127.0.0.1:55653"
       },
       "stackCleanupAttempted": true,
@@ -41,19 +41,19 @@
     "created": {
       "containers": [
         {
-          "name": "ike-validation-e909988c-wsproxy-1",
+          "name": "app-validation-e909988c-wsproxy-1",
           "image": "ghcr.io/neondatabase/wsproxy:latest",
           "label": "proof-x",
           "state": "created"
         },
         {
-          "name": "ike-validation-e909988c-pgbouncer-1",
+          "name": "app-validation-e909988c-pgbouncer-1",
           "image": "edoburu/pgbouncer:latest",
           "label": "proof-x",
           "state": "created"
         },
         {
-          "name": "ike-validation-e909988c-postgres-1",
+          "name": "app-validation-e909988c-postgres-1",
           "image": "postgres:16",
           "label": "proof-x",
           "state": "running"
@@ -61,28 +61,28 @@
       ],
       "networks": [
         {
-          "name": "ike-validation-e909988c_default",
+          "name": "app-validation-e909988c_default",
           "label": "proof-x"
         }
       ],
       "volumes": [
         {
-          "name": "ike-validation-e909988c_postgres-data",
+          "name": "app-validation-e909988c_postgres-data",
           "label": "proof-x"
         }
       ]
     },
     "peaks": {
       "containers": {
-        "ike-validation-e909988c-postgres-1": {
+        "app-validation-e909988c-postgres-1": {
           "peak_memory_mib": 73.5,
           "peak_cpu_percent": 80.91
         },
-        "ike-validation-e909988c-wsproxy-1": {
+        "app-validation-e909988c-wsproxy-1": {
           "peak_memory_mib": 12.6,
           "peak_cpu_percent": 7.39
         },
-        "ike-validation-e909988c-pgbouncer-1": {
+        "app-validation-e909988c-pgbouncer-1": {
           "peak_memory_mib": 2.6,
           "peak_cpu_percent": 4.05
         }
@@ -94,8 +94,8 @@
       "y_ps_all": "",
       "y_networks": "",
       "y_volumes": "",
-      "y_stop_x_container": "Error response from daemon: pandora-proxy: no such container for this run: ike-validation-e909988c-wsproxy-1",
-      "x_ps_all": "ike-validation-e909988c-wsproxy-1\nike-validation-e909988c-pgbouncer-1\nike-validation-e909988c-postgres-1",
+      "y_stop_x_container": "Error response from daemon: pandora-proxy: no such container for this run: app-validation-e909988c-wsproxy-1",
+      "x_ps_all": "app-validation-e909988c-wsproxy-1\napp-validation-e909988c-pgbouncer-1\napp-validation-e909988c-postgres-1",
       "host_container_count": 19
     },
     "sweepAfterTeardown": {
@@ -120,6 +120,6 @@
       },
       "clean": true
     },
-    "tail": "[wrangler:info] GET /harness/ledger 200 OK (37ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/home 200 OK (35ms)\n[wrangler:info] GET /harness/ledger 200 OK (29ms)\n[wrangler:info] GET /me/closed-roster 200 OK (236ms)\n[wrangler:info] GET /me/roster 200 OK (116ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/overview 200 OK (54ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/overview 200 OK (51ms)\ntick.drain {\"callbacks\":3,\"push\":1,\"notifications\":1,\"obligations\":0,\"closing\":2,\"retention\":3}\ntick.total {\"ms\":15,\"claimed\":0}\n[wrangler:info] POST /harness/tick 200 OK (16ms)\n[wrangler:info] GET /harness/outbox 200 OK (29ms)\n[wrangler:info] GET /harness/outbox 200 OK (18ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/home 200 OK (41ms)\n[wrangler:info] GET /harness/ledger 200 OK (23ms)\ntick.drain {\"callbacks\":4,\"push\":1,\"notifications\":0,\"obligations\":1,\"closing\":3,\"retention\":2}\ntick.total {\"ms\":19,\"claimed\":0}\n[wrangler:info] POST /harness/tick 200 OK (21ms)\n[wrangler:info] GET /harness/outbox 200 OK (37ms)\n[wrangler:info] GET /harness/ledger 200 OK (127ms)\n[wrangler:info] GET /harness/ledger 200 OK (84ms)\nS0-01: pass 641.9s replayed \nstage S0: 1 pass, 0 fail, 0 not-yet-implemented\ndropped-response replay (cover): 1/1 consequential journeys selected (1 total), 1/1 selected replays completed, 1 passed\nstage-routes: 45 observed, 45 selected, 45 replayed, 45/45 covered by passing replays\nStack ike-validation-e909988c removed.\n"
+    "tail": "[wrangler:info] GET /harness/ledger 200 OK (37ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/home 200 OK (35ms)\n[wrangler:info] GET /harness/ledger 200 OK (29ms)\n[wrangler:info] GET /me/closed-roster 200 OK (236ms)\n[wrangler:info] GET /me/roster 200 OK (116ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/overview 200 OK (54ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/overview 200 OK (51ms)\ntick.drain {\"callbacks\":3,\"push\":1,\"notifications\":1,\"obligations\":0,\"closing\":2,\"retention\":3}\ntick.total {\"ms\":15,\"claimed\":0}\n[wrangler:info] POST /harness/tick 200 OK (16ms)\n[wrangler:info] GET /harness/outbox 200 OK (29ms)\n[wrangler:info] GET /harness/outbox 200 OK (18ms)\n[wrangler:info] GET /files/677e3274-9903-41bd-b6c6-b6a1f8ed8b61/closing/home 200 OK (41ms)\n[wrangler:info] GET /harness/ledger 200 OK (23ms)\ntick.drain {\"callbacks\":4,\"push\":1,\"notifications\":0,\"obligations\":1,\"closing\":3,\"retention\":2}\ntick.total {\"ms\":19,\"claimed\":0}\n[wrangler:info] POST /harness/tick 200 OK (21ms)\n[wrangler:info] GET /harness/outbox 200 OK (37ms)\n[wrangler:info] GET /harness/ledger 200 OK (127ms)\n[wrangler:info] GET /harness/ledger 200 OK (84ms)\nS0-01: pass 641.9s replayed \nstage S0: 1 pass, 0 fail, 0 not-yet-implemented\ndropped-response replay (cover): 1/1 consequential journeys selected (1 total), 1/1 selected replays completed, 1 passed\nstage-routes: 45 observed, 45 selected, 45 replayed, 45/45 covered by passing replays\nStack app-validation-e909988c removed.\n"
   }
 }

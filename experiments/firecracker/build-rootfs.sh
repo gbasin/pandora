@@ -35,7 +35,7 @@ printf 'overlay\nbr_netfilter\nip_tables\niptable_nat\niptable_filter\nnf_nat\nx
 echo '/dev/root / ext4 defaults 0 1' | sudo tee "$SPIKE/img/rootdir/etc/fstab" >/dev/null
 # docker bind-mounts /etc/{resolv.conf,hosts,hostname} during build, so `docker
 # export` writes them out EMPTY. An empty /etc/hosts makes `localhost` unresolvable,
-# which is exactly how eichler's workerd failed the first time.
+# which is exactly how acme's workerd failed the first time.
 sudo rm -f "$SPIKE/img/rootdir/etc/resolv.conf"
 printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee "$SPIKE/img/rootdir/etc/resolv.conf" >/dev/null
 printf '127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n' \

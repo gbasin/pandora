@@ -49,7 +49,7 @@ class Running:
         self.server.server_close()
 
 
-ART = '/r/eichler/v8/artifacts/%s?slug=linux'
+ART = '/r/acme/v8/artifacts/%s?slug=linux'
 
 
 class ProtocolTest(unittest.TestCase):
@@ -64,7 +64,7 @@ class ProtocolTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_status_says_enabled(self):
-        status, _, body = self.call('GET', '/r/eichler/v8/artifacts/status?slug=linux')
+        status, _, body = self.call('GET', '/r/acme/v8/artifacts/status?slug=linux')
         self.assertEqual((status, json.loads(body)), (200, {'status': 'enabled'}))
 
     def test_no_token_no_cache(self):
@@ -94,15 +94,15 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(self.call('HEAD', ART % 'missing')[0], 404)
 
     def test_repository_and_slug_are_separate_namespaces(self):
-        self.call('PUT', ART % 'same', body=b'eichler-linux')
+        self.call('PUT', ART % 'same', body=b'acme-linux')
         self.assertEqual(self.call('GET', '/r/other/v8/artifacts/same?slug=linux')[0], 404)
-        self.assertEqual(self.call('GET', '/r/eichler/v8/artifacts/same?slug=darwin')[0], 404)
+        self.assertEqual(self.call('GET', '/r/acme/v8/artifacts/same?slug=darwin')[0], 404)
         self.assertEqual(self.call('GET', '/v8/artifacts/same?slug=linux')[0], 404)
 
     def test_a_hash_cannot_walk_out_of_the_store(self):
-        for path in ('/r/eichler/v8/artifacts/..%2F..%2Ftoken?slug=linux',
-                     '/r/Eichler/v8/artifacts/abc?slug=linux',
-                     '/r/eichler/v8/artifacts/abc?slug=../x'):
+        for path in ('/r/acme/v8/artifacts/..%2F..%2Ftoken?slug=linux',
+                     '/r/Acme/v8/artifacts/abc?slug=linux',
+                     '/r/acme/v8/artifacts/abc?slug=../x'):
             self.assertEqual(self.call('PUT', path, body=b'x')[0], 404, path)
         self.assertFalse(self.running.store.entries())
 
@@ -120,7 +120,7 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(results, [202] * 6)
         _, _, got = self.call('GET', ART % 'contended')
         self.assertIn(got, bodies)
-        leftovers = [p for p in (self.root / 'store/eichler/linux').iterdir()
+        leftovers = [p for p in (self.root / 'store/acme/linux').iterdir()
                      if p.name.startswith('.')]
         self.assertEqual(leftovers, [])
 
@@ -128,8 +128,8 @@ class ProtocolTest(unittest.TestCase):
         (self.root / 'max_mib').write_text('1\n')
         for key in ('one', 'two'):
             self.call('PUT', ART % key, body=b'x' * 150000)
-        os.utime(self.root / 'store/eichler/linux/one', (1, 1))
-        os.utime(self.root / 'store/eichler/linux/two', (2, 2))
+        os.utime(self.root / 'store/acme/linux/one', (1, 1))
+        os.utime(self.root / 'store/acme/linux/two', (2, 2))
         self.call('GET', ART % 'one')                    # `one` is now the newest
         for key in ('three', 'four', 'five', 'six', 'seven'):   # 7 x 150 kB > 1 MiB
             self.call('PUT', ART % key, body=b'x' * 150000)
@@ -142,13 +142,13 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(self.call('PUT', ART % 'huge', body=b'x' * 300000)[0], 413)
 
     def test_events_are_accepted_and_dropped(self):
-        status, _, _ = self.call('POST', '/r/eichler/v8/artifacts/events?slug=linux',
+        status, _, _ = self.call('POST', '/r/acme/v8/artifacts/events?slug=linux',
                                  body=b'[{"hash":"a"}]')
         self.assertEqual(status, 200)
 
     def test_a_query_names_what_exists(self):
         self.call('PUT', ART % 'here', body=b'abc')
-        status, _, body = self.call('POST', '/r/eichler/v8/artifacts?slug=linux',
+        status, _, body = self.call('POST', '/r/acme/v8/artifacts?slug=linux',
                                     body=json.dumps({'hashes': ['here', 'gone']}).encode())
         answer = json.loads(body)
         self.assertEqual((status, answer['here']['size']), (200, 3))
@@ -157,7 +157,7 @@ class ProtocolTest(unittest.TestCase):
     def test_clear_takes_one_repository_or_all(self):
         self.call('PUT', ART % 'a', body=b'1')
         self.call('PUT', '/r/other/v8/artifacts/b?slug=linux', body=b'2')
-        self.assertEqual(self.running.store.clear('eichler')['removed'], 1)
+        self.assertEqual(self.running.store.clear('acme')['removed'], 1)
         self.assertEqual(self.call('GET', '/r/other/v8/artifacts/b?slug=linux')[0], 200)
         self.assertEqual(self.running.store.clear()['removed'], 1)
         self.assertEqual(self.running.store.usage()['entries'], 0)
@@ -184,11 +184,11 @@ class EnvTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             running = Running(Path(tmp) / 'turbo-cache')
             try:
-                env, why = turbocache.env_for(Path(tmp) / 'turbo-cache', 'eichler')
+                env, why = turbocache.env_for(Path(tmp) / 'turbo-cache', 'acme')
             finally:
                 running.stop()
             self.assertEqual(why, '')
-            self.assertEqual(env['TURBO_API'], 'http://127.0.0.1:%d/r/eichler'
+            self.assertEqual(env['TURBO_API'], 'http://127.0.0.1:%d/r/acme'
                              % running.server.server_address[1])
             self.assertEqual(env['TURBO_TEAM'], 'linux')
             self.assertEqual(env['TURBO_CACHE'], 'remote:rw')
@@ -196,12 +196,12 @@ class EnvTest(unittest.TestCase):
 
     def test_no_server_is_a_reason_not_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, why = turbocache.env_for(Path(tmp), 'eichler')
+            env, why = turbocache.env_for(Path(tmp), 'acme')
             self.assertEqual(env, {})
             self.assertIn('no cache server', why)
             running = Running(Path(tmp))
             running.stop()
-            env, why = turbocache.env_for(Path(tmp), 'eichler', probe_timeout=0.2)
+            env, why = turbocache.env_for(Path(tmp), 'acme', probe_timeout=0.2)
             self.assertEqual(env, {})
             self.assertIn('not answering', why)
 
@@ -221,7 +221,7 @@ class RenderTest(unittest.TestCase):
     def test_stats_say_when_the_server_is_down(self):
         from pandora.worker.cli import render_cache
         text = render_cache({'bytes': 3 << 20, 'max_bytes': 4096 << 20, 'entries': 2,
-                             'namespaces': {'eichler/linux': {'entries': 2, 'bytes': 3 << 20}},
+                             'namespaces': {'acme/linux': {'entries': 2, 'bytes': 3 << 20}},
                              'endpoint': None, 'server': None})
         self.assertIn('NOT ANSWERING', text)
-        self.assertIn('eichler/linux', text)
+        self.assertIn('acme/linux', text)

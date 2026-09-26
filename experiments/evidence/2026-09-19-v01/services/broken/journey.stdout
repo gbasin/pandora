@@ -1,3 +1,3 @@
-Stack ike-validation-537b4962: API http://127.0.0.1:43851, Postgres 127.0.0.1:5432.
+Stack app-validation-537b4962: API http://127.0.0.1:43851, Postgres 127.0.0.1:5432.
 {"journey":"S0-01","status":"fail","detail":"clean: Pandora seeded journey fault"}
-Stack ike-validation-537b4962 removed.
+Stack app-validation-537b4962 removed.

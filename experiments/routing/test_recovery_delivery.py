@@ -24,7 +24,7 @@ class RecoveryDelivery(unittest.TestCase):
             (output / 'terminal.json').write_text(json.dumps({
                 'attempt': 'a' * 32, 'exit_code': 0, 'cleanup_verified': True}))
             (output / 'submission.json').write_text(json.dumps({'source_digest': 'same'}))
-            record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'borrower-web'],
+            record = {'state': 'active', 'output': str(output), 'command': ['test:surface', 'web'],
                       'host': 'unused', 'attempt': 'a' * 32}
             route.write(state / 'active.json', record)
             env = {'PANDORA_STATE': str(state_root), 'PANDORA_HOST': 'unused'}

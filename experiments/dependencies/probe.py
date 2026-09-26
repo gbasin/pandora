@@ -1,4 +1,4 @@
-"""Real pnpm dependency and TypeScript-build cache probe, isolated from Eichler."""
+"""Real pnpm dependency and TypeScript-build cache probe, isolated from Acme."""
 import json,subprocess,tempfile,time,uuid,signal,argparse
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--output',required=True);a=p.parse_args()
@@ -44,7 +44,7 @@ CMD ["node", "dist/source.js"]
   (root/'source.ts').write_text('import { z } from "zod"; console.log(z.string().parse("edited"));\n')
   build('source-edit-build');run('run-edited','edited')
   manifest('3.24.2');build('dependency-edit-build');run('run-dependency-edit','edited')
- (out/'result.json').write_text(json.dumps({'records':records,'assertions':'passed','scope':'Small real TypeScript/pnpm fixture; not Eichler or long-build benchmark'},indent=2))
+ (out/'result.json').write_text(json.dumps({'records':records,'assertions':'passed','scope':'Small real TypeScript/pnpm fixture; not Acme or long-build benchmark'},indent=2))
 finally:
  signal.alarm(0)
  call('remove-run',['rm','-f',name+'-run',name+'-lock'],check=False)

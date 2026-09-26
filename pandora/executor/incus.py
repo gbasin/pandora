@@ -358,7 +358,7 @@ class IncusDriver(Executor):
             # mtimes -- handed every file a date after the golden's install,
             # and pnpm's verify-deps-before-run, which judges patches by mtime
             # alone, refused every `pnpm <script>` with "Patches were modified".
-            # Measured on eichler: 0.53 s, against 0.12 s for a tree whose
+            # Measured on acme: 0.53 s, against 0.12 s for a tree whose
             # mtimes already matched.
             self.incus('config', 'device', 'add', name, 'srcro', 'disk',
                        'source=' + str(source), 'path=/srcro', 'readonly=true', timeout=300)
@@ -411,9 +411,9 @@ rm -rf "$2"
         tracked-but-ignored ones join it. The commit is deterministic -- fixed
         author, date and message -- so equal inputs have an equal HEAD.
 
-        Measured on the worker over eichler (4,961 files, 375 MiB): `git add -A`
+        Measured on the worker over acme (4,961 files, 375 MiB): `git add -A`
         is 9.1 s with git's default loose-object compression and 2.9-3.0 s with
-        it off; the commit is 0.1 s and eichler's whole fingerprint afterward is
+        it off; the commit is 0.1 s and acme's whole fingerprint afterward is
         25 ms. The objects are uncompressed on purpose: they live exactly as long
         as the instance. Returns seconds.
         """

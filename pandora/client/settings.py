@@ -43,9 +43,9 @@ too high a price for changing a hostname.
     max_wait_seconds = 300
 
     [[repos]]
-    name = "eichler"
-    root = "/Users/me/Code/eichler"     # the git common dir's worktree, or any worktree
-    config = "~/.config/pandora/repos/eichler.pandora.toml"   # used only if the repo has none
+    name = "acme"
+    root = "/Users/me/Code/acme"     # the git common dir's worktree, or any worktree
+    config = "~/.config/pandora/repos/acme.pandora.toml"   # used only if the repo has none
 """
 import getpass
 import json

@@ -1,6 +1,6 @@
 """What a real GitHub Actions workflow can and cannot lend a Pandora job.
 
-The fixture under ``fixtures/eichler`` is a verbatim trim of eichler's
+The fixture under ``fixtures/acme`` is a verbatim trim of acme's
 ``.github/workflows/ci.yml`` -- the four jobs a worker would care about, copied
 line for line.  Every assertion below is therefore a claim about the real file,
 not about a workflow written to make the importer look good.
@@ -16,7 +16,7 @@ sys.path.insert(0, str(HERE))
 import ci_import
 from ci_import import CiImportError, drift, import_job, load_workflow, normalize
 
-REAL = HERE / 'fixtures' / 'eichler' / '.github' / 'workflows' / 'ci.yml'
+REAL = HERE / 'fixtures' / 'acme' / '.github' / 'workflows' / 'ci.yml'
 BROKEN = HERE / 'fixtures' / 'unimportable.yml'
 ANCHORS = HERE / 'fixtures' / 'anchors.yml'
 
@@ -82,7 +82,7 @@ class RealWorkflowTests(unittest.TestCase):
         self.assertEqual(db['image'], 'postgres:16')
         self.assertEqual(db['env']['POSTGRES_PASSWORD'], 'ci-owner')
         self.assertEqual(db['ports'], [{'host': 5432, 'container': 5432}])
-        self.assertEqual(db['health'], {'argv': ['pg_isready', '-U', 'ike_owner', '-d', 'ike'],
+        self.assertEqual(db['health'], {'argv': ['pg_isready', '-U', 'app_owner', '-d', 'app'],
                                         'attempts': 10, 'interval_ms': 5000,
                                         'timeout_ms': 5000, 'start_period_ms': 0})
         # The published mapping is not an identity: 5433 on the host, 80 inside.
@@ -99,9 +99,9 @@ class RealWorkflowTests(unittest.TestCase):
     def test_journeys_lends_env_shards_timeout_and_node(self):
         value = facts('journeys')
         self.assertEqual(value['env']['DATABASE_OWNER_URL'],
-                         'postgres://ike_owner:ci-owner@localhost:5432/ike')
+                         'postgres://app_owner:ci-owner@localhost:5432/app')
         self.assertEqual(sorted(value['env']), ['DATABASE_OWNER_URL', 'VITE_API_URL',
-                                                'VITE_DESK_API_URL', 'VITE_IKE_API_URL'])
+                                                'VITE_DESK_API_URL', 'VITE_APP_API_URL'])
         self.assertEqual(value['shards'], {
             'dimension': 'shard', 'total': 4,
             'consumed': {'kind': 'env', 'name': 'JOURNEY_SHARD',
@@ -112,7 +112,7 @@ class RealWorkflowTests(unittest.TestCase):
 
     def test_journeys_artifacts_include_a_path_outside_the_worktree(self):
         paths = facts('journeys')['artifacts'][0]['paths']
-        self.assertIn('/tmp/ike-stack.log', paths)
+        self.assertIn('/tmp/app-stack.log', paths)
         self.assertIn('packages/scenarios/.journeys/results.json', paths)
 
     def test_surfaces_needs_its_agent_chosen_dimension_declared(self):
@@ -212,8 +212,8 @@ class CommandLineTests(unittest.TestCase):
     def test_lint_reports_drift_and_exits_65(self):
         process = subprocess.run(
             [sys.executable, str(HERE / 'plan.py'), 'lint',
-             '--config', str(HERE / 'examples' / 'eichler.pandora.toml'),
-             '--repo-root', str(HERE / 'fixtures' / 'eichler'), '--json'],
+             '--config', str(HERE / 'examples' / 'acme.pandora.toml'),
+             '--repo-root', str(HERE / 'fixtures' / 'acme'), '--json'],
             capture_output=True, text=True, timeout=60)
         self.assertEqual(process.returncode, 65)
         reports = {report['job']: report for report in json.loads(process.stdout)}

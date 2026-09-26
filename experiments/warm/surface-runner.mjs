@@ -12,7 +12,7 @@ const request = JSON.parse(readFileSync(requestPath, 'utf8'));
 const root = process.env.PANDORA_WORKSPACE_ROOT || '/workspace';
 const source = join(root, 'source'); const results = join(root, 'results'); mkdirSync(results, { recursive: true });
 const app = request.app || request.plan?.app;
-const pkg = app === 'borrower-web' ? '@eichler/borrower-web' : app === 'desk' ? '@eichler/desk' : null;
+const pkg = app === 'web' ? '@acme/web' : app === 'desk' ? '@acme/desk' : null;
 if (!pkg) throw new Error('unsupported surface app');
 const reporter = join(process.env.PANDORA_SURFACE_RUNNER_DIR || source, 'surface-reporter.cjs');
 const asciiJSON = value => JSON.stringify(value).replace(/[^\x00-\x7f]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);

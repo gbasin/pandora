@@ -7,12 +7,12 @@ for f in files:
         with open(f, errors="replace") as fh:
             for i,line in enumerate(fh):
                 if i>5: break
-                if "Code/eichler" in line:
+                if "Code/acme" in line:
                     try: o=json.loads(line)
                     except: continue
                     cwd=json.dumps(o)
                     hits.append((f,line[:400]))
                     break
     except Exception as e: pass
-print(len(files), "codex files;", len(hits), "mention Code/eichler in header")
+print(len(files), "codex files;", len(hits), "mention Code/acme in header")
 for f,l in hits[:10]: print(f); print("  ", l[:250])

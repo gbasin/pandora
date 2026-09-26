@@ -23,10 +23,10 @@ class SuiteRoutingTests(unittest.TestCase):
     def test_existing_suite_environment_is_rejected_instead_of_being_ignored(self):
         self.assertIsNone(suite_environment_error({
             'JOURNEY_FILTER': '', 'JOURNEY_SHARD': '', 'JOURNEY_CONCURRENCY': '',
-            'JOURNEY_REPLAY': '', 'JOURNEY_TEMPLATE': '', 'IKE_WORLD': '',
+            'JOURNEY_REPLAY': '', 'JOURNEY_TEMPLATE': '', 'APP_WORLD': '',
         }))
-        message = suite_environment_error({'JOURNEY_FILTER': 'S0-*', 'IKE_WORLD': 'staging'})
-        self.assertIn('JOURNEY_FILTER, IKE_WORLD', message)
+        message = suite_environment_error({'JOURNEY_FILTER': 'S0-*', 'APP_WORLD': 'staging'})
+        self.assertIn('JOURNEY_FILTER, APP_WORLD', message)
         self.assertIn('pnpm journeys [--update] [--keep-going]', message)
         self.assertIn('No validation started.', message)
 
@@ -148,7 +148,7 @@ class SuiteRoutingTests(unittest.TestCase):
 
     def test_real_route_rejects_each_legacy_suite_variable_before_creating_state(self):
         names = ('JOURNEY_FILTER', 'JOURNEY_SHARD', 'JOURNEY_CONCURRENCY',
-                 'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'IKE_WORLD')
+                 'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'APP_WORLD')
         for name in names:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 state = Path(temp) / 'state'

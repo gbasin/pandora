@@ -1,4 +1,4 @@
-Worktree: /Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3
+Worktree: /Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-opus-3
 Run pwd first. If it differs from this worktree, stop and report.
 
 Work only in experiments/output-ux/fixture. This small fixture is your assigned task, not the rest of the repository.

@@ -1,10 +1,10 @@
 # PoC 2: pnpm-relink — clone node_modules to a new path, cheap revalidate
 
-Hypothesis: `node_modules` installed at path A, cloned to path B (identical checkout), can be made valid for B by `pnpm install --frozen-lockfile --offline` in seconds, after which eichler's `tools/check-worktree-deps.mjs` passes at B.
+Hypothesis: `node_modules` installed at path A, cloned to path B (identical checkout), can be made valid for B by `pnpm install --frozen-lockfile --offline` in seconds, after which acme's `tools/check-worktree-deps.mjs` passes at B.
 
 Setup:
 ```
-cd /Users/garybasin/code/eichler && git fetch origin
+cd /Users/you/code/acme && git fetch origin
 git worktree add /tmp/pandora-poc/wt-a origin/main --detach   # HEAD 8732fdab
 git worktree add /tmp/pandora-poc/wt-b origin/main --detach
 ```
@@ -69,4 +69,4 @@ Found 0 warnings and 0 errors. Finished in 157ms on 1643 files
 
 ## Verdict
 
-**WORKS.** Clone 1.3 GB in ~12 s (APFS; O(1) on btrfs) + 56 ms `--offline` install rewrites `.pnpm-workspace-state-v1.json` to the new path, `check-worktree-deps.mjs` passes, and the tree is fully functional (lint ran). **This is a third fix option for the critique's blocker #1**: instead of bind-mounting a stable path, Pandora's prepare step can snapshot-then-`pnpm install --frozen-lockfile --offline` inside the run path — sub-second, no mount privileges needed. Bind-mounting is still more robust for *other* path-sensitive state, but for eichler's gate specifically the relink suffices.
+**WORKS.** Clone 1.3 GB in ~12 s (APFS; O(1) on btrfs) + 56 ms `--offline` install rewrites `.pnpm-workspace-state-v1.json` to the new path, `check-worktree-deps.mjs` passes, and the tree is fully functional (lint ran). **This is a third fix option for the critique's blocker #1**: instead of bind-mounting a stable path, Pandora's prepare step can snapshot-then-`pnpm install --frozen-lockfile --offline` inside the run path — sub-second, no mount privileges needed. Bind-mounting is still more robust for *other* path-sensitive state, but for acme's gate specifically the relink suffices.

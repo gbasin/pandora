@@ -58,5 +58,5 @@
 
 #11 resolving provenance for metadata file
 #11 DONE 0.0s
-[pandora] attempt=f6fe4f78dc814793bd7afc14edefe2b9; exit=0; evidence=/Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/f6fe4f78dc814793bd7afc14edefe2b9
-[pandora] Docker report: /Users/garybasin/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/f6fe4f78dc814793bd7afc14edefe2b9/results/docker.json
+[pandora] attempt=f6fe4f78dc814793bd7afc14edefe2b9; exit=0; evidence=/Users/you/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/f6fe4f78dc814793bd7afc14edefe2b9
+[pandora] Docker report: /Users/you/.local/state/pandora/contention-20260920/requests/0fe059b2d19b8593bc392dff03c0e9d1001758b9c5eb91e1fad6a8f80ccc54eb/f6fe4f78dc814793bd7afc14edefe2b9/results/docker.json

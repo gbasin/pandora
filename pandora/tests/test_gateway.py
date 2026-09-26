@@ -63,7 +63,7 @@ class AdmittedShapes(unittest.TestCase):
 
     def test_rsync_push_and_pull(self):
         push = ('rsync --server -a --no-times --checksum --delete --files-from=- --from0 '
-                '--link-dest=%s/src/eichler/aaa . %s/src/eichler/bbb.partial/'
+                '--link-dest=%s/src/acme/aaa . %s/src/acme/bbb.partial/'
                 % (ER, ER))
         self.assertIsNone(check(push))
         pull = 'rsync --server --sender -a . %s/runs/r0123/outputs/' % ER

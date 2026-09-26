@@ -50,7 +50,7 @@ same absolute path used during installation. Installation inputs already in the
 keyed image retain their timestamps; copying identical patch bytes with a newer
 timestamp caused pnpm to reject the reused installation in a later trial.
 
-The profile currently assumes Eichler's installation inputs. Arbitrary install
+The profile currently assumes Acme's installation inputs. Arbitrary install
 hooks that read other source files need an expanded dependency key/context or a
 cold install. Do not treat this as a universal monorepo dependency cache.
 

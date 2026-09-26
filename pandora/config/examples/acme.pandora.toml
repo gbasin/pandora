@@ -1,22 +1,22 @@
-# Eichler's routed boundary for the v0.2 slice.
+# Acme's routed boundary for the v0.2 slice.
 #
-# In v0.2 final this file lives at the eichler repository root, where the loader
+# In v0.2 final this file lives at the acme repository root, where the loader
 # looks first. For the slice it lives outside the repository -- copied to
-# ~/.config/pandora/repos/eichler.pandora.toml and named by the enrollment --
-# because the combined Eichler PR has not landed and the slice is not allowed to
+# ~/.config/pandora/repos/acme.pandora.toml and named by the enrollment --
+# because the combined Acme PR has not landed and the slice is not allowed to
 # open it.
 #
 # What is here and not in ci.yml: which argv forms Pandora claims, how big the
 # job is, which arguments the repository itself gets to veto before anything
 # queues, and which paths come home. What is deliberately absent: service
 # containers and the network pod. A run is a machine with its own dockerd, so
-# `journey-runner.mjs` boots eichler's own compose stack unmodified and there is
+# `journey-runner.mjs` boots acme's own compose stack unmodified and there is
 # nothing for Pandora to wire.
 
 version = 1
 
 [repo]
-name = "eichler"
+name = "acme"
 entrypoints = ["pnpm"]
 root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
@@ -40,7 +40,7 @@ extra_message = "{job} runs as one complete suite and takes no selectors."
 # `large` does not -- and a job that wants a different answer says so below.
 
 # `CI = "true"` is the environment the remote jobs were measured under. Every
-# local job below unsets it: eichler reads CI as "services are external", which
+# local job below unsets it: acme reads CI as "services are external", which
 # makes `dev:stack` expect a stack it was asked to start, and `--update` refuse
 # to write.
 [env]
@@ -64,7 +64,7 @@ pnpm_version = "12.3.4"
 service_images = ["postgres:16", "edoburu/pgbouncer:latest",
                   "ghcr.io/neondatabase/wsproxy:latest"]
 install_command = "pnpm install --frozen-lockfile 2>&1 | tail -2"
-source_id = "eichler-journey-runner-proxy"
+source_id = "acme-journey-runner-proxy"
 workdir = "/work"
 
 # What `pandora worker canary` proves in a clone of this golden. Not part of the
@@ -72,7 +72,7 @@ workdir = "/work"
 # mint a new golden. `journey` is spliced into the `journey` job's `run` argv;
 # `compose` is brought up and down first, so a broken nested dockerd fails as
 # itself rather than as a journey. A repository with a `surface` job adds
-# `surface = "borrower-web"` (see eichler-surfaces.pandora.toml).
+# `surface = "web"` (see acme-surfaces.pandora.toml).
 [worker.canary]
 journey = "S0-01"
 compose = "tools/stack/compose.yml"
@@ -86,7 +86,7 @@ args = "required"
 # will not take it, whatever the reason; the size class would say so anyway and
 # this says it where a reader is looking.
 fallback = "refuse"
-# The stack needs time to come down. 240 s is what eichler's own planner asked
+# The stack needs time to come down. 240 s is what acme's own planner asked
 # Pueue for, expressed here once for both lanes.
 cancel = { signal = "SIGTERM", grace_ms = 240000 }
 usage = "Use pnpm journey <id> [--fault dropped]; other journey options are not routed."
@@ -94,7 +94,7 @@ timeout_minutes = 30
 forms = [{ prefix = ["journey"] }]
 value_flags = ["--fault"]
 reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY",
-                 "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+                 "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "APP_WORLD"]
 options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
 # Asked in the worktree, in milliseconds, before anything is frozen or queued.
 # Exit 0 means "I would run this"; anything else is the repository's own refusal
@@ -143,21 +143,21 @@ timeout_minutes = 45
 # suite. The fix is one loader change -- a per-form `run` override, or three jobs
 # sharing a validator -- and it is not in this slice.
 forms = [{ prefix = ["check"] }, { prefix = ["check:docs"] }, { prefix = ["check:code"] }]
-# The cheapest existing pre-check that rejects a bad suite name: eichler's own
+# The cheapest existing pre-check that rejects a bad suite name: acme's own
 # planner, asked to plan rather than to run. Measured at 45-52 ms, and it exits
 # 1 with the repository's own message on an unknown suite. It reads no lockfile
 # and installs nothing, which is what makes it safe on the submission path.
 validate = { argv = ["node", "tools/validate.mjs", "plan", "check"], timeout_ms = 3000 }
-# `tools/validate.mjs` calls eichler's `fingerprint(root)` -- `git rev-parse
+# `tools/validate.mjs` calls acme's `fingerprint(root)` -- `git rev-parse
 # HEAD`, `git diff HEAD`, `git ls-files --others` -- and the docs checks read
-# `git ls-files`. A run's tree arrives without `.git` (eichler's history is
+# `git ls-files`. A run's tree arrives without `.git` (acme's history is
 # 1.8 GiB), so the worker builds a one-commit repository over it whose index is
 # this worktree's tracked set: untracked files stay untracked, so a scratch note
 # is not held to the markdown-status policy here when it is not held to it on
 # the Mac. ~3 s per run. `journey` needs none of this: it runs its runner
 # directly and never reaches `fingerprint`. notes/v0.2-check-profile-2026-09-22.md.
 git = "synthetic"
-run = { argv = ["pnpm", "validate", "check"], env = { EICHLER_QUEUE = "direct" } }
+run = { argv = ["pnpm", "validate", "check"], env = { ACME_QUEUE = "direct" } }
 # Turbo writes into its own cache while it runs, so a `drift = "fail"` machine
 # would refuse a fallback local run of this job. That is a machine setting --
 # `drift` on a remote job does nothing but warn, whose frozen snapshots
@@ -182,7 +182,7 @@ forms = [{ prefix = ["test:native-unit"] }, { prefix = ["native-unit"] }]
 validate = { argv = ["node", "tools/validate.mjs", "plan", "native-unit"], timeout_ms = 3000 }
 # `pnpm validate` fingerprints the tree through git, as for `check` above.
 git = "synthetic"
-run = { argv = ["pnpm", "validate", "native-unit"], env = { EICHLER_QUEUE = "direct" } }
+run = { argv = ["pnpm", "validate", "native-unit"], env = { ACME_QUEUE = "direct" } }
 
 # --- the local lane ---------------------------------------------------------
 #
@@ -191,9 +191,9 @@ run = { argv = ["pnpm", "validate", "native-unit"], env = { EICHLER_QUEUE = "dir
 # admission, the same receipt, the same `pandora ps/wait/cancel/logs` and the
 # same exit-code contract as a routed job -- and no Pueue.
 #
-# Each of these runs eichler's existing validation planner with
-# `EICHLER_QUEUE=direct`, which is the planner's "you are already the scheduled
-# process" mode. Pandora owns the queue; eichler still owns what the suite is,
+# Each of these runs acme's existing validation planner with
+# `ACME_QUEUE=direct`, which is the planner's "you are already the scheduled
+# process" mode. Pandora owns the queue; acme still owns what the suite is,
 # which selectors are legal, and its own source-fingerprint receipt.
 
 [[jobs]]
@@ -209,10 +209,10 @@ forms = [{ prefix = ["node"] }]
 # for every `small` job: turn the drift check off and let the receipt say so.
 drift = "off"
 cancel = { signal = "SIGINT", grace_ms = 5000 }
-# eichler's planner is the only thing that knows a node test file from a flag,
+# acme's planner is the only thing that knows a node test file from a flag,
 # and it answers in milliseconds without an install.
 validate = { argv = ["node", "tools/validate.mjs", "plan", "node", "{args}"], timeout_ms = 5000 }
-run = { argv = ["pnpm", "validate", "node", "{args}"], unset = ["CI"], env = { EICHLER_QUEUE = "direct" } }
+run = { argv = ["pnpm", "validate", "node", "{args}"], unset = ["CI"], env = { ACME_QUEUE = "direct" } }
 
 [[jobs]]
 id = "unit"
@@ -223,9 +223,9 @@ args = "optional"
 timeout_minutes = 30
 forms = [{ prefix = ["test:unit"] }, { prefix = ["unit"] }]
 validate = { argv = ["node", "tools/validate.mjs", "plan", "unit", "{args}"], timeout_ms = 5000 }
-run = { argv = ["pnpm", "validate", "unit", "{args}"], unset = ["CI"], env = { EICHLER_QUEUE = "direct" } }
+run = { argv = ["pnpm", "validate", "unit", "{args}"], unset = ["CI"], env = { ACME_QUEUE = "direct" } }
 # The cleanup markers, declared rather than discovered. This is the answer to
-# "should the local lane set EICHLER_VALIDATION_DIRECTORY": no. A job that
+# "should the local lane set ACME_VALIDATION_DIRECTORY": no. A job that
 # writes a marker says where it writes it, and the receipt records whether it
 # was there -- so an unclean run is a line in `pandora result`, not a directory
 # somebody has to know to look in.
@@ -233,7 +233,7 @@ outputs = [{ kind = "evidence", paths = ["tmp/validation/*/cleanup-required",
                                          "tmp/validation/*/result.json"] }]
 
 # The development stack is a *long-lived* local job: one per machine, alive
-# until someone cancels it. That is the whole of what `eichler-stacks` was,
+# until someone cancels it. That is the whole of what `acme-stacks` was,
 # expressed as `singleton` rather than as a Pueue group of one slot.
 [[jobs]]
 id = "dev-stack"

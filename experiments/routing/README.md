@@ -6,15 +6,15 @@ Launch a trial session with the private executable directory prepended to PATH:
 python3 launch.py --host ubuntu@WORKER_IP --state /tmp/pandora-trial-state -- codex
 ```
 
-For a scripted check, replace `codex` with `pnpm test:surface borrower-web
+For a scripted check, replace `codex` with `pnpm test:surface web
 smoke.spec.ts`. Run from a bootstrapped trial worktree. A missing dependency
 image is prepared automatically on the worker under its exclusive admission
 lock and bounded BuildKit resources.
 
 These pnpm command forms route:
 
-- `pnpm test:surface <borrower-web|desk> [file selectors] [--grep PATTERN]`
-- `pnpm validate surface <borrower-web|desk> [file selectors] [--grep PATTERN]`
+- `pnpm test:surface <web|desk> [file selectors] [--grep PATTERN]`
+- `pnpm validate surface <web|desk> [file selectors] [--grep PATTERN]`
 - `pnpm journey <id> [--fault dropped] [--update]`
 - `pnpm validate journey <id> [--fault dropped] [--update]`
 - Full `pnpm journeys` and unfiltered `pnpm test:surface <app>` suites, including
@@ -118,7 +118,7 @@ Recovery is bounded and returns an unresolved status if the connection cannot be
 restored. A missing worker terminal record remains an operator recovery case.
 
 The session option `--treatment normal|block|redirect` evaluates one recognized
-bypass: `pnpm --filter @eichler/borrower-web test:e2e [selectors]`, optionally with
+bypass: `pnpm --filter @acme/web test:e2e [selectors]`, optionally with
 `--workers=1` and `--reporter=line,junit`. Normal passes it through, block returns
 the supported command, and redirect submits the equivalent surface profile.
 Arbitrary absolute paths and shell constructions remain outside this coverage.
@@ -184,7 +184,7 @@ stack mode and the same journey and route checks, with generated principal
 printing disabled. It does not invoke the local Docker Compose entry point.
 
 The command prints phase progress and a local `results/journey.json` path. Returned
-reports are checksummed. A successful journey does not publish borrower-web build
+reports are checksummed. A successful journey does not publish web build
 outputs. Fix source locally, then invoke the same ordinary command again.
 
 Explicit cancellation removes owned services before clearing the request. Lost
@@ -297,7 +297,7 @@ child's logs and verified receipts. Source changes after capture make the result
 stale under the same rules as focused validation.
 
 Legacy `JOURNEY_FILTER`, `JOURNEY_SHARD`, `JOURNEY_CONCURRENCY`, `JOURNEY_REPLAY`,
-`JOURNEY_TEMPLATE`, and `IKE_WORLD` overrides are rejected for routed suites.
+`JOURNEY_TEMPLATE`, and `APP_WORLD` overrides are rejected for routed suites.
 Their semantics are not silently discarded or forwarded to change the frozen
 plan. Use focused journeys for selected validation.
 

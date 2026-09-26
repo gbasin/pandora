@@ -3,7 +3,7 @@
 ``experiments/routing/commands.py`` is the shipped v0.1.1 boundary.  Every case
 in ``CASES`` runs through both and must produce the same decision.  ``DIVERGENT``
 is the price of review item 3: the configuration no longer re-implements
-eichler's argument grammar, so eight spellings that v0.1.1 refused locally are
+acme's argument grammar, so eight spellings that v0.1.1 refused locally are
 now forwarded for the repository's own runner to refuse.  Each one is pinned
 here with its reason, so the list cannot grow by accident.
 """
@@ -21,7 +21,7 @@ from classify import classify
 from config import load
 import commands as welded
 
-EICHLER = load(HERE / 'examples' / 'eichler.pandora.toml', root=HERE / 'fixtures' / 'eichler')
+ACME = load(HERE / 'examples' / 'acme.pandora.toml', root=HERE / 'fixtures' / 'acme')
 REMOTE = {'validation', 'journey', 'suite-run', 'remote'}
 
 # Every accepted, rejected and passthrough form the v0.1.1 contract names, plus
@@ -75,8 +75,8 @@ CASES = [
     ['journeys', 'S0-01'],
     ['validate', 'journeys', '--fault', 'dropped'],
     # browser surfaces
-    ['test:surface', 'borrower-web'],
-    ['test:surface', 'borrower-web', 'smoke.spec.ts', '--grep', 'income'],
+    ['test:surface', 'web'],
+    ['test:surface', 'web', 'smoke.spec.ts', '--grep', 'income'],
     ['validate', 'surface', 'desk', 'pipeline.spec.ts', '--grep', 'review'],
     ['test:surface', 'desk', '--grep', 'assign loan', 'tasks.spec.ts'],
     ['test:surface', 'desk', 'pipeline.spec.ts', '--grep', 'review', '--keep-going'],
@@ -85,7 +85,7 @@ CASES = [
     ['test:surface'],
     ['validate', 'surface'],
     ['test:surface', 'desk', '--ui'],
-    ['test:surface', 'borrower-web', '--update-snapshots'],
+    ['test:surface', 'web', '--update-snapshots'],
     ['test:surface', 'desk', '--grep'],
     ['test:surface', 'desk', '--keep-going', '--keep-going'],
     # ordinary local pnpm work
@@ -100,11 +100,11 @@ CASES = [
     ['validate'],
     ['validate', 'test:unit'],
     ['run', 'validate', 'test:tools'],
-    ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1'],
+    ['--filter', '@acme/web', 'test:e2e', 'smoke.spec.ts', '--workers=1'],
     ['exec', 'vitest', 'run'],
 ]
 
-# The cost of not re-implementing eichler's CLI: v0.1.1 knew these were wrong
+# The cost of not re-implementing acme's CLI: v0.1.1 knew these were wrong
 # without starting anything.  The configuration claims the form, forwards the
 # arguments, and the repository's runner produces the error -- after a container
 # has started.  Each entry names the knowledge Pandora gave up.
@@ -116,9 +116,9 @@ DIVERGENT = [
     (['journey', 'S0-02', '--fault', 'other'], 'the closed value list of --fault'),
     (['journey', 'S0-02', '--fault', 'dropped', 'extra'], 'how many arguments a journey accepts'),
     (['journey', 'S9-01'], 'the journey-id pattern (?:S[0-6]|SX)-[0-9]{2}'),
-    (['test:surface', 'ops', 'smoke.spec.ts'], 'the app enum borrower-web|desk'),
-    (['validate', 'surface', 'ops', 'smoke.spec.ts'], 'the app enum borrower-web|desk'),
-    (['test:surface', 'borrower-web', '--grep', 'first', '--grep', 'second'],
+    (['test:surface', 'ops', 'smoke.spec.ts'], 'the app enum web|desk'),
+    (['validate', 'surface', 'ops', 'smoke.spec.ts'], 'the app enum web|desk'),
+    (['test:surface', 'web', '--grep', 'first', '--grep', 'second'],
      'that --grep may appear at most once'),
 ]
 
@@ -140,11 +140,11 @@ class ParityTests(unittest.TestCase):
         for argv in CASES:
             with self.subTest(argv=argv):
                 expected = decision(welded.classify(argv)[0])
-                self.assertEqual(classify(EICHLER, argv)['decision'], expected)
+                self.assertEqual(classify(ACME, argv)['decision'], expected)
 
     def test_every_refusal_carries_a_usable_message(self):
         for argv in CASES:
-            result = classify(EICHLER, argv)
+            result = classify(ACME, argv)
             if result['decision'] != 'reject':
                 continue
             with self.subTest(argv=argv):
@@ -158,7 +158,7 @@ class ParityTests(unittest.TestCase):
             if action != 'remote':
                 continue
             with self.subTest(argv=argv):
-                plan = classify(EICHLER, argv)['plan']
+                plan = classify(ACME, argv)['plan']
                 self.assertEqual(plan['args'], [welded.selected_surface(argv), *selectors])
 
     def test_journey_and_suite_options_are_preserved(self):
@@ -167,7 +167,7 @@ class ParityTests(unittest.TestCase):
             if action not in {'journey', 'suite-run'}:
                 continue
             with self.subTest(argv=argv):
-                plan = classify(EICHLER, argv)['plan']
+                plan = classify(ACME, argv)['plan']
                 if action == 'suite-run':
                     expected = welded.suite_request(argv, 4)
                     self.assertEqual(plan['options']['update'], expected['update'])
@@ -187,7 +187,7 @@ class ParityTests(unittest.TestCase):
                 continue
             with self.subTest(argv=argv):
                 request = welded.validation_request(argv)
-                plan = classify(EICHLER, argv)['plan']
+                plan = classify(ACME, argv)['plan']
                 self.assertEqual(plan['job'], request['suite'])
                 self.assertEqual(plan['args'], request['args'])
 
@@ -199,7 +199,7 @@ class DivergenceTests(unittest.TestCase):
         for argv, knowledge in DIVERGENT:
             with self.subTest(argv=argv, gave_up=knowledge):
                 self.assertEqual(welded.classify(argv)[0], 'reject')
-                self.assertEqual(classify(EICHLER, argv)['decision'], 'remote')
+                self.assertEqual(classify(ACME, argv)['decision'], 'remote')
 
     def test_the_divergence_list_is_exactly_this_long(self):
         found = [argv for argv in (case for case, _ in DIVERGENT)]
@@ -209,36 +209,36 @@ class DivergenceTests(unittest.TestCase):
         for argv in NEW_JOBS:
             with self.subTest(argv=argv):
                 self.assertEqual(welded.classify(argv)[0], 'local')
-                self.assertEqual(classify(EICHLER, argv)['decision'], 'remote')
+                self.assertEqual(classify(ACME, argv)['decision'], 'remote')
         for argv in NEW_JOB_LOCAL:
             with self.subTest(argv=argv):
-                self.assertEqual(classify(EICHLER, argv)['decision'], 'local')
+                self.assertEqual(classify(ACME, argv)['decision'], 'local')
 
     def test_subdirectory_reroots_instead_of_exiting_64(self):
         # route.py refuses any routed command outside the repository root.
         # The configured classifier re-roots file arguments instead.
         for argv in (['test:unit'], ['journeys'], ['test:surface', 'desk', 'e2e/a.spec.ts']):
             with self.subTest(argv=argv):
-                result = classify(EICHLER, argv, cwd='apps/desk')
+                result = classify(ACME, argv, cwd='apps/desk')
                 self.assertEqual(result['decision'], 'remote')
         self.assertEqual(
-            classify(EICHLER, ['test:surface', 'desk', 'e2e/a.spec.ts'],
+            classify(ACME, ['test:surface', 'desk', 'e2e/a.spec.ts'],
                      cwd='apps/desk')['plan']['args'],
             ['desk', 'apps/desk/e2e/a.spec.ts'])
 
     def test_a_selector_with_no_separator_or_suffix_is_not_rerooted(self):
         """The honest limit of the re-rooting heuristic, now that nothing is typed."""
         self.assertEqual(
-            classify(EICHLER, ['test:surface', 'desk', 'smoke'], cwd='apps/desk')['plan']['args'],
+            classify(ACME, ['test:surface', 'desk', 'smoke'], cwd='apps/desk')['plan']['args'],
             ['desk', 'smoke'])
 
     def test_direct_package_treatments_are_not_part_of_the_contract(self):
         # PANDORA_TREATMENT block/redirect were a trial instrument, not a
         # routed form; the configuration has no equivalent and leaves it local.
-        direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts']
+        direct = ['--filter', '@acme/web', 'test:e2e', 'smoke.spec.ts']
         self.assertEqual(welded.classify(direct, 'redirect')[0], 'remote')
         self.assertEqual(welded.classify(direct, 'normal')[0], 'local')
-        self.assertEqual(classify(EICHLER, direct)['decision'], 'local')
+        self.assertEqual(classify(ACME, direct)['decision'], 'local')
 
 
 if __name__ == '__main__':

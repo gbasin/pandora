@@ -4,7 +4,7 @@ Runtime: `dd933fa`, subsequently documented and merged in PR #57. Run:
 `pandora-v01-twelve-recovery-20260920`. Twelve actual CLI sessions started together:
 six Codex `gpt-5.6-terra` and six subscribed Claude Opus sessions. Each had an
 independently bootstrapped worktree at evaluation seed `8ba797c843ff71c254494968233d913fa604eb6f`.
-Six repaired the borrower-web title regression and six repaired the S0-01 milestone
+Six repaired the web title regression and six repaired the S0-01 milestone
 projection. Briefs specified normal commands and scoped source edits, not Pandora
 recovery strategies.
 

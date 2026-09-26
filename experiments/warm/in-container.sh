@@ -1,14 +1,14 @@
 #!/bin/bash
 set -uo pipefail
 
-app="${PANDORA_SURFACE_APP:-borrower-web}"
+app="${PANDORA_SURFACE_APP:-web}"
 case "$app" in
-  borrower-web)
-    package='@eichler/borrower-web'
-    app_root='apps/borrower-web'
+  web)
+    package='@acme/web'
+    app_root='apps/web'
     ;;
   desk)
-    package='@eichler/desk'
+    package='@acme/desk'
     app_root='apps/desk'
     ;;
   *)

@@ -87,7 +87,7 @@ def budget_from(config):
 
 
 # Why a tree and not a process group: macOS has no cgroups, and a process group
-# is escaped with one `setsid`. Eichler's runner spawns its workers `detached`,
+# is escaped with one `setsid`. Acme's runner spawns its workers `detached`,
 # which is exactly that, so a group-only sample recorded 118-180 MiB peaks for
 # multi-GiB jobs, learned reservations decayed to the 512 MiB floor, and a
 # cancel's `killpg` left the heavy half running. The tree is walked by parent
@@ -710,7 +710,7 @@ class LocalExecutor:
     def evidence(self, worktree, plan):
         """The paths the job declared, and whether they are there.
 
-        This is the answer to `EICHLER_VALIDATION_DIRECTORY`: Pandora does not
+        This is the answer to `ACME_VALIDATION_DIRECTORY`: Pandora does not
         invent a directory and hope the job writes its cleanup marker into it.
         The job declares where it writes, and the receipt says what was found --
         so a missing marker is a fact in the receipt rather than a silence.

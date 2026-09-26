@@ -61,7 +61,7 @@ class SelectorTransportTests(unittest.TestCase):
         import json
         class Captured(Exception): pass
         for workflow, app, selectors in [('surface', 'desk', ['smoke.spec.ts', '--grep', 'one | two']),
-                                          ('journey', 'borrower-web', ['S2-03', '--fault', 'dropped', '--update'])]:
+                                          ('journey', 'web', ['S2-03', '--fault', 'dropped', '--update'])]:
             with self.subTest(workflow=workflow), tempfile.TemporaryDirectory() as temp:
                 captured = []
                 def capture(path, metadata):

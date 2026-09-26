@@ -1,4 +1,4 @@
-You are working in /Users/garybasin/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-1. Run pwd first; stop if it differs.
+You are working in /Users/you/Code/pandora/.worktrees/_int-pandora-contention-20260920/.worktrees/pandora-contention-20260920-opus-1. Run pwd first; stop if it differs.
 
 Repair and validate this fixture using its Docker build/run workflow. First build the current Dockerfile as app:test and run it to observe the failure. Then change value.txt to exactly opus-1, rebuild the same tag, and run successfully. Read the resulting local dist/result.json and verify its value.
 

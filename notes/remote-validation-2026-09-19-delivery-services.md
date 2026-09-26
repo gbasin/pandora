@@ -51,11 +51,11 @@ store cache mount. Each runtime check uses a fresh container.
 
 Lockfile preparation took 2.944 and 2.977 seconds, outside those build timings.
 The fixture is intentionally small. These results establish real package reuse
-and source invalidation; they do not estimate Eichler install times or long
+and source invalidation; they do not estimate Acme install times or long
 compiled-build performance. They do not test compiler incremental state, a
 shared Turbo server, or cross-worker caches.
 
-## Eichler service-backed loop
+## Acme service-backed loop
 
 The service probe reuses the frozen source from pilot attempt
 3fc43c6bbb14422bb7bbab010bcf0111 and its matching dependency image. It does not

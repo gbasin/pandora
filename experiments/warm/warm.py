@@ -75,7 +75,7 @@ def main():
     p.add_argument('--attempt', default=None)
     p.add_argument('--journey-update', action='store_true')
     p.add_argument('--selectors-json')
-    p.add_argument('--surface-app', choices=['borrower-web', 'desk'], default='borrower-web')
+    p.add_argument('--surface-app', choices=['web', 'desk'], default='web')
     p.add_argument('--queue-timeout-seconds', type=int, default=900)
     p.add_argument('--artifact-delivery-limit-bytes', type=int, default=None)
     p.add_argument('selectors', nargs='*')

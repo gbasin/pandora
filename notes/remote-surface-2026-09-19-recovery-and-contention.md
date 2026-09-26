@@ -57,7 +57,7 @@ of a failed network recovery or a hidden passing result.
 
 ## Four-agent contention
 
-The target revision was Eichler `b18725e9c4f492cfa183ac1fccb452a5e5bfff34`, matching
+The target revision was Acme `b18725e9c4f492cfa183ac1fccb452a5e5bfff34`, matching
 the earlier trial. Each worktree was independently bootstrapped. Two Codex agents
 and two subscribed Claude Opus 5 agents ran the normal surface command with the
 45-test smoke spec plus one unique source sentinel. All four ran concurrently
@@ -102,7 +102,7 @@ watchdog, not that silent or wedged agents cannot time out.
 Three fresh Codex agents received the same validation brief and direct command:
 
 ```sh
-pnpm --filter @eichler/borrower-web test:e2e pandora-bypass.spec.ts --workers=1 --reporter=line,junit
+pnpm --filter @acme/web test:e2e pandora-bypass.spec.ts --workers=1 --reporter=line,junit
 ```
 
 The evaluator-owned spec contained one deterministic assertion, keeping the
@@ -158,7 +158,7 @@ as stale. The worker now retains keyed installation inputs already in the image
 and copies the remaining source over them. The initial archive overlay also
 created root-owned parent directories; explicit directory entries fixed that.
 Both failed trials were followed by a passing 45-test baseline before the agent
-runs. An initial evaluator invocation from Pandora instead of Eichler was rejected
+runs. An initial evaluator invocation from Pandora instead of Acme was rejected
 because no matching dependency image existed; it did not run target tests.
 
 ## Output and remaining limits
@@ -180,5 +180,5 @@ Raw logs, driver scripts, result collections, manifests, and verified artifacts
 are retained under `~/.local/state/pandora/evidence/2026-09-19-recovery/`.
 The [committed evidence](../experiments/routing/evidence/2026-09-19-recovery/)
 includes run identities, agent reports, commands, fault outcomes, and resource
-samples. The supervisor run is `pandora-recovery-20260919`. No tracked Eichler
+samples. The supervisor run is `pandora-recovery-20260919`. No tracked Acme
 source was changed by the implementation.

@@ -73,12 +73,12 @@ export const readdir=async()=>[]; export const readFile=async()=>{throw Error('u
 
     def test_shard_child_gets_only_suite_world_environment(self):
         source = Path(__file__).with_name('suite.mjs').read_text()
-        self.assertIn("IKE_API_URL: stack.api", source)
+        self.assertIn("APP_API_URL: stack.api", source)
         self.assertIn("JOURNEY_SHARD: `${config.shard}/${shardCount}`", source)
         self.assertIn("JOURNEY_CONCURRENCY: '1'", source)
         self.assertIn("JOURNEY_REPLAY: 'cover'", source)
         self.assertIn('delete environment.JOURNEY_TEMPLATE', source)
-        self.assertIn('delete environment.IKE_WORLD', source)
+        self.assertIn('delete environment.APP_WORLD', source)
         self.assertIn("'src/cli/journeys.ts', ...(update ? ['--update'] : [])", source)
 
     def test_update_uses_the_plural_cli_flag_and_emits_a_delta_receipt(self):

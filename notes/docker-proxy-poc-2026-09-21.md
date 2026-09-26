@@ -3,9 +3,9 @@ status: log
 ---
 # Per-run Docker API proxy, 2026-09-21
 
-Eichler's own journey runner booted eichler's own Compose stack and ran journey
+Acme's own journey runner booted acme's own Compose stack and ran journey
 `S0-01` to a pass through a Pandora-owned Docker socket, with no Pandora
-knowledge anywhere in the eichler repository and no eichler knowledge anywhere
+knowledge anywhere in the acme repository and no acme knowledge anywhere
 in the proxy. Every container, network and volume the run created carried
 `pandora.run=proof-x`. A second run started at the same time could not list or
 stop any of them. A `SIGKILL` of the runner mid-run left the stack orphaned and
@@ -29,11 +29,11 @@ namespace, not in the run container's. That question was not testable here.
 | `test_integration.py` — 12 tests, skipped unless `PANDORA_DOCKER_IT=1` | 253 |
 | **total** | **2036** |
 
-`tools/validation/journey-runner.mjs` (eichler, 358 lines plus a 107-line test,
+`tools/validation/journey-runner.mjs` (acme, 358 lines plus a 107-line test,
 a 41-line inventory CLI and a 52-line refactor of `packages/scenarios`): `plan
 --shards N` emits the shard inventory through the existing `shardJourneys`
 logic and refuses a set that is not a partition; `run [<id>|--shard i/N]` boots
-the stack through eichler's own `startInstance`, runs, writes a JSON report of
+the stack through acme's own `startInstance`, runs, writes a JSON report of
 the journeys it observed, and tears the stack down. Profile is explicit
 environment (`JOURNEY_CONCURRENCY`, `JOURNEY_REPLAY`, `JOURNEY_CI`); nothing
 sniffs `GITHUB_ACTIONS` or `CI`. Selection lives in one function,
@@ -42,8 +42,8 @@ describe a run that did not happen. `pnpm journey`/`pnpm journeys` are *not*
 rewired — `tools/notes/journey-runner.md` records that as a stated gap, and
 `ci.yml` was not touched.
 
-None of the eichler work depends on the proxy. That is the point: the runner is
-what eichler wants anyway, and the proxy is invisible to it.
+None of the acme work depends on the proxy. That is the point: the runner is
+what acme wants anyway, and the proxy is invisible to it.
 
 ## API surface covered
 
@@ -89,31 +89,31 @@ into it first; API version prefixes stripped before routing.
 
 Docker Desktop 29.6.1, linux/arm64, 8 GiB VM, cgroup v2. Host load average 53
 at the start of the passing run and 12 at the start of the kill run; the
-machine was running other agents' eichler stacks throughout (19 containers
+machine was running other agents' acme stacks throughout (19 containers
 alive during the run, none of them touched).
 
 **The run passes unmodified.** `journey-runner.mjs run S0-01` with
 `DOCKER_HOST` pointed at the proxy for run `proof-x`: exit 0, 710.8 s wall,
 journey 641.9 s, `S0-01: pass … replayed`, 45 of 45 stage-routes covered by
 passing replays, 0 infrastructure failures, 0 unrun journeys. The report names
-`S0-01` as the only journey observed. Nothing in eichler was changed to make
+`S0-01` as the only journey observed. Nothing in acme was changed to make
 this work.
 
 **Everything is labelled.** All five objects the run created:
 
 | Object | `pandora.run` |
 | --- | --- |
-| `ike-validation-e909988c-postgres-1` (`postgres:16`) | `proof-x` |
-| `ike-validation-e909988c-pgbouncer-1` (`edoburu/pgbouncer:latest`) | `proof-x` |
-| `ike-validation-e909988c-wsproxy-1` (`ghcr.io/neondatabase/wsproxy:latest`) | `proof-x` |
-| `ike-validation-e909988c_default` (network) | `proof-x` |
-| `ike-validation-e909988c_postgres-data` (volume) | `proof-x` |
+| `app-validation-e909988c-postgres-1` (`postgres:16`) | `proof-x` |
+| `app-validation-e909988c-pgbouncer-1` (`edoburu/pgbouncer:latest`) | `proof-x` |
+| `app-validation-e909988c-wsproxy-1` (`ghcr.io/neondatabase/wsproxy:latest`) | `proof-x` |
+| `app-validation-e909988c_default` (network) | `proof-x` |
+| `app-validation-e909988c_postgres-data` (volume) | `proof-x` |
 
 **Cross-run invisibility.** A second proxy for run `proof-y` ran concurrently
 against the same daemon. Through it, `docker ps -a`, `docker network ls` and
 `docker volume ls` all printed nothing, while the same commands through
 `proof-x`'s socket listed exactly its three containers. `docker stop
-ike-validation-e909988c-wsproxy-1` through `proof-y` failed with `Error
+app-validation-e909988c-wsproxy-1` through `proof-y` failed with `Error
 response from daemon: pandora-proxy: no such container for this run: …` and the
 container stayed running. The host had 19 containers at that moment; a run saw
 three or zero.
@@ -145,11 +145,11 @@ names every object by id and name, so an operator's check is a JSON comparison
 rather than a `docker ps` by eye.
 
 After the *successful* run, `sweep(proof-x)` found nothing to remove and
-returned `clean: true` with zero counts: eichler's own teardown had already
+returned `clean: true` with zero counts: acme's own teardown had already
 removed everything through the proxy. Both facts matter — the receipt proves
 cleanup whether the repository managed it or not.
 
-**A denied request, as `docker compose` sees it.** Eichler's real
+**A denied request, as `docker compose` sees it.** Acme's real
 `tools/stack/compose.yml` and `compose.ephemeral.yml` were run through the
 proxy with a third `-f` adding `network_mode: host` to Postgres:
 
@@ -166,7 +166,7 @@ a subsequent `down -v` left nothing behind. It fails loudly and legibly: the
 refusal names the field, says why, and says what to do instead. A repository
 author reading it does not need to know a proxy exists to act on it.
 
-## What eichler's stack forced the proxy to special-case
+## What acme's stack forced the proxy to special-case
 
 1. **Compose sends the legacy map form of a filter.** Its first network lookup
    is `filters={"name":{"<project>_default":true}}`. Adding a list-valued
@@ -190,11 +190,11 @@ author reading it does not need to know a proxy exists to act on it.
    a real bug, caught by a unit test.
 6. **Healthchecks never reach the proxy.** Postgres's `pg_isready` runs inside
    the daemon, so `up -d --wait` worked unchanged. This is luck worth naming:
-   had eichler polled health with `docker exec`, every poll would have needed an
+   had acme polled health with `docker exec`, every poll would have needed an
    ownership lookup.
-7. **Eichler's stack has no bind mounts and no init-SQL bind.** `postgres-data`
+7. **Acme's stack has no bind mounts and no init-SQL bind.** `postgres-data`
    is a named volume; migrations run from the host over `pg`. The rewrite was
-   therefore never exercised by eichler, only by unit tests and a synthetic
+   therefore never exercised by acme, only by unit tests and a synthetic
    integration case. A repository that binds certificates or seed SQL would be
    the first real test of it.
 8. **Fixed ports exist but are overridden.** `compose.yml` declares
@@ -202,9 +202,9 @@ author reading it does not need to know a proxy exists to act on it.
    replaces both with `!override ['127.0.0.1::5432']`, so every validation run
    takes an ephemeral port. `pnpm dev:stack` does not, and the proxy does not
    rewrite port publishing, so two runs on fixed ports would still collide.
-9. **`host.docker.internal` is not used anywhere in eichler.** One fewer
+9. **`host.docker.internal` is not used anywhere in acme.** One fewer
    Linux-only surprise.
-10. **`docker compose ls --all`** — what eichler's `pruneProjects` recovery
+10. **`docker compose ls --all`** — what acme's `pruneProjects` recovery
     path uses — works, and now sees only the run's own projects. That is the
     desired scoping and also means a run can no longer clean up a leftover from
     a different run.
@@ -225,10 +225,10 @@ so the empty slice directory lingers.
 
 ### The open question: published ports and the run container's netns
 
-Eichler's API worker is `wrangler dev --local` — a **host process**, workerd,
+Acme's API worker is `wrangler dev --local` — a **host process**, workerd,
 not a container. `startInstance` publishes Postgres and wsproxy on ephemeral
 loopback ports, asks `docker compose port postgres 5432`, and builds
-`postgres://ike_owner:…@127.0.0.1:<port>/ike`. The migration and the per-journey
+`postgres://app_owner:…@127.0.0.1:<port>/app`. The migration and the per-journey
 database clones connect the same way, from the host, over `pg`.
 
 On this Mac that works because the run *is* the host. On the Linux worker the
@@ -247,7 +247,7 @@ Three ways out, cheapest first.
    If this is the answer, the design has lost most of its value.
 2. **Attach the run container to the run's networks, and forward.** The proxy
    already sees `POST /networks/create`; it can connect the run container to
-   that network server-side, with no eichler change. But eichler asks for
+   that network server-side, with no acme change. But acme asks for
    `127.0.0.1:<published port>`, so something must still listen there: a
    per-port TCP forwarder started inside the run container's namespace, and a
    rewrite of the inspect and `port` responses to report ports the proxy is
@@ -256,10 +256,10 @@ Three ways out, cheapest first.
    after `up --wait`. Estimate 200–300 lines and a new class of bug.
 3. **Let the stack be addressed by service name when the caller is inside the
    network.** The run container joins the compose network (step 2's first half,
-   free and invisible to eichler), and `startInstance` reports
+   free and invisible to acme), and `startInstance` reports
    `postgres:5432` and `wsproxy:80` instead of the published ports when an
    explicit variable says the caller shares the network. That is a handful of
-   eichler lines, defensible on their own terms — a consumer inside a network
+   acme lines, defensible on their own terms — a consumer inside a network
    should use service DNS — and it deletes the whole port problem. It is a seam,
    but a far smaller and more honest one than an external-stack mode.
 
@@ -285,7 +285,7 @@ not "here is a Postgres I built for you".
    sibling containers. If so, `usage()` becomes one file read instead of N
    stats calls, which matters at worker scale.
 6. That the bind rewrite behaves when the run directory genuinely differs from
-   the client worktree path. Eichler exercises none of it; only unit tests do.
+   the client worktree path. Acme exercises none of it; only unit tests do.
 7. That the proxy can open the real socket while the run cannot: socket group
    membership and the run container's user, verified by attempting both.
 8. That `docker compose` (the CLI plugin) and the `docker` CLI are present in
@@ -349,17 +349,17 @@ real socket some other way could forge it freely.
 This is what `experiments/warm/journey.py` does today for this one workload:
 three service definitions with pinned digests, environment lists and memory
 caps (180 lines), plus `experiments/warm/validation-stack.mjs` doing textual
-surgery on eichler's `startInstance({…})` call (95 lines). Eichler's
+surgery on acme's `startInstance({…})` call (95 lines). Acme's
 `startInstance` already has an `external` mode that reads `DATABASE_OWNER_URL`
 and hard-codes `localhost:5433`.
 
 | | Proxy (this POC) | Pandora boots declared services |
 | --- | --- | --- |
 | Pandora LOC | 1152 production, 884 test, repo-agnostic. Plus 0–300 unbuilt for the Linux netns question | 275 today for one workload; generalising means a service schema, health-wait, network, port allocation and env templating for every repo |
-| Eichler LOC | 0 for the proxy; option 3 above adds a handful | a maintained external-stack seam, plus keeping it honest as the stack changes |
+| Acme LOC | 0 for the proxy; option 3 above adds a handful | a maintained external-stack seam, plus keeping it honest as the stack changes |
 | Config lines per repo | 6 per-run values, none of them repo knowledge | ~20 lines of services restated from `compose.yml`, per repo |
-| Drift risk | near zero — the proxy names no image, service or port | high and silent. `journey.py` already pins `ALLOW_ADDR_REGEX=^pgbouncer:6432$` where eichler's compose says `^(pgbouncer:6432\|postgres:5432)$`, and pins digests eichler moves by retagging `:latest` |
-| Accounting | exact, and covers services Pandora has never heard of. Measured 86.1 MiB peak against 1152 MiB reserved | exact for what Pandora created; a service eichler adds is invisible |
+| Drift risk | near zero — the proxy names no image, service or port | high and silent. `journey.py` already pins `ALLOW_ADDR_REGEX=^pgbouncer:6432$` where acme's compose says `^(pgbouncer:6432\|postgres:5432)$`, and pins digests acme moves by retagging `:latest` |
+| Accounting | exact, and covers services Pandora has never heard of. Measured 86.1 MiB peak against 1152 MiB reserved | exact for what Pandora created; a service acme adds is invisible |
 | Cleanup proof | one label, one receipt, survives `SIGKILL` of the run | exact for what Pandora created; nothing catches what it did not |
 | Linux risk | the published-port question above, unanswered | none — there is no second party creating containers |
 | Ongoing cost | tracking the Docker client's API surface | tracking every repository's stack |
@@ -375,19 +375,19 @@ of repositories Pandora serves.
 
 **Adopt the proxy, and answer the Linux networking question first.**
 
-The evidence for it is strong: eichler's real stack, eichler's real runner, a
+The evidence for it is strong: acme's real stack, acme's real runner, a
 real journey, passing unmodified, fully labelled, invisible to a concurrent
 run, swept clean after a `SIGKILL`, with per-container usage that immediately
 showed the current reservation to be 13× too large. None of that required a
-line of Pandora knowledge in eichler, and none of it will need changing when
-eichler changes its stack. That last property is the one the declared-services
+line of Pandora knowledge in acme, and none of it will need changing when
+acme changes its stack. That last property is the one the declared-services
 design cannot buy at any price.
 
 The order of work:
 
 1. Spend a day on the Linux worker answering items 1–5 of the verification
    list, in particular whether option 3 — the run container joined to the
-   compose network, eichler reporting service names when a variable says the
+   compose network, acme reporting service names when a variable says the
    caller shares it — actually gets `wrangler` talking to Postgres.
 2. If it does, take the proxy as the mechanism and the repo-config POC as the
    declaration of *what to run*, not *what to boot*. The two compose cleanly:

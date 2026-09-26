@@ -1,7 +1,7 @@
 # Surface baseline
 
-This experiment establishes whether the owned Linux worker can run Eichler's
-borrower-web surface suite. It submits one **committed revision**. It does not
+This experiment establishes whether the owned Linux worker can run Acme's
+web surface suite. It submits one **committed revision**. It does not
 submit dirty edits, route agent commands, queue concurrent jobs, or replace CI.
 Run one invocation at a time until admission control is implemented.
 
@@ -28,7 +28,7 @@ From this directory on the Mac:
 ```sh
 python3 smoke.py \
   --host ubuntu@WORKER_IP \
-  --repo /path/to/eichler \
+  --repo /path/to/acme \
   --revision COMMIT_SHA \
   --output /tmp/pandora-baseline-01 \
   smoke.spec.ts

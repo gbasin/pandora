@@ -40,7 +40,7 @@ Sources: [jobs](https://crabbox.sh/commands/job.html),
 GitHub Actions queues jobs on owned runners. Dispatch accepts a ref and inputs;
 dirty-source transfer still needs a snapshot mechanism. Ephemeral registration
 does not wipe the machine: our setup must dispose of the execution environment
-and enforce limits. Eichler's existing Linux surface recipe makes this a
+and enforce limits. Acme's existing Linux surface recipe makes this a
 plausible first experiment, using a separate experimental workflow.
 
 Buildkite's experimental Preflight snapshots staged, unstaged, and nonignored

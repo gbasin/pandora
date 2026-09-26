@@ -46,7 +46,7 @@ class SurfaceParentTests(unittest.TestCase):
                      'selectors': frozen['selectors'], 'surface_suite': request,
                      'worker_config': self.config, 'queue_timeout_seconds': 900}
         planner = self.stage / 'results/attempts' / children[0]
-        for name in ('apps/borrower-web/dist/x', 'apps/borrower-web/e2e/dist/y'):
+        for name in ('apps/web/dist/x', 'apps/web/e2e/dist/y'):
             path = planner / 'results/outputs' / name
             path.parent.mkdir(parents=True, exist_ok=True); path.write_text(name)
         frozen['build'] = outputs_manifest(planner / 'results/outputs', frozen['app'])
@@ -130,12 +130,12 @@ class SurfaceParentTests(unittest.TestCase):
 
     def test_conflicting_outputs_are_terminal_nonpass_and_identical_duplicates_are_allowed(self):
         submitted, terminal, manifest, children = self.fixture()
-        name = 'results/generated/apps/borrower-web/e2e/dist/evidence.png'
+        name = 'results/generated/apps/web/e2e/dist/evidence.png'
         for index, contents in ((1, 'first'), (2, 'different')):
             child = self.stage / 'results/attempts' / children[index]
             (child / name).parent.mkdir(parents=True, exist_ok=True); (child / name).write_text(contents)
             metadata = json.loads((child / 'submission.json').read_text()); receipt(child, metadata, 0)
-        conflicts = output_conflicts(self.stage, children, 'borrower-web')
+        conflicts = output_conflicts(self.stage, children, 'web')
         self.assertEqual(len(conflicts), 1)
         with self.assertRaisesRegex(ValueError, 'conflicting generated outputs'):
             validate_result(self.stage, submitted, terminal, manifest)
@@ -150,7 +150,7 @@ class SurfaceParentTests(unittest.TestCase):
         validate_result(self.stage, submitted, terminal, manifest)
         second = self.stage / 'results/attempts' / children[2]
         (second / name).write_text('first'); receipt(second, json.loads((second / 'submission.json').read_text()), 0)
-        self.assertEqual(output_conflicts(self.stage, children, 'borrower-web'), [])
+        self.assertEqual(output_conflicts(self.stage, children, 'web'), [])
         with self.assertRaisesRegex(ValueError, 'conflict differs'):
             validate_result(self.stage, submitted, terminal, manifest)
 

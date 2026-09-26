@@ -1,7 +1,7 @@
 import json, os, glob, datetime, collections
 
 ROOT = os.path.expanduser("~/.claude/projects")
-dirs = [d for d in glob.glob(os.path.join(ROOT, "*eichler*")) if "pandora" not in d.lower()]
+dirs = [d for d in glob.glob(os.path.join(ROOT, "*acme*")) if "pandora" not in d.lower()]
 files = []
 for d in dirs:
     files += glob.glob(os.path.join(d, "*.jsonl"))

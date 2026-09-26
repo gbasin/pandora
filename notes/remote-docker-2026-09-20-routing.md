@@ -59,7 +59,7 @@ Lifecycle probes verified explicit run cancellation, cancellation during a
 `RUN sleep 60` build step, and same-attempt recovery after killing the local
 transport. Killing the build worker with SIGKILL stopped the BuildKit container
 through systemd's stop hook. It left the request unresolved rather than inventing
-a terminal result. The database-backed Eichler S0-01 regression also passed on the
+a terminal result. The database-backed Acme S0-01 regression also passed on the
 combined worker path. Thirty-one Python tests passed across command routing,
 image mappings, evidence, retention, cleanup, snapshots, and output publication.
 
@@ -117,7 +117,7 @@ produced no local output. Matching the private copy's ownership to the image use
 fixed it; the complete semantics probe then passed. Its original failure log is
 retained alongside the successful evidence.
 
-Switching back from the fixture repository to Eichler caused a 69.1-second source
+Switching back from the fixture repository to Acme caused a 69.1-second source
 transfer because the worker has one global latest-source cache pointer. Older
 same-repository transfers took roughly 2.4–2.8 seconds. This is filed separately as
 [#17](https://github.com/gbasin/pandora/issues/17); no source-cache redesign was

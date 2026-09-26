@@ -1,4 +1,4 @@
-"""Run one real Eichler journey with external services in a private namespace.
+"""Run one real Acme journey with external services in a private namespace.
 Evaluator probe only: no Docker socket in execution containers; no host ports.
 """
 import argparse,hashlib,json,os,signal,subprocess,tarfile,tempfile,time,uuid
@@ -19,7 +19,7 @@ try:
  call('network',['network','create',name])
  image='pandora-deps:6deff854ef67e244ca612c50defe348881057c475c282c4acf10775e1921aec1'
  runner=name+'-run';containers.append(runner)
- call('runner',['run','-d','--name',runner,'--network',name,'--network-alias','pgbouncer','--cpus=2','--memory=6g','--memory-swap=6g','--pids-limit=512','--init','-e','CI=true','-e','WRANGLER_SEND_METRICS=false','-e','DATABASE_OWNER_URL=postgres://ike_owner:local-owner@127.0.0.1:5432/ike',image,'sleep','1200'])
+ call('runner',['run','-d','--name',runner,'--network',name,'--network-alias','pgbouncer','--cpus=2','--memory=6g','--memory-swap=6g','--pids-limit=512','--init','-e','CI=true','-e','WRANGLER_SEND_METRICS=false','-e','DATABASE_OWNER_URL=postgres://app_owner:local-owner@127.0.0.1:5432/app',image,'sleep','1200'])
  with tempfile.TemporaryDirectory() as tmp:
   tar=Path(tmp)/'source.tar'
   # Preserve dependency input timestamps installed in the matching image.
@@ -37,13 +37,13 @@ try:
  if a.journey_file:
   call('journey-source-copy',['cp',a.journey_file,runner+':/workspace/source/packages/scenarios/src/journeys/S0-01.ts'])
  # The optional override was edited locally and transferred as a separate input.
- specs=[('db','postgres:16',['POSTGRES_USER=ike_owner','POSTGRES_PASSWORD=local-owner','POSTGRES_DB=ike','POSTGRES_HOST_AUTH_METHOD=password'],'768m'),('pool','edoburu/pgbouncer:latest',['DB_HOST=127.0.0.1','DB_PORT=5432','DB_USER=ike_application','DB_PASSWORD=local-application','AUTH_TYPE=plain','POOL_MODE=transaction','LISTEN_PORT=6432'],'256m'),('proxy','ghcr.io/neondatabase/wsproxy:latest',['LISTEN_PORT=:5433','ALLOW_ADDR_REGEX=^pgbouncer:6432$','APPEND_PORT=','LOG_TRAFFIC=false','LOG_CONN_INFO=false'],'128m')]
+ specs=[('db','postgres:16',['POSTGRES_USER=app_owner','POSTGRES_PASSWORD=local-owner','POSTGRES_DB=app','POSTGRES_HOST_AUTH_METHOD=password'],'768m'),('pool','edoburu/pgbouncer:latest',['DB_HOST=127.0.0.1','DB_PORT=5432','DB_USER=app_application','DB_PASSWORD=local-application','AUTH_TYPE=plain','POOL_MODE=transaction','LISTEN_PORT=6432'],'256m'),('proxy','ghcr.io/neondatabase/wsproxy:latest',['LISTEN_PORT=:5433','ALLOW_ADDR_REGEX=^pgbouncer:6432$','APPEND_PORT=','LOG_TRAFFIC=false','LOG_CONN_INFO=false'],'128m')]
  for short,img,env,mem in specs:
   n=name+'-'+short;containers.append(n)
   call('start-'+short,['run','-d','--name',n,'--network','container:'+runner,'--cpus=.5','--memory='+mem,'--memory-swap='+mem,'--pids-limit=128',*[v for item in env for v in ['-e',item]],img],timeout=240)
   if short=='db':
    for attempt in range(60):
-    r=subprocess.run(['docker','exec',n,'pg_isready','-U','ike_owner','-d','ike'],capture_output=True)
+    r=subprocess.run(['docker','exec',n,'pg_isready','-U','app_owner','-d','app'],capture_output=True)
     if not r.returncode:break
     time.sleep(.5)
    else:raise RuntimeError('database readiness deadline')

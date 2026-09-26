@@ -18,7 +18,7 @@ import route
 import wait
 
 
-COMMAND = ['test:surface', 'borrower-web']
+COMMAND = ['test:surface', 'web']
 
 
 def _hold_lock(path, ready, release):

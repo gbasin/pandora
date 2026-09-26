@@ -44,14 +44,14 @@ for repo in a.repo:
                          'install_progress': progress[-1] if progress else None})
     changed = {name for name in manifests[0].keys() | manifests[1].keys()
                if manifests[0].get(name) != manifests[1].get(name)}
-    assert changed == {'apps/borrower-web/index.html'}, changed
+    assert changed == {'apps/web/index.html'}, changed
     assert [run['exit_code'] for run in attempts] == [1, 0]
     assert [run['metrics']['dependency_cache_hit'] for run in attempts] == [False, True]
     assert attempts[0]['metrics']['image_id'] == attempts[1]['metrics']['image_id']
     assert attempts[0]['source_digest'] != attempts[1]['source_digest']
-    for index, name in enumerate(['apps/borrower-web/dist', 'apps/borrower-web/e2e/dist']):
+    for index, name in enumerate(['apps/web/dist', 'apps/web/e2e/dist']):
         html = (repo / name / 'index.html').read_text()
-        assert '<title>Ike</title>' in html and fixture['marker'] in html
+        assert '<title>App</title>' in html and fixture['marker'] in html
         assert not (repo / name / 'obsolete.txt').exists()
         receipt = json.loads((submissions[1].parent / 'publication' / str(index) / 'publication.json').read_text())
         previous = Path(receipt['retained_previous'])

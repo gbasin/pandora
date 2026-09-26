@@ -17,9 +17,9 @@ measurements. Source and dependency warming are documented in the
 
 ## Trial configuration
 
-Agents stayed on the Mac in independent, bootstrapped Eichler worktrees at
-`b18725e9c`. Normal `pnpm test:surface borrower-web <file>` invocations were routed
-through session-scoped executables. No tracked Eichler changes or global shell
+Agents stayed on the Mac in independent, bootstrapped Acme worktrees at
+`b18725e9c`. Normal `pnpm test:surface web <file>` invocations were routed
+through session-scoped executables. No tracked Acme changes or global shell
 settings were needed. All heavy test execution used the same dedicated VM and
 one worker slot, with two CPUs, 6 GiB RAM, and one Playwright worker per container.
 
@@ -62,7 +62,7 @@ The failing spec compared two fixed unequal strings. Opus identified it as an
 intentional evaluator failure, distinguished it from infrastructure failure,
 reported exit 1, and inspected the returned evidence directory. It did not try
 to fix the spec or change the worker. The evaluator-owned spec was never a
-product change or committed to Eichler.
+product change or committed to Acme.
 
 ## Failures found before the successful Codex run
 
@@ -139,7 +139,7 @@ Cold dependency-image preparation is refused in the agent trial until its
 independent deadline and cancellation are implemented. Disk retention is manual.
 GitHub Actions, other control planes, and automatic provider deletion are not
 part of this pilot. Gary remains responsible for VM deletion within the agreed
-trial window. No PR was merged and required Eichler CI remains unchanged.
+trial window. No PR was merged and required Acme CI remains unchanged.
 
 ## Evidence locations
 

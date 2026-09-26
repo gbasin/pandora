@@ -22,7 +22,7 @@ results, and recovery without human coordination. The resource priorities are
 Mac responsiveness, then infrastructure cost, then completion speed. The target
 repo should need no tracked changes, so other engineers retain normal behavior.
 
-We chose borrower-web surface validation as the first workload. It builds static
+We chose web surface validation as the first workload. It builds static
 fixtures and runs Playwright without a database or journey service stack. A
 working remote baseline separates execution problems from later routing,
 queueing, source synchronization, and agent-behavior problems.
@@ -37,7 +37,7 @@ queueing, source synchronization, and agent-behavior problems.
   Later local edits must not change a queued or running check.
 - Queue when capacity is full. Do not silently fall back to heavy local work.
 - Report an existing active request instead of automatically replacing it.
-- Put the experiment and integration in Pandora, with no tracked Eichler edits.
+- Put the experiment and integration in Pandora, with no tracked Acme edits.
 - Start scripted checks before trial agents, then use two agents before larger
   fanout. Agent trials have not started.
 
@@ -83,7 +83,7 @@ failure paths have not yet been exercised.
 
 ## First attempt: setup failure, not contention
 
-- Eichler revision: `5fddeb6b081a72af4d690a171c9e00cc007c3c01`.
+- Acme revision: `5fddeb6b081a72af4d690a171c9e00cc007c3c01`.
 - Selector: `smoke.spec.ts`, 45 tests.
 - Attempt: `7c6cfeedb08f4195909bed517cceb496`.
 - Source SHA256: `d57b99687fee8b6cea102c259ae3ce3b21dd71d8f7c1d902c7c566517622a399`.

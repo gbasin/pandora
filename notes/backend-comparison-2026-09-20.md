@@ -17,7 +17,7 @@ current capture algorithm.
 
 ## Setup and boundaries
 
-The workload was the same Eichler checkout and VM as the earlier compiled-build
+The workload was the same Acme checkout and VM as the earlier compiled-build
 and S0-01 trials. Docker builds used two CPUs and 6 GiB without swap. A temporary
 registry used one CPU and 256 MiB. The native builder used the existing BuildKit
 cache volume, exclusively under Pandora's worker lease. It exposed a Unix socket

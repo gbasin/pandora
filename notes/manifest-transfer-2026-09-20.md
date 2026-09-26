@@ -11,7 +11,7 @@ the transfer. No production routing or capture code changed.
 
 ## Experiment
 
-The base was Pandora `c7d65ba`. The target was the existing Eichler compiled-build
+The base was Pandora `c7d65ba`. The target was the existing Acme compiled-build
 checkout: 4,810 manifest entries, approximately 380 MB. Both paths used the same
 OVH VM, repository source cache, verified helper bundle, durable worker, and warm
 BuildKit cache. The Mac used `/usr/bin/rsync`, which identified itself as

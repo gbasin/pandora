@@ -108,8 +108,8 @@ pnpm, so commands typed there are never routed.
 ```sh
 python3 -B <repo>/experiments/client/cli.py \
   --state ~/.local/state/pandora/default \
-  enrol /Users/YOU/Code/eichler --name eichler \
-  --config /Users/YOU/Code/eichler/pandora.toml
+  enrol /Users/YOU/Code/acme --name acme \
+  --config /Users/YOU/Code/acme/pandora.toml
 ```
 
 This writes one file at `<git common dir>/pandora-enrolled`. That single file
@@ -118,7 +118,7 @@ covers every worktree of the repository, including worktrees created later.
 Check it.
 
 ```sh
-cat "$(git -C /Users/YOU/Code/eichler rev-parse --git-common-dir)/pandora-enrolled"
+cat "$(git -C /Users/YOU/Code/acme rev-parse --git-common-dir)/pandora-enrolled"
 ```
 
 ## 7. Verify routing end to end
@@ -126,13 +126,13 @@ cat "$(git -C /Users/YOU/Code/eichler rev-parse --git-common-dir)/pandora-enroll
 Run an unclaimed command in the repository. It must behave exactly as before.
 
 ```sh
-cd /Users/YOU/Code/eichler && pnpm --version
+cd /Users/YOU/Code/acme && pnpm --version
 ```
 
 Run a claimed command. It must reach the daemon.
 
 ```sh
-cd /Users/YOU/Code/eichler && pnpm test:unit
+cd /Users/YOU/Code/acme && pnpm test:unit
 ```
 
 Set `PANDORA_OFF=1` to force any command local.
@@ -190,7 +190,7 @@ Un-enrol every repository.
 
 ```sh
 python3 -B <repo>/experiments/client/cli.py \
-  --state ~/.local/state/pandora/default unenrol /Users/YOU/Code/eichler
+  --state ~/.local/state/pandora/default unenrol /Users/YOU/Code/acme
 ```
 
 Delete the state directory.

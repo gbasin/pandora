@@ -55,7 +55,7 @@ def suite_shard_count(value):
 
 def suite_environment_error(environment):
     names = ('JOURNEY_FILTER', 'JOURNEY_SHARD', 'JOURNEY_CONCURRENCY',
-             'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'IKE_WORLD')
+             'JOURNEY_REPLAY', 'JOURNEY_TEMPLATE', 'APP_WORLD')
     active = [name for name in names if environment.get(name)]
     if active:
         return ('Unset ' + ', '.join(active) +
@@ -446,7 +446,7 @@ def main(tool='pnpm', expected_attempt=None, observer=False):
                     print('[pandora] Result applies to earlier source. Run again to validate current source; inspect retained outputs before using them. Evidence: ' + str(output), file=sys.stderr)
                     return 75
                 if terminal['exit_code'] == 0 and submitted.get('workflow', 'surface') == 'surface':
-                    deliver(repo, output, outputs=surface_outputs(submitted.get("surface_app", "borrower-web")))
+                    deliver(repo, output, outputs=surface_outputs(submitted.get("surface_app", "web")))
                 if terminal['exit_code'] == 0 and submitted.get('workflow') == 'surface-run':
                     from surface_delivery import deliver_surface
                     deliver_surface(repo, output, submitted)

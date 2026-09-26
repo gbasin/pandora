@@ -185,7 +185,7 @@ class ClaimShapes(unittest.TestCase):
     """Every claim `enroll` can write reaches the client through the real shim.
 
     The shim used to match only one- and two-token claims and understood only
-    `strip run`. Eichler strips `validate` as well, so `pnpm validate check` ran
+    `strip run`. Acme strips `validate` as well, so `pnpm validate check` ran
     here, unrouted, unqueued. The package the shim hands off to is a fake that
     prints what it was given, so this tests the shell and nothing else.
     """

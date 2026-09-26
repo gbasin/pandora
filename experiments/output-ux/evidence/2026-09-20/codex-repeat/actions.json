@@ -16,7 +16,7 @@
     "type": "file_change",
     "changes": [
       {
-        "path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-codex-repeat/experiments/output-ux/fixture/src/schema.json",
+        "path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-codex-repeat/experiments/output-ux/fixture/src/schema.json",
         "kind": "update"
       }
     ],
