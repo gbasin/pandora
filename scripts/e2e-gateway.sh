@@ -50,14 +50,20 @@ cleanup() {
 trap cleanup EXIT
 
 # The worker's own declaration, as provision last left it. That is the honest
-# base: the teammate entry is the only delta the test applies.
+# base: the teammate entry is the only delta the test applies. The root is not
+# always ~/pandora (the e2e worker keeps an own root), so it is discovered.
 HOST=$(python3 - "$ADMIN_CONFIG" <<'PY'
 import sys, tomllib
 print(tomllib.load(open(sys.argv[1], 'rb'))['worker']['host'])
 PY
 )
 SSHA="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 $HOST"
-$SSHA 'cat ~/pandora/worker/versions.toml' > "$TMP/versions.orig.toml" \
+# shellcheck disable=SC2016   # $f and the glob expand on the remote side
+manifest_path=${PANDORA_E2E_MANIFEST:-$($SSHA \
+    'for f in ~/*/worker/versions.toml; do [ -f "$f" ] && { echo "$f"; break; }; done')}
+[ -n "$manifest_path" ] || fail "no versions.toml under any worker root on $HOST"
+WORKER_ROOT=$(dirname "$manifest_path" | xargs dirname)
+$SSHA "cat $manifest_path" > "$TMP/versions.orig.toml" \
   || fail "cannot read the worker's manifest over the admin key"
 
 # The engine root the gateway confines to, expanded as the worker sees it.
@@ -128,7 +134,8 @@ done
 # `worker status` reaches the worker through bundle.ensure and a read-only
 # worker.service verb: allowlisted feeds, a module call. Its own verdict may
 # be not-ok for unrelated drift; what must not happen is a gateway refusal.
-out=$("$PANDORA" --config "$USER_CONFIG" worker status 2>&1) && rc=0 || rc=$?
+out=$("$PANDORA" --config "$USER_CONFIG" worker --root "$WORKER_ROOT" \
+      status 2>&1) && rc=0 || rc=$?
 case "$out" in
     *"pandora-gateway: refused"*) fail "worker status was refused: $out" ;;
 esac
