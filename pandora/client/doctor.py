@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 
 from ..engine import bundle
+from ..config import loader
 from ..config.loader import FILENAME
 from ..errors import ConfigError
 from . import drain, enrollment, install, placement, settings
@@ -402,6 +403,8 @@ def check_repository(cwd, config, sock_path, data=None):
                      'a claim cache but no registration (%s); worktrees without a cache do '
                      'not route. Run `pandora enroll %s`' % (registration, root or cwd))]
     out += check_caches(cwd, root, common, kind)
+    if root is not None:
+        out += check_outputs(root, parsed.get('config'))
     home = parsed.get('home')
     if home:
         # Read for one release, never acted on: the shim runs the client from
@@ -483,8 +486,47 @@ def check_caches(cwd, root, common, kind):
     return [here, every]
 
 
+def check_outputs(root, fallback=None, *, run=subprocess.run):
+    """Declared `artifacts`/`evidence` paths must not be untracked-and-unignored.
+
+    An output that lands in the worktree visible to `ls-files --others` joins
+    the next manifest: it changes every run, so the source cache never hits.
+    `writeback` paths are fixtures -- tracked is the point of them.
+    """
+    import glob
+    try:
+        config = loader.load_for(root, fallback)
+    except (ConfigError, OSError):
+        return []
+    jobs = config.get('jobs') or {}
+    patterns = sorted({path for job in (jobs.values() if isinstance(jobs, dict) else jobs)
+                       for output in job.get('outputs') or []
+                       if output.get('kind') in ('artifacts', 'evidence')
+                       for path in output.get('paths') or []})
+    if not patterns:
+        return []
+    dirty = []
+    for pattern in patterns:
+        for match in glob.glob(str(Path(root) / pattern), recursive=True)[:10]:
+            rel = str(Path(match).resolve().relative_to(Path(root).resolve()))
+            ignored = run(['git', '-C', str(root), 'check-ignore', '-q', rel],
+                          capture_output=True).returncode == 0
+            if ignored:
+                continue
+            tracked = run(['git', '-C', str(root), 'ls-files', '-q', '--error-unmatch',
+                           rel], capture_output=True).returncode == 0
+            if not tracked:
+                dirty.append(rel)
+    if dirty:
+        return [check('declared outputs', WARN,
+                      '%d path(s) land in the worktree unignored and untracked (e.g. %s); '
+                      'they re-enter the next manifest, so the source cache never hits. '
+                      'gitignore them' % (len(dirty), dirty[0]), dirty=dirty)]
+    return [check('declared outputs', OK,
+                  'every declared output path is ignored or tracked')]
+
+
 def check_cwd(cwd):
-    """Commands are typed from the worktree root, where they mean what they say."""
     root = enrollment.worktree_root(cwd)
     if root is None:
         return check('working directory', WARN, 'not inside a worktree')

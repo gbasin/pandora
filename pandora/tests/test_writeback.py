@@ -26,7 +26,7 @@ from pandora.client.protocol import Reader, VERSION, dump
 from pandora.engine import runner
 from pandora.engine import writeback as proposals
 from pandora.engine.ledger import Ledger
-from pandora.errors import TransferError, WorkerUnreachable
+from pandora.errors import SnapshotError, TransferError, WorkerUnreachable
 from pandora.snapshot import freeze as snapshot
 from pandora.tests.test_cli import capture
 from pandora.tests.test_shards import FanoutHarness, WritingDriver
@@ -703,10 +703,58 @@ class Collect(unittest.TestCase):
         self.assertEqual((self.worktree / 'reports/kept.txt').read_text(), 'kept')
         self.assertEqual((self.worktree / 'reports/junit.xml').read_text(), '<new/>')
 
+    def test_shard_collision_evidence_stays_out_of_the_worktree(self):
+        # `.pandora-shards` is a fan-out's collision evidence, not output: it
+        # keeps to the run dir, where it can never re-enter a manifest.
+        (self.remote / '.pandora-shards' / 'shard-2' / 'reports').mkdir(parents=True)
+        (self.remote / '.pandora-shards' / 'shard-2' / 'reports' / 'junit.xml'
+         ).write_text('<contested/>')
+        (self.remote / 'reports').mkdir()
+        (self.remote / 'reports/junit.xml').write_text('<new/>')
+        collected = self.collect(declared=None)
+        self.assertEqual(collected['present'], ['reports/junit.xml'])
+        self.assertFalse((self.worktree / '.pandora-shards').exists())
+        self.assertEqual((self.staging.parent / '.pandora-shards-r1' / 'shard-2' /
+                          'reports' / 'junit.xml').read_text(), '<contested/>')
+
     def test_nothing_declared_fetches_nothing(self):
         collected = self.worker.collect('r1', {'outputs': []}, worktree=self.worktree,
                                         staging=self.staging)
         self.assertEqual(collected, {'paths': [], 'fetched': False})
+
+
+class MissingTracked(unittest.TestCase):
+    """A partial worktree is refused at submit, before anything ships."""
+
+    def submit(self, repo):
+        worker = worker_client.Worker.__new__(worker_client.Worker)
+        worker._root, worker.link = '/engine', None
+        return worker.submit(plan={'repo': 'demo', 'secrets_exclude_globs': [],
+                                   'outputs': []},
+                             worktree=str(repo), request_id='r1')
+
+    def test_a_mass_deletion_is_a_refusal_not_a_manifest(self):
+        files = {'f%02d.txt' % i: 'x\n' for i in range(60)}
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', files)
+            for name in sorted(files)[:56]:
+                os.remove(repo / name)
+            with self.assertRaises(SnapshotError) as error:
+                self.submit(repo)
+            self.assertIn('missing', str(error.exception))
+
+    def test_a_few_missing_files_still_ship(self):
+        # Under the bound the run proceeds: the next step is `ship`, faked here
+        # to prove the freeze gate let it through.
+        files = {'f%02d.txt' % i: 'x\n' for i in range(60)}
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', files)
+            os.remove(repo / 'f00.txt')
+            os.remove(repo / 'f01.txt')
+            with mock.patch.object(worker_client.transfer, 'send',
+                                   side_effect=TransferError('sentinel')):
+                with self.assertRaises(TransferError):
+                    self.submit(repo)
 
 
 # --- the daemon, whole --------------------------------------------------------

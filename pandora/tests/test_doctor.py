@@ -499,5 +499,55 @@ class AgainstARealDaemon(DaemonCase):
         self.assertIn('DOWN', item['detail'])
 
 
+CONFIG = '''
+version = 1
+[repo]
+name = "demo"
+entrypoints = ["pnpm"]
+[worker]
+base_image = "demo"
+[[jobs]]
+id = "check"
+forms = [{ prefix = ["check"] }]
+run = { argv = ["true"] }
+outputs = [{ kind = "artifacts", paths = ["reports/**"] }]
+'''
+
+
+class DeclaredOutputs(Scratch):
+    """Outputs landed in the worktree must not become next run's source."""
+
+    def make_repo(self):
+        from pandora.tests.test_snapshot import make_repo
+        repo = make_repo(self.root / 'repo', {'a.txt': 'a\n', 'pandora.toml': CONFIG})
+        return repo
+
+    def test_an_unignored_output_dir_is_warned(self):
+        repo = self.make_repo()
+        (repo / 'reports').mkdir()
+        (repo / 'reports/junit.xml').write_text('<r/>')
+        item = doctor.check_outputs(repo)[0]
+        self.assertEqual(item['status'], 'warn', item)
+        self.assertIn('source cache', item['detail'])
+
+    def test_an_ignored_output_dir_is_fine(self):
+        repo = self.make_repo()
+        (repo / '.gitignore').write_text('reports/\n')
+        (repo / 'reports').mkdir()
+        (repo / 'reports/junit.xml').write_text('<r/>')
+        item = doctor.check_outputs(repo)[0]
+        self.assertEqual(item['status'], 'ok', item)
+
+    def test_nothing_landed_yet_is_fine(self):
+        repo = self.make_repo()
+        item = doctor.check_outputs(repo)[0]
+        self.assertEqual(item['status'], 'ok', item)
+
+    def test_no_configuration_is_not_a_check(self):
+        repo = self.make_repo()
+        (repo / 'pandora.toml').unlink()
+        self.assertEqual(doctor.check_outputs(repo), [])
+
+
 if __name__ == '__main__':
     unittest.main()
