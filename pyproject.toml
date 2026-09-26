@@ -4,7 +4,7 @@
 # the tree carries it into `versions/`.
 [project]
 name = "pandora"
-version = "0.3.2"
+version = "0.3.3"
 description = "A scheduler that routes a repository's heavy commands off the machine its agents type on"
 requires-python = ">=3.11"
 license = "MIT"
