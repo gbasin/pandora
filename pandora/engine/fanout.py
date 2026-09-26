@@ -508,7 +508,7 @@ def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
             note('batch %d exhausted its %d attempts; its tests will read as unrun'
                  % (seq, cap))
 
-    respawns = 0
+    respawns, degraded = 0, []
     while live:
         settle()
         if not keep_going and not queue.halted() and queue.failed():
@@ -517,8 +517,16 @@ def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
                  'current batch, then stop.')
         finished_now = poll(paths, ledger, list(live.values()), tails=tails, log=log)
         for index in [i for i, rid in sorted(live.items()) if rid in finished_now]:
-            result = finished_now[live.pop(index)]
+            rid = live.pop(index)
+            result = finished_now[rid]
             done[index] = result
+            if result['outcome'] not in ('passed', 'command_failed', 'cancelled'):
+                # An abnormal shard death, whether or not a successor replaces
+                # it -- `done` only remembers the slot's last run, so the
+                # incident is kept here for the receipt.
+                degraded.append({'shard': index, 'run_id': rid,
+                                 'outcome': result['outcome'],
+                                 'exit_code': result.get('observed_exit')})
             parent_row = ledger.get(parent)
             cancelled = parent_row is not None and parent_row['cancel_requested']
             if (queue.snapshot()['pending'] and not queue.halted()
@@ -544,7 +552,7 @@ def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
     # verification sees it rather than a lease nobody holds.
     settle()
     return {'runs': created, 'results': done, 'not_dispatched': [],
-            'retries': [], 'queue': queue, 'every': every}
+            'retries': [], 'queue': queue, 'every': every, 'degraded': degraded}
 
 
 def shard_retryable(paths, ledger, parent, run_id, result):
@@ -769,7 +777,13 @@ def finish_queue(paths, ledger, plan, config, run_id, total, tests, children,
     if command_failed:
         return ('command_failed', 'command',
                 command_failed[0]['exit_code'] or 1, reports, evidence)
-    degraded = [row for row in failed if row['outcome'] != 'not_dispatched']
+    seen = set()
+    degraded = []
+    for row in failed + (children.get('degraded') or []):
+        if row['run_id'] in seen or row['outcome'] in ('not_dispatched',):
+            continue
+        seen.add(row['run_id'])
+        degraded.append(row)
     if degraded and not verification['verified']:
         worst = degraded[0]
         if worst['outcome'] == 'infra_failed':
@@ -784,10 +798,7 @@ def finish_queue(paths, ledger, plan, config, run_id, total, tests, children,
         note('shard %s ended %s; the queue absorbed its work'
              % (', '.join(str(row['shard']) for row in degraded),
                 degraded[0]['outcome']))
-        evidence['degraded_shards'] = [{'shard': row['shard'],
-                                        'run_id': row['run_id'],
-                                        'outcome': row['outcome']}
-                                       for row in degraded]
+        evidence['degraded_shards'] = degraded
     return 'passed', 'command', 0, reports, evidence
 
 
