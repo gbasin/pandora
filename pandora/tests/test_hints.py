@@ -87,6 +87,27 @@ class Rules(unittest.TestCase):
                                'collected': {'r.xml': 'missing'}, 'evidence': {}})
         self.assertIn('raise the size class', hint)
 
+    def test_the_order_is_pinned(self):
+        # Worst-first is the contract: a reorder changes which hint fires when
+        # several apply, and nothing else would notice.
+        self.assertEqual([rule.__name__ for rule in rules.RULES],
+                         ['oom', 'timed_out', 'drifted', 'flaky',
+                          'missing_executable', 'missing_report',
+                          'written_back', 'gitignored'])
+
+    def test_the_winner_names_itself(self):
+        # Both `missing_executable` (the spawn ENOENT) and `gitignored` (the
+        # absent config the second line blames) fire here; the earlier rule
+        # wins and its name travels with the text.
+        named = rules.hint_named({'outcome': 'command_failed', 'observed_exit': 1,
+                                  'log_tail': "spawn ffmpeg ENOENT\n"
+                                              "cannot find module './cfg/local.json'\n",
+                                  'exists': lambda token: True,
+                                  'ignored': lambda token: True,
+                                  'shipped': frozenset()})
+        self.assertEqual(named[0], 'missing_executable')
+        self.assertIn('ffmpeg', named[1])
+
 
 class PathTokens(unittest.TestCase):
     def test_it_finds_paths_inside_an_error_message(self):
@@ -233,8 +254,10 @@ class EngineAttachment(unittest.TestCase):
                                   evidence={'reason': 'oom_kill'}, receipt=None)
             ledger.close()
             self.assertIn('raise the size class for job journey', result['hint'])
+            self.assertEqual(result['hint_rule'], 'oom')
             written = json.loads(paths.result('r1').read_text())
             self.assertEqual(written['hint'], result['hint'])
+            self.assertEqual(written['hint_rule'], 'oom')
 
     def test_a_passing_result_carries_a_null_hint_rather_than_no_field(self):
         from pandora.engine.ledger import Ledger

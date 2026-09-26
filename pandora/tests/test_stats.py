@@ -43,14 +43,17 @@ class State:
         (self.root / 'runs').mkdir()
 
     def run(self, run_id, *, job, lane, outcome, started, queue_ms=None, execute=None,
-            reason='', drifted=False, drift='warn', hint=None):
+            reason='', drifted=False, drift='warn', hint=None, hint_rule=None):
         folder = self.root / 'runs' / run_id
         folder.mkdir()
         (folder / 'meta.json').write_text(json.dumps(
             {'id': run_id, 'job': job, 'lane': lane, 'started': started,
-             'queue_ms': queue_ms, 'reason': reason, 'state': 'finished'}))
+             'queue_ms': queue_ms, 'reason': reason, 'state': 'finished',
+             'hint_rule': hint_rule}))
         result = {'outcome': outcome, 'lane': lane, 'drifted': drifted, 'drift': drift,
                   'hint': hint}
+        if hint_rule:
+            result['hint_rule'] = hint_rule
         if execute is not None:
             if lane == 'remote':
                 result['durations'] = {'execute': execute}
@@ -110,6 +113,20 @@ class Build(unittest.TestCase):
         self.assertEqual(rows[0]['runs'], 2)
         self.assertEqual(rows[0]['total_seconds'], 300.0)
         self.assertEqual(rows[1]['command'], 'pnpm build')
+
+    def test_hints_roll_up_by_rule_and_name_the_jobs(self):
+        self.state.run('h1', job='surface', lane='remote', outcome='command_failed',
+                       started=600, execute=5.0, hint='x', hint_rule='gitignored')
+        self.state.run('h2', job='surface', lane='remote', outcome='command_failed',
+                       started=601, execute=5.0, hint='x', hint_rule='gitignored')
+        self.state.run('h3', job='journey', lane='remote', outcome='oom',
+                       started=602, execute=5.0, hint='x', hint_rule='oom')
+        report = stats.build(self.state.root)
+        self.assertEqual(report['hints'],
+                         [{'rule': 'gitignored', 'count': 2, 'jobs': ['surface']},
+                          {'rule': 'oom', 'count': 1, 'jobs': ['journey']}])
+        rendered = stats.render(report)
+        self.assertIn('hints: gitignored x2 (surface), oom x1 (journey)', rendered)
 
     def test_the_window_drops_old_runs_and_passthroughs(self):
         report = stats.build(self.state.root, since=150, window='test')

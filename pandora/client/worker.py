@@ -37,7 +37,8 @@ from pathlib import Path
 from ..config import classify as classifier
 from ..engine import bundle
 from ..engine import writeback as engine_writeback
-from ..errors import (EngineError, ExecutionUncertain, PandoraError, WorkerUnreachable)
+from ..errors import (EngineError, ExecutionUncertain, PandoraError, SnapshotError,
+                      WorkerUnreachable)
 from ..snapshot import freeze as snapshot
 from ..snapshot import transfer
 from . import writeback as writebacks
@@ -152,10 +153,17 @@ class Worker:
 
         try:
             enter('freeze')
+            missing = []
             manifest, dropped, input_id = snapshot.freeze(
                 worktree, exclude_globs=plan['secrets_exclude_globs'],
-                cache=getattr(self, 'state', None) and self.state / 'digests')
+                cache=getattr(self, 'state', None) and self.state / 'digests',
+                missing=missing)
             leave()
+            if len(missing) > 50 or len(missing) > len(manifest):
+                raise SnapshotError(
+                    '%d tracked files are missing from the worktree (e.g. %s); refusing '
+                    'to ship a partial tree -- restore them or commit the deletions'
+                    % (len(missing), missing[0]))
 
             enter('ship')
             shipping = {}
@@ -414,7 +422,12 @@ class Worker:
                    if (declared is None or declared.get(path) == 'present')
                    and (staging / path).exists()]
         for name in sorted(os.listdir(staging)):
-            land(staging / name, Path(worktree) / name)
+            # `.pandora-shards` is collision evidence, not output: it keeps to
+            # the run dir under the attempt's id, where a later freeze can
+            # never ship it as source.
+            target = (staging.parent / ('%s-%s' % (name, run_id))
+                      if name == '.pandora-shards' else Path(worktree) / name)
+            land(staging / name, target)
         shutil.rmtree(staging, ignore_errors=True)
         return {'paths': paths, 'present': present,
                 'missing': [path for path in paths if path not in present],

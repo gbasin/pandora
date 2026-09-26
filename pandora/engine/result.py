@@ -275,16 +275,22 @@ RULES = (oom, timed_out, drifted, flaky, missing_executable, missing_report,
          written_back, gitignored)
 
 
-def hint_for(facts):
-    """The first rule that fires, or None. Never raises: a hint is a courtesy."""
+def hint_named(facts):
+    """(rule name, text) for the first rule that fires, or None. Never raises."""
     for rule in RULES:
         try:
             answer = rule(facts or {})
         except Exception:                           # noqa: BLE001 - never fail a run for a hint
             continue
         if answer:
-            return answer
+            return rule.__name__, answer
     return None
+
+
+def hint_for(facts):
+    """The first rule that fires, or None. Never raises: a hint is a courtesy."""
+    named = hint_named(facts)
+    return named[1] if named else None
 
 
 def facts_from_result(result, **extra):

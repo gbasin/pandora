@@ -40,7 +40,7 @@ from ..errors import SnapshotError
 
 # Names that are a secret by their shape, not by configuration. A repository may
 # add to this through `[secrets] exclude_globs`; nothing can remove from it.
-SECRET_DIRS = {'.git', 'node_modules', '.pnpm-store', '.ssh'}
+SECRET_DIRS = {'.git', '.jj', 'node_modules', '.pnpm-store', '.ssh'}
 # Credential files a repository may well track or forget to ignore: direnv's
 # `.envrc`, netrc, git's credential store, PyPI's upload config, SSH keys.
 SECRET_NAMES = {'.env', '.dev.vars', '.envrc', '.netrc', '.git-credentials', '.pypirc',
@@ -50,6 +50,13 @@ SECRET_PREFIXES = ('.env.', '.dev.vars.')
 SECRET_SUFFIXES = ('.pem', '.key', '.p12', '.pfx')
 NOT_SECRET_SUFFIXES = ('.example', '.sample', '.template')
 NPMRC_MARKERS = ('_authToken', '_password', '_auth=')
+
+# Names Pandora itself writes: shard-collision evidence a fan-out leaves in the
+# remote outputs dir, and write-back's staging temporaries beside their target.
+# Neither is source; either one reaching the worktree would re-enter the next
+# manifest as an untracked file.
+OWN_DIRS = {'.pandora-shards'}
+OWN_TEMPS = '.*.pandora-*.tmp'
 
 
 def digest(path):
@@ -251,9 +258,13 @@ def excluded(name, globs=()):
     base = parts[-1]
     if any(part in SECRET_DIRS for part in parts):
         return True
+    if any(part in OWN_DIRS for part in parts):
+        return True
     if base in SECRET_NAMES or base.lower().endswith(SECRET_SUFFIXES):
         return True
     if base.startswith(SECRET_PREFIXES) and not base.endswith(NOT_SECRET_SUFFIXES):
+        return True
+    if fnmatch.fnmatch(base, OWN_TEMPS):
         return True
     return any(fnmatch.fnmatch(name, glob) or fnmatch.fnmatch(base, glob) for glob in globs)
 
@@ -480,7 +491,8 @@ def input_id(manifest):
     return hashlib.sha256(encode(manifest)).hexdigest()
 
 
-def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None):
+def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None,
+           missing=None):
     """Return (manifest, excluded_names, input_id) for a worktree.
 
     Nothing is copied. The manifest is read twice and the second read must agree
@@ -500,8 +512,21 @@ def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None):
     equivalence tests compare against. `counts`, a dict when given, receives
     how many files were read, taken from the index, or taken from the stat
     cache, over both passes.
+
+    `missing`, a list when given, receives the names git's index carries but
+    the worktree does not hold. Those files are simply absent from the
+    manifest -- nothing counts them unless a caller asks. The local lane and
+    write-back read reality as it stands and must not be refused by a gate on
+    it; the remote submit path enforces the bound.
     """
     repo = Path(repo).resolve()
+    if (repo / '.jj').is_dir() and not (repo / '.git').exists():
+        # A native Jujutsu workspace keeps its object store under `.jj` and has
+        # no index for `git ls-files` to answer from. A colocated one has both
+        # and freezes like any checkout.
+        raise SnapshotError('%s is a native Jujutsu workspace, which has no git '
+                            'index to freeze; colocate it (`jj git init '
+                            '--colocate`) or run the command directly' % repo)
     known = Identity(digests_for(cache, repo) if cache is not None else None,
                      Blobs(Path(cache) / Blobs.NAME) if cache is not None else None)
 
@@ -512,18 +537,22 @@ def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None):
         known.vouched = index_blobs(repo) if index else {}
         selected = [name for name in first if not excluded(name, exclude_globs)]
         manifest = []
+        absent = []
         for name in selected:
             record = entry(repo, name, known)
             if record is None:
+                absent.append(name)
                 continue
             if name in marks:
                 record['git'] = marks[name]
             manifest.append(record)
-        return nested, first, manifest
+        return nested, first, manifest, absent
 
-    nested, first, manifest = read()
-    if read() != (nested, first, manifest):
+    nested, first, manifest, absent = read()
+    if read() != (nested, first, manifest, absent):
         raise SnapshotError('the worktree changed while it was being frozen; retry')
+    if missing is not None:
+        missing.extend(absent)
     dropped = [name for name in first if excluded(name, exclude_globs)]
     known.save()
     if counts is not None:

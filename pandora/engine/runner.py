@@ -30,7 +30,7 @@ from ..executor.incus import IncusDriver
 from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFailed,
                                   InstanceLost, Limits, PrepareFailed, Result, Toolchain, Usage)
 from .ledger import Ledger, row_to_dict
-from .result import facts_from_result, hint_for
+from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, gate, size_line
 from . import admission, history, retry, turbocache, writeback
 
@@ -567,7 +567,10 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
     # Attached at collect time, from evidence already in hand. The two rules
     # that need the Mac -- a gitignored path and worktree drift -- come back as
     # None here and are filled in by the client, which has the worktree.
-    result['hint'] = hint_for(facts_from_result(result))
+    named = hint_named(facts_from_result(result))
+    result['hint'] = named[1] if named else None
+    if named:
+        result['hint_rule'] = named[0]
     paths.attempt(run_id).mkdir(parents=True, exist_ok=True)
     write_json(paths.result(run_id), result)
     if pair is not None:

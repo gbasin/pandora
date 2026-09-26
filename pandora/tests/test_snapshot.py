@@ -32,7 +32,8 @@ def make_repo(root, files):
 class ExcludeTest(unittest.TestCase):
     def test_secret_shapes_are_excluded_by_name(self):
         for name in ('.env', '.env.local', 'apps/web/.dev.vars', 'certs/server.pem',
-                     'keys/id_ed25519', 'a/.ssh/config', 'node_modules/x/index.js'):
+                     'keys/id_ed25519', 'a/.ssh/config', 'node_modules/x/index.js',
+                     '.jj/repo/store/git/config'):
             self.assertTrue(snapshot.excluded(name), name)
 
     def test_credential_files_a_repository_may_track_are_excluded(self):
@@ -52,6 +53,19 @@ class ExcludeTest(unittest.TestCase):
     def test_the_repository_may_widen_the_list_but_the_builtins_always_apply(self):
         self.assertTrue(snapshot.excluded('secrets/thing.txt', ['secrets/*']))
         self.assertTrue(snapshot.excluded('.env', []))
+
+    def test_pandoras_own_names_are_not_source(self):
+        # Shard-collision evidence lands in the remote outputs dir and used to
+        # be moved into the worktree; a write-back temporary sits beside its
+        # target. Either one in a manifest is machinery posing as source.
+        for name in ('.pandora-shards/shard-1/report.json',
+                     'apps/web/.pandora-shards/shard-2/x.json',
+                     'fixtures/.a.ledger.jsonl.pandora-412.tmp',
+                     'fixtures/.a.ledger.jsonl.pandora-412.1.tmp'):
+            self.assertTrue(snapshot.excluded(name), name)
+        for name in ('.pandora/config.json', 'src/lock.pandora-1.tmp',
+                     'src/pandora.tmp'):
+            self.assertFalse(snapshot.excluded(name), name)
 
 
 class FreezeTest(unittest.TestCase):
@@ -107,6 +121,35 @@ class FreezeTest(unittest.TestCase):
             one = make_repo(Path(tmp) / 'one', {'a.txt': 'a\n'})
             two = make_repo(Path(tmp) / 'two', {'a.txt': 'a\n'})
             self.assertEqual(snapshot.freeze(one)[2], snapshot.freeze(two)[2])
+
+    def test_tracked_files_gone_from_disk_are_counted_not_shipped(self):
+        # `rm` without `git rm` leaves the index carrying names the worktree
+        # does not hold: they must not silently shrink the manifest.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n', 'b.txt': 'b\n',
+                                                  'sub/c.txt': 'c\n'})
+            os.remove(repo / 'b.txt')
+            os.remove(repo / 'sub/c.txt')
+            missing = []
+            manifest, _, _ = snapshot.freeze(repo, missing=missing)
+            self.assertEqual(missing, ['b.txt', 'sub/c.txt'])
+            self.assertEqual([record['path'] for record in manifest],
+                             ['a.txt'])
+            # A caller that does not ask is unchanged.
+            manifest, _, _ = snapshot.freeze(repo)
+            self.assertEqual([record['path'] for record in manifest], ['a.txt'])
+
+    def test_a_native_jujutsu_workspace_is_refused_by_name(self):
+        # No git index exists for `ls-files` to answer from; the refusal names
+        # the colocation fix rather than reporting an opaque git failure.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            (repo / '.jj').mkdir()
+            (repo / '.git').rename(repo / '.git-store')   # native jj: no .git
+            with self.assertRaises(SnapshotError) as error:
+                snapshot.freeze(repo)
+            self.assertIn('Jujutsu', str(error.exception))
+            self.assertIn('colocate', str(error.exception))
 
     def test_one_changed_byte_is_a_different_input_id(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -140,6 +140,9 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     oom = 0
     retried = {'runs': 0, 'recovered': 0, 'causes': {}}
     flaky = {'pairs': 0, 'shard_pairs': 0}
+    # Which named rule wrote each run's hint: a hint that keeps firing is a
+    # configuration bug, and nobody sees it unless it is counted.
+    hints = {}
     queued, queue_timeouts = [], 0
     overrides = overrides_from(runs, passthrough)
     for meta, result in runs:
@@ -182,6 +185,11 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         if pair.get('order'):
             flaky['pairs'] += 1
         flaky['shard_pairs'] += len(pair.get('shards') or [])
+        rule = result.get('hint_rule') or meta.get('hint_rule')
+        if rule:
+            entry = hints.setdefault(rule, {'count': 0, 'jobs': set()})
+            entry['count'] += 1
+            entry['jobs'].add(job)
     return {
         'window': window or ('all' if since is None else None),
         'since': since,
@@ -202,6 +210,8 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         'drift': drift,
         'retries': retried,
         'flaky': flaky,
+        'hints': [{'rule': rule, 'count': item['count'], 'jobs': sorted(item['jobs'])}
+                  for rule, item in sorted(hints.items(), key=lambda i: -i[1]['count'])],
         'pause': pause or {},
         'local': local or {},
         'overrides': overrides,
@@ -356,6 +366,11 @@ def render(report):
     if flaky.get('pairs') or flaky.get('shard_pairs'):
         flags.append('flaky: %d run pair(s), %d shard pair(s) failed and passed on one input'
                      % (flaky.get('pairs', 0), flaky.get('shard_pairs', 0)))
+    hints = report.get('hints') or []
+    if hints:
+        flags.append('hints: ' + ', '.join(
+            '%s x%d (%s)' % (row['rule'], row['count'], '/'.join(row['jobs'][:3]))
+            for row in hints))
     if report['drift']['warned'] or report['drift']['failed']:
         flags.append('drift: %d warning(s), %d failure(s)'
                      % (report['drift']['warned'], report['drift']['failed']))

@@ -14,7 +14,7 @@ nothing useful to say about a path in its output.
 import subprocess
 from pathlib import Path
 
-from ..engine.result import LOG_TAIL_BYTES, facts_from_result, hint_for
+from ..engine.result import LOG_TAIL_BYTES, facts_from_result, hint_named
 
 
 def log_tail(path, limit=LOG_TAIL_BYTES):
@@ -73,7 +73,15 @@ def git_ignored(worktree):
 
 
 def for_run(result, *, worktree, log_path=None, shipped=(), tail=None, ignored=None):
-    """The hint for one finished run, engine-first, client-filled.
+    """The hint for one finished run, engine-first, client-filled."""
+    named = for_run_named(result, worktree=worktree, log_path=log_path,
+                          shipped=shipped, tail=tail, ignored=ignored)
+    return named[1] if named else None
+
+
+def for_run_named(result, *, worktree, log_path=None, shipped=(), tail=None,
+                  ignored=None):
+    """(rule name, text) for one finished run, engine-first, client-filled.
 
     `shipped` is the frozen manifest's path set when the daemon still has it.
     An empty one is not a claim that nothing was shipped -- it only means the
@@ -83,7 +91,7 @@ def for_run(result, *, worktree, log_path=None, shipped=(), tail=None, ignored=N
     if not isinstance(result, dict):
         return None
     if result.get('hint'):
-        return result['hint']
+        return result.get('hint_rule'), result['hint']
     root = Path(worktree) if worktree else None
     text = tail if tail is not None else (log_tail(log_path) if log_path else '')
     facts = facts_from_result(
@@ -93,4 +101,4 @@ def for_run(result, *, worktree, log_path=None, shipped=(), tail=None, ignored=N
         drift_paths=result.get('drift_paths') or [],
         exists=(lambda token: (root / token).exists()) if root else None,
         ignored=(ignored or (git_ignored(root) if root else None)))
-    return hint_for(facts)
+    return hint_named(facts)
