@@ -31,13 +31,17 @@ SSHC="$HOME/.ssh/config"
 
 cleanup() {
     # The managed block and the ssh alias come off no matter how the run ends.
-    [ -f "$TMP/key" ] && $SSHA '
-        awk "/pandora users >>>/{f=1;next}/pandora users <<</{f=0;next}!f" \
-            ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new \
-        && cat ~/.ssh/authorized_keys.new > ~/.ssh/authorized_keys \
-        && rm -f ~/.ssh/authorized_keys.new' 2>/dev/null \
-        || echo "::warning::e2e-gateway: cleanup could not reach the worker;" \
-                "the managed authorized_keys block may still be on it"
+    # $TMP/key is removed once the inline revoke has run, so a pass leaves this
+    # a no-op rather than a second attempt.
+    if [ -f "$TMP/key" ]; then
+        $SSHA '
+            awk "/pandora users >>>/{f=1;next}/pandora users <<</{f=0;next}!f" \
+                ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new \
+            && cat ~/.ssh/authorized_keys.new > ~/.ssh/authorized_keys \
+            && rm -f ~/.ssh/authorized_keys.new' 2>/dev/null \
+            || echo "::warning::e2e-gateway: cleanup could not reach the worker;" \
+                    "the managed authorized_keys block may still be on it"
+    fi
     if [ -f "$SSHC" ]; then
         awk '/pandora-e2e-gateway >>>/{f=1;next}/pandora-e2e-gateway <<</{f=0;next}!f' \
             "$SSHC" > "$SSHC.tmp" \
