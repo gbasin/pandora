@@ -1467,8 +1467,27 @@ class Hints(DaemonCase):
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.exit, 1)
         self.assertIn(b'tmp/fixture.json exists locally but is gitignored', answer.err)
-        self.assertIn('[sync] include', self.result_of(answer.accepted['run'])['hint'])
-        self.assertTrue(answer.err.rstrip().splitlines()[-1].startswith(b'pandora: hint: '))
+        result = self.result_of(answer.accepted['run'])
+        self.assertIn('[sync] include', result['hint'])
+        self.assertEqual(result['hint_rule'], 'gitignored')
+
+    def test_a_finished_run_leaves_a_perfetto_trace_beside_its_result(self):
+        original = FakeWorker.follow
+
+        def follow(self, run_id, **kwargs):
+            return {'outcome': 'passed', 'cli_exit': 0,
+                    'durations': {'queue': 0.1, 'execute': 2.0}}, 0
+
+        FakeWorker.follow = follow
+        self.addCleanup(setattr, FakeWorker, 'follow', original)
+        answer = self.call(['pnpm', 'unit'])
+        run_dir = self.state / 'runs' / answer.accepted['run']
+        self.assertTrue((run_dir / 'trace.json').exists())
+        import json as json_module
+        events = json_module.loads((run_dir / 'trace.json').read_text())['traceEvents']
+        spans = {event['name']: event for event in events}
+        self.assertEqual(spans['execute']['dur'], 2_000_000)
+        self.assertTrue(all(event['ph'] == 'X' for event in events))
 
     def test_a_path_the_snapshot_shipped_is_not_blamed(self):
         ignored = self.repo / 'tmp' / 'fixture.json'
