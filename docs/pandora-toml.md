@@ -67,11 +67,16 @@ equal the planned partition exactly.
 `strategy = "queue"` is a third cut, on the same tier-2 `plan`: instead of
 fixing the partition at dispatch, the engine flattens the inventory into
 batches and each shard is a session that pulls them first-free-first-served.
-Its runner reads `PANDORA_BATCH_FILE` (a JSON spec: `{"batch": n, "testIds":
-[...]}`), runs those ids, and writes the report to `PANDORA_BATCH_REPORT`, once
-per pull. A shard that dies holds only the batch it was on; the parent requeues
-it up to `batch_attempts` times, then names it dead, and `verified` still means
-every planned id was observed exactly once.
+The job's `run` command is invoked once per batch inside each shard's one
+long-lived instance, and reads the batch spec at `PANDORA_BATCH_FILE` (a JSON
+`{"batch": n, "testIds": [...]}`), runs those ids, and writes the report to
+`PANDORA_BATCH_REPORT`, once per pull. A shard that dies holds only the batch
+it was on; the parent requeues it up to `batch_attempts` times, then names it
+dead, and `verified` still means every planned id was observed exactly once.
+There is no `strategy` to flip on an `argv` job: a queue job's runner is
+different code that implements the batch contract.
+[`pandora/config/examples/acme-surface-queue.pandora.toml`](../pandora/config/examples/acme-surface-queue.pandora.toml)
+is the worked version of the same job written two ways.
 
 ### Top-level tables
 

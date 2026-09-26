@@ -1,0 +1,58 @@
+version = 1
+# A queue-fed variant of acme-surfaces.pandora.toml. The plan step is the same;
+# what changes is who assigns the work. Under `queue`, `run.argv` is invoked
+# once per batch -- not once per shard -- and the runner reads the batch spec
+# from PANDORA_BATCH_FILE instead of a `--shard=i/n` flag. There is nothing to
+# flip on an argv job: the runner is different code.
+[repo]
+name = "acme"
+entrypoints = ["pnpm"]
+
+[worker]
+base_image = "images:ubuntu/24.04"
+
+[[jobs]]
+id = "surface"
+summary = "Playwright end-to-end against the built apps"
+cancel = { signal = "SIGINT", grace_ms = 60000 }
+usage = "Use pnpm test:surface <web|desk> [Playwright selectors] [--grep <pattern>]."
+args = "required"
+timeout_minutes = 30
+forms = [{ prefix = ["test:surface"] }, { prefix = ["surface"] }]
+value_flags = ["--grep"]
+validate = { argv = ["node", "tools/validation/surface-runner.mjs", "validate", "{args}"], timeout_ms = 4000 }
+# Invoked once per batch inside each shard's one long-lived instance. The
+# runner's batch mode reads the spec at PANDORA_BATCH_FILE ({"batch": n,
+# "testIds": [...]}), runs exactly those ids, and writes {"observed": [...]} to
+# PANDORA_BATCH_REPORT. There is no shard flag to append -- the queue, not the
+# partition, hands out the work.
+run = { argv = ["node", "tools/validation/surface-runner.mjs", "run-batch", "{args}", "--no-build"] }
+
+[[jobs.reject]]
+args = ["--shard", "--shards", "--no-build", "--batch", "--report", "--out"]
+message = "Sharding, build skipping and report paths belong to Pandora and the surface runner."
+
+[jobs.shards]
+strategy = "queue"
+# `default` and `max` now mean instances, not slices: N long-lived shards each
+# pulling batches until the queue drains.
+default = 2
+max = 8
+# A queue has no partition to pin, so there is no template, expect_flag or
+# report glob. The plan is still required -- it is where the inventory comes
+# from -- and its own per-shard split is ignored; only the union and the order
+# it lists tests in survive.
+plan = ["node", "tools/validation/surface-runner.mjs", "plan", "{args}",
+        "--build", "--shards", "{n}", "--out", "{plan}"]
+plan_outputs = ["apps/desk/dist", "apps/desk/e2e/dist",
+                "apps/web/dist", "apps/web/e2e/dist"]
+# 0: about four pulls per shard. batch_attempts: how many times a batch may be
+# claimed before it is named dead rather than requeued -- the cap that keeps a
+# poison test from burning instances forever.
+batch_size = 0
+batch_attempts = 2
+
+[[jobs.outputs]]
+kind = "artifacts"
+paths = ["apps/desk/test-results", "apps/desk/playwright-report",
+         "apps/web/test-results", "apps/web/playwright-report"]
