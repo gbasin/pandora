@@ -8,7 +8,7 @@
 # PANDORA_E2E_CONFIG names the e2e client config (same one selftest uses);
 # PANDORA_E2E_SSH overrides how the admin side reaches the worker.
 
-set -eu
+set -eux
 
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 PANDORA="$ROOT/bin/pandora"
