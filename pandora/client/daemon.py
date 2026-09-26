@@ -44,6 +44,7 @@ from . import attribution, runindex
 from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
+from . import trace
 from . import writeback as writebacks
 from .health import Monitor
 from . import local as local_module
@@ -198,6 +199,10 @@ class Run:
         # `pandora stats` cannot derive from anything else afterward.
         self.accepted = None
         self.hint = None
+        # The rule that wrote `hint`, when one of the named rules did --
+        # `pandora stats` rolls these up so a hint that keeps firing reads as
+        # the configuration bug it is.
+        self.hint_rule = None
         # The local run a remote row handed its request to, when a fallback
         # admitted it. Without it a `fell_back` row is a dead end in `ps`.
         self.fell_back_to = None
@@ -259,7 +264,8 @@ class Run:
                    'started': self.started, 'accepted': self.accepted,
                    'queue_ms': (None if self.accepted is None
                                 else int((self.accepted - self.started) * 1000)),
-                   'hint': self.hint, 'attempts': self.attempts, 'phase': self.phase,
+                   'hint': self.hint, 'hint_rule': self.hint_rule,
+                   'attempts': self.attempts, 'phase': self.phase,
                    'pre_accept': self.pre_accept, 'updated': now(),
                    'placement': self.request.get('placement'), 'owner': OWNER,
                    # A write-back run, so a daemon that finds this row before
@@ -436,7 +442,7 @@ class Run:
         self.append(dump({'t': 'said', 's': 'err', 'b64': base64.b64encode(
             ('pandora: ' + text + '\n').encode()).decode()}))
 
-    def suggest(self, text):
+    def suggest(self, text, rule=None):
         """The last line the caller sees, when there is one worth saying.
 
         Said as a note rather than as a frame of its own so that it lands in the
@@ -446,6 +452,7 @@ class Run:
         if not text or text == self.hint:
             return
         self.hint = text
+        self.hint_rule = rule
         self.note('hint: ' + text)
 
     def finish(self, code, *, state='done', result=None):
@@ -462,10 +469,14 @@ class Run:
         self.result = result
         if isinstance(result, dict) and result.get('hint') is None and self.hint:
             result['hint'] = self.hint
+            if self.hint_rule:
+                result['hint_rule'] = self.hint_rule
         if isinstance(result, dict) and self.request.get('placement'):
             result.setdefault('placement', self.request['placement'])
         if result is not None:
             (self.dir / 'result.json').write_text(json.dumps(result, indent=1, sort_keys=True) + '\n')
+            trace.write(self.dir, {'started': self.started, 'accepted': self.accepted,
+                                   'pre_accept': self.pre_accept}, result)
         self.save()
         self.append(dump({'t': 'exit', 'code': code, 'run': self.id}))
         self.done.set()
@@ -2224,7 +2235,9 @@ class Daemon:
         run.note('%s in %.1fs (local, peak %s MiB of %s reserved)'
                  % (result['outcome'], result['wall_seconds'], result['peak_mib'],
                     result['reservation_mib']))
-        run.suggest(self.hint_for(run, result, worktree or request['cwd']))
+        named = self.hint_for(run, result, worktree or request['cwd'])
+        if named:
+            run.suggest(named[1], rule=named[0])
         run.finish(result['cli_exit'], state=result['outcome'], result=result)
 
     def validator_env(self, request, plan):
@@ -2413,10 +2426,12 @@ class Daemon:
                     'reached a verdict, so this is not a test result -- check the worker '
                     'with pandora stats' % (first['remote'], first['cause'],
                                             run.remote, cause))
+                result['hint_rule'] = 'retry'
         elif cause is not None:
             result['retry'] = {'retried': False, 'cause': cause, 'why': why}
             result['hint'] = ('infrastructure failure (%s) was not retried: %s; nothing '
                               'reached a verdict' % (cause, why))
+            result['hint_rule'] = 'retry'
         return False
 
     def deliver(self, run, repo, plan, result):
@@ -2457,7 +2472,9 @@ class Daemon:
         run.note('%s in %.1fs (%s, peak %s MiB, %s)' % (
             result['outcome'], result.get('wall_seconds', 0), result.get('layer'),
             result.get('peak_mib'), result.get('run_id')))
-        run.suggest(self.hint_for(run, result, run.worktree()))
+        named = self.hint_for(run, result, run.worktree())
+        if named:
+            run.suggest(named[1], rule=named[0])
         run.finish(code, state=result['outcome'], result=result)
 
     def write_back(self, run, worker, result):
@@ -2490,15 +2507,16 @@ class Daemon:
         if not isinstance(result, dict):
             return None
         if result.get('hint'):
-            return result['hint']       # the engine already had the evidence
+            # the engine already had the evidence
+            return result.get('hint_rule'), result['hint']
         if (result.get('outcome') == 'passed' and not result.get('drifted')
                 and not result.get('writeback')):
             # Nothing to advise, and reading the log's tail to prove it would be
             # a cost paid on every green run.
             return None
         try:
-            return hints.for_run(result, worktree=worktree, log_path=run.log,
-                                 shipped=run.shipped)
+            return hints.for_run_named(result, worktree=worktree, log_path=run.log,
+                                       shipped=run.shipped)
         except Exception:                        # noqa: BLE001 - a courtesy, never a verdict
             return None
 

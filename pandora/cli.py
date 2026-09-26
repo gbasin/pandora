@@ -703,6 +703,8 @@ def cmd_result(args):
         print(json.dumps(result, indent=1, sort_keys=True))
         return 0
     print(render_result(args.run, result))
+    if (path.parent / 'trace.json').exists():
+        print('  trace: %s' % (path.parent / 'trace.json'))
     return 0
 
 

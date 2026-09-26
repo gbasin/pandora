@@ -83,10 +83,10 @@ claimed gets the whole environment.
 | `pandora ps [--json] [--limit N]` | Every active run and the latest 20 completed runs. `--limit` selects 0–200 completed runs, for both text and JSON. Worker health includes the client name and other clients' live counts. Pressure includes the sample age. While a restart drains, `daemon: draining` comes first. A remote run not yet accepted shows `freezing`, `shipping`, `submitting` or `queued #N` (its place in the worker queue, `queue` in JSON). JSON includes each run's `submitter` and `client`. |
 | `pandora wait <id> [--max-wait S]` | Re-attach and exit as the run exits. Several ids print one outcome line each and exit non-zero if any did not pass. A run no daemon follows any more is taken over, or closed with exit 70. A wait never hangs on it. |
 | `pandora logs <id>` | Replay a run's output. Who submitted it goes to stderr first. |
-| `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
+| `pandora result <id> [--json]` | Outcome, exit, submitter, client, attempts, flaky pairs and hint, and the path to the run's `trace.json` -- a Perfetto timeline of its phases that opens at ui.perfetto.dev. `--json` prints the whole result, with per-shard outcomes and the input digest. A run refused before it reached the worker has no result: this prints the refusal's cause and detail and exits 70. |
 | `pandora cancel <id>` | Stop a run. A remote instance is destroyed. A run in the worker queue is withdrawn, and nothing ran. A local run whose daemon has exited ends `cancelled`, exit 130, and its process tree is stopped when it is still the run's. |
 | `pandora resolve <id> --keep-local` or `--take-worker` | Settle a conflicted `--update` write-back. |
-| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, how long runs waited in the worker queue (p50, p95) and how many ended `queue-timeout`, what fell back and why, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
+| `pandora stats [--since 24h] [--json]` | What routed, where, how long it waited and ran, how long runs waited in the worker queue (p50, p95) and how many ended `queue-timeout`, what fell back and why, which hint rules fired and on which jobs, what claimed commands were bypassed with `PANDORA_OFF`, what heavy commands ran here unclaimed, and the worker's disk, goldens, ready state and runs per client. Its `history:` line says how many days of runs are kept (`keep_runs_days`) and when the oldest kept run started. |
 | `pandora doctor [--json]` | Check this shell and worktree. Changes nothing. |
 | `pandora selftest [--update] [--json]` | One real submission through the whole routed path on the real worker: the shim claims `pnpm selftest` in a scratch repository, an isolated test daemon on a scratch socket submits it, the engine runs it in an incus instance, and the receipt comes home. It costs one small incus run, recorded on the worker as client `e2e-<host>`, and it never touches the live daemon, config or state. Exits 0 the path worked, 1 a run failed, 70 the path could not be exercised. `--update` adds a second run whose declared write-back must land in the scratch worktree. |
 | `pandora run --detach -- <pnpm args>` | Submit, print the run id, return: at `accepted`, or at once when the run is queued on the worker. For orchestrators. `--local` and `--remote` place the run. |
@@ -119,8 +119,9 @@ pandora: hint: review `git diff` of 2 updated files, then validate without --upd
 
 A hint comes from evidence. The rules, worst first: `oom` (with the peak and a
 larger size class), `timed_out`, `drifted` (under `drift = "fail"` only),
-`flaky`, a missing report, a write-back to review, a path in the log that Git
-ignores and the snapshot therefore did not ship.
+`flaky`, a program the worker does not have, a missing report, a write-back to
+review, a path in the log that Git ignores and the snapshot therefore did not
+ship.
 
 A job that runs on the worker gets `PANDORA_CPUS`, the host's cores divided by
 the runs admitted when it starts. A runner can use it for its own parallelism.
