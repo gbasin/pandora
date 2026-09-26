@@ -1,0 +1,8 @@
+bin/pandora
+bin/pnpm
+pandora/exits.py
+pandora/client/enrollment.py
+pandora/client/protocol.py
+docs/agents.md
+docs/agents-paragraphs.md
+docs/pandora-toml.md

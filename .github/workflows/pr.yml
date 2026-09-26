@@ -1,0 +1,63 @@
+name: pr
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # Squash merges make the title the commit message, and release-please reads
+  # commit messages. The title is a conventional commit, or the changelog
+  # silently loses the change.
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: the title is a conventional commit
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s' "$TITLE" | grep -iE \
+            '^(feat|fix|perf|refactor|docs|style|tests?|build|ci|chore|revert|release)(\([^)]*\))?!?: .+' \
+          || {
+            echo "::error::the PR title becomes the commit message on squash;"
+            echo "::error::use a conventional commit: 'type(scope): summary'"
+            echo "::error::('feat' 'fix' 'perf' 'revert' write release notes; the rest do not)"
+            exit 1
+          }
+
+  # The caller contract -- exit codes, the shim's behavior, the claim-cache
+  # format, pandora.toml's schema, and the text consuming repositories copy --
+  # fails silently downstream when it changes unnoticed. A PR that touches a
+  # file in scripts/contract-files must say so: the `contract-change` label,
+  # a `type!:` title, or the words `contract-change` in the body.
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: contract files untouched, or the change is marked
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          LABELS: " ${{ join(github.event.pull_request.labels.*.name, ' ') }} "
+        run: |
+          touched=$(git diff --name-only "$BASE"...HEAD \
+                    | grep -xFf scripts/contract-files || true)
+          if [ -z "$touched" ]; then
+            echo 'no contract files touched'
+            exit 0
+          fi
+          echo 'contract files touched:'
+          echo "$touched"
+          case "$LABELS" in *' contract-change '*) exit 0 ;; esac
+          case "$TITLE" in *'!:'*) exit 0 ;; esac
+          case "$BODY" in *contract-change*) exit 0 ;; esac
+          echo '::error::this PR changes the caller contract (the files above).'
+          echo "::error::mark it with the 'contract-change' label, a 'type!:' title,"
+          echo "::error::or the words 'contract-change' in the body."
+          exit 1
