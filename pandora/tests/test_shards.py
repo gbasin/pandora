@@ -736,14 +736,18 @@ class QueueFanoutTest(FanoutHarness):
         self.assertEqual(seen, [1, 2, 3, 4])
 
     def test_a_shard_that_dies_mid_batch_loses_only_that_batch(self):
-        # Shard's first attempt at batch 3 dies with the instance; a successor
-        # claims the requeued lease and the suite still verifies.
+        # Shard's first attempt at batch 3 dies with the instance; the lease is
+        # requeued and the suite still verifies. The dead shard is an incident
+        # recorded in evidence, not a reason the run fails.
         self.arrange_queue(scripts={3: ['lost', 'ok']})
         result = self.parent(want=2)
         self.assertEqual(result['outcome'], 'passed')
         self.assertTrue(result['verification']['verified'])
         seen = sorted(seq for seqs in self.driver.executions.values() for seq in seqs)
         self.assertEqual(seen.count(3), 2)
+        self.assertEqual([item['outcome']
+                          for item in result['evidence'].get('degraded_shards', [])],
+                         ['infra_failed'])
 
     def test_a_poison_batch_exhausts_the_cap_and_is_named(self):
         self.arrange_queue(scripts={2: ['lost', 'lost']})

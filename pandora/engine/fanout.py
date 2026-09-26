@@ -500,14 +500,17 @@ def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
         launch(index, created[index])
         note('shard %d/%d is %s' % (index, total, created[index]))
 
-    respawns = 0
-    while live:
+    def settle():
         requeued, dead = queue.release_dead(finished, cap=cap)
         for seq in requeued:
             note('batch %d\'s shard is gone; it rejoins the queue' % seq)
         for seq in dead:
             note('batch %d exhausted its %d attempts; its tests will read as unrun'
                  % (seq, cap))
+
+    respawns = 0
+    while live:
+        settle()
         if not keep_going and not queue.halted() and queue.failed():
             queue.halt()
             note('a batch failed; the queue is halted. Shards finish their '
@@ -536,6 +539,10 @@ def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
                 launch(index, fresh)
         if not finished_now:
             time.sleep(POLL)
+    # The last child's finish orphans its lease in the same pass that ends the
+    # loop; one settle pass afterward moves it to dead or back to pending, so
+    # verification sees it rather than a lease nobody holds.
+    settle()
     return {'runs': created, 'results': done, 'not_dispatched': [],
             'retries': [], 'queue': queue, 'every': every}
 
@@ -755,12 +762,16 @@ def finish_queue(paths, ledger, plan, config, run_id, total, tests, children,
              'every version is kept under .pandora-shards/' % len(collisions))
 
     failed = [row for row in rows if row['outcome'] != 'passed']
-    if failed:
-        first = failed[0]
-        if all(row['outcome'] in ('passed', 'command_failed') for row in rows):
-            return 'command_failed', 'command', first['exit_code'] or 1, reports, evidence
-        worst = next(row for row in rows
-                     if row['outcome'] not in ('passed', 'command_failed'))
+    # A failed batch is a test verdict. A dead shard is not: under a queue the
+    # unit of truth is coverage, and a shard whose leased batches were absorbed
+    # by the survivors is an incident to record, not a reason to fail.
+    command_failed = [row for row in rows if row['outcome'] == 'command_failed']
+    if command_failed:
+        return ('command_failed', 'command',
+                command_failed[0]['exit_code'] or 1, reports, evidence)
+    degraded = [row for row in failed if row['outcome'] != 'not_dispatched']
+    if degraded and not verification['verified']:
+        worst = degraded[0]
         if worst['outcome'] == 'infra_failed':
             evidence['cause'] = 'shard-failed'
         return worst['outcome'], 'engine', worst['exit_code'], reports, evidence
@@ -769,6 +780,14 @@ def finish_queue(paths, ledger, plan, config, run_id, total, tests, children,
         # them, run the suite. That is an engine verdict, and it is not a pass.
         evidence['cause'] = 'partition-unverified'
         return 'infra_failed', 'engine', None, reports, evidence
+    if degraded:
+        note('shard %s ended %s; the queue absorbed its work'
+             % (', '.join(str(row['shard']) for row in degraded),
+                degraded[0]['outcome']))
+        evidence['degraded_shards'] = [{'shard': row['shard'],
+                                        'run_id': row['run_id'],
+                                        'outcome': row['outcome']}
+                                       for row in degraded]
     return 'passed', 'command', 0, reports, evidence
 
 
