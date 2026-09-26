@@ -99,6 +99,31 @@ run = { argv = ["node", "other.mjs"] }
             load_text(text)
         self.assertIn('inside the worktree', str(caught.exception))
 
+    def test_an_output_path_may_name_a_positional_argument(self):
+        text = MINIMAL.replace('run = { argv = ["node", "run.mjs"] }',
+                               'args = "required"\n'
+                               'run = { argv = ["node", "run.mjs", "{args}"] }\n'
+                               'outputs = [{ kind = "artifacts", paths = ["apps/{arg1}/test-results"] }]\n')
+        job = load_text(text)['jobs']['suite']
+        self.assertEqual(job['outputs'][0]['paths'], ['apps/{arg1}/test-results'])
+
+    def test_an_output_path_substitutes_no_other_template(self):
+        base = MINIMAL.replace('run = { argv = ["node", "run.mjs"] }',
+                               'args = "required"\n'
+                               'run = { argv = ["node", "run.mjs", "{args}"] }\n')
+        for token in ('{args}', '{i}', '{app}', '{arg0}'):
+            with self.assertRaises(ConfigError) as caught:
+                load_text(base + 'outputs = [{ kind = "artifacts",'
+                                 ' paths = ["apps/%s/x"] }]\n' % token)
+            self.assertIn('{argN}', str(caught.exception))
+
+    def test_an_arg_path_needs_arguments(self):
+        text = MINIMAL + ('\noutputs = [{ kind = "artifacts",'
+                          ' paths = ["apps/{arg1}/test-results"] }]\n')
+        with self.assertRaises(ConfigError) as caught:
+            load_text(text)
+        self.assertIn("args = 'none'", str(caught.exception))
+
     def test_fallback_is_a_word(self):
         for spelling, action in (('"local"', 'local'), ('"refuse"', 'refuse')):
             job = load_text(MINIMAL + '\nfallback = %s\n' % spelling)['jobs']['suite']
@@ -372,6 +397,55 @@ class ClassifyTest(unittest.TestCase):
                          [['check'], ['check:code'], ['check:docs'], ['dev:stack'],
                           ['journey'], ['native-unit'], ['node'],
                           ['test:native-unit'], ['test:unit'], ['unit']])
+
+
+SURFACES = Path(__file__).resolve().parents[1] / 'config/examples/acme-surfaces.pandora.toml'
+
+ARG_OUTPUTS = MINIMAL.replace('run = { argv = ["node", "run.mjs"] }',
+                              'args = "required"\n'
+                              'value_flags = ["--grep"]\n'
+                              'run = { argv = ["node", "run.mjs", "{args}"] }\n'
+                              'outputs = [{ kind = "artifacts", paths = ["apps/{arg1}/test-results"] }]\n')
+
+
+class ArgPathTest(unittest.TestCase):
+    def test_the_argument_fills_the_declared_path(self):
+        verdict = classify.classify(load_text(ARG_OUTPUTS), ['pnpm', 'suite', 'desk'])
+        self.assertEqual(verdict['decision'], 'remote')
+        self.assertEqual(verdict['plan']['outputs'],
+                         [{'kind': 'artifacts', 'paths': ['apps/desk/test-results']}])
+
+    def test_a_flag_and_its_value_are_not_arguments(self):
+        verdict = classify.classify(load_text(ARG_OUTPUTS),
+                                    ['pnpm', 'suite', 'desk', '--grep', 'x'])
+        self.assertEqual(verdict['plan']['outputs'][0]['paths'], ['apps/desk/test-results'])
+
+    def test_an_argument_the_command_does_not_supply_refuses_the_claim(self):
+        text = ARG_OUTPUTS.replace('"apps/{arg1}/test-results"', '"apps/{arg1}/{arg2}"')
+        verdict = classify.classify(load_text(text), ['pnpm', 'suite', 'desk'])
+        self.assertEqual((verdict['decision'], verdict['exit']), ('reject', 64))
+        self.assertIn('argument 2', verdict['message'])
+
+    def test_a_flags_value_never_fills_a_path(self):
+        # `--grep`'s value is guarded: forwarded unexamined, so it can spell
+        # `..`. It is not a positional argument and must not render a path.
+        verdict = classify.classify(load_text(ARG_OUTPUTS), ['pnpm', 'suite', '--grep', '../x'])
+        self.assertEqual((verdict['decision'], verdict['exit']), ('reject', 64))
+
+    def test_the_surfaces_example_declares_the_selected_app(self):
+        config = loader.load(SURFACES)
+        verdict = classify.classify(config, ['pnpm', 'test:surface', 'web'])
+        self.assertEqual(verdict['decision'], 'remote')
+        self.assertEqual(verdict['plan']['outputs'][0]['paths'],
+                         ['apps/web/test-results', 'apps/web/playwright-report'])
+        self.assertEqual(verdict['plan']['shards']['plan_outputs'],
+                         ['apps/web/dist', 'apps/web/e2e/dist'])
+        self.assertEqual(verdict['plan']['shards']['report'],
+                         'apps/web/test-results/surface-run-{i}-of-{n}.json')
+        # The loaded configuration is untouched: the next claim re-expands.
+        verdict = classify.classify(config, ['pnpm', 'test:surface', 'desk'])
+        self.assertEqual(verdict['plan']['outputs'][0]['paths'],
+                         ['apps/desk/test-results', 'apps/desk/playwright-report'])
 
 
 class PreflightTest(unittest.TestCase):

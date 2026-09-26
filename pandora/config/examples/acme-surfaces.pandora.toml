@@ -4,8 +4,7 @@
 # reason: `[worker]` is the golden's identity, and a surface run needs a golden
 # with Playwright's chromium in it while a journey run needs one with the service
 # images in it. One file per toolchain keeps each golden honest about what it
-# contains. When path templating lands (`{p.app}` in the contract draft) and the
-# two toolchains are reconciled, these merge.
+# contains. When the two toolchains are reconciled, these merge.
 #
 # What sharding adds over the journey job, and nothing else does:
 #
@@ -113,13 +112,12 @@ max = 8
 plan = ["node", "tools/validation/surface-runner.mjs", "plan", "{args}",
         "--build", "--shards", "{n}", "--out", "{plan}"]
 expect_flag = "--expect"
-report = "apps/*/test-results/surface-run-{i}-of-{n}.json"
-# Both apps are listed because this file cannot yet say "the one in {args}". A
-# directory the run did not produce is reported missing and costs nothing.
-plan_outputs = ["apps/desk/dist", "apps/desk/e2e/dist",
-                "apps/web/dist", "apps/web/e2e/dist"]
+report = "apps/{arg1}/test-results/surface-run-{i}-of-{n}.json"
+# `{arg1}` is the app the caller named. Declaring per-run paths, rather than
+# every app's, is not cosmetic: a declared path the run did not produce is
+# reported missing, and a missing declared artifact fails the run.
+plan_outputs = ["apps/{arg1}/dist", "apps/{arg1}/e2e/dist"]
 
 [[jobs.outputs]]
 kind = "artifacts"
-paths = ["apps/desk/test-results", "apps/desk/playwright-report",
-         "apps/web/test-results", "apps/web/playwright-report"]
+paths = ["apps/{arg1}/test-results", "apps/{arg1}/playwright-report"]
