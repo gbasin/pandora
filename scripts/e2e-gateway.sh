@@ -64,7 +64,9 @@ PY
 )
 HOME_R=$($SSHA 'cd ~ && pwd') || fail "admin ssh to $HOST failed"
 case "$ER" in
+    /*) ;;                            # already absolute
     \~/*) ER="$HOME_R/${ER#~/}" ;;
+    *) ER="$HOME_R/${ER#.}" ;;        # relative: the wire absolutizes it too
 esac
 WORKER_ROOT="$HOME_R/pandora"
 
