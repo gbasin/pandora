@@ -10,6 +10,7 @@
 * admit remote validation in durable FIFO order ([44a6f4f](https://github.com/gbasin/pandora/commit/44a6f4f32e8ed31ce772961c7648b13aee5b4f0b))
 * bound artifact delivery with same-attempt recovery ([#47](https://github.com/gbasin/pandora/issues/47)) ([b7791cc](https://github.com/gbasin/pandora/commit/b7791cc7eac28f4e6c568eb14ab3b33eca0bfa50))
 * define surface shard plans ([a2367c8](https://github.com/gbasin/pandora/commit/a2367c850925670c59aac588214311d0e6a10e99))
+* fetch and install a published release; a bare `pandora upgrade` means the latest ([#162](https://github.com/gbasin/pandora/issues/162)) ([412da0c](https://github.com/gbasin/pandora/commit/412da0c219ec9a84421ea38e59676c207f51bf80))
 * integrate focused journey expectation return and retry ([3e930da](https://github.com/gbasin/pandora/commit/3e930da79a6d00ca441db39e1e15cc0413a94984))
 * integrate surface shards with worker receipts and output return ([6f81e21](https://github.com/gbasin/pandora/commit/6f81e21931d885b228a9a5ff53fc36617c951032))
 * reserve queued images and collect acknowledged unused build tags ([20fa022](https://github.com/gbasin/pandora/commit/20fa022fdd9381eddfecdd1d03ad09d980f8734c))
@@ -18,6 +19,7 @@
 * route an isolated service-backed journey through SSH ([5b82b45](https://github.com/gbasin/pandora/commit/5b82b4547c1c1b18c635257e69cf778955bd6cdc))
 * route scoped Docker build and run workflows over SSH ([4b01422](https://github.com/gbasin/pandora/commit/4b0142253a1be1989b5daca71a638393d2ba491b))
 * route surface validation through planner ([3fa7753](https://github.com/gbasin/pandora/commit/3fa7753dac36619b825c91bf4f777f91c1ce193b))
+* teammate keys on a shared worker get a gateway, not a shell ([#161](https://github.com/gbasin/pandora/issues/161)) ([5c8a10a](https://github.com/gbasin/pandora/commit/5c8a10a9d5c61a109aa38252c510f7905a192dc9))
 
 
 ### Bug Fixes
