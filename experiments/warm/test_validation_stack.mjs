@@ -141,7 +141,7 @@ test('startValidationStack dynamically loads the target stack and returns heavy-
   assert.deepEqual(result.env, {
     DATABASE_OWNER_URL: 'owner-url',
     DATABASE_WS_PROXY: 'proxy-url',
-    IKE_API_URL: 'api-url',
+    APP_API_URL: 'api-url',
     JOURNEY_CONCURRENCY: '4',
   });
 });

@@ -93,7 +93,7 @@ class CommandsTests(unittest.TestCase):
 
     def test_surface_preserves_exact_file_and_grep_argv_for_each_app(self):
         for command, expected in (
-            (['test:surface', 'borrower-web', 'smoke.spec.ts', '--grep', 'income'],
+            (['test:surface', 'web', 'smoke.spec.ts', '--grep', 'income'],
              ['smoke.spec.ts', '--grep', 'income']),
             (['test:surface', 'desk', '--grep', 'assign loan', 'tasks.spec.ts'],
              ['--grep', 'assign loan', 'tasks.spec.ts']),
@@ -122,24 +122,24 @@ class CommandsTests(unittest.TestCase):
         self.assertEqual(classify(['test:surface', 'desk', '--keep-going', '--keep-going'])[0], 'reject')
 
     def test_three_treatments(self):
-        direct = ['--filter', '@eichler/borrower-web', 'test:e2e', 'smoke.spec.ts', '--workers=1']
+        direct = ['--filter', '@acme/web', 'test:e2e', 'smoke.spec.ts', '--workers=1']
         self.assertEqual(classify(direct, 'normal')[0], 'local')
         blocked = classify(direct, 'block')
         self.assertEqual(blocked[0], 'reject')
-        self.assertIn('pnpm test:surface borrower-web smoke.spec.ts', blocked[2])
+        self.assertIn('pnpm test:surface web smoke.spec.ts', blocked[2])
         self.assertEqual(classify(direct, 'redirect')[:2], ('remote', ['smoke.spec.ts']))
 
     def test_unsupported_flags_never_silently_change_a_remote_run(self):
         for command in (
-            ['test:surface', 'borrower-web', '--update-snapshots'],
+            ['test:surface', 'web', '--update-snapshots'],
             ['test:surface', 'desk', '--ui'],
             ['test:surface', 'ops', 'smoke.spec.ts'],
             ['validate', 'surface', 'ops', 'smoke.spec.ts'],
             ['test:surface', 'desk', '--grep'],
-            ['test:surface', 'borrower-web', '--grep', 'first', '--grep', 'second'],
+            ['test:surface', 'web', '--grep', 'first', '--grep', 'second'],
         ):
             self.assertEqual(classify(command)[0], 'reject')
-        self.assertEqual(classify(['--filter', '@eichler/borrower-web', 'test:e2e', '--ui'], 'redirect')[0], 'reject')
+        self.assertEqual(classify(['--filter', '@acme/web', 'test:e2e', '--ui'], 'redirect')[0], 'reject')
         self.assertEqual(classify(['install', '--frozen-lockfile'], 'block')[0], 'local')
 
 

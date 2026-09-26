@@ -15,8 +15,8 @@ section of `pandora --help`, for orchestrators that ask for it.
 Replace `<validation notes>` with the path of the repository's own validation
 document, and pick the subdirectory bullet that matches its `pandora.toml`.
 
-Eichler is one consumer. Its `pandora.toml` sets `subdirectory =
-"passthrough"`. Its `tools/notes/local-validation.md` covers what eichler owns
+Acme is one consumer. Its `pandora.toml` sets `subdirectory =
+"passthrough"`. Its `tools/notes/local-validation.md` covers what acme owns
 and points to the README and `pandora --help` for the rest.
 
 ## Short paragraph for `AGENTS.md`

@@ -11,9 +11,9 @@ from incus_driver import IncusDriver, run
 from interface import Limits, Toolchain, DestroyIncomplete, MemoryExceeded
 
 ROOT = Path(os.environ.get('PANDORA_ROOT', Path.home() / 'incus-exec'))
-SOURCE = ROOT / 'eichler'
+SOURCE = ROOT / 'acme'
 
-EICHLER = Toolchain(
+ACME = Toolchain(
     base_image='images:ubuntu/26.04',
     packages=('docker.io', 'docker-compose-v2', 'docker-buildx', 'ca-certificates',
               'curl', 'xz-utils', 'git', 'python3', 'jq', 'rsync'),
@@ -21,7 +21,7 @@ EICHLER = Toolchain(
     pnpm_version='12.3.4',
     service_images=('postgres:16', 'edoburu/pgbouncer:latest', 'ghcr.io/neondatabase/wsproxy:latest'),
     install_command='pnpm install --frozen-lockfile 2>&1 | tail -2',
-    source_id='eichler-journey-runner-proxy',
+    source_id='acme-journey-runner-proxy',
 )
 
 JOURNEY = ['node', 'tools/validation/journey-runner.mjs', 'run', 'S0-01']
@@ -52,7 +52,7 @@ def emit(record):
 
 
 def golden(driver):
-    result = driver.prepare(EICHLER, source=SOURCE)
+    result = driver.prepare(ACME, source=SOURCE)
     emit({'event': 'golden', **result.__dict__, 'disk_mib': result.disk_bytes // 1048576})
     return result
 
@@ -133,12 +133,12 @@ def main():
     if command == 'golden':
         golden(driver)
     elif command == 'inject':
-        measure_injection(driver, driver.prepare(EICHLER, source=SOURCE))
+        measure_injection(driver, driver.prepare(ACME, source=SOURCE))
     elif command == 'run':
         limits = Limits(memory_mib=int(sys.argv[3]) if len(sys.argv) > 3 else 3072,
                         ceiling_mib=int(sys.argv[4]) if len(sys.argv) > 4 else 5120,
                         cpus_hint=int(sys.argv[5]) if len(sys.argv) > 5 else os.cpu_count())
-        one_run(driver, driver.prepare(EICHLER, source=SOURCE), sys.argv[2], limits)
+        one_run(driver, driver.prepare(ACME, source=SOURCE), sys.argv[2], limits)
     else:
         raise SystemExit('unknown command ' + command)
 

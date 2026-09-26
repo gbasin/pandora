@@ -4,14 +4,14 @@ base=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(base/'experiments/warm'))
 from snapshot import freeze
 poc=Path(__file__).resolve().parent
-repo=Path('/Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build')
+repo=Path('/Users/you/Code/acme/.worktrees/pandora-compiled-build')
 run=poc/uuid.uuid4().hex;run.mkdir()
 start=time.monotonic()
 manifest,_=freeze(repo,run/'source')
 expected='source-edit-20260920'
 source_edit=os.environ.get('POC_SOURCE_EDIT')=='1'
 if source_edit:
- changed=run/'source/apps/borrower-web/index.html';before_stat=changed.stat()
+ changed=run/'source/apps/web/index.html';before_stat=changed.stat()
  expected='source-edit-20260921';changed.write_text(changed.read_text().replace('source-edit-20260920',expected))
  os.utime(changed,ns=(before_stat.st_atime_ns,before_stat.st_mtime_ns))
 context=run/'source'

@@ -10,19 +10,19 @@
     "beforeKill": {
       "containers": [
         {
-          "name": "ike-validation-5ee67e4e-wsproxy-1",
+          "name": "app-validation-5ee67e4e-wsproxy-1",
           "image": "ghcr.io/neondatabase/wsproxy:latest",
           "label": "proof-k",
           "state": "running"
         },
         {
-          "name": "ike-validation-5ee67e4e-pgbouncer-1",
+          "name": "app-validation-5ee67e4e-pgbouncer-1",
           "image": "edoburu/pgbouncer:latest",
           "label": "proof-k",
           "state": "running"
         },
         {
-          "name": "ike-validation-5ee67e4e-postgres-1",
+          "name": "app-validation-5ee67e4e-postgres-1",
           "image": "postgres:16",
           "label": "proof-k",
           "state": "running"
@@ -30,13 +30,13 @@
       ],
       "networks": [
         {
-          "name": "ike-validation-5ee67e4e_default",
+          "name": "app-validation-5ee67e4e_default",
           "label": "proof-k"
         }
       ],
       "volumes": [
         {
-          "name": "ike-validation-5ee67e4e_postgres-data",
+          "name": "app-validation-5ee67e4e_postgres-data",
           "label": "proof-k"
         }
       ]
@@ -44,19 +44,19 @@
     "afterKill": {
       "containers": [
         {
-          "name": "ike-validation-5ee67e4e-wsproxy-1",
+          "name": "app-validation-5ee67e4e-wsproxy-1",
           "image": "ghcr.io/neondatabase/wsproxy:latest",
           "label": "proof-k",
           "state": "running"
         },
         {
-          "name": "ike-validation-5ee67e4e-pgbouncer-1",
+          "name": "app-validation-5ee67e4e-pgbouncer-1",
           "image": "edoburu/pgbouncer:latest",
           "label": "proof-k",
           "state": "running"
         },
         {
-          "name": "ike-validation-5ee67e4e-postgres-1",
+          "name": "app-validation-5ee67e4e-postgres-1",
           "image": "postgres:16",
           "label": "proof-k",
           "state": "running"
@@ -64,13 +64,13 @@
       ],
       "networks": [
         {
-          "name": "ike-validation-5ee67e4e_default",
+          "name": "app-validation-5ee67e4e_default",
           "label": "proof-k"
         }
       ],
       "volumes": [
         {
-          "name": "ike-validation-5ee67e4e_postgres-data",
+          "name": "app-validation-5ee67e4e_postgres-data",
           "label": "proof-k"
         }
       ]
@@ -83,30 +83,30 @@
         "containers": [
           {
             "id": "f447bb096ee5829717f4af7343cdb983ecebed6cdc3624ddd8589b9cf3619d4f",
-            "name": "ike-validation-5ee67e4e-wsproxy-1",
+            "name": "app-validation-5ee67e4e-wsproxy-1",
             "state": "running"
           },
           {
             "id": "7b03725e443377f444c315c13a6489503a4a27d8ed135d35e45ffcfb0f1b4a2b",
-            "name": "ike-validation-5ee67e4e-pgbouncer-1",
+            "name": "app-validation-5ee67e4e-pgbouncer-1",
             "state": "running"
           },
           {
             "id": "8295a26e8d3be15b5cbb08073eab9fd3c84e6892029999bfd1b882fff3d5726e",
-            "name": "ike-validation-5ee67e4e-postgres-1",
+            "name": "app-validation-5ee67e4e-postgres-1",
             "state": "running"
           }
         ],
         "networks": [
           {
             "id": "b9898323151bb98c4f86609ee81992472ab55f1210f6d625d4031c22c216a732",
-            "name": "ike-validation-5ee67e4e_default"
+            "name": "app-validation-5ee67e4e_default"
           }
         ],
         "volumes": [
           {
-            "id": "ike-validation-5ee67e4e_postgres-data",
-            "name": "ike-validation-5ee67e4e_postgres-data"
+            "id": "app-validation-5ee67e4e_postgres-data",
+            "name": "app-validation-5ee67e4e_postgres-data"
           }
         ]
       },

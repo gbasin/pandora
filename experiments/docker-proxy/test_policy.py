@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from policy import Denied, Policy, decide, inject_filter, strip_version  # noqa: E402
 
 RUN = 'run-x'
-CLIENT = '/Users/dev/Code/eichler-wt/feature'
+CLIENT = '/Users/dev/Code/acme-wt/feature'
 WORKER = '/srv/pandora/runs/run-x/source'
 
 
@@ -211,7 +211,7 @@ class ContainerCreateTests(unittest.TestCase):
                 self.assertTrue(caught.exception.message.startswith('pandora-proxy:'))
 
     def test_network_mode_none_and_a_compose_network_are_fine(self):
-        for mode in ('none', 'ike-dev_default', 'bridge'):
+        for mode in ('none', 'app-dev_default', 'bridge'):
             policy().container_create({'HostConfig': {'NetworkMode': mode}})
 
 

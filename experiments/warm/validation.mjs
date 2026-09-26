@@ -1,5 +1,5 @@
 /**
- * Execute Eichler's validation planner inside Pandora's frozen source snapshot.
+ * Execute Acme's validation planner inside Pandora's frozen source snapshot.
  *
  * The snapshot intentionally has no .git directory.  This runner creates a
  * private, synthetic repository solely for commands whose tooling reads Git;
@@ -158,26 +158,26 @@ export function fullCommands(planned) {
       commands.push(argv);
       continue;
     }
-    const withoutBorrower = argv.flatMap((arg) =>
-      arg === '--filter=!@eichler/agent'
-        ? ['--filter=!@eichler/agent', '--filter=!@eichler/borrower']
+    const withoutWeb = argv.flatMap((arg) =>
+      arg === '--filter=!@acme/agent'
+        ? ['--filter=!@acme/agent', '--filter=!@acme/web']
         : [arg],
     );
     // Turbo otherwise may replay a cached test task's prior TAP output. The
     // receipt must describe tests executed for this frozen attempt.
-    commands.push([...withoutBorrower, '--force']);
+    commands.push([...withoutWeb, '--force']);
     commands.push([
       'pnpm',
       'exec',
       'turbo',
       'run',
       'build',
-      '--filter=@eichler/borrower^...',
+      '--filter=@acme/web^...',
       '--concurrency=1',
     ]);
-    commands.push(['pnpm', '--filter', '@eichler/borrower', 'exec', 'jest', '--maxWorkers=1']);
+    commands.push(['pnpm', '--filter', '@acme/web', 'exec', 'jest', '--maxWorkers=1']);
     adapted.push({
-      reason: 'The native Turbo package test invokes borrower Jest without the remote worker cap.',
+      reason: 'The native Turbo package test invokes web Jest without the remote worker cap.',
       replaced: argv,
       added: commands.slice(-3),
       turbo_force: true,

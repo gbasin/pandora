@@ -1,7 +1,7 @@
 """Bounded surface options shared by routing, capture and the worker."""
 from pathlib import PurePosixPath
 
-APPS = ('borrower-web', 'desk')
+APPS = ('web', 'desk')
 
 
 def surface_selectors(values):

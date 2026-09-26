@@ -1,4 +1,4 @@
-# Eichler's routed validation boundary, expressed as repo-owned data.
+# Acme's routed validation boundary, expressed as repo-owned data.
 #
 # Everything the repository already states in .github/workflows/ci.yml is
 # inherited by reference (`ci_job`), not restated: service containers, job-level
@@ -7,7 +7,7 @@
 # is, which floating CI tags are pinned for a reproducible worker, and which
 # files an --update run may write back.
 #
-# Lines marked SEAM depend on a small change inside eichler; each one is listed
+# Lines marked SEAM depend on a small change inside acme; each one is listed
 # in notes/repo-config-contract-draft.md with a file reference.
 
 version = 1
@@ -26,7 +26,7 @@ ci_service_roles = { postgres = "db", pgbouncer = "pool", wsproxy = "proxy" }
 "ghcr.io/neondatabase/wsproxy:latest" = "ghcr.io/neondatabase/wsproxy@sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb"
 
 [repo]
-name = "eichler"
+name = "acme"
 entrypoints = ["pnpm"]
 root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
@@ -158,7 +158,7 @@ ci_job = "journeys"
 shards = { default = 1, min = 1, max = 1 }
 timeout_minutes = 15
 forms = [{ prefix = ["test:browser-integration"] }, { prefix = ["validate", "browser-integration"] }]
-run = { argv = ["node", "tools/validate.mjs", "browser-integration"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+run = { argv = ["node", "tools/validate.mjs", "browser-integration"], env = { GITHUB_ACTIONS = "true", APP_STACK_EXTERNAL = "1" } }
 outputs = [{ kind = "artifacts", paths = ["test-results/browser-integration"] }]
 
 [[jobs]]
@@ -170,7 +170,7 @@ ci_job = "postgres"
 args = "required"
 usage = "Use pnpm test:postgres <api|scenarios> [--foundation-only for api]."
 forms = [{ prefix = ["test:postgres"] }, { prefix = ["validate", "postgres"] }]
-run = { argv = ["node", "tools/validate.mjs", "postgres", "{args}"], env = { GITHUB_ACTIONS = "true", IKE_STACK_EXTERNAL = "1" } }
+run = { argv = ["node", "tools/validate.mjs", "postgres", "{args}"], env = { GITHUB_ACTIONS = "true", APP_STACK_EXTERNAL = "1" } }
 outputs = [{ kind = "artifacts", paths = ["tmp/validation"] }]
 
 [[jobs]]
@@ -183,13 +183,13 @@ ci_job = "journeys"
 shards = { default = 1, min = 1, max = 1 }
 args = "required"
 usage = "Use pnpm journey <id> [--fault dropped] [--update]; other journey options are not routed."
-reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "APP_WORLD"]
 forms = [{ prefix = ["journey"] }, { prefix = ["validate", "journey"] }]
 options = [{ name = "--update", sets = "update", forward = true, writeback = true }]
 value_flags = ["--fault"]
 # SEAM-5: a repo-owned runner both CI and Pandora call, so execution logic stops
 # living in Pandora's validation.mjs.
-run = { argv = ["node", "tools/pandora-run.mjs", "journey", "{args}"], unset = ["CI"], env = { IKE_STACK_EXTERNAL = "1" } }
+run = { argv = ["node", "tools/pandora-run.mjs", "journey", "{args}"], unset = ["CI"], env = { APP_STACK_EXTERNAL = "1" } }
 outputs = [
   { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
   { kind = "writeback", requires_option = "update", paths = [
@@ -207,15 +207,15 @@ summary = "Sharded journey catalog"
 ci_job = "journeys"
 shards = { default = 4, min = 1, max = 32 }
 usage = "Use pnpm journeys [--update] [--keep-going]."
-reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "IKE_WORLD"]
+reject_if_set = ["JOURNEY_FILTER", "JOURNEY_SHARD", "JOURNEY_CONCURRENCY", "JOURNEY_REPLAY", "JOURNEY_TEMPLATE", "APP_WORLD"]
 forms = [{ prefix = ["journeys"] }, { prefix = ["validate", "journeys"] }]
 options = [
   { name = "--update", sets = "update", forward = true, writeback = true },
   { name = "--keep-going", sets = "keep_going" },
 ]
-run = { argv = ["node", "tools/pandora-run.mjs", "journeys"], unset = ["CI"], env = { IKE_STACK_EXTERNAL = "1", JOURNEY_CONCURRENCY = "1", JOURNEY_REPLAY = "cover" } }
+run = { argv = ["node", "tools/pandora-run.mjs", "journeys"], unset = ["CI"], env = { APP_STACK_EXTERNAL = "1", JOURNEY_CONCURRENCY = "1", JOURNEY_REPLAY = "cover" } }
 # Declared, not inherited: CI's upload-artifact path list starts with
-# /tmp/ike-stack.log, which is outside the snapshot the worker returns.
+# /tmp/app-stack.log, which is outside the snapshot the worker returns.
 outputs = [
   { kind = "artifacts", paths = ["packages/scenarios/.journeys"] },
   { kind = "writeback", requires_option = "update", paths = [
@@ -238,7 +238,7 @@ summary = "Sharded browser surface suite"
 size = "large"
 ci_lint = { job = "surfaces", matrix_params = ["app"], except = ["shards.total"] }
 args = "required"
-usage = "Use pnpm test:surface <borrower-web|desk> [files] [--grep PATTERN] [--keep-going]."
+usage = "Use pnpm test:surface <web|desk> [files] [--grep PATTERN] [--keep-going]."
 forms = [{ prefix = ["test:surface"] }, { prefix = ["validate", "surface"] }]
 options = [{ name = "--keep-going", sets = "keep_going" }]
 value_flags = ["--grep"]

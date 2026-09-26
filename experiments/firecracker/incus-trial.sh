@@ -3,7 +3,7 @@
 # private dockerd and localhost just works, without a VM.
 #
 #   net           create the spike's own bridge and profile
-#   golden        build the warm instance (docker + node + pnpm + eichler + deps + images)
+#   golden        build the warm instance (docker + node + pnpm + acme + deps + images)
 #   clone <name>  copy the golden instance, timed
 #   run <name>    journey S0-01 inside an instance, timed
 #   limits <name> what limits.memory / limits.cpu actually write to the cgroup
@@ -54,8 +54,8 @@ golden)
   t2=$(date +%s.%N)
   echo "toolchain: $(echo "$t2-$t1"|bc)s"
 
-  # eichler source, straight from the host tree, no image build
-  tar -C "$SPIKE/eichler" -cf - . | $I exec "$name" -- bash -c 'mkdir -p /work && tar -C /work -xf -'
+  # acme source, straight from the host tree, no image build
+  tar -C "$SPIKE/acme" -cf - . | $I exec "$name" -- bash -c 'mkdir -p /work && tar -C /work -xf -'
   t3=$(date +%s.%N)
   echo "source: $(echo "$t3-$t2"|bc)s"
 

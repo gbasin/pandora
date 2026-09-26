@@ -12,7 +12,7 @@ const SANITIZER_CALL = `    await command(
     );`;
 
 /**
- * Start Eichler's validation stack against Pandora-owned loopback services.
+ * Start Acme's validation stack against Pandora-owned loopback services.
  * The caller owns stack.stop() and applies env to the validation child.
  */
 export async function startValidationStack(root, signal) {
@@ -33,7 +33,7 @@ export async function startValidationStack(root, signal) {
     env: {
       DATABASE_OWNER_URL: stack.databaseOwnerUrl,
       DATABASE_WS_PROXY: stack.databaseProxy,
-      IKE_API_URL: stack.api,
+      APP_API_URL: stack.api,
       JOURNEY_CONCURRENCY: '4',
     },
   };

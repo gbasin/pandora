@@ -24,7 +24,7 @@ class WaitRecovery(unittest.TestCase):
             (output / 'artifacts.json').write_text('{}')
             (output / 'terminal.json').write_text(json.dumps({'attempt': attempt, 'exit_code': 1, 'cleanup_verified': True}))
             record = {'state': 'active', 'protocol': 2, 'tool': 'pnpm', 'output': str(output),
-                      'command': ['test:surface', 'borrower-web'], 'host': 'unused', 'attempt': attempt}
+                      'command': ['test:surface', 'web'], 'host': 'unused', 'attempt': attempt}
             route.write(state / 'active.json', record)
             owner = route.locked(route.owner_path(output))
             env = {'PANDORA_STATE': str(state_root), 'PANDORA_HOST': 'unused'}
@@ -43,7 +43,7 @@ class WaitRecovery(unittest.TestCase):
             state = state_root / hashlib.sha256(str(repo).encode()).hexdigest(); state.mkdir(parents=True)
             route.write(state / 'active.json', {'state': 'terminal', 'attempt': 'c' * 32})
             env = {'PANDORA_STATE': str(state_root), 'PANDORA_HOST': 'unused'}
-            with patch.dict(os.environ, env), patch.object(sys, 'argv', ['route.py', 'test:surface', 'borrower-web']), \
+            with patch.dict(os.environ, env), patch.object(sys, 'argv', ['route.py', 'test:surface', 'web']), \
                  patch('route.subprocess.check_output', return_value=str(repo)), patch('route.Path.cwd', return_value=repo), \
                  patch('route.subprocess.Popen', side_effect=AssertionError('late wait must not submit')):
                 self.assertEqual(route.main(expected_attempt='b' * 32, observer=True), 75)
@@ -74,7 +74,7 @@ class WaitRecovery(unittest.TestCase):
             output = state / attempt; output.mkdir(parents=True)
             (output / 'submission.json').write_text(json.dumps({'attempt': attempt, 'source_digest': 'same'}))
             record = {'state': 'active', 'protocol': 2, 'tool': 'pnpm', 'attempt': attempt,
-                      'output': str(output), 'host': 'unused', 'command': ['test:surface', 'borrower-web']}
+                      'output': str(output), 'host': 'unused', 'command': ['test:surface', 'web']}
             route.write(state / 'active.json', record)
             env = {'PANDORA_STATE': str(state_root), 'PANDORA_HOST': 'unused'}
             with patch.dict(os.environ, env), patch.object(sys, 'argv', ['route.py', *record['command']]), \

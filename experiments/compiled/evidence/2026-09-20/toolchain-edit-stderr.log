@@ -47,10 +47,10 @@
 #10 [build  5/35] COPY [apps/api/package.json, ./apps/api/package.json]
 #10 DONE 0.0s
 
-#11 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#11 [build  6/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #11 DONE 0.0s
 
-#12 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#12 [build  7/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #12 DONE 0.0s
 
 #13 [build  8/35] COPY [apps/brand-tour/package.json, ./apps/brand-tour/package.json]
@@ -80,10 +80,10 @@
 #21 [build 16/35] COPY [legacy/apps/blueprint-viewer/package.json, ./legacy/apps/blueprint-viewer/package.json]
 #21 DONE 0.0s
 
-#22 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#22 [build 17/35] COPY [legacy/apps/app-api/package.json, ./legacy/apps/app-api/package.json]
 #22 DONE 0.0s
 
-#23 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#23 [build 18/35] COPY [legacy/apps/app-web/package.json, ./legacy/apps/app-web/package.json]
 #23 DONE 0.0s
 
 #24 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
@@ -98,7 +98,7 @@
 #27 [build 22/35] COPY [legacy/packages/core/package.json, ./legacy/packages/core/package.json]
 #27 DONE 0.0s
 
-#28 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#28 [build 23/35] COPY [legacy/packages/app-ui/package.json, ./legacy/packages/app-ui/package.json]
 #28 DONE 0.0s
 
 #29 [build 24/35] COPY [package.json, ./package.json]
@@ -159,7 +159,7 @@
 #39 7.756 Done in 6.9s using pnpm v12.3.4
 #39 DONE 8.7s
 
-#40 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#40 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @acme/web build
 #40 2.309 $ vite build
 #40 2.517 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
 #40 2.573 transforming...
@@ -189,7 +189,7 @@
 #40 4.977 [32m✓ built in 2.44s[39m
 #40 DONE 5.1s
 
-#41 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#41 [stage-1 3/4] COPY --from=build /workspace/apps/web/dist /workspace/dist
 #41 CACHED
 
 #42 [stage-1 2/4] WORKDIR /workspace

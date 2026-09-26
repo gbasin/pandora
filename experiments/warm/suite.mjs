@@ -1,6 +1,6 @@
 /**
  * Frozen-catalog journey-suite adapter.  Planning is pure; a shard starts one
- * Workers runtime and lets Eichler's own plural CLI create and dispose worlds.
+ * Workers runtime and lets Acme's own plural CLI create and dispose worlds.
  */
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -195,11 +195,11 @@ try {
     const controller = new AbortController();
     process.once('SIGTERM', () => controller.abort()); process.once('SIGINT', () => controller.abort());
     stack = await startInstance({ external: true, signal: controller.signal, output: () => {} });
-    const environment = { ...process.env, IKE_API_URL: stack.api, JOURNEY_SHARD: `${config.shard}/${shardCount}`, JOURNEY_CONCURRENCY: '1', JOURNEY_REPLAY: 'cover' };
+    const environment = { ...process.env, APP_API_URL: stack.api, JOURNEY_SHARD: `${config.shard}/${shardCount}`, JOURNEY_CONCURRENCY: '1', JOURNEY_REPLAY: 'cover' };
     if (config.update) delete environment.CI;
     const filter = exactFilter(selection);
     if (filter) environment.JOURNEY_FILTER = filter; else delete environment.JOURNEY_FILTER;
-    delete environment.JOURNEY_TEMPLATE; delete environment.IKE_WORLD;
+    delete environment.JOURNEY_TEMPLATE; delete environment.APP_WORLD;
     // A frozen snapshot can force-include ignored artifacts. Never mistake an
     // earlier CLI's reports for this shard after a child startup failure.
     await Promise.all(['results.json', 'errors.json', 'coverage.json'].map((name) => rm(`${JOURNEYS}/${name}`, { force: true })));
@@ -213,7 +213,7 @@ try {
     const seen = new Set(Array.isArray(results) ? results.map((result) => result?.id).filter((id) => typeof id === 'string') : []);
     const reported = Array.isArray(errors?.unrunJourneys) ? errors.unrunJourneys : [];
     const missing = [...new Set([...reported, ...planned.filter((id) => !seen.has(id))])].sort();
-    shardReport = { version: 1, ...shardContext, exit_code: code, results, errors: { infrastructureFailures: errors?.infrastructureFailures, unrunJourneys: missing }, coverage, detail: missing.length ? `Suite did not report planned journeys: ${missing.join(', ')}` : code === 0 ? '' : 'Eichler suite CLI failed' };
+    shardReport = { version: 1, ...shardContext, exit_code: code, results, errors: { infrastructureFailures: errors?.infrastructureFailures, unrunJourneys: missing }, coverage, detail: missing.length ? `Suite did not report planned journeys: ${missing.join(', ')}` : code === 0 ? '' : 'Acme suite CLI failed' };
     status = code === 0 && !missing.length ? 0 : 1;
   }
 } catch (error) {

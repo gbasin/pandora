@@ -7,7 +7,7 @@ The private interfaces below also support bounded operator evaluations.
 
 A plan captures one source digest, the selected catalog, the global replay cover,
 and exact shard membership. Each shard uses the same source digest and recomputes
-the plan before starting the Workers runtime. Eichler's own suite CLI executes the
+the plan before starting the Workers runtime. Acme's own suite CLI executes the
 shard, including its database clones, clean runs, selected replays, and reports.
 Each request has fresh containers, services, and writable source. Dependency
 images and package caches remain reusable.
@@ -71,7 +71,7 @@ The command verifies artifact hashes, terminal cleanup, request identity, plan
 identity, and exact result membership. It prints JSON and exits zero for a passing
 suite, one for complete failure evidence, or 75 for incomplete or invalid evidence.
 Missing shards, duplicate shards, duplicate journey results, and mixed plans are
-errors. Coverage summaries retain Eichler's informational semantics; uncovered
+errors. Coverage summaries retain Acme's informational semantics; uncovered
 routes do not silently become a new test gate.
 
 ## Limits

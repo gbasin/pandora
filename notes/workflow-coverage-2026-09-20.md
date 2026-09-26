@@ -4,7 +4,7 @@ status: log
 
 # Focused journey and browser-surface coverage, 2026-09-20
 
-This trial expands the SSH pilot from S0-01 and borrower-web to focused catalog
+This trial expands the SSH pilot from S0-01 and web to focused catalog
 journeys, dropped-response replay, expectation updates, and both browser surfaces
 with file and `--grep` selectors. Agents still invoke the normal pnpm commands.
 The launcher remains opt-in and can be bypassed by direct executable paths.
@@ -30,7 +30,7 @@ agents for the adapters, integration tests, read-only review, and VM execution.
 
 ## Real VM evidence
 
-The trial used the existing 4-CPU, 16-GiB Linux worker and Eichler snapshot base
+The trial used the existing 4-CPU, 16-GiB Linux worker and Acme snapshot base
 `fbeb008a283221bfedccc8fd47a6f6337d1ddf4d`. The evaluation worktree already had
 an S0-01 expectation edit; that edit was preserved.
 
@@ -44,7 +44,7 @@ and evidence retrieval; these short focused tests had no material queue wait.
 | `journey S0-02` | 65.7 | 51.6 | `eb25309507bc4e5294a7022e4d49f365` |
 | `journey S0-02 --fault dropped` | 46.4 | 32.7 | `24fb9da936054454a39a8a56ed39a62b` |
 | `test:surface desk closing.spec.ts --grep separate package evidence` | 30.4 | 18.2 | `c974f9485e134f05b9156065864e1ada` |
-| `test:surface borrower-web origination.spec.ts --grep removal request preserves applicants` | 31.5 | 17.3 | `d8cd791a0cae4a14837b6cbee0c1d624` |
+| `test:surface web origination.spec.ts --grep removal request preserves applicants` | 31.5 | 17.3 | `d8cd791a0cae4a14837b6cbee0c1d624` |
 | `journey SX-20 --update` | 32.0 | 11.1 | `9b211f8fd1c34f37af6578101d5d3e97` |
 | `journey SX-20` | 23.9 | 10.4 | `85680adf7b8e4ae1af27fdb6b3bfebd6` |
 | `journey S0-02 --update` | 64.3 | 52.3 | `3259047608804c3392e443b47becf9cb` |

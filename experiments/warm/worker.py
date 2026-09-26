@@ -166,7 +166,7 @@ def main():
         return execute(attempt, image_id, manifest, dep_entries, metrics)
     name = 'pandora-warm-' + attempt.name
     from workflow_options import surface_selectors, surface_outputs
-    surface_app = submitted.get('surface_app', 'borrower-web')
+    surface_app = submitted.get('surface_app', 'web')
     surface_outputs(surface_app)
     surface_selectors(submitted['selectors'])
     surface_environment = []

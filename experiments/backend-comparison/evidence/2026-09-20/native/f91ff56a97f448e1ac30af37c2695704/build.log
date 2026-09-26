@@ -32,16 +32,16 @@
 #9 [build 20/35] COPY [legacy/apps/journey/package.json, ./legacy/apps/journey/package.json]
 #9 CACHED
 
-#10 [build 17/35] COPY [legacy/apps/ike-api/package.json, ./legacy/apps/ike-api/package.json]
+#10 [build 17/35] COPY [legacy/apps/app-api/package.json, ./legacy/apps/app-api/package.json]
 #10 CACHED
 
 #11 [build 28/35] COPY [packages/scenarios/package.json, ./packages/scenarios/package.json]
 #11 CACHED
 
-#12 [build 18/35] COPY [legacy/apps/ike-web/package.json, ./legacy/apps/ike-web/package.json]
+#12 [build 18/35] COPY [legacy/apps/app-web/package.json, ./legacy/apps/app-web/package.json]
 #12 CACHED
 
-#13 [build  6/35] COPY [apps/borrower-web/package.json, ./apps/borrower-web/package.json]
+#13 [build  6/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #13 CACHED
 
 #14 [build  5/35] COPY [apps/api/package.json, ./apps/api/package.json]
@@ -53,7 +53,7 @@
 #16 [build 19/35] COPY [legacy/apps/intake-lab/package.json, ./legacy/apps/intake-lab/package.json]
 #16 CACHED
 
-#17 [build 23/35] COPY [legacy/packages/ike-ui/package.json, ./legacy/packages/ike-ui/package.json]
+#17 [build 23/35] COPY [legacy/packages/app-ui/package.json, ./legacy/packages/app-ui/package.json]
 #17 CACHED
 
 #18 [build 14/35] COPY [apps/static-docs/package.json, ./apps/static-docs/package.json]
@@ -98,7 +98,7 @@
 #31 [build 30/35] COPY [packages/web-ui/package.json, ./packages/web-ui/package.json]
 #31 CACHED
 
-#32 [build  7/35] COPY [apps/borrower/package.json, ./apps/borrower/package.json]
+#32 [build  7/35] COPY [apps/web/package.json, ./apps/web/package.json]
 #32 CACHED
 
 #33 [build 10/35] COPY [apps/desk/package.json, ./apps/desk/package.json]
@@ -119,7 +119,7 @@
 #38 [build 34/35] RUN --mount=type=cache,id=pandora-compiled-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
 #38 CACHED
 
-#39 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @eichler/borrower-web build
+#39 [build 35/35] RUN --mount=type=bind,source=.,target=/inputs node /inputs/pandora-copy-source.cjs && pnpm --filter @acme/web build
 #39 1.551 $ vite build
 #39 1.753 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
 #39 1.808 transforming...
@@ -152,7 +152,7 @@
 #40 [stage-1 2/4] WORKDIR /workspace
 #40 CACHED
 
-#41 [stage-1 3/4] COPY --from=build /workspace/apps/borrower-web/dist /workspace/dist
+#41 [stage-1 3/4] COPY --from=build /workspace/apps/web/dist /workspace/dist
 #41 DONE 0.0s
 
 #42 [stage-1 4/4] COPY pandora-check-build.cjs /workspace/check.cjs

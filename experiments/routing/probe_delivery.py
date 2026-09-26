@@ -14,15 +14,15 @@ p.add_argument('--host', required=True)
 a = p.parse_args()
 a.repo = a.repo.resolve()
 a.output.mkdir(parents=True, exist_ok=False)
-saved_mode = (a.repo / 'apps/borrower-web').stat().st_mode & 0o777
-destination = a.repo / 'apps/borrower-web/dist'
+saved_mode = (a.repo / 'apps/web').stat().st_mode & 0o777
+destination = a.repo / 'apps/web/dist'
 if destination.is_symlink() or not destination.is_dir():
     raise ValueError('Probe requires an existing ordinary generated build')
 key = hashlib.sha256(str(a.repo).encode()).hexdigest()
 active = a.state / key / 'active.json'
 command = ['python3', str(Path(__file__).with_name('launch.py')), '--host', a.host,
            '--state', str(a.state), '--session', 'delivery-fault', '--',
-           'pnpm', 'test:surface', 'borrower-web', 'pandora-iteration.spec.ts']
+           'pnpm', 'test:surface', 'web', 'pandora-iteration.spec.ts']
 records = []
 
 
@@ -48,6 +48,6 @@ assert status == 0 and last['state'] == 'terminal'
 assert first['attempt'] == last['attempt']
 log = (a.output / 'delivery-recovered.log').read_text()
 assert 'Recovering existing request' in log and 'freezing current' not in log
-for name in ['apps/borrower-web/dist', 'apps/borrower-web/e2e/dist']:
-    assert '<title>Ike</title>' in (a.repo / name / 'index.html').read_text()
+for name in ['apps/web/dist', 'apps/web/e2e/dist']:
+    assert '<title>App</title>' in (a.repo / name / 'index.html').read_text()
 (a.output / 'result.json').write_text(json.dumps({'records': records, 'assertions': 'passed'}, indent=2) + '\n')

@@ -76,47 +76,47 @@ class StoreHistory(unittest.TestCase):
 
     def test_peaks_come_back_newest_first(self):
         for peak in (100, 200, 300):
-            self.store.record('eichler', 'journey', peak, 'ok')
-        self.assertEqual(self.store.peaks('eichler', 'journey'), [300, 200, 100])
+            self.store.record('acme', 'journey', peak, 'ok')
+        self.assertEqual(self.store.peaks('acme', 'journey'), [300, 200, 100])
 
     def test_repos_and_jobs_do_not_share_history(self):
-        self.store.record('eichler', 'journey', 100, 'ok')
-        self.assertEqual(self.store.peaks('eichler', 'typecheck'), [])
+        self.store.record('acme', 'journey', 100, 'ok')
+        self.assertEqual(self.store.peaks('acme', 'typecheck'), [])
         self.assertEqual(self.store.peaks('other', 'journey'), [])
 
     def test_failed_runs_still_teach_memory(self):
-        self.store.record('eichler', 'journey', 900, 'failed')
-        self.assertEqual(self.store.peaks('eichler', 'journey'), [900])
+        self.store.record('acme', 'journey', 900, 'failed')
+        self.assertEqual(self.store.peaks('acme', 'journey'), [900])
 
     def test_oom_peaks_are_stored_but_never_learned_from(self):
-        self.store.record('eichler', 'journey', 4096, 'oom')
-        self.assertEqual(self.store.peaks('eichler', 'journey'), [])
+        self.store.record('acme', 'journey', 4096, 'oom')
+        self.assertEqual(self.store.peaks('acme', 'journey'), [])
 
     def test_unknown_outcome_is_an_error(self):
         with self.assertRaises(AdmissionError):
-            self.store.record('eichler', 'journey', 100, 'exploded')
+            self.store.record('acme', 'journey', 100, 'exploded')
 
     def test_non_integer_peak_is_an_error(self):
         with self.assertRaises(AdmissionError):
-            self.store.record('eichler', 'journey', 100.5, 'ok')
+            self.store.record('acme', 'journey', 100.5, 'ok')
 
     def test_class_is_per_job_and_defaults(self):
-        self.assertEqual(self.store.size_class('eichler', 'journey'), 'medium')
-        self.store.set_class('eichler', 'journey', 'large')
-        self.assertEqual(self.store.size_class('eichler', 'journey'), 'large')
-        self.assertEqual(self.store.size_class('eichler', 'typecheck'), 'medium')
+        self.assertEqual(self.store.size_class('acme', 'journey'), 'medium')
+        self.store.set_class('acme', 'journey', 'large')
+        self.assertEqual(self.store.size_class('acme', 'journey'), 'large')
+        self.assertEqual(self.store.size_class('acme', 'typecheck'), 'medium')
 
 
 class Admit(unittest.TestCase):
     def setUp(self):
         self.admission = Admission(budget_mib=12288)
 
-    def learn(self, peaks, repo='eichler', job='journey'):
+    def learn(self, peaks, repo='acme', job='journey'):
         for peak in peaks:
             self.admission.store.record(repo, job, peak, 'ok')
 
     def test_cold_first_run_reserves_the_ceiling(self):
-        decision = self.admission.admit('r1', 'eichler', 'journey')
+        decision = self.admission.admit('r1', 'acme', 'journey')
         self.assertTrue(decision['admitted'])
         self.assertTrue(decision['cold_start'])
         self.assertEqual(decision['reservation_mib'], CLASSES['medium'])
@@ -125,7 +125,7 @@ class Admit(unittest.TestCase):
         self.learn([2900, 2950, 2880])
         reservations = []
         for index in range(4):
-            decision = self.admission.admit('r%d' % index, 'eichler', 'journey')
+            decision = self.admission.admit('r%d' % index, 'acme', 'journey')
             if not decision['admitted']:
                 break
             reservations.append(decision['reservation_mib'])
@@ -135,32 +135,32 @@ class Admit(unittest.TestCase):
     def test_refusal_names_memory_and_shows_the_arithmetic(self):
         self.learn([2900, 2950, 2880])
         for index in range(3):
-            self.admission.admit('r%d' % index, 'eichler', 'journey')
-        decision = self.admission.admit('r9', 'eichler', 'journey')
+            self.admission.admit('r%d' % index, 'acme', 'journey')
+        decision = self.admission.admit('r9', 'acme', 'journey')
         self.assertEqual(decision['reason'], 'memory')
         self.assertEqual(decision['held_mib'], 3 * 3688)
         self.assertGreater(decision['held_mib'] + decision['reservation_mib'], 12288)
 
     def test_slot_limit_refuses_before_memory_does(self):
         admission = Admission(budget_mib=100000, max_running=2)
-        admission.store.record('eichler', 'journey', 100, 'ok')
-        admission.store.record('eichler', 'journey', 100, 'ok')
-        admission.store.record('eichler', 'journey', 100, 'ok')
-        admission.admit('a', 'eichler', 'journey')
-        admission.admit('b', 'eichler', 'journey')
-        self.assertEqual(admission.admit('c', 'eichler', 'journey')['reason'], 'slots')
+        admission.store.record('acme', 'journey', 100, 'ok')
+        admission.store.record('acme', 'journey', 100, 'ok')
+        admission.store.record('acme', 'journey', 100, 'ok')
+        admission.admit('a', 'acme', 'journey')
+        admission.admit('b', 'acme', 'journey')
+        self.assertEqual(admission.admit('c', 'acme', 'journey')['reason'], 'slots')
 
     def test_finishing_releases_the_reservation(self):
         self.learn([2900, 2950, 2880])
-        self.admission.admit('r1', 'eichler', 'journey')
+        self.admission.admit('r1', 'acme', 'journey')
         self.assertEqual(self.admission.held(), 3688)
         self.admission.finish('r1', 2900, 'ok')
         self.assertEqual(self.admission.held(), 0)
 
     def test_double_admission_of_one_run_is_an_error(self):
-        self.admission.admit('r1', 'eichler', 'journey')
+        self.admission.admit('r1', 'acme', 'journey')
         with self.assertRaises(AdmissionError):
-            self.admission.admit('r1', 'eichler', 'journey')
+            self.admission.admit('r1', 'acme', 'journey')
 
     def test_finishing_an_unadmitted_run_is_an_error(self):
         with self.assertRaises(AdmissionError):
@@ -168,7 +168,7 @@ class Admit(unittest.TestCase):
 
     def test_over_reservation_under_ceiling_is_allowed_and_raises_the_next(self):
         self.learn([600, 620, 610])
-        decision = self.admission.admit('r1', 'eichler', 'journey')
+        decision = self.admission.admit('r1', 'acme', 'journey')
         self.assertEqual(decision['reservation_mib'], 775)
         outcome = self.admission.finish('r1', 1600, 'ok')
         self.assertTrue(outcome['over_reservation'])
@@ -177,7 +177,7 @@ class Admit(unittest.TestCase):
 
     def test_over_ceiling_is_oom_and_does_not_teach(self):
         self.learn([600, 620, 610])
-        self.admission.admit('r1', 'eichler', 'journey')
+        self.admission.admit('r1', 'acme', 'journey')
         outcome = self.admission.finish('r1', CLASSES['medium'], 'oom')
         self.assertTrue(outcome['over_ceiling'])
         self.assertFalse(outcome['over_reservation'])
@@ -186,14 +186,14 @@ class Admit(unittest.TestCase):
     def test_repeated_ooms_never_escalate_the_reservation(self):
         self.learn([600, 620, 610])
         for index in range(5):
-            self.admission.admit('r%d' % index, 'eichler', 'journey')
+            self.admission.admit('r%d' % index, 'acme', 'journey')
             self.admission.finish('r%d' % index, CLASSES['medium'], 'oom')
-        self.assertEqual(self.admission.reservation('eichler', 'journey')[0], 775)
+        self.assertEqual(self.admission.reservation('acme', 'journey')[0], 775)
 
     def test_a_larger_class_raises_both_numbers(self):
         self.learn([4500, 4600, 4550])
-        self.admission.store.set_class('eichler', 'journey', 'large')
-        decision = self.admission.admit('r1', 'eichler', 'journey')
+        self.admission.store.set_class('acme', 'journey', 'large')
+        decision = self.admission.admit('r1', 'acme', 'journey')
         self.assertEqual(decision['ceiling_mib'], CLASSES['large'])
         self.assertEqual(decision['reservation_mib'], 5750)
 
@@ -203,10 +203,10 @@ class Admit(unittest.TestCase):
 
     def test_snapshot_is_stable_for_evidence(self):
         self.learn([600, 620, 610])
-        self.admission.admit('r1', 'eichler', 'journey')
+        self.admission.admit('r1', 'acme', 'journey')
         self.assertEqual(self.admission.snapshot(),
                          {'budget_mib': 12288, 'held_mib': 775,
-                          'running': {'r1': {'repo': 'eichler', 'job': 'journey',
+                          'running': {'r1': {'repo': 'acme', 'job': 'journey',
                                              'reservation': 775, 'ceiling': 4096}}})
 
 

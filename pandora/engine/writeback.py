@@ -1,6 +1,6 @@
 """Write-back on the worker: which declared files a run changed, and one proposal.
 
-A `--update` run's job is to rewrite files the repository tracks -- eichler's
+A `--update` run's job is to rewrite files the repository tracks -- acme's
 journey ledgers and its route manifest. Those files must come home, but not the
 way artifacts do. An artifact directory is Pandora's to replace; a tracked
 fixture is also the agent's, and the agent may have edited it while the run was

@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-21T02:23:40.068Z",
   "scope": {
-    "request_directory": "/Users/garybasin/.local/state/eichler-validation/jobs",
+    "request_directory": "/Users/you/.local/state/acme-validation/jobs",
     "window_start_utc": "2026-09-16T00:00:00.000Z",
     "window_end_utc": "2026-09-20T23:38:23.374Z",
     "selection": "requests whose created timestamp is within the window; request fields are used only for time, root classification, and suite fallback"
@@ -24,7 +24,7 @@
     }
   },
   "root_classification": {
-    "ordinary_eichler": {
+    "ordinary_acme": {
       "requests": 1063,
       "statuses": {
         "success": 682,
@@ -57,7 +57,7 @@
         "unavailable": 89
       }
     },
-    "pandora_trial_excluded_from_ordinary_eichler": {
+    "pandora_trial_excluded_from_ordinary_acme": {
       "requests": 1,
       "statuses": {
         "success": 1,
@@ -87,7 +87,7 @@
         "unavailable": 0
       }
     },
-    "non_eichler_excluded": {
+    "non_acme_excluded": {
       "requests": 0,
       "statuses": {
         "success": 0,
@@ -162,11 +162,11 @@
     "Execution duration is finished minus started for successful receipts only. It is wall-clock time and can include queueing or shared-machine contention after start.",
     "Queue wait is started minus request created where both timestamps are valid. It omits receipts with no start timestamp.",
     "These receipts contain no CPU, memory, or per-command telemetry, so no resource attribution is possible.",
-    "Root classification is path-name based: any root containing pandora is separated as a Pandora trial; roots without eichler are excluded from Eichler aggregates.",
+    "Root classification is path-name based: any root containing pandora is separated as a Pandora trial; roots without acme are excluded from Acme aggregates.",
     "No command arguments, environment values, source hashes, job IDs, or root paths are included in this aggregate."
   ],
-  "by_suite_all_eichler_including_pandora": "omitted: use ordinary table and pandora trial aggregate",
-  "by_suite_ordinary_eichler": {
+  "by_suite_all_acme_including_pandora": "omitted: use ordinary table and pandora trial aggregate",
+  "by_suite_ordinary_acme": {
     "agent-web": {
       "requests": 44,
       "statuses": {

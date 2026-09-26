@@ -532,11 +532,10 @@ def check_variables(env):
 def check_shim_markers(env, shim):
     """`.pandora-shim` sits beside the shim and nowhere else.
 
-    eichler's `tools/validation/state.mjs` drops every PATH directory holding
-    one from a queued job's environment (the slice note, Eichler change 2 and
-    the open blast-radius item). Beside the shim it is what stops a queued job
-    re-entering the shim; anywhere else it silently removes a directory of tools
-    from every queued job.
+    A repository's job tooling may drop every PATH directory holding
+    one from a queued job's environment. Beside the shim it is what stops a
+    queued job re-entering the shim; anywhere else it silently removes a
+    directory of tools from every queued job.
     """
     marked = [entry for entry in dict.fromkeys(path_entries(env))
               if os.path.isfile(os.path.join(entry, SHIM_MARKER))]
@@ -545,11 +544,11 @@ def check_shim_markers(env, shim):
              if entry != shimdir and not is_shim(os.path.join(entry, 'pnpm'))]
     if stale:
         return check('shim markers', WARN,
-                     'stale %s in %s: eichler\'s queued jobs drop that whole directory from '
+                     'stale %s in %s: queued jobs drop that whole directory from '
                      'PATH' % (SHIM_MARKER, ', '.join(stale)), stale=stale)
     if shimdir and shimdir not in marked:
         return check('shim markers', WARN,
-                     'no %s beside the shim in %s: eichler\'s queued jobs keep the shim on '
+                     'no %s beside the shim in %s: queued jobs keep the shim on '
                      'PATH and only the depth guard stops them re-entering it'
                      % (SHIM_MARKER, shimdir))
     if not shimdir:

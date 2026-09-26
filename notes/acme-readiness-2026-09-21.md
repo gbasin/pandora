@@ -2,13 +2,13 @@
 status: log
 ---
 
-# Eichler readiness triage, 2026-09-21
+# Acme readiness triage, 2026-09-21
 
-Question: is Pandora ready for daily Eichler agent work, and what stands between
-here and there? Pandora was inspected at `370b7d8` (`origin/main`), Eichler at
+Question: is Pandora ready for daily Acme agent work, and what stands between
+here and there? Pandora was inspected at `370b7d8` (`origin/main`), Acme at
 `16c9ead55`. Five read-only investigations covered Pandora's configuration and
-coupling, scheduling and sharding, readiness evidence, Eichler's agent workflow,
-and Eichler CI demand. One local measurement of `pnpm check` was taken on the
+coupling, scheduling and sharding, readiness evidence, Acme's agent workflow,
+and Acme CI demand. One local measurement of `pnpm check` was taken on the
 owner's Mac. Owner decisions from the review session are recorded at the end.
 
 ## Verdict
@@ -34,30 +34,30 @@ content-addressed helper upload, runtime image, dependency image.
 
 Client: `launch.py --host --state [--suite-shards] [--queue-timeout-seconds]
 [--artifact-delivery-limit-bytes] [--docker-profile] -- <agent> [agent flags]`.
-Agent flags such as `codex --yolo` pass through unchanged. No `EICHLER_*`
+Agent flags such as `codex --yolo` pass through unchanged. No `ACME_*`
 variable is read. Nothing is installed in the target repository.
 
-## Coupling to Eichler
+## Coupling to Acme
 
 About 60% of `experiments/warm` and most routing plumbing is repo-agnostic:
 admission, scheduling, snapshot and transfer, retention, recovery, publication.
-Everything that touches a command is Eichler-specific:
+Everything that touches a command is Acme-specific:
 
 - Dispatch is literal argv branching in `experiments/routing/commands.py`, with a
   duplicated suite table in `experiments/warm/validation_request.py`.
-  `notes/eichler-command-catalog-2026-09-21.json` is referenced by no code.
+  `notes/acme-command-catalog-2026-09-21.json` is referenced by no code.
 - App names, `apps/<app>/dist`, fixture paths, the journey-id pattern (five
   sites), Postgres credentials, service image digests, and the pnpm and
   Playwright pins are constants.
-- `experiments/warm/validation-stack.mjs:48-94` edits Eichler's
+- `experiments/warm/validation-stack.mjs:48-94` edits Acme's
   `startInstance({...})` call textually and depends on option-key order.
   `validation.mjs:161-184` rewrites turbo filters. `suite.mjs` and `journey.mjs`
-  import Eichler `.ts` internals by absolute path.
+  import Acme `.ts` internals by absolute path.
 
 Adding one command touches three to five files. A second repository needs
 roughly 2–3k lines of new adapters.
 
-## What Eichler agents route and what stays local
+## What Acme agents route and what stays local
 
 Routed: surfaces, journeys including `--update`, and the unfiltered forms of
 `test:unit`, `test:tools`, `test`, `validate agent-web`, `test:employee-browser`,
@@ -72,10 +72,10 @@ Local and still loading the Mac: `pnpm check`, `test:native-unit`, per-worktree
 silently. A routed command run from a subdirectory exits 64 instead of falling
 back (`route.py:221-224`).
 
-Pueue is bypassed on the worker. Eichler's local machine budget and Pandora's
+Pueue is bypassed on the worker. Acme's local machine budget and Pandora's
 queue do not know about each other.
 
-Eichler's `AGENTS.md` does not mention Pandora.
+Acme's `AGENTS.md` does not mention Pandora.
 
 ### `pnpm check`, measured
 
@@ -108,7 +108,7 @@ it on a quiet machine before relying on the step ratios.
 ## Sharding and scheduling
 
 Surfaces use Playwright `--shard=i/n` after a build-once planner; journeys use
-Eichler's duration-weighted `shardJourneys`. Each shard is a separately admitted
+Acme's duration-weighted `shardJourneys`. Each shard is a separately admitted
 attempt. Aggregation requires every shard report, exact membership and verified
 cleanup; conflicting shard outputs return 75. Shard concurrency is bounded by
 `max_parallel` (2), not by `--suite-shards`. There is no multi-host placement.
@@ -141,7 +141,7 @@ Slots ≈ min(⌊(cores − 1) / 1.5⌋, ⌊(RAM_MiB − 2048) / 4864⌋).
 | 16c / 64 GiB | ~10 | ≥250 GB | extrapolated |
 | 32c / 128 GiB | ~20 | ≥250 GB | extrapolated |
 
-Eichler CI for comparison: a full merge-queue pass is about 100 vCPU-minutes;
+Acme CI for comparison: a full merge-queue pass is about 100 vCPU-minutes;
 peak observed demand was 14 concurrent runs and 33 runs per hour, very bursty
 (3.6 days of retained history). Nothing above two slots has been run. Untested
 at scale: SQLite ledger polled at 1 Hz by every waiter, head-of-line blocking,
@@ -156,14 +156,14 @@ Recommendation: 16c / 64 GiB x86 with 250 GB or more NVMe, starting at
 
 1. Attachment. The launcher wraps a session only at start. Interactive Claude
    Code and Agentboard were never evaluated. `agent-fanout init` exits 141 on
-   Eichler (#14, #51).
+   Acme (#14, #51).
 2. Operations. One hand-provisioned VM, no provisioning script, no monitoring,
    manual recovery after worker death, retention without quotas.
 3. Two slots.
 4. Silent local execution of everything unrouted; no signal about residual Mac
    load.
-5. Textual coupling to Eichler internals.
-6. Unresolved defects: intermittent Jest timeout (Eichler #1318); 61–109 s
+5. Textual coupling to Acme internals.
+6. Unresolved defects: intermittent Jest timeout (Acme #1318); 61–109 s
    capture stalls.
 
 ## Multi-user

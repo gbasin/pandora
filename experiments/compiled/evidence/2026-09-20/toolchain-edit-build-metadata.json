@@ -333,8 +333,8 @@
                     "output": 0,
                     "Action": {
                       "copy": {
-                        "src": "/apps/borrower-web/package.json",
-                        "dest": "/workspace/apps/borrower-web/package.json",
+                        "src": "/apps/web/package.json",
+                        "dest": "/workspace/apps/web/package.json",
                         "mode": -1,
                         "followSymlink": true,
                         "dirCopyContents": true,
@@ -367,8 +367,8 @@
                     "output": 0,
                     "Action": {
                       "copy": {
-                        "src": "/apps/borrower/package.json",
-                        "dest": "/workspace/apps/borrower/package.json",
+                        "src": "/apps/web/package.json",
+                        "dest": "/workspace/apps/web/package.json",
                         "mode": -1,
                         "followSymlink": true,
                         "dirCopyContents": true,
@@ -707,8 +707,8 @@
                     "output": 0,
                     "Action": {
                       "copy": {
-                        "src": "/legacy/apps/ike-api/package.json",
-                        "dest": "/workspace/legacy/apps/ike-api/package.json",
+                        "src": "/legacy/apps/app-api/package.json",
+                        "dest": "/workspace/legacy/apps/app-api/package.json",
                         "mode": -1,
                         "followSymlink": true,
                         "dirCopyContents": true,
@@ -741,8 +741,8 @@
                     "output": 0,
                     "Action": {
                       "copy": {
-                        "src": "/legacy/apps/ike-web/package.json",
-                        "dest": "/workspace/legacy/apps/ike-web/package.json",
+                        "src": "/legacy/apps/app-web/package.json",
+                        "dest": "/workspace/legacy/apps/app-web/package.json",
                         "mode": -1,
                         "followSymlink": true,
                         "dirCopyContents": true,
@@ -911,8 +911,8 @@
                     "output": 0,
                     "Action": {
                       "copy": {
-                        "src": "/legacy/packages/ike-ui/package.json",
-                        "dest": "/workspace/legacy/packages/ike-ui/package.json",
+                        "src": "/legacy/packages/app-ui/package.json",
+                        "dest": "/workspace/legacy/packages/app-ui/package.json",
                         "mode": -1,
                         "followSymlink": true,
                         "dirCopyContents": true,
@@ -1672,7 +1672,7 @@
                   "args": [
                     "/bin/sh",
                     "-c",
-                    "node /inputs/pandora-copy-source.cjs \u0026\u0026 pnpm --filter @eichler/borrower-web build"
+                    "node /inputs/pandora-copy-source.cjs \u0026\u0026 pnpm --filter @acme/web build"
                   ],
                   "env": [
                     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -1981,7 +1981,7 @@
                     "output": 0,
                     "Action": {
                       "copy": {
-                        "src": "/workspace/apps/borrower-web/dist",
+                        "src": "/workspace/apps/web/dist",
                         "dest": "/workspace/dist",
                         "mode": -1,
                         "followSymlink": true,

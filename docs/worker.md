@@ -66,7 +66,7 @@ pandora worker canary --mark
 * What runs comes from `[worker.canary]` in the repository's `pandora.toml`:
   `journey = "S0-01"` is spliced into the `journey` job's `run` argv, with that
   job's environment. `compose = "tools/stack/compose.yml"` is brought up and
-  down first. `surface = "borrower-web"` is given to the `surface` job's
+  down first. `surface = "web"` is given to the `surface` job's
   `validate`, or to its shard `plan` with one shard when it has no `validate`.
   `journey_job` and `surface_job` name different jobs. The table is not part of
   the golden's fingerprint. A key left out is a check not run, and the verdict

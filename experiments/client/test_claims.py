@@ -1,8 +1,8 @@
 """The two-tier classifier: the daemon's real one, the shim's derived index.
 
 ``repo_config/`` is copied verbatim from ``poc/ci-import``: ``classify.py``,
-``config.py``, ``ci_import.py``, ``examples/eichler.pandora.toml`` and
-``fixtures/eichler/.github/workflows/ci.yml``.  Nothing in it was edited.
+``config.py``, ``ci_import.py``, ``examples/acme.pandora.toml`` and
+``fixtures/acme/.github/workflows/ci.yml``.  Nothing in it was edited.
 """
 from pathlib import Path
 import sys
@@ -15,8 +15,8 @@ import claims
 import enrolment
 from harness import Sandbox
 
-TOML = HERE / 'repo_config' / 'examples' / 'eichler.pandora.toml'
-ROOT = HERE / 'repo_config' / 'fixtures' / 'eichler'
+TOML = HERE / 'repo_config' / 'examples' / 'acme.pandora.toml'
+ROOT = HERE / 'repo_config' / 'fixtures' / 'acme'
 
 
 class ImportedClassifier(unittest.TestCase):
@@ -25,8 +25,8 @@ class ImportedClassifier(unittest.TestCase):
         if self.config is None:
             self.skipTest('the ci-import configuration did not load on this machine')
 
-    def test_the_eichler_configuration_loads(self):
-        self.assertEqual(self.config['repo']['name'], 'eichler')
+    def test_the_acme_configuration_loads(self):
+        self.assertEqual(self.config['repo']['name'], 'acme')
         self.assertEqual(sorted(self.config['jobs'])[:3],
                          ['agent-web', 'browser-integration', 'check'])
 
@@ -59,7 +59,7 @@ class ImportedClassifier(unittest.TestCase):
         _sys.path.insert(0, str(HERE / 'repo_config'))
         import classify
         marker = enrolment.parse(enrolment.render(
-            socket_path='/x/y.sock', repo='eichler',
+            socket_path='/x/y.sock', repo='acme',
             claims=claims.index_from_config(self.config), heavy=[],
             strip_prefixes=self.config['matching']['strip_prefixes']))
         cases = ['test:unit', 'journeys', 'journey', 'test:surface', 'check', 'test',
@@ -72,7 +72,7 @@ class ImportedClassifier(unittest.TestCase):
     def test_the_index_agrees_on_the_validate_spellings(self):
         import classify
         marker = enrolment.parse(enrolment.render(
-            socket_path='/x/y.sock', repo='eichler',
+            socket_path='/x/y.sock', repo='acme',
             claims=claims.index_from_config(self.config), heavy=[],
             strip_prefixes=self.config['matching']['strip_prefixes']))
         for tail in (['validate', 'unit'], ['validate', 'journeys'], ['validate', 'nonsense']):

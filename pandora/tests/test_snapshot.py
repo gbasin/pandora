@@ -141,7 +141,7 @@ class FreezeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
             (repo / '.npmrc').write_text('//registry/:_authToken=secret\n')
-            # It is excluded by the eichler glob, but a repository without that
+            # It is excluded by the acme glob, but a repository without that
             # glob must still not ship it.
             with self.assertRaises(SnapshotError):
                 snapshot.freeze(repo)
@@ -343,10 +343,10 @@ class IndexTest(unittest.TestCase):
 class TransferPathTest(unittest.TestCase):
     def test_the_cache_is_addressed_by_input_id(self):
         from pandora.snapshot import transfer
-        paths = transfer.cache_paths('/home/w/engine', 'eichler', 'abc123')
-        self.assertEqual(paths['final'], '/home/w/engine/src/eichler/abc123')
-        self.assertEqual(paths['partial'], '/home/w/engine/src/eichler/abc123.partial')
-        self.assertEqual(paths['latest'], '/home/w/engine/src/eichler/latest')
+        paths = transfer.cache_paths('/home/w/engine', 'acme', 'abc123')
+        self.assertEqual(paths['final'], '/home/w/engine/src/acme/abc123')
+        self.assertEqual(paths['partial'], '/home/w/engine/src/acme/abc123.partial')
+        self.assertEqual(paths['latest'], '/home/w/engine/src/acme/latest')
 
     def test_the_control_socket_is_per_state_directory(self):
         from pandora.snapshot import transfer

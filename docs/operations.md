@@ -139,9 +139,9 @@ engine_root = "pandora-engine"     # relative to the worker user's home
 state = "~/.local/state/pandora/default"   # socket, run logs, receipts
 
 [[repos]]
-name = "eichler"                   # usually [repo] name in pandora.toml, or enroll --name
-root = "/Users/YOU/Code/eichler"   # the main checkout or any worktree of it
-# config = "~/.config/pandora/repos/eichler.pandora.toml"
+name = "acme"                   # usually [repo] name in pandora.toml, or enroll --name
+root = "/Users/YOU/Code/acme"   # the main checkout or any worktree of it
+# config = "~/.config/pandora/repos/acme.pandora.toml"
 #   only for a repository that has no pandora.toml at its root yet
 ```
 
@@ -235,13 +235,13 @@ first, so the files enrollment writes point at the right socket. Then enroll
 the repository from any of its worktrees. Do this once per repository.
 
 ```sh
-pandora enroll ~/Code/eichler
+pandora enroll ~/Code/acme
 ```
 
 If the repository has no `pandora.toml` at its root yet, name one.
 
 ```sh
-pandora enroll ~/Code/eichler --config ~/.config/pandora/repos/eichler.pandora.toml
+pandora enroll ~/Code/acme --config ~/.config/pandora/repos/acme.pandora.toml
 ```
 
 `enroll` loads and validates the repository's configuration. Then it does
@@ -267,7 +267,7 @@ It also removes the old marker, `<common>/pandora-enrolled`, if there is one.
 Run the doctor from the root of an enrolled worktree.
 
 ```sh
-cd ~/Code/eichler
+cd ~/Code/acme
 pandora doctor
 ```
 
@@ -282,11 +282,11 @@ ok    install            current is f91ef4e7a1c2, from ~/Code/pandora; `pandora`
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, worker ubuntu@WORKER_IP, runs current (f91ef4e7a1c2)
 ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
 ok    daemon supervision launchd runs pid 47841 as com.pandora.daemon, interpreter /opt/homebrew/bin/python3 (3.14.0); launchd starts it with /opt/homebrew/bin/python3; `pandora upgrade` restarts it into new code
-ok    repository         enrolled as eichler, registration ~/Code/eichler/.git/pandora-repo
-ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/eichler/pandora.toml; cache ~/Code/eichler/.git/pandora-claims
+ok    repository         enrolled as acme, registration ~/Code/acme/.git/pandora-repo
+ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/acme/pandora.toml; cache ~/Code/acme/.git/pandora-claims
 info  claim caches       57 worktree(s): 41 fresh, 2 stale, 14 without a cache; each refreshes on its next command
-ok    daemon enrollment  [[repos]] eichler at ~/Code/eichler
-ok    working directory  the worktree root, ~/Code/eichler
+ok    daemon enrollment  [[repos]] acme at ~/Code/acme
+ok    working directory  the worktree root, ~/Code/acme
 ok    variables          none of PANDORA_OFF, PANDORA_WHERE, PANDORA_SHARDS set
 ok    shim markers       .pandora-shim beside the shim only
 
@@ -666,7 +666,7 @@ for one more release.
 To stop routing a repository, unenroll it.
 
 ```sh
-pandora unenroll ~/Code/eichler
+pandora unenroll ~/Code/acme
 ```
 
 `unenroll` removes the registration, the old marker and every worktree's claim
@@ -699,7 +699,7 @@ numbers were taken under that load. They are not a quiet-machine baseline.
 
 A warm remote `check` spends about 1.4 s before `accepted`, 0.35 s on clone and
 start, 0.8 s on injection, 3.1 s on the synthetic Git repository, 11-12 s in
-eichler's own uncached checks, and 1 s on destroy. On four vCPU, one, two
+acme's own uncached checks, and 1 s on destroy. On four vCPU, one, two
 and four shards were measured, and four was the best of those.
 
 Sizes that matter:
@@ -709,7 +709,7 @@ Sizes that matter:
   `disk_floor_gib` (4 GiB). A sharded run's shards are not checked against it.
 * A cold `pnpm check` with typecheck at `--concurrency=$PANDORA_CPUS` peaks at
   6.5 GiB and needs `size = "large"`. Warm runs peak near 2 GiB. The example
-  configuration still says `medium`. Eichler's own `pandora.toml` says `large`.
+  configuration still says `medium`. Acme's own `pandora.toml` says `large`.
 * Journeys peak at 3-4.5 GiB. Surface shards peak at about 2.5 GiB.
 * The source cache grows with every fresh worktree, because `--link-dest`
   deduplicates only on equal mtimes. Before it was collected, it grew from 1.2
@@ -718,7 +718,7 @@ Sizes that matter:
   an hour. It keeps the newest 4 such snapshots per repository. It runs this
   collection at most every 5 minutes on the health poll, and `pandora worker
   retain` runs it too. `pandora worker gc` does not.
-* The turbo cache is bounded at 4 GiB. Eichler's `check` uses under 1 MiB of it (0.6 MiB measured).
+* The turbo cache is bounded at 4 GiB. Acme's `check` uses under 1 MiB of it (0.6 MiB measured).
 
 Known caveats:
 
@@ -741,7 +741,7 @@ Known caveats:
 * Not yet run against the live worker: `pandora resolve` on a real conflict, the
   infrastructure retry on a real failure, a remote cancel with a non-default
   signal, a tier-1 sharded job, `gc` with per-family ranking and `--protect`.
-* Run against the live worker on 2026-09-25: a real `--device` pool (the RISE-L
+* Run against the live worker on 2026-09-25: a real `--device` pool (the
   worker's pool is btrfs on a raw NVMe; see #149 for the stdin fix it needed)
   and the canary derived from `[worker.canary]` (pass, 97 s; the 60 s bound on
   the OOM verdict is marginal on fast NVMe, #150).

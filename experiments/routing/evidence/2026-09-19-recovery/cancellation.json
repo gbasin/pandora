@@ -6,7 +6,7 @@
         "output": "/private/tmp/pandora-recovery-eval/cancel-state/b921dd570cd40c42dd39dcd8e14eedfdb641aeab967aadd832bc62e23e7756d2/f8fd3481a89147b1aac4705938141d8c",
         "command": [
           "test:surface",
-          "borrower-web",
+          "web",
           "smoke.spec.ts"
         ],
         "host": "ubuntu@WORKER",
@@ -46,7 +46,7 @@
         "output": "/private/tmp/pandora-recovery-eval/cancel-state/b921dd570cd40c42dd39dcd8e14eedfdb641aeab967aadd832bc62e23e7756d2/1dc94fd72efa4ac89c3dad34b64f9a3d",
         "command": [
           "test:surface",
-          "borrower-web",
+          "web",
           "smoke.spec.ts"
         ],
         "host": "ubuntu@WORKER",

@@ -23,32 +23,32 @@
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/src/schema.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/src/schema.json"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/dist/report.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/dist/report.json"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/fixtures/receipt.json"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/fixtures/receipt.json"
     }
   },
   {
     "tool": "Read",
     "input": {
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/bridge.py"
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/bridge.py"
     }
   },
   {
     "tool": "Edit",
     "input": {
       "replace_all": false,
-      "file_path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/src/schema.json",
+      "file_path": "/Users/you/Code/pandora/.worktrees/_int-pandora-output-ux-20260920/.worktrees/pandora-output-ux-20260920-opus-repeat/experiments/output-ux/fixture/src/schema.json",
       "old_string": "{\"title\":\"Draft\",",
       "new_string": "{\"title\":\"Ready\","
     }

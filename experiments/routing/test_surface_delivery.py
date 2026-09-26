@@ -18,7 +18,7 @@ class SurfaceDeliveryTests(unittest.TestCase):
         self.parent = 'a' * 32; self.planner = 'b' * 32; self.shard = 'c' * 32
         (self.output / 'children.json').write_text(json.dumps({'version': 1, 'parent_attempt': self.parent,
                                                                 'children': [self.planner, self.shard]}))
-        self.submitted = {'attempt': self.parent, 'surface_suite': {'app': 'borrower-web'}}
+        self.submitted = {'attempt': self.parent, 'surface_suite': {'app': 'web'}}
 
     def add(self, identity, kind, relative, value, files):
         path = self.output / 'results/attempts' / identity / kind / relative
@@ -27,21 +27,21 @@ class SurfaceDeliveryTests(unittest.TestCase):
 
     def test_merges_planner_compiled_and_shard_generated_outputs_and_resumes(self):
         files = {}
-        self.add(self.planner, 'results/outputs', 'apps/borrower-web/dist/index.html', 'compiled', files)
-        self.add(self.planner, 'results/outputs', 'apps/borrower-web/e2e/dist/report.html', 'report', files)
-        self.add(self.shard, 'results/generated', 'apps/borrower-web/e2e/dist/screenshot.png', 'shot', files)
+        self.add(self.planner, 'results/outputs', 'apps/web/dist/index.html', 'compiled', files)
+        self.add(self.planner, 'results/outputs', 'apps/web/e2e/dist/report.html', 'report', files)
+        self.add(self.shard, 'results/generated', 'apps/web/e2e/dist/screenshot.png', 'shot', files)
         (self.output / 'artifacts.json').write_text(json.dumps(files))
         deliver_surface(self.repo, self.output, self.submitted)
         deliver_surface(self.repo, self.output, self.submitted)
-        self.assertEqual((self.repo / 'apps/borrower-web/dist/index.html').read_text(), 'compiled')
-        self.assertEqual((self.repo / 'apps/borrower-web/e2e/dist/screenshot.png').read_text(), 'shot')
+        self.assertEqual((self.repo / 'apps/web/dist/index.html').read_text(), 'compiled')
+        self.assertEqual((self.repo / 'apps/web/e2e/dist/screenshot.png').read_text(), 'shot')
 
     def test_rejects_conflicting_generated_writes(self):
         second = 'd' * 32; files = {}
-        self.add(self.planner, 'results/outputs', 'apps/borrower-web/dist/index.html', 'compiled', files)
-        self.add(self.planner, 'results/outputs', 'apps/borrower-web/e2e/dist/report.html', 'report', files)
-        self.add(self.shard, 'results/generated', 'apps/borrower-web/e2e/dist/screenshot.png', 'one', files)
-        self.add(second, 'results/generated', 'apps/borrower-web/e2e/dist/screenshot.png', 'two', files)
+        self.add(self.planner, 'results/outputs', 'apps/web/dist/index.html', 'compiled', files)
+        self.add(self.planner, 'results/outputs', 'apps/web/e2e/dist/report.html', 'report', files)
+        self.add(self.shard, 'results/generated', 'apps/web/e2e/dist/screenshot.png', 'one', files)
+        self.add(second, 'results/generated', 'apps/web/e2e/dist/screenshot.png', 'two', files)
         (self.output / 'children.json').write_text(json.dumps({'version': 1, 'parent_attempt': self.parent,
                                                                 'children': [self.planner, self.shard, second]}))
         (self.output / 'artifacts.json').write_text(json.dumps(files))

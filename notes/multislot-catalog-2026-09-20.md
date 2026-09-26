@@ -28,4 +28,4 @@ full-catalog routed update evaluation.
 
 Evidence is retained under
 `~/.local/state/pandora/multislot-20260920/` on the Mac. The frozen base for these
-catalog runs was Eichler commit `8fda4d56c3251bc887526e98f033608a30e2a52b`.
+catalog runs was Acme commit `8fda4d56c3251bc887526e98f033608a30e2a52b`.

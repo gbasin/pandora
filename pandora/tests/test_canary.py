@@ -17,8 +17,8 @@ from pandora.executor.interface import Golden, Instance, Receipt, Result, Usage
 from pandora.worker import canary, enrolled
 
 EXAMPLES = Path(__file__).resolve().parents[1] / 'config/examples'
-JOURNEYS = EXAMPLES / 'eichler.pandora.toml'
-SURFACES = EXAMPLES / 'eichler-surfaces.pandora.toml'
+JOURNEYS = EXAMPLES / 'acme.pandora.toml'
+SURFACES = EXAMPLES / 'acme-surfaces.pandora.toml'
 
 
 def load(path):
@@ -62,7 +62,7 @@ class CanaryTable(unittest.TestCase):
         del raw['worker']['canary']
         config = loader.validate(raw)
         self.assertIsNone(config['canary']['journey'])
-        self.assertEqual(enrolled.canary_targets([('eichler', config)],
+        self.assertEqual(enrolled.canary_targets([('acme', config)],
                                                  engine_root='/e')[0]['notes'][0],
                          'no [worker.canary] journey, so no journey check')
 
@@ -80,24 +80,24 @@ class Derivation(unittest.TestCase):
 
     def test_configs_go_through_the_daemon_loader_per_enrollment(self):
         calls = []
-        entries = enrolled.configs(self.enrollments(('eichler', JOURNEYS)),
+        entries = enrolled.configs(self.enrollments(('acme', JOURNEYS)),
                                    load=self.fake_loader(calls))
-        self.assertEqual(calls, [('/code/eichler', str(JOURNEYS))])
-        self.assertEqual(entries[0][0], 'eichler')
+        self.assertEqual(calls, [('/code/acme', str(JOURNEYS))])
+        self.assertEqual(entries[0][0], 'acme')
 
     def test_an_unreadable_config_fails_the_call_and_names_the_repo(self):
         def broken(root, fallback):
             raise ConfigError('no pandora.toml at ' + root)
-        with self.assertRaisesRegex(ConfigError, 'enrolled repository eichler: no pandora'):
-            enrolled.configs(self.enrollments(('eichler', JOURNEYS)), load=broken)
+        with self.assertRaisesRegex(ConfigError, 'enrolled repository acme: no pandora'):
+            enrolled.configs(self.enrollments(('acme', JOURNEYS)), load=broken)
 
     def test_the_journey_check_is_the_journey_jobs_own_argv(self):
         config = load(JOURNEYS)
-        [target] = enrolled.canary_targets([('eichler', config)],
+        [target] = enrolled.canary_targets([('acme', config)],
                                            engine_root='/home/ubuntu/pandora-engine')
         self.assertEqual(target['fingerprint'], enrolled.fingerprint_of(config))
-        self.assertEqual(target['toolchain']['source_id'], 'eichler-journey-runner-proxy')
-        self.assertEqual(target['source'], '/home/ubuntu/pandora-engine/src/eichler/latest')
+        self.assertEqual(target['toolchain']['source_id'], 'acme-journey-runner-proxy')
+        self.assertEqual(target['source'], '/home/ubuntu/pandora-engine/src/acme/latest')
         journey = target['journey']
         self.assertEqual(journey['argv'],
                          ['node', 'tools/validation/journey-runner.mjs', 'run', 'S0-01'])
@@ -110,11 +110,11 @@ class Derivation(unittest.TestCase):
         self.assertIsNone(target['surface'])
 
     def test_the_surface_check_is_the_surface_jobs_validate(self):
-        [target] = enrolled.canary_targets([('eichler', load(SURFACES))], engine_root='/e')
+        [target] = enrolled.canary_targets([('acme', load(SURFACES))], engine_root='/e')
         surface = target['surface']
         self.assertEqual(surface['step'], 'validate')
         self.assertEqual(surface['argv'], ['node', 'tools/validation/surface-runner.mjs',
-                                           'validate', 'borrower-web'])
+                                           'validate', 'web'])
         self.assertEqual(surface['env']['SURFACE_WORKERS'], '1')
 
     def test_without_validate_the_surface_check_is_a_one_shard_plan(self):
@@ -122,7 +122,7 @@ class Derivation(unittest.TestCase):
         config['jobs']['surface']['validate'] = None
         surface = enrolled.surface_check(config)
         self.assertEqual(surface['step'], 'plan')
-        self.assertEqual(surface['argv'][3], 'borrower-web')
+        self.assertEqual(surface['argv'][3], 'web')
         self.assertIn('1', surface['argv'])
         self.assertIn(enrolled.PLAN_PATH, surface['argv'])
         self.assertFalse(any('{' in item for item in surface['argv']))
@@ -130,10 +130,10 @@ class Derivation(unittest.TestCase):
     def test_one_target_per_distinct_fingerprint(self):
         journeys, surfaces = load(JOURNEYS), load(SURFACES)
         targets = enrolled.canary_targets(
-            [('eichler', journeys), ('eichler-copy', journeys), ('surfaces', surfaces)],
+            [('acme', journeys), ('acme-copy', journeys), ('surfaces', surfaces)],
             engine_root='/e', source='/tmp/tree')
         self.assertEqual([item['repos'] for item in targets],
-                         [['eichler', 'eichler-copy'], ['surfaces']])
+                         [['acme', 'acme-copy'], ['surfaces']])
         self.assertEqual({item['source'] for item in targets}, {'/tmp/tree'})
 
     def test_named_fingerprints_say_which_repositories_name_them(self):
@@ -144,10 +144,10 @@ class Derivation(unittest.TestCase):
                                  enrolled.fingerprint_of(surfaces): 's'})
 
     def test_named_families_follow_the_repo_and_the_source_id(self):
-        families = enrolled.named_families([('eichler', load(JOURNEYS)),
+        families = enrolled.named_families([('acme', load(JOURNEYS)),
                                             ('surfaces', load(SURFACES))])
-        self.assertEqual(families, {('eichler', 'eichler-journey-runner-proxy'),
-                                    ('eichler', 'eichler-surfaces')})
+        self.assertEqual(families, {('acme', 'acme-journey-runner-proxy'),
+                                    ('acme', 'acme-surfaces')})
 
 
 class FakeDriver:
@@ -214,13 +214,13 @@ class CanaryRun(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.config = load(JOURNEYS)
-        self.missing = str(self.root / 'src/eichler/latest')
+        self.missing = str(self.root / 'src/acme/latest')
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def targets(self, source):
-        return enrolled.canary_targets([('eichler', self.config)], engine_root='/e',
+        return enrolled.canary_targets([('acme', self.config)], engine_root='/e',
                                        source=source)
 
     def test_an_absent_source_and_no_golden_says_the_first_run_has_not_happened(self):
@@ -228,7 +228,7 @@ class CanaryRun(unittest.TestCase):
         verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
         self.assertFalse(verdict['ok'])
         [row] = [row for row in verdict['checks'] if not row['ok']]
-        self.assertIn('eichler source for golden-', row['check'])
+        self.assertIn('acme source for golden-', row['check'])
         self.assertIn(self.missing + ' is absent', row['detail'])
         self.assertIn('first routed run', row['detail'])
         self.assertEqual(driver.prepared, [], 'nothing was built from a tree that is not there')
@@ -242,7 +242,7 @@ class CanaryRun(unittest.TestCase):
         journey = [item for item in driver.executed if item[0] == 'canary-journey'][0]
         self.assertEqual(journey[1][-1], 'S0-01')
         self.assertEqual(journey[2]['JOURNEY_REPLAY'], 'cover')
-        self.assertIn('eichler journey S0-01 passes', [row['check'] for row in verdict['checks']])
+        self.assertIn('acme journey S0-01 passes', [row['check'] for row in verdict['checks']])
 
     def test_a_present_source_builds_the_golden(self):
         tree = self.root / 'tree'
@@ -278,14 +278,14 @@ class CanaryRun(unittest.TestCase):
         self.assertEqual(prep[3], '/work')
         self.assertEqual(prep[2]['JOURNEY_REPLAY'], 'cover', 'the job env, as the runner')
         self.assertEqual(journey[1][-1], 'S0-01')
-        self.assertIn('eichler prepare_command in 3s',
+        self.assertIn('acme prepare_command in 3s',
                       [row['check'] for row in verdict['checks']])
 
     def test_a_failing_prepare_command_fails_the_canary(self):
         driver, verdict = self.prepared_run(2)
         self.assertFalse(verdict['ok'])
         [row] = [row for row in verdict['checks'] if not row['ok']]
-        self.assertEqual(row['check'], 'eichler prepare_command in 3s')
+        self.assertEqual(row['check'], 'acme prepare_command in 3s')
         self.assertIn('exit=2', row['detail'])
         self.assertNotIn(['node', 'tools/validation/journey-runner.mjs', 'run', 'S0-01'],
                          [item[1] for item in driver.executed])
@@ -315,29 +315,29 @@ class GcCommand(unittest.TestCase):
         from pandora.worker import cli
         with tempfile.TemporaryDirectory() as tmp:
             settings_path = Path(tmp) / 'config.toml'
-            settings_path.write_text('[[repos]]\nname = "eichler"\nroot = "%s"\nconfig = "%s"\n'
+            settings_path.write_text('[[repos]]\nname = "acme"\nroot = "%s"\nconfig = "%s"\n'
                                      % (tmp, JOURNEYS))
             args = argparse.Namespace(config=str(settings_path), dry_run=True, keep=1,
                                       protect=['golden-abc'], json=False)
             fingerprint = enrolled.fingerprint_of(load(JOURNEYS))
             answer = {'ok': True, 'dry_run': True, 'removed': [], 'failed': [],
                       'kept': [{'kind': 'golden', 'name': 'golden-' + fingerprint,
-                                'why': 'named by eichler pandora.toml'}], 'pool': {}}
+                                'why': 'named by acme pandora.toml'}], 'pool': {}}
             out = io.StringIO()
             with mock.patch.object(cli, 'remote_call', return_value=answer) as call, \
                     contextlib.redirect_stdout(out):
                 self.assertEqual(cli.cmd_gc(args), 0)
         argv = call.call_args[0][1]
         self.assertEqual(argv[:3], ['gc', '--dry-run', '--keep'])
-        self.assertIn('%s=eichler' % fingerprint, argv)
+        self.assertIn('%s=acme' % fingerprint, argv)
         self.assertIn('abc=the command line', argv)
-        self.assertIn('eichler=eichler-journey-runner-proxy', argv)
+        self.assertIn('acme=acme-journey-runner-proxy', argv)
         # The marker that tells the worker the family list is an answer --
         # empty means "nothing is enrolled", not "nobody could say" -- and
         # the repos that scope the orphan rule to this client's enrollment.
         self.assertIn('--families-known', argv)
-        self.assertEqual(argv[argv.index('--repos') + 1], 'eichler')
-        self.assertIn('named by eichler pandora.toml', out.getvalue())
+        self.assertEqual(argv[argv.index('--repos') + 1], 'acme')
+        self.assertIn('named by acme pandora.toml', out.getvalue())
 
     def test_no_config_file_ships_no_enrollment_claims(self):
         """`load` of an absent config yields zero repos; that is "nobody could

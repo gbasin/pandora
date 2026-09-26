@@ -6,6 +6,6 @@ committed because it contains session content. Paths are hard-coded to one
 machine. The evidence note that summarized its findings was removed before the
 repository went public.
 
-- `eichler/`: ordinary eichler sessions. The keyword classifier was wrong 61% of
+- `acme/`: ordinary acme sessions. The keyword classifier was wrong 61% of
   the time against a 66-episode manual read; do not reuse it without that step.
 - `trials/`: Pandora trial sessions with evaluator-seeded faults.

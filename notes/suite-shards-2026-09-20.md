@@ -6,7 +6,7 @@ status: log
 
 This change adds a private execution foundation beneath Pandora's launcher.
 It does not enable `pnpm journeys` or ask coding agents to dispatch shards.
-The implementation reuses Eichler's planner and actual plural suite CLI. Parent
+The implementation reuses Acme's planner and actual plural suite CLI. Parent
 invocation recovery, cumulative waiting budgets, fair admission, and catalog
 update publication remain separate work.
 
@@ -51,7 +51,7 @@ separate from the VM evidence below.
 Review corrected two assumptions before the VM trial: scenario IDs need their
 numeric suffix, and coverage totals describe one shard rather than the entire
 catalog. Aggregate errors retain unrun IDs and failed-shard details. Informational
-uncovered routes remain informational, preserving Eichler's test semantics.
+uncovered routes remain informational, preserving Acme's test semantics.
 
 
 ## Fail-fast decision
@@ -71,7 +71,7 @@ dispatch, retain those identities across recovery, and check them before aggrega
 
 ## VM evidence
 
-Seven sequential attempts ran on the authorized OVH worker against Eichler
+Seven sequential attempts ran on the authorized OVH worker against Acme
 `8fda4d56c3251bc887526e98f033608a30e2a52b`. The full plan used Pandora
 `345a375`; all remaining attempts used `73ee219`.
 

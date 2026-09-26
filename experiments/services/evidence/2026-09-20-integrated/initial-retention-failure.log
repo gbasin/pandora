@@ -27,4 +27,4 @@ Traceback (most recent call last):
     os.unlink(entry.name, dir_fd=topfd)
     ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
 PermissionError: [Errno 13] Permission denied: '/home/ubuntu/pandora-warm/runs/cd00530a4f5849d4864ab1a3a1961a9a/results'
-[pandora] attempt=cfbd54328937492cbedb2a1ce750f5d2; exit=70; evidence=/Users/garybasin/.local/state/pandora/journey-lifecycle/bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea/cfbd54328937492cbedb2a1ce750f5d2
+[pandora] attempt=cfbd54328937492cbedb2a1ce750f5d2; exit=70; evidence=/Users/you/.local/state/pandora/journey-lifecycle/bf9b45ff196e01aea8debe0db14c017fe7bc5606c83abdd0f4e62b29f14481ea/cfbd54328937492cbedb2a1ce750f5d2

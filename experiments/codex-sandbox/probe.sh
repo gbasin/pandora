@@ -3,11 +3,11 @@
 # Prints one RESULT line per check. Never prints secret contents.
 # Paths are literal so the script needs no environment of its own.
 
-WT=/Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+WT=/Users/you/Code/pandora-wt/codex-sandbox-probe
 PROBE=$WT/experiments/codex-sandbox
-ADD=/Users/garybasin/.local/state/pandora-probe/adddir
-NOADD=/Users/garybasin/.local/state/pandora-probe/notadded
-STATE=/Users/garybasin/.local/state/pandora-probe
+ADD=/Users/you/.local/state/pandora-probe/adddir
+NOADD=/Users/you/.local/state/pandora-probe/notadded
+STATE=/Users/you/.local/state/pandora-probe
 TCP_PORT=18711
 
 # BASH_ENV/zsh startup files in this environment run fnm, which fails noisily
@@ -126,7 +126,7 @@ check READ_KNOWN_HOSTS test -r "$HOME/.ssh/known_hosts"
 # --- environment / PATH -------------------------------------------------
 say PATH_FIRST3 "$(printf '%s' "$PATH" | tr ':' '\n' | head -3 | tr '\n' ' ')"
 case "$PATH" in
-  /Users/garybasin/.local/state/pandora-probe/shimbin:*) say PATH_SHIM_FIRST "PASS shim dir is first" ;;
+  /Users/you/.local/state/pandora-probe/shimbin:*) say PATH_SHIM_FIRST "PASS shim dir is first" ;;
   */pandora-probe/shimbin*) say PATH_SHIM_FIRST "PARTIAL shim present but not first" ;;
   *) say PATH_SHIM_FIRST "FAIL shim dir absent" ;;
 esac

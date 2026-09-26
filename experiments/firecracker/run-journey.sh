@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs INSIDE the guest: eichler's own runner, eichler's own compose stack, on
+# Runs INSIDE the guest: acme's own runner, acme's own compose stack, on
 # the guest's own dockerd. No proxy, no netns seam, no port rewriting.
 set -x
 cd /work

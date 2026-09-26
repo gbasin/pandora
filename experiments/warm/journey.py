@@ -11,9 +11,9 @@ from service_cleanup import cleanup
 
 SERVICES = [
     ('db', 'postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6',
-     ['POSTGRES_USER=ike_owner', 'POSTGRES_PASSWORD=local-owner', 'POSTGRES_DB=ike', 'POSTGRES_HOST_AUTH_METHOD=password'], '768m'),
+     ['POSTGRES_USER=app_owner', 'POSTGRES_PASSWORD=local-owner', 'POSTGRES_DB=app', 'POSTGRES_HOST_AUTH_METHOD=password'], '768m'),
     ('pool', 'edoburu/pgbouncer@sha256:4c1ca296ef525f108f5d3552cc337c0c09587cf8dae7f0067fd93349e47dc1cd',
-     ['DB_HOST=127.0.0.1', 'DB_PORT=5432', 'DB_USER=ike_application', 'DB_PASSWORD=local-application', 'AUTH_TYPE=plain', 'POOL_MODE=transaction', 'LISTEN_PORT=6432'], '256m'),
+     ['DB_HOST=127.0.0.1', 'DB_PORT=5432', 'DB_USER=app_application', 'DB_PASSWORD=local-application', 'AUTH_TYPE=plain', 'POOL_MODE=transaction', 'LISTEN_PORT=6432'], '256m'),
     ('proxy', 'ghcr.io/neondatabase/wsproxy@sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb',
      ['LISTEN_PORT=:5433', 'ALLOW_ADDR_REGEX=^pgbouncer:6432$', 'APPEND_PORT=', 'LOG_TRAFFIC=false', 'LOG_CONN_INFO=false'], '128m'),
 ]
@@ -110,7 +110,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                '--pids-limit=512', '--init',
                '--cap-drop=ALL', '--security-opt=no-new-privileges', '-e', 'CI=true',
                '-e', 'WRANGLER_SEND_METRICS=false',
-               '-e', 'DATABASE_OWNER_URL=postgres://ike_owner:local-owner@127.0.0.1:5432/ike',
+               '-e', 'DATABASE_OWNER_URL=postgres://app_owner:local-owner@127.0.0.1:5432/app',
                image, 'sleep', str(execution_seconds(submitted) + 120), stdout=subprocess.DEVNULL)
         overlay = attempt / 'source-overlay.tar'
         install_paths = {e['path'] for e in dep_entries}
@@ -142,7 +142,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
             if short == 'db':
                 for _ in range(60):
                     ready = subprocess.run(['sudo', 'docker', 'exec', name + '-db',
-                                            'pg_isready', '-U', 'ike_owner', '-d', 'ike'],
+                                            'pg_isready', '-U', 'app_owner', '-d', 'app'],
                                            capture_output=True, timeout=10)
                     if ready.returncode == 0:
                         break

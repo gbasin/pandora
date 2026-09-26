@@ -47,7 +47,7 @@ CAUSES = ('daemon-unreachable', 'daemon-closed', 'handshake-timeout',
           # upgrade`; running the job here would repeat the submission.
           'engine-version')
 # Sizes small enough that one more of them on this Mac is a slowdown rather than
-# a stall. The line is drawn here because `large` is what eichler calls a
+# a stall. The line is drawn here because `large` is what acme calls a
 # browser suite and a full `check`, and both of them are what killed the Mac.
 LOCAL_SIZES = ('small', 'medium')
 # Causes that name a *busy* worker rather than a broken path to it (ruled

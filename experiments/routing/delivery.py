@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'output-ux'))
 from publish import publish, verify
 
-OUTPUTS = ('apps/borrower-web/dist', 'apps/borrower-web/e2e/dist')
+OUTPUTS = ('apps/web/dist', 'apps/web/e2e/dist')
 
 
 def deliver(repo, output, fault=lambda point: None, outputs=OUTPUTS, source_outputs=None,

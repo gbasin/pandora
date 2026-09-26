@@ -62,5 +62,5 @@
     }
   ],
   "assertions": "passed",
-  "scope": "Small real TypeScript/pnpm fixture; not Eichler or long-build benchmark"
+  "scope": "Small real TypeScript/pnpm fixture; not Acme or long-build benchmark"
 }

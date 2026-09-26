@@ -1,5 +1,5 @@
 # A plain npm + pytest repository with one Redis service, and no CI import.
-# Nothing here is Eichler-shaped; it exists to show the contract is not.
+# Nothing here is Acme-shaped; it exists to show the contract is not.
 
 version = 1
 

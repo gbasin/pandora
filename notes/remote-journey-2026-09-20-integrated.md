@@ -6,11 +6,11 @@ status: log
 This trial added `pnpm journey S0-01` and `pnpm validate journey S0-01` to the
 existing SSH route. Agents stayed on the Mac. Pandora captured their current
 worktree, reused the dependency image, queued the request, and returned a local
-journey report. No tracked Eichler configuration changed.
+journey report. No tracked Acme configuration changed.
 
 ## Execution boundary
 
-The source was Eichler `fbeb008a283221bfedccc8fd47a6f6337d1ddf4d`. A trial-only
+The source was Acme `fbeb008a283221bfedccc8fd47a6f6337d1ddf4d`. A trial-only
 foundation, `242d1a468`, added an unconditional throw in S0-01. Each agent received
 its own nested worktree and frozen dependency installation. Neither dependency
 inputs nor package versions changed during repair.
@@ -23,7 +23,7 @@ The service images are digest-pinned. They share the runner's network namespace
 on a private bridge; there are no published host ports or Docker socket mounts.
 Each attempt gets a fresh database. pnpm packages and dependency images stay warm.
 
-The runner calls Eichler's external stack mode, loads S0-01, runs its normal
+The runner calls Acme's external stack mode, loads S0-01, runs its normal
 journey and route checks, and stops the stack. Principal printing is disabled.
 Worker startup output is suppressed because it contains generated credentials;
 Pandora prints phase progress instead. Journey failure details and a checksummed
@@ -75,7 +75,7 @@ dispatch succeeded.
 
 One fresh Codex sample and one fresh Claude Opus sample completed the same repair
 under the agent-fanout controller, concurrently with each other and an evaluator's
-borrower-web smoke run. Both ran the normal journey command before editing, read
+web smoke run. Both ran the normal journey command before editing, read
 the failure JSON, removed only the unconditional throw, reran, and read the
 successful JSON. Their resulting journey source matched the original file
 byte-for-byte. Each submitted exactly two remote executions. No human coaching,

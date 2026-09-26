@@ -8,7 +8,7 @@ sys.path.insert(0, str(HERE))
 from config import ConfigError, load, validate
 
 EXAMPLES = HERE / 'examples'
-EICHLER_ROOT = HERE / 'fixtures' / 'eichler'
+ACME_ROOT = HERE / 'fixtures' / 'acme'
 DIGEST = 'sha256:' + 'a' * 64
 
 MINIMAL = {
@@ -29,14 +29,14 @@ def with_job(**patch):
 
 class LoadTests(unittest.TestCase):
     def test_both_examples_load(self):
-        for name, root in (('eichler.pandora.toml', EICHLER_ROOT), ('generic.pandora.toml', None)):
+        for name, root in (('acme.pandora.toml', ACME_ROOT), ('generic.pandora.toml', None)):
             with self.subTest(name=name):
                 config = load(EXAMPLES / name, root=root)
                 self.assertEqual(config['version'], 1)
                 self.assertTrue(config['jobs'])
 
-    def test_eichler_example_covers_the_v0_1_1_boundary_and_two_new_jobs(self):
-        config = load(EXAMPLES / 'eichler.pandora.toml', root=EICHLER_ROOT)
+    def test_acme_example_covers_the_v0_1_1_boundary_and_two_new_jobs(self):
+        config = load(EXAMPLES / 'acme.pandora.toml', root=ACME_ROOT)
         self.assertEqual(set(config['jobs']), {
             'unit', 'tools', 'full', 'agent-web', 'employee-browser', 'browser-integration',
             'mockup-browser', 'postgres', 'journey', 'journeys', 'surface', 'check', 'native-unit'})
@@ -187,7 +187,7 @@ class StrictnessTests(unittest.TestCase):
 
 class ImportTests(unittest.TestCase):
     def test_an_imported_job_carries_provenance_for_every_inherited_field(self):
-        config = load(EXAMPLES / 'eichler.pandora.toml', root=EICHLER_ROOT)
+        config = load(EXAMPLES / 'acme.pandora.toml', root=ACME_ROOT)
         origin = config['jobs']['journeys']['provenance']
         self.assertEqual(origin['services.db'], 'ci.yml:journeys.services.postgres')
         self.assertEqual(origin['services.pool'], 'ci.yml:journeys.services.pgbouncer')
@@ -199,26 +199,26 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(origin['outputs.artifacts'], 'pandora.toml')
 
     def test_the_pin_table_is_what_makes_a_floating_ci_tag_runnable(self):
-        config = load(EXAMPLES / 'eichler.pandora.toml', root=EICHLER_ROOT)
+        config = load(EXAMPLES / 'acme.pandora.toml', root=ACME_ROOT)
         images = {s['role']: s['image'] for s in config['jobs']['journeys']['services']}
         self.assertTrue(all('@sha256:' in image for image in images.values()))
         self.assertTrue(images['pool'].startswith('edoburu/pgbouncer@sha256:'))
 
     def test_the_import_corrects_a_service_list_pandora_had_wrong(self):
-        config = load(EXAMPLES / 'eichler.pandora.toml', root=EICHLER_ROOT)
+        config = load(EXAMPLES / 'acme.pandora.toml', root=ACME_ROOT)
         roles = sorted(s['role'] for s in config['jobs']['postgres']['services'])
         self.assertEqual(roles, ['db', 'proxy'])
         proxy = next(s for s in config['jobs']['postgres']['services'] if s['role'] == 'proxy')
         self.assertEqual(proxy['env']['ALLOW_ADDR_REGEX'], '^postgres:5432$')
 
     def test_a_job_pinned_to_one_shard_inherits_the_world_but_not_the_marker(self):
-        config = load(EXAMPLES / 'eichler.pandora.toml', root=EICHLER_ROOT)
+        config = load(EXAMPLES / 'acme.pandora.toml', root=ACME_ROOT)
         self.assertEqual(config['jobs']['journey']['shards']['env'], {})
         self.assertEqual(config['jobs']['journeys']['shards']['env'],
                          {'JOURNEY_SHARD': '{shard.index}/{shard.total}'})
 
     def test_an_artifact_path_outside_the_worktree_is_refused_not_dropped(self):
-        text = (EXAMPLES / 'eichler.pandora.toml').read_text()
+        text = (EXAMPLES / 'acme.pandora.toml').read_text()
         # Remove the journeys job's declared outputs so the CI list is inherited.
         start = text.index('# Declared, not inherited')
         end = text.index('# ----', start)
@@ -226,8 +226,8 @@ class ImportTests(unittest.TestCase):
         trimmed.write_text(text[:start] + text[end:])
         try:
             with self.assertRaises(ConfigError) as caught:
-                load(trimmed, root=EICHLER_ROOT)
-            self.assertIn('/tmp/ike-stack.log', str(caught.exception))
+                load(trimmed, root=ACME_ROOT)
+            self.assertIn('/tmp/app-stack.log', str(caught.exception))
             self.assertIn('outside the worktree', str(caught.exception))
         finally:
             trimmed.unlink(missing_ok=True)
@@ -242,7 +242,7 @@ class ImportTests(unittest.TestCase):
                          'edoburu/pgbouncer:latest': 'edoburu/pgbouncer@' + DIGEST,
                          'ghcr.io/neondatabase/wsproxy:latest': 'ghcr.io/neondatabase/wsproxy@' + DIGEST}
         with self.assertRaises(ConfigError) as caught:
-            validate(value, root=EICHLER_ROOT)
+            validate(value, root=ACME_ROOT)
         self.assertIn('cannot both import ci_job and lint', str(caught.exception))
 
 

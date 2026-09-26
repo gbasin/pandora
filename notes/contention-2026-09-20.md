@@ -23,7 +23,7 @@ The pinned Node fixture waited 30 seconds before returning each test result. Eac
 worktree initially contained `broken-<phase>` and used the same logical `app:test`
 tag. The external profile allowed no mounts and returned `/workspace/dist` to local
 `dist` after success. The deliberate delay exercised waiting, not CPU or RAM load.
-A real Eichler S0-01 journey ran through the same slot during the trial. A fifth,
+A real Acme S0-01 journey ran through the same slot during the trial. A fifth,
 scripted lane injected client loss without signalling any coding agent.
 
 ## Results

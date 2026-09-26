@@ -7,7 +7,7 @@ controlled two-agent experiment, not a twelve-agent capacity result.
 
 ## Setup
 
-The evaluator created an integration worktree from Eichler `fbeb008a2` and
+The evaluator created an integration worktree from Acme `fbeb008a2` and
 committed the trial foundation as `9dd1b392c`. The foundation adds one Playwright
 test and changes the source HTML title to Application preview. Each controller
 lane has its own frozen pnpm installation and an evaluator-prepared dependency:
@@ -19,7 +19,7 @@ lane has its own frozen pnpm installation and an evaluator-prepared dependency:
 
 A per-lane JSON fixture records the expected version and marker. The test reads
 the installed package version inside the execution container, checks the marker
-in the served HTML, and finally expects the document title Ike. Both local build
+in the served HTML, and finally expects the document title App. Both local build
 directories start with stale HTML and an obsolete file carrying the lane marker.
 The package addition also normalized several pnpm lockfile optional flags. These
 are evaluator-only changes, with no target-repository PR or merge.
@@ -30,7 +30,7 @@ and both local HTML outputs. It permits only the title edit and explicitly tells
 the agent to preserve the prepared dependencies, fixture, and marker. Neither
 agent receives a prewarm instruction or a cache-recovery strategy.
 
-Command: `pnpm test:surface borrower-web pandora-dependency.spec.ts`.
+Command: `pnpm test:surface web pandora-dependency.spec.ts`.
 
 ## Results
 
@@ -42,7 +42,7 @@ The independent verifier checked:
   and source marker in each run's test output.
 - An initial dependency cache miss and a cache hit after the source-only repair.
 - The same dependency image within each lane across both executions.
-- Only apps/borrower-web/index.html changed between each pair of source manifests.
+- Only apps/web/index.html changed between each pair of source manifests.
 - No nested worktrees entered either snapshot. This relies on the existing Git
   exclusions installed by the controller, not generic nested-repository discovery.
 - Both returned build directories contain the correct marker and title. The

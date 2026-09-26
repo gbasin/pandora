@@ -5,8 +5,8 @@
 [pandora] source verified; waiting for the experiment worker
 [pandora] running app:test at pinned image sha256:4dff0b7870010ca81b8266eb06f69241a80c10c1bfd2d1b211e6c6c490c03312; worktree 4b069e3a2c55
 [pandora] declared output missing: /workspace/dist
-[pandora] attempt=75c96136cb1b457f9547b9b1001edf75; exit=1; evidence=/Users/garybasin/.local/state/pandora/docker-semantics-1/state/4b069e3a2c55fa6fd743d4d8538f1747316f4623b29d4b563e1c6fd907c99618/75c96136cb1b457f9547b9b1001edf75
-[pandora] Docker report: /Users/garybasin/.local/state/pandora/docker-semantics-1/state/4b069e3a2c55fa6fd743d4d8538f1747316f4623b29d4b563e1c6fd907c99618/75c96136cb1b457f9547b9b1001edf75/results/docker.json
+[pandora] attempt=75c96136cb1b457f9547b9b1001edf75; exit=1; evidence=/Users/you/.local/state/pandora/docker-semantics-1/state/4b069e3a2c55fa6fd743d4d8538f1747316f4623b29d4b563e1c6fd907c99618/75c96136cb1b457f9547b9b1001edf75
+[pandora] Docker report: /Users/you/.local/state/pandora/docker-semantics-1/state/4b069e3a2c55fa6fd743d4d8538f1747316f4623b29d4b563e1c6fd907c99618/75c96136cb1b457f9547b9b1001edf75/results/docker.json
 node:internal/fs/promises:1564
   return await PromisePrototypeThen(
          ^

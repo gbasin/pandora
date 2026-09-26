@@ -56,7 +56,7 @@ def why_not_local(job, plan=None):
     """The reason a job's run step cannot run on this Mac, or None.
 
     A sharded job is a fan-out across worker instances. With a `plan` step, the
-    run argv is written against what that step built on the worker (eichler's
+    run argv is written against what that step built on the worker (acme's
     surface runner is `run ... --no-build`), so running it here would test
     nothing that was built; without one, "the whole suite in one process on this
     Mac" is the 2026-09-22 accident with a flag on it. Either way the loader
@@ -126,7 +126,7 @@ def decide(job, plan, override):
         if problem:
             raise refuse('%s. Drop --remote/PANDORA_WHERE.' % problem)
         # A local job runs in a real checkout, and anything it does with git --
-        # eichler's planner fingerprints the tree with `git rev-parse` and `git
+        # acme's planner fingerprints the tree with `git rev-parse` and `git
         # diff` -- works there. A worker run arrives without `.git`, and the
         # loader forbids a local job from saying it needs one. So the override
         # asks for the synthetic repository rather than hoping the job never

@@ -5,7 +5,7 @@ what the slice needs. Three changes, each deliberate:
 
 * The v0.1.1 version *copied* every selected file into a staging directory and
   re-hashed it there. The slice does not: it hashes in place and hands the name
-  list to rsync, which reads the same files once more. Eichler is 375 MiB over
+  list to rsync, which reads the same files once more. Acme is 375 MiB over
   ~4,900 files; the staging copy doubled the I/O for no property the manifest
   did not already give.
 * Secret exclusion is the built-in name list plus whatever the repository's
@@ -21,7 +21,7 @@ Its sha256 comes from `Blobs`, a machine-wide map from git blob id to sha256
 stays sha256 rather than becoming the blob id).
 
 What is kept verbatim because it was hard-won: the nested-worktree exclusion
-(eichler has ~90 registered worktrees, several inside the repository), the
+(acme has ~90 registered worktrees, several inside the repository), the
 symlink containment check, the credential-bearing `.npmrc` refusal, and the
 re-read at the end that turns "the tree moved while we read it" into a refusal
 rather than a corrupt snapshot.
@@ -133,7 +133,7 @@ def git_status(repo):
     A run's tree arrives without `.git`, and a repository whose checks ask git
     (`git ls-files`, `git diff HEAD`) gets a synthetic one built on the worker.
     `git add -A` over the tree would get two sets wrong: an untracked file would
-    become tracked -- so eichler's markdown-status policy would read a scratch
+    become tracked -- so acme's markdown-status policy would read a scratch
     note it never reads here -- and a tracked file matching an ignore rule would
     become untracked. These are the exceptions that make the synthetic index say
     what this worktree's index says. Both sets are small; everything else is
@@ -306,7 +306,7 @@ def _atomic_write(path, text):
 class Digests:
     """sha256 by (size, mtime, ctime, inode), kept between freezes of one worktree.
 
-    Git's index idea. Freezing eichler read 375 MiB twice -- 6 s with the files
+    Git's index idea. Freezing acme read 375 MiB twice -- 6 s with the files
     in the page cache and 21 s without, on a loaded Mac, which is most of what a
     warm remote `check` cost its caller. A file whose stat is unchanged since
     the last freeze is not read again, and the freeze's own second pass becomes

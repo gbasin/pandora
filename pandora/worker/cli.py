@@ -411,7 +411,7 @@ def add_parser(sub):
                            'enrolled pandora.toml files name; repeatable')
     node.add_argument('--drop-family', action='append', default=[], metavar='FAMILY',
                       help='remove this family on sight -- the label the receipt prints, '
-                           'like "eichler eichler-journeys" or "(unknown)"; a golden a live '
+                           'like "acme acme-journeys" or "(unknown)"; a golden a live '
                            'attempt needs and a pinned one still hold; repeatable')
     node.add_argument('--orphan-hours', type=float, default=None, metavar='H',
                       help='grace after last use before a family no enrolled config names '

@@ -76,7 +76,7 @@ class EvidenceTests(unittest.TestCase):
                 root, 'surface', {'app': 'desk'}, {'workflow': 'surface', 'surface_app': 'desk'},
             )
             self.assertEqual(validate_evidence(root, 'a' * 32, submitted)['exit_code'], 0)
-            self.prepare_success(root, 'surface', {'app': 'borrower-web'}, submitted)
+            self.prepare_success(root, 'surface', {'app': 'web'}, submitted)
             with self.assertRaisesRegex(ValueError, 'Surface evidence'):
                 validate_evidence(root, 'a' * 32, submitted)
 

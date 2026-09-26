@@ -134,7 +134,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
                     '--pids-limit=512', '--shm-size=1g', '--init', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '-e', 'CI=true',
                     '-e', 'WRANGLER_SEND_METRICS=false',
-                    '-e', 'DATABASE_OWNER_URL=postgres://ike_owner:local-owner@127.0.0.1:5432/ike',
+                    '-e', 'DATABASE_OWNER_URL=postgres://app_owner:local-owner@127.0.0.1:5432/app',
                     image, 'sleep', str(execution_seconds(submitted) + 120)]
         docker(*run_args, stdout=subprocess.DEVNULL)
         overlay = _overlay(attempt, manifest, dep_entries)
@@ -160,7 +160,7 @@ def execute(attempt, image, manifest, dep_entries, metrics):
             if short == 'db':
                 for _ in range(60):
                     ready = subprocess.run(['sudo', 'docker', 'exec', name + '-db',
-                                            'pg_isready', '-U', 'ike_owner', '-d', 'ike'],
+                                            'pg_isready', '-U', 'app_owner', '-d', 'app'],
                                            capture_output=True, timeout=10)
                     if ready.returncode == 0:
                         break

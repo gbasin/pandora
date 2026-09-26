@@ -1,6 +1,6 @@
-# Eichler's browser surface suites, sharded. The tier-2 half of the contract.
+# Acme's browser surface suites, sharded. The tier-2 half of the contract.
 #
-# This is a second file rather than another job in `eichler.pandora.toml` for one
+# This is a second file rather than another job in `acme.pandora.toml` for one
 # reason: `[worker]` is the golden's identity, and a surface run needs a golden
 # with Playwright's chromium in it while a journey run needs one with the service
 # images in it. One file per toolchain keeps each golden honest about what it
@@ -19,7 +19,7 @@
 version = 1
 
 [repo]
-name = "eichler"
+name = "acme"
 entrypoints = ["pnpm"]
 root_markers = ["pnpm-workspace.yaml", "turbo.json"]
 
@@ -62,8 +62,8 @@ packages = ["docker.io", "docker-compose-v2", "docker-buildx", "ca-certificates"
 node_version = "24.9.0"
 pnpm_version = "12.3.4"
 service_images = []
-install_command = "set -o pipefail\npnpm install --frozen-lockfile 2>&1 | tail -2\npnpm --filter @eichler/desk exec playwright install --with-deps chromium 2>&1 | tail -5\nls /root/.cache/ms-playwright"
-source_id = "eichler-surfaces"
+install_command = "set -o pipefail\npnpm install --frozen-lockfile 2>&1 | tail -2\npnpm --filter @acme/desk exec playwright install --with-deps chromium 2>&1 | tail -5\nls /root/.cache/ms-playwright"
+source_id = "acme-surfaces"
 workdir = "/work"
 
 # The canary runs the surface job's `validate` for this app in a clone of the
@@ -71,7 +71,7 @@ workdir = "/work"
 # in milliseconds, without a browser. A job with no `validate` gets its shard
 # `plan` with one shard instead.
 [worker.canary]
-surface = "borrower-web"
+surface = "web"
 
 [[jobs]]
 id = "surface"
@@ -87,7 +87,7 @@ fallback = "refuse"
 # the contract travels to the worker and its supervisor honors it before the
 # destroy.
 cancel = { signal = "SIGINT", grace_ms = 60000 }
-usage = "Use pnpm test:surface <borrower-web|desk> [Playwright selectors] [--grep <pattern>]."
+usage = "Use pnpm test:surface <web|desk> [Playwright selectors] [--grep <pattern>]."
 timeout_minutes = 30
 forms = [{ prefix = ["test:surface"] }, { prefix = ["surface"] }]
 # `--grep`'s value is a Playwright pattern, not a path, so it must not be
@@ -117,9 +117,9 @@ report = "apps/*/test-results/surface-run-{i}-of-{n}.json"
 # Both apps are listed because this file cannot yet say "the one in {args}". A
 # directory the run did not produce is reported missing and costs nothing.
 plan_outputs = ["apps/desk/dist", "apps/desk/e2e/dist",
-                "apps/borrower-web/dist", "apps/borrower-web/e2e/dist"]
+                "apps/web/dist", "apps/web/e2e/dist"]
 
 [[jobs.outputs]]
 kind = "artifacts"
 paths = ["apps/desk/test-results", "apps/desk/playwright-report",
-         "apps/borrower-web/test-results", "apps/borrower-web/playwright-report"]
+         "apps/web/test-results", "apps/web/playwright-report"]

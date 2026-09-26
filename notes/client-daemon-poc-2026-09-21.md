@@ -30,8 +30,8 @@ ergonomics and side effects.
 The config-driven classifier was reused, not restubbed.
 `experiments/client/repo_config/` holds verbatim copies of
 `classify.py`, `config.py`, `ci_import.py`,
-`examples/eichler.pandora.toml` and `fixtures/eichler/.github/workflows/ci.yml`
-from `poc/ci-import` (commit `d6e0464`). Nothing in them was edited. The eichler
+`examples/acme.pandora.toml` and `fixtures/acme/.github/workflows/ci.yml`
+from `poc/ci-import` (commit `d6e0464`). Nothing in them was edited. The acme
 configuration loads and classifies correctly here: 13 jobs, 21 claimed argv
 forms.
 
@@ -57,8 +57,8 @@ The shim finds that directory with no process at all: walk up for `.git`; if it
 is a directory that is the common dir; if it is a **file** (every linked
 worktree) read the `gitdir:` pointer and strip the `/worktrees/<name>` tail.
 
-Checked against the real thing, read-only: **all 57 eichler worktrees** resolve
-to `/Users/garybasin/Code/eichler/.git`, agreeing with
+Checked against the real thing, read-only: **all 57 acme worktrees** resolve
+to `/Users/you/Code/acme/.git`, agreeing with
 `git rev-parse --git-common-dir` in 57 of 57 cases, in 24.5 ms total in-process.
 
 ### The protocol
@@ -92,15 +92,15 @@ Client disconnect is detach. Only an explicit `cancel` stops a run.
 | 1 | `PANDORA_OFF=1` | **PASS** | +4.19 ms p50, +5.14 ms p95. |
 | 1 | Python shim, same decisions | **FAIL (budget)** | +36.94 ms p50, +39.19 ms p95. Ten times over. Interpreter start-up alone kills it. |
 | 1 | Repo-root discovery method | **PASS** | walk-up in-process 5.18 ms p50 vs sh baseline ~5.3 ms, i.e. ~0 marginal. `git rev-parse --git-common-dir` 16.35 ms p50 — more than the whole budget on its own. |
-| 1 | Git worktrees (`.git` is a file) | **PASS** | 57/57 real eichler worktrees resolved correctly; relative and absolute `gitdir:` pointers both tested. |
+| 1 | Git worktrees (`.git` is a file) | **PASS** | 57/57 real acme worktrees resolved correctly; relative and absolute `gitdir:` pointers both tested. |
 | 1 | Routed round trip (context only) | n/a | +55.7 ms p50, +59.0 ms p95. Not on the budget: a claimed command is a test suite. |
 | 2 | PATH order, plain login zsh | **PASS** | `~/.local/bin` is index 1, `/opt/homebrew/bin` index 2. A shim there wins. |
 | 2 | PATH order, Agentboard tmux pane | **PASS** | tmux global env has `~/.local/bin` at 7, Homebrew at 11; Agentboard never touches PATH (`src/server/tmuxEnv.ts:19-25`, asserted by its own test at `__tests__/tmuxEnv.test.ts:15,97`). A shim there wins. |
 | 2 | PATH order, Claude Code bash tool | **FAIL** | Shell snapshot pins `/opt/homebrew/bin` at index 1 and `~/.local/bin` at index 9. A `~/.local/bin` shim loses. |
 | 2 | PATH order, Codex lanes and `--yolo` | **FAIL** | Tested directly: a temp shim dir exported by the launcher **was** inherited (position ~28) and still lost to `/opt/homebrew/bin/pnpm`. |
 | 2 | Root cause of both failures | **found** | `~/.zshenv:6-9` prepends `/opt/homebrew/bin` unconditionally, with no dedup guard. `.zshenv` runs for *every* zsh including nested `zsh -lc`, which is how Codex and Claude Code run commands. `~/.local/bin` is prepended by `.zprofile:13` (login only) and `.zshrc:15,51` (interactive only). |
-| 2 | corepack | **PASS** | `/opt/homebrew/bin/pnpm` is a symlink to `corepack/dist/pnpm.js`. It re-execs a per-repo version from `packageManager`. Through the shim, unchanged: `8.15.0` in a scratch dir, `12.3.4` inside eichler. The shim adds no version skew. |
-| 2 | Nested `pnpm` re-entry | **PASS (guard works)** | ~20 root eichler scripts call `pnpm` from inside a pnpm script (`"check": "pnpm validate check"` and so on). `PANDORA_ROUTE_DEPTH` is set on every hand-off and checked first; tested at one, two and three levels, routing exactly once each time. |
+| 2 | corepack | **PASS** | `/opt/homebrew/bin/pnpm` is a symlink to `corepack/dist/pnpm.js`. It re-execs a per-repo version from `packageManager`. Through the shim, unchanged: `8.15.0` in a scratch dir, `12.3.4` inside acme. The shim adds no version skew. |
+| 2 | Nested `pnpm` re-entry | **PASS (guard works)** | ~20 root acme scripts call `pnpm` from inside a pnpm script (`"check": "pnpm validate check"` and so on). `PANDORA_ROUTE_DEPTH` is set on every hand-off and checked first; tested at one, two and three levels, routing exactly once each time. |
 | 3 | Pueue double-routing, chain A | **PASS (guarded)** | `pnpm check` → `pnpm validate check` in the root package.json. Without a guard that is two routes for one typed command. Guarded and tested. |
 | 3 | Pueue double-routing, chain B | **FAIL (hole, documented and tested)** | `pnpm validate unit` → `pueue add … exec <abs node> validate.mjs _run` → `tools/validation/run.mjs:77` spawns a **bare** `pnpm` from `plan.mjs:5`. `PANDORA_ROUTE_DEPTH` does not survive: `queue.mjs:34` submits with `safeEnvironment()`, a 16-name allowlist at `state.mjs:83-106`. Confirmed empirically from `pueue status --json`: task env is 11 vars, exactly that allowlist. `PATH` **is** on it (`state.mjs:86`), so the shim is still reachable inside the job while the guard is not. `test_shim.py::test_an_env_scrubbing_hop_loses_the_guard` reproduces this and asserts the double route. |
 | 3 | Pueue daemon's own PATH | n/a | `/usr/bin:/bin:/usr/sbin:/sbin` (launchd default, `~/Library/LaunchAgents/sh.brew.pueue.plist`, no `EnvironmentVariables` key). Irrelevant: pueue execs tasks with the **submitting client's** env snapshot, not its own. `pueue status` read-only, 221 tasks, untouched. |
@@ -141,17 +141,17 @@ That is a dotfile change and it is not mine to make.
 sharpest result. `safeEnvironment()` drops `PANDORA_ROUTE_DEPTH` but keeps
 `PATH`, so a Pueue-run child re-enters the shim guard-free. Chain A (a
 package.json script calling `pnpm`) is fully guarded by an env marker. Chain B
-is not. Three fixes exist and all of them are one line; two need an eichler
+is not. Three fixes exist and all of them are one line; two need an acme
 edit and one does not:
 
 1. Filter the shim directory out of `PATH` inside `safeEnvironment()`
    (`state.mjs:86`). Kills re-entry for the whole Pueue subtree at once.
 2. Add `PANDORA_ROUTE_DEPTH` to the allowlist (`state.mjs:85-102`). Exactly the
-   pattern `EICHLER_VALIDATION_HOME` already uses; `run.mjs:79-87` then forwards
+   pattern `ACME_VALIDATION_HOME` already uses; `run.mjs:79-87` then forwards
    it to every plan command.
 3. Install the shim as a zsh function rather than a PATH entry. `spawn('pnpm',…)`
    is a bare `execvp` with no shell, so nested spawns never see a function. This
-   needs no eichler change, but it also means Codex and Claude Code — which do
+   needs no acme change, but it also means Codex and Claude Code — which do
    go through `zsh -lc` — would need the function defined in `.zshenv` anyway.
 
 **A bug the sandbox case exposed, now fixed.** The fallback budget's lock files
@@ -177,7 +177,7 @@ measurable.
 **corepack is transparent to the shim.** `pnpm` is a corepack symlink that
 re-execs a per-repo version from `packageManager`. The shim finds it by PATH
 scan, execs it, and per-repo version selection still works (8.15.0 outside,
-12.3.4 in eichler). No special handling was needed.
+12.3.4 in acme). No special handling was needed.
 
 ## Recommended install location, per entry point
 
@@ -205,13 +205,13 @@ correct behaviour, silent except for one stderr line, and now tested.
 
 1. **Chain B double-routing is real and unguarded** until one of the three
    one-line fixes lands. Today it would route a Pueue-spawned
-   `pnpm exec vitest run` as if an agent had typed it. Do not enrol eichler
+   `pnpm exec vitest run` as if an agent had typed it. Do not enrol acme
    before this is closed.
 2. **The `.zshenv` edit is load-bearing** for three of five entry points, and it
    is a global change to every zsh on the machine. It also silently changes
    `pnpm` for everything else the user runs.
 3. **No stdin channel.** A routed command that expects a TTY sees EOF. Nothing
-   in eichler's claimed jobs is interactive, and the surface job already refuses
+   in acme's claimed jobs is interactive, and the surface job already refuses
    `--ui`, `--debug` and `--update-snapshots`. Still unsolved, not merely
    untested.
 4. **The marker lives inside `.git/`.** Cheap and it covers every worktree, but

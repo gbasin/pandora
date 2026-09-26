@@ -2,9 +2,9 @@
 # Run probe.sh inside a Codex shell tool under one sandbox mode.
 # Usage: run-probe.sh <label> [extra codex args...]
 set -u
-WT=/Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+WT=/Users/you/Code/pandora-wt/codex-sandbox-probe
 PROBE=$WT/experiments/codex-sandbox
-SHIM=/Users/garybasin/.local/state/pandora-probe/shimbin
+SHIM=/Users/you/.local/state/pandora-probe/shimbin
 label=$1; shift
 
 PROMPT="Run exactly this command once, with no edits and no retries, then print its complete stdout verbatim in your final message:
@@ -15,7 +15,7 @@ Do not summarise, do not fix any failing line, do not run anything else. Failure
 
 export PATH="$SHIM:$PATH"
 export PANDORA_PROBE_VAR=probe-var-ok
-export PANDORA_STATE=/Users/garybasin/.local/state/pandora-probe
+export PANDORA_STATE=/Users/you/.local/state/pandora-probe
 export PANDORA_PROBE_TOKEN=probe-token-value
 export PANDORA_PROBE_SECRET=probe-secret-value
 

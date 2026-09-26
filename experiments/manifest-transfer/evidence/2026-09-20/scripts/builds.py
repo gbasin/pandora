@@ -11,7 +11,7 @@ spec=(p/'docker-spec.json').read_text()
 for index in range(3):
     output=p/f'build-{index}'
     start=time.monotonic()
-    result=subprocess.run(['python3','-B',str(p/'warm_probe.py'),'--host','ubuntu@WORKER','--repo','/Users/garybasin/Code/eichler/.worktrees/pandora-compiled-build','--output',str(output),'--workflow','docker','--docker-request',spec],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+    result=subprocess.run(['python3','-B',str(p/'warm_probe.py'),'--host','ubuntu@WORKER','--repo','/Users/you/Code/acme/.worktrees/pandora-compiled-build','--output',str(output),'--workflow','docker','--docker-request',spec],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
     (p/f'build-{index}.log').write_text(result.stdout)
     print(result.stdout[-1000:],flush=True)
     assert result.returncode==0,result.returncode

@@ -13,7 +13,7 @@ transcripts live in `experiments/codex-sandbox/results/`.
 | Item | Value |
 | --- | --- |
 | Codex CLI | `codex-cli 0.155.1` (`codex --version`) |
-| Codex binary | `/Users/garybasin/.local/bin/codex` |
+| Codex binary | `/Users/you/.local/bin/codex` |
 | Model used for probes | `gpt-6-astra`, `model_reasoning_effort="low"` |
 | OS | `Darwin 25.2.0 arm64` |
 | Codex shell tool | `/bin/zsh -lc '<command>'` (login shell), recorded in every transcript |
@@ -35,7 +35,7 @@ The `sandbox_workspace_write` table in this binary has exactly four fields:
 - The agent-fanout Codex lanes run
   `codex exec --json --sandbox workspace-write`, and add
   `-c sandbox_workspace_write.network_access=true` unless `--no-network` is
-  passed. Source: `/Users/garybasin/.claude/skills/agent-fanout/scripts/launch-codex-lane`
+  passed. Source: `/Users/you/.claude/skills/agent-fanout/scripts/launch-codex-lane`
   lines 201-204 (`codex_args=(exec --json --sandbox workspace-write)`), and the
   `--no-network` help text at line 40.
 - When `--pnpm-store` is used the same script also adds `--add-dir "$pnpm_store"`
@@ -54,7 +54,7 @@ The `sandbox_workspace_write` table in this binary has exactly four fields:
   sandbox mode. ... The launcher does not disable the sandbox."
 - Routing worked under that configuration. `notes/agent-ramp-2026-09-21-verified.md`
   records twelve concurrent sessions (six Codex Terra, six Claude Opus) running
-  `pnpm journey S0-01` and `pnpm test:surface borrower-web chrome.spec.ts`
+  `pnpm journey S0-01` and `pnpm test:surface web chrome.spec.ts`
   through routing, with 24 verified receipts and no local-validation fallbacks.
 
 No note in `notes/` records a Codex run under `read-only`, under
@@ -179,7 +179,7 @@ prompt (approval policy was `never` in every run).
    `inherit = "core"`.
 6. **`PATH` is re-derived by a login shell, so a global shim dir is not first.**
    Codex runs `/bin/zsh -lc`, and the login files put
-   `/Users/garybasin/.local/bin`, then Homebrew, ahead of whatever PATH Codex
+   `/Users/you/.local/bin`, then Homebrew, ahead of whatever PATH Codex
    inherited. The probe's shim directory survived into the tool and resolved by
    name, but only because nothing earlier in `PATH` shadows it. On this machine
    `which -a pnpm` in a login shell returns `/opt/homebrew/bin/pnpm` first, so a
@@ -303,7 +303,7 @@ Client to daemon, first line only:
 
 ```json
 {"v":1,"op":"run","token":"<session token or null>","cwd":"<abs worktree path>",
- "argv":["pnpm","test:surface","borrower-web","chrome.spec.ts"],
+ "argv":["pnpm","test:surface","web","chrome.spec.ts"],
  "env":{"PANDORA_TREATMENT":"normal"},"tty":false}
 ```
 

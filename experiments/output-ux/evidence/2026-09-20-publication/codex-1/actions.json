@@ -12,7 +12,7 @@
     "type": "file_change",
     "changes": [
       {
-        "path": "/Users/garybasin/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-codex-1/experiments/output-ux/fixture/src/schema.json",
+        "path": "/Users/you/Code/pandora/.worktrees/_int-pandora-publish-20260920/.worktrees/pandora-publish-20260920-codex-1/experiments/output-ux/fixture/src/schema.json",
         "kind": "update"
       }
     ],

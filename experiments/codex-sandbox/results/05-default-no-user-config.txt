@@ -1,7 +1,7 @@
 Reading additional input from stdin...
 OpenAI Codex v0.155.1
 --------
-workdir: /Users/garybasin/Code/pandora-wt/codex-sandbox-probe
+workdir: /Users/you/Code/pandora-wt/codex-sandbox-probe
 model: gpt-6-astra
 provider: openai
 approval: never

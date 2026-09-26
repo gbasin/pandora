@@ -37,7 +37,7 @@ class SurfaceChildTests(unittest.TestCase):
             (parent / 'children.json').write_text(json.dumps({'version': 1, 'parent_attempt': parent.name, 'children': children}))
             planner = parent / 'results/attempts' / children[0]
             source = planner / 'results/outputs'
-            for name in ('apps/borrower-web/dist/a.js', 'apps/borrower-web/e2e/dist/b.js'):
+            for name in ('apps/web/dist/a.js', 'apps/web/e2e/dist/b.js'):
                 path = source / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(name)
             value['build'] = outputs_manifest(source, value['app']); value['plan_id'] = plan_digest(value)
             planner_meta = metadata | {'attempt': children[0], 'surface_suite': {key: value[key] for key in ('app', 'selectors', 'shard_count', 'keep_going')} | {'action': 'plan'}}
@@ -45,7 +45,7 @@ class SurfaceChildTests(unittest.TestCase):
             (planner / 'results/surface-plan.json').write_text(json.dumps(value))
             with patch('surface_child.validate_evidence', return_value={'exit_code': 0}):
                 self.assertEqual(build_source(attempt, metadata), source)
-                (source / 'apps/borrower-web/dist/a.js').write_text('different build')
+                (source / 'apps/web/dist/a.js').write_text('different build')
                 with self.assertRaises(ValueError): build_source(attempt, metadata)
             foreign = runs / ('9' * 32); foreign.mkdir()
             with self.assertRaises(ValueError): build_source(foreign, metadata)

@@ -4,7 +4,7 @@ Two tiers on purpose.
 
 The daemon holds the *real* classifier -- the config-driven one copied verbatim
 from ``poc/ci-import`` (``repo_config/classify.py``, ``config.py``,
-``ci_import.py``, plus the eichler example config and the ci.yml fixture).
+``ci_import.py``, plus the acme example config and the ci.yml fixture).
 Loading that configuration costs ~50 ms on this Mac, which is five times the
 entire latency budget for a shim invocation, so it can never live in the shim.
 
