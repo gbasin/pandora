@@ -82,7 +82,8 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           name="pandora-${TAG#v}"
-          gh release download "$TAG" -p "$name.tar.gz" --clobber
+          gh release download "$TAG" -p "$name.tar.gz" --clobber \
+            --repo ${{ github.repository }}
           sha=$(shasum -a 256 "$name.tar.gz" | cut -d' ' -f1)
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
           cd tap
