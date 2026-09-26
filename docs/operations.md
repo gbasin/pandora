@@ -57,19 +57,21 @@ configuration file, the daemon, one enrollment per repository, done once, and
 git clone https://github.com/gbasin/pandora.git ~/Code/pandora
 ```
 
-The clone is on `main`, the current line. Install its HEAD as the version
-Pandora runs.
+The clone is on `main`, the current line. Install the latest release as the
+version Pandora runs.
 
 ```sh
-~/Code/pandora/bin/pandora upgrade --from ~/Code/pandora
+~/Code/pandora/bin/pandora upgrade
 ```
 
-`upgrade` copies the committed tree into
-`~/.local/share/pandora/versions/<commit>/` and points
-`~/.local/share/pandora/current` at it. The launchers and the daemon run from
+`upgrade` downloads the newest release's tarball into
+`~/.local/share/pandora/versions/<tag>/` and points
+`~/.local/share/pandora/current` at it. To install the checkout's HEAD
+(unreleased code) instead, pass `--from ~/Code/pandora`. The launchers and
+the daemon run from
 `current`, never from the checkout. Pulling,
 editing or switching branches in the checkout changes nothing live until the
-next `pandora upgrade --from`. See [Upgrade](#upgrade). If `XDG_DATA_HOME` is set,
+next `pandora upgrade`. See [Upgrade](#upgrade). If `XDG_DATA_HOME` is set,
 the directory is `$XDG_DATA_HOME/pandora` instead.
 
 ### 2. Put the launchers first on PATH

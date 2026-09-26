@@ -90,8 +90,10 @@ flowchart LR
     worker -- "output, results" --> home
 ```
 
-Pandora v0.2 has been tested with one repository (eichler), one worker (4 vCPU,
-15.6 GiB, x86_64 Ubuntu 26.04) and one Mac. Read
+Pandora v0.3 has been tested with one repository (eichler), one worker (4 vCPU,
+15.6 GiB, x86_64 Ubuntu 26.04) and one Mac; a second client on a teammate key
+shares that worker, a path the e2e proves against a live worker every run
+([Sharing a worker](docs/worker.md#sharing-a-worker)). Read
 [Operating limits](docs/operations.md#operating-limits) before you rely on it.
 
 ## Install
@@ -99,8 +101,10 @@ Pandora v0.2 has been tested with one repository (eichler), one worker (4 vCPU,
 On a Mac with Python 3.11 or later, the real `pnpm` on PATH, and SSH access to a
 provisioned worker ([docs/worker.md](docs/worker.md)):
 
-1. Clone the checkout and install its HEAD as the version Pandora runs:
-   `git clone https://github.com/gbasin/pandora.git ~/Code/pandora && ~/Code/pandora/bin/pandora upgrade --from ~/Code/pandora`
+1. Clone the checkout and install the latest release as the version Pandora
+   runs:
+   `git clone https://github.com/gbasin/pandora.git ~/Code/pandora && ~/Code/pandora/bin/pandora upgrade`
+   (`--from ~/Code/pandora` instead installs the checkout's HEAD.)
 2. Link the launchers through `current`, first on PATH in every shell, including
    `~/.zshenv`:
    `mkdir -p ~/.local/bin && ln -s ~/.local/share/pandora/current/bin/{pandora,pnpm} ~/.local/bin/ && touch ~/.local/bin/.pandora-shim`
@@ -118,6 +122,10 @@ provisioned worker ([docs/worker.md](docs/worker.md)):
 4. Start the daemon under launchd: `pandora daemon --install`
 5. Enroll each repository once, from any worktree: `pandora enroll ~/Code/<repo>`
 6. Prove the install from the root of an enrolled worktree: `pandora doctor`
+
+A teammate sharing a worker installs the same way; what their key may do there
+is decided server-side, by which key SSH offers
+([Sharing a worker](docs/worker.md#sharing-a-worker)).
 
 Details, failure modes and every setting: [docs/operations.md](docs/operations.md).
 
