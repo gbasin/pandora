@@ -1,0 +1,90 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # RELEASE_TOKEN (a PAT) is preferred over GITHUB_TOKEN for one reason:
+      # pull_request checks do not run on a PR GITHUB_TOKEN opened. The
+      # release-please PR is mechanical, but a token with `repo` scope makes
+      # its diff reviewable under the same checks as every other PR.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  # The artifact the tarball code path prefers: built from the tag, uploaded,
+  # then installed for real by `pandora upgrade --release`, then proven by the
+  # whole routed path. The verify job is chained here because a release or tag
+  # pushed by GITHUB_TOKEN fires no `release`/`push` events of its own.
+  verify:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: [self-hosted, e2e]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - name: build and attach pandora-<version>.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          name="pandora-${TAG#v}"
+          git archive --format=tar.gz --prefix="$name/" -o "$name.tar.gz" "$TAG"
+          gh release upload "$TAG" "$name.tar.gz" --clobber
+      - name: install the release as a user would, then selftest it
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          scratch=$(mktemp -d)
+          mkdir -p "$scratch/state"
+          XDG_DATA_HOME="$scratch/xdg" \
+            bin/pandora --state "$scratch/state" upgrade --release "$TAG"
+          test "$("$scratch/xdg/pandora/current/bin/pandora" --version)" = "pandora ${TAG#v}"
+          "$scratch/xdg/pandora/current/bin/pandora" \
+            --config /home/gh-runner/.config-pandora-e2e.toml selftest --update --timeout 1800
+
+  # Homebrew is install ergonomics, never the updater: `pandora upgrade`
+  # fetches releases itself. The tap formula tracks url and sha256 only.
+  # The bump is skipped until TAP_REPO (a repo variable) and TAP_GITHUB_TOKEN
+  # (a `repo`-scoped PAT secret) are set; `secrets` cannot sit in `if:`.
+  tap:
+    needs: [release-please, verify]
+    if: needs.release-please.outputs.release_created == 'true'
+    env:
+      HAS_TAP: ${{ secrets.TAP_GITHUB_TOKEN != '' && vars.TAP_REPO != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: bump the tap formula
+        if: env.HAS_TAP == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAP_REPO: ${{ vars.TAP_REPO }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          name="pandora-${TAG#v}"
+          gh release download "$TAG" -p "$name.tar.gz" --clobber
+          sha=$(shasum -a 256 "$name.tar.gz" | cut -d' ' -f1)
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          cd tap
+          sed -i.bak \
+            -e "s|url \".*\"|url \"https://github.com/gbasin/pandora/releases/download/$TAG/$name.tar.gz\"|" \
+            -e "s|sha256 \".*\"|sha256 \"$sha\"|" \
+            Formula/pandora.rb && rm -f Formula/pandora.rb.bak
+          git -c user.name=pandora-ci -c user.email=pandora-ci@localhost \
+            commit -am "pandora ${TAG#v}"
+          git push
