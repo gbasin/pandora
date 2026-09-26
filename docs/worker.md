@@ -158,11 +158,12 @@ anything as that user. Identity, revocation and verb scoping are what it buys;
 isolation between users stays out of scope.
 
 The e2e workflow exercises it against the live worker:
-`scripts/e2e-gateway.sh` generates a teammate keypair, adds it as a `[[users]]`
-entry through a real `worker provision`, refuses a shell, a `python3 -c`
-stranger and an escaping rsync, runs `worker status` and a selftest through
-the pinned key, checks the ledger names the pin, and provisions the original
-manifest back to prove revocation.
+`scripts/e2e-gateway.sh` generates a teammate keypair, installs `bin/gateway`,
+`feeds.allow` and a managed `authorized_keys` block over the admin key
+(the e2e worker keeps no manifest to re-provision), refuses a shell, a
+`python3 -c` stranger and an escaping rsync, runs `worker status` and a
+selftest through the pinned key, checks the ledger names the pin, and lifts
+the block to prove revocation.
 
 ### The engine floor
 
