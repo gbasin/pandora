@@ -17,8 +17,9 @@ forwarded arguments before anything is queued. See `preflight`.
 import subprocess
 from pathlib import Path, PurePosixPath
 
-from ..errors import NotClaimed, Refused, ValidationRejected
+from ..errors import ConfigError, NotClaimed, Refused, ValidationRejected
 from ..exits import USAGE
+from .loader import ARG_PATH, _writeback_path
 
 PLAN_VERSION = 2
 
@@ -167,7 +168,40 @@ def environment(config, job, caller=None):
     return env, unset
 
 
-def build_plan(config, job, forwarded, chosen, caller_env=None):
+def _positional(forwarded, guarded):
+    """The forwarded tokens that are neither a flag nor a flag's value.
+
+    `{argN}` counts these, so `test:surface desk --grep x` binds `{arg1}` to
+    `desk`, not to `--grep`. A guarded token -- the value `value_flags` paired
+    with its flag -- was forwarded unexamined and may not even be a path, so
+    it never fills a declared path.
+    """
+    return [token for position, token in enumerate(forwarded)
+            if position not in guarded and not token.startswith('-')]
+
+
+def _expand_arg_paths(paths, positional):
+    """Render each declared path's `{argN}` against the positional arguments.
+
+    A command that does not supply the argument is refused at claim, not after
+    the run: an output that cannot be named cannot be declared, and a missing
+    declared output is a verdict, so an unrenderable one must never ship.
+    """
+    expanded = []
+    for path in paths:
+        def fill(match):
+            index = int(match.group(1))
+            if index > len(positional):
+                raise Refused('declared path %s needs a positional argument %d; the '
+                              'command supplies %d' % (path, index, len(positional)))
+            return positional[index - 1]
+        path = ARG_PATH.sub(fill, path)
+        _posix(path)
+        expanded.append(path)
+    return expanded
+
+
+def build_plan(config, job, forwarded, chosen, caller_env=None, guarded=()):
     options = {option['sets']: False for option in job['options']}
     for option in chosen.values():
         options[option['sets']] = True
@@ -177,11 +211,25 @@ def build_plan(config, job, forwarded, chosen, caller_env=None):
             tail.append(option['name'])
     argv = _splice(job['run']['argv'], job['run']['args_at'], tail)
     env, unset = environment(config, job, caller_env)
+    positional = _positional(forwarded, guarded)
     outputs = []
     for output in job['outputs']:
         if output['requires_option'] and not options.get(output['requires_option']):
             continue
-        outputs.append({'kind': output['kind'], 'paths': list(output['paths'])})
+        paths = _expand_arg_paths(output['paths'], positional)
+        if output['kind'] == 'writeback':
+            for path in paths:
+                try:
+                    _writeback_path(path, 'outputs')
+                except ConfigError as error:
+                    raise Refused(str(error)) from error
+        outputs.append({'kind': output['kind'], 'paths': paths})
+    shards = job['shards']
+    if shards and (shards['plan_outputs'] or shards['report']):
+        shards = dict(shards)
+        shards['plan_outputs'] = _expand_arg_paths(shards['plan_outputs'], positional)
+        if shards['report']:
+            shards['report'] = _expand_arg_paths([shards['report']], positional)[0]
     return {
         'version': PLAN_VERSION,
         'repo': config['repo']['name'],
@@ -199,7 +247,7 @@ def build_plan(config, job, forwarded, chosen, caller_env=None):
         'outputs': outputs,
         # None means one shard and no fan-out. The engine owns the count, not
         # the client: only the worker knows how many lanes are free.
-        'shards': job['shards'],
+        'shards': shards,
         'timeout_minutes': job['timeout_minutes'],
         'fallback': job['fallback'],
         'cancel': job['cancel'],
@@ -326,9 +374,14 @@ def classify(config, argv, *, cwd='.', env=None, exists=None, present=None):
             return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': forwarded,
                     'exit': USAGE,
                     'message': _message(config, '%s (%s)' % (usage_of(job), error))}
+    try:
+        plan = build_plan(config, job, forwarded, chosen, caller_env=env, guarded=guarded)
+    except Refused as error:
+        return {'decision': 'reject', 'plan': None, 'job': job['id'], 'forwarded': forwarded,
+                'exit': USAGE,
+                'message': _message(config, '%s (%s)' % (usage_of(job), error))}
     return {'decision': 'remote', 'reason': '', 'job': job['id'], 'forwarded': forwarded,
-            'chosen': chosen, 'rerooted': rerooted,
-            'plan': build_plan(config, job, forwarded, chosen, caller_env=env)}
+            'chosen': chosen, 'rerooted': rerooted, 'plan': plan}
 
 
 def claim_index(config):
