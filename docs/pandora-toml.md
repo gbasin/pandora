@@ -149,6 +149,7 @@ in `pandora/client/shim.py`).
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` (any other worker refusal, such as the disk floor) | local lane | refuse, 70 | refuse, 70 |
 | the worker is full (memory or slots) | queues on the worker, 70 after the bound (`queue-timeout`) | queues, 70 after the bound | queues, 70 after the bound |
 | `admission-refused`: the reservation is larger than the worker's whole budget | refuse, 70 | refuse, 70 | refuse, 70 |
+| `engine-version`: this client's bundle is older than the worker's `min_engine_version` | refuse, 70 | refuse, 70 | refuse, 70 |
 | `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
 | `daemon-unreachable`, never installed here (no client configuration) | passthrough: runs here as if Pandora were not installed, no slot, one notice | passthrough | passthrough (writes in place) |
 | the `submit` call fails and the worker cannot then be asked whether it started the run | 70 | 70 | 70 |
@@ -166,7 +167,8 @@ for a busy worker: `admission-refused` and `queue-timeout` refuse whatever the
 job declares. The local
 lane is the same kind of queue, memory admission and receipt as any local job, recorded
 as `fallback:<cause>`. A refusal prints the cause and the next step, and
-nothing runs. The next step is "retry, or run it in the local queue with
+nothing runs. An `engine-version` refusal's next step is `pandora upgrade`,
+not a lane. Otherwise the next step is "retry, or run it in the local queue with
 `PANDORA_WHERE=local`" when the job can run in the local lane. Only for a job
 that cannot (a sharded one) does it name `PANDORA_OFF=1`, as a last resort. A
 local run refused by the memory-pressure gate says to wait and retry, and not to
