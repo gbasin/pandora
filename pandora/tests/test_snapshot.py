@@ -289,6 +289,15 @@ class IndexTest(unittest.TestCase):
             before = os.stat(repo / 'racy.txt')
             (repo / 'racy.txt').write_text('bbbb\n')
             os.utime(repo / 'racy.txt', ns=(before.st_atime_ns, before.st_mtime_ns))
+            # An entry is racily clean only while its recorded second is not
+            # older than the index file's own mtime. Between the file write
+            # and `git add` the wall clock sometimes ticks over, the index
+            # lands a second ahead, and nothing races: a full-suite flake on
+            # both sides of the comparison. Back-dating the index puts this
+            # same-second rewrite on the racy side every time.
+            index = repo / '.git' / 'index'
+            back = index.stat().st_mtime - 120
+            os.utime(index, (back, back))
             self.assertNotIn('racy.txt', snapshot.index_blobs(repo))
             manifest, _, _ = self.both_ways(repo, Path(tmp) / 'cache')[0]
             record = next(item for item in manifest if item['path'] == 'racy.txt')
