@@ -111,7 +111,7 @@ agent's tool call times out) does not. The run continues, and `pandora wait
 Pandora's lines go to stderr and start with `pandora:`. The command's own
 output stays on stdout. A remote command's stderr is merged into that stream. A remote run prints progress lines: `syncing N files`
 on a source-cache miss (also kept in the run's log for `pandora logs`),
-`instance ready in N s`, `running (typical 4m10s for check; cpus hint 2)` once
+`instance ready in N s`, `running (typical 4m10s for check; cpus 8)` once
 three earlier runs exist, queue lines for the worker queue, shards and the
 local lane, and a retry line when one happens. The last line may be a hint:
 
@@ -125,5 +125,6 @@ larger size class), `timed_out`, `drifted` (under `drift = "fail"` only),
 review, a path in the log that Git ignores and the snapshot therefore did not
 ship.
 
-A job that runs on the worker gets `PANDORA_CPUS`, the host's cores divided by
-the runs admitted when it starts. A runner can use it for its own parallelism.
+A job that runs on the worker gets `PANDORA_CPUS`, the cores pinned to its
+instance: the same number `nproc` reports inside it, fixed for every run. A
+runner can use it for its own parallelism.

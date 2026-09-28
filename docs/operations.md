@@ -726,8 +726,9 @@ Known caveats:
   `plan`), not a browser suite. A real Playwright run does not fit its budget.
 * The surface job declares both apps' output paths, so a one-app run reports
   the other app's paths as missing.
-* `PANDORA_CPUS` is fixed when a command starts. A run admitted alone keeps its
-  larger hint when others join.
+* `PANDORA_CPUS` equals the run's `limits.cpu` pin: the manifest's
+  `cpus_per_run`, or a quarter of the host's threads. It does not change with
+  how many other runs are admitted.
 * A remote run's verdict is not checked against the worktree afterward. Only
   write-back re-freezes. Do not edit a worktree while a remote validation runs.
 * One remote run per worktree is not enforced. Only the local lane holds a

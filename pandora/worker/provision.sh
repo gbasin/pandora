@@ -104,6 +104,14 @@ else
   printf '%s\n' "$MAX_RUNNING" > "$ENGINE_ROOT/max_running"
   step changed run-cap "$cap_detail"
 fi
+# The core pin, read the same way: 0 means the engine derives it.
+pin_detail=$([ "$CPUS_PER_RUN" = 0 ] && echo 'derived: max(2, threads / 4)' || echo "${CPUS_PER_RUN} cores")
+if [ "$(cat "$ENGINE_ROOT/cpus_per_run" 2>/dev/null || true)" = "$CPUS_PER_RUN" ]; then
+  step present cpu-pin "$pin_detail"
+else
+  printf '%s\n' "$CPUS_PER_RUN" > "$ENGINE_ROOT/cpus_per_run"
+  step changed cpu-pin "$pin_detail"
+fi
 # The engine-version floor and the feed allowlist live beside the ledger for
 # the same reason as the disk floor: the engine and the gateway read them on
 # paths they already own, on the hot path of every submission.

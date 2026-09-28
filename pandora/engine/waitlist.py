@@ -167,7 +167,8 @@ def wait(root, run_id, *, python=None, poll=POLL, clock=time.time, sleep=time.sl
                 store = admission.Store(str(paths.peaks))
                 try:
                     scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
                     if clock() > (row['queue_deadline'] or 0):
                         expire(paths, ledger, scheduler, run_id, now=clock())
                         return 'queue-timeout'

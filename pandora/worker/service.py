@@ -23,7 +23,7 @@ from pathlib import Path
 if __package__ in (None, ''):                # invoked as a file by the bootstrap
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pandora.engine.runner import Paths, max_running_of              # noqa: E402
+from pandora.engine.runner import Paths, cpus_per_run_of, max_running_of  # noqa: E402
 from pandora.executor.incus import IncusDriver                       # noqa: E402
 from pandora.worker import facts, gc, goldens, versions              # noqa: E402
 
@@ -118,6 +118,8 @@ def cmd_status(args):
                      floor_gib=manifest['worker']['disk_floor_gib']),
                  'run_cap': dict(zip(('max_running', 'source'),
                                      max_running_of(Paths(engine_root)))),
+                 'cpu_pin': dict(zip(('cpus_per_run', 'source'),
+                                     cpus_per_run_of(Paths(engine_root)))),
                  'goldens': listed, 'run_instances': running,
                  'canary': state.get('canary'), 'reason': state.get('reason')})
 

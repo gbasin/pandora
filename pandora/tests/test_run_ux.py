@@ -78,7 +78,7 @@ class CommandOutput(unittest.TestCase):
             b'pandora: turbo cache off: no server\npandora: instance ready in 1.2 s\n\n'))
 
     def test_a_labeled_pandora_line_is_not_output_either(self):
-        self.assertFalse(retry.command_output('[1/2] pandora: cpus hint 2\n'))
+        self.assertFalse(retry.command_output('[1/2] pandora: cpus 8\n'))
 
     def test_one_line_of_the_command_is(self):
         self.assertTrue(retry.command_output(b'pandora: running\n> vitest run\n'))
@@ -133,7 +133,7 @@ class EngineCausesAndLines(unittest.TestCase):
         log = self.paths.log(run_id).read_text()
         self.assertEqual(log.count('pandora: instance ready in '), 1)
         self.assertRegex(log, r'pandora: instance ready in 0\.[78] s\n')
-        self.assertIn('pandora: running (cpus hint', log)
+        self.assertIn('pandora: running (cpus ', log)
         self.assertNotIn('typical', log, 'no history, no estimate')
         self.assertAlmostEqual(result['durations']['boot'], 0.7, delta=0.05)
 
@@ -142,7 +142,7 @@ class EngineCausesAndLines(unittest.TestCase):
             run_id, _ = self.attempt(FakeDriver())
         self.assertNotIn('typical', self.paths.log(run_id).read_text())
         run_id, _ = self.attempt(FakeDriver())
-        self.assertIn('pandora: running (typical 12 s for suite; cpus hint',
+        self.assertIn('pandora: running (typical 12 s for suite; cpus ',
                       self.paths.log(run_id).read_text())
 
 

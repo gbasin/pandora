@@ -223,7 +223,8 @@ def submit(args, paths, ledger, request):
         store = admission.Store(str(paths.peaks))
         try:
             scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
             verdict = scheduler.admit(run_id, plan['repo'], plan['job'], plan['size'])
             if (not verdict['admitted'] and verdict['reason'] in ('memory', 'queue', 'slots')
                     and not verdict.get('never')):
@@ -263,7 +264,8 @@ def queue_place(paths, ledger, run_id):
     store = admission.Store(str(paths.peaks))
     try:
         scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
         return waitlist.position(ledger, scheduler, run_id)
     finally:
         store.close()
@@ -488,7 +490,8 @@ def cmd_stats(args):
     paths, ledger = open_ledger(args.root)
     store = admission.Store(str(paths.peaks))
     scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
     reservations = []
     for row in ledger.recent(limit=200):
         key = (row['repo'], row['job'])
@@ -562,7 +565,8 @@ def cmd_health(args):
         reason.append('kernel is %s; the canary passed on %s' % (kernel, state['kernel']))
     store = admission.Store(str(paths.peaks))
     scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
     answer = {'ok': not reason, 'engine': ENGINE_VERSION, 'at': time.time(),
               'reason': '; '.join(reason) or None,
               'scheduler': scheduler.snapshot(), 'live': len(ledger.live()),

@@ -31,7 +31,7 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
                                   InstanceLost, Limits, PrepareFailed, Result, Toolchain, Usage)
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
-from .scheduler import Scheduler, gate, size_line
+from .scheduler import Scheduler, derived_cpus_per_run, gate, size_line
 from . import batches, shards as sharding
 from . import admission, history, retry, turbocache, writeback
 
@@ -242,7 +242,7 @@ def supervise(root, run_id, *, driver=None):
             # This runs in the private clone, against the transferred source.
             # It does not change the golden's fingerprint or the local lane.
             note('preparing transferred source')
-            prep_limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
+            prep_limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths))
             if tick() == 'cancel':
                 prep = Result(exit_code=-9, outcome='cancelled', seconds=0, usage=Usage())
             else:
@@ -265,14 +265,12 @@ def supervise(root, run_id, *, driver=None):
             'prepare', 'clone', 'start', 'inject', 'graft', 'git', 'harden',
             'prepare_command')), 2)
         note('instance ready in %.1f s' % durations['boot'])
-        # PANDORA_CPUS is decided here, not at admission. The hint is a *share*
-        # -- host cores divided by the runs actually admitted -- and admission
-        # happens before the instance exists, so a run admitted while it was
-        # alone would otherwise start believing it owns four cores while three
-        # siblings started beside it. The environment of a started process
-        # cannot be rewritten, so the only moment this can be right is the last
-        # one before the command starts.
-        limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths, ledger))
+        # PANDORA_CPUS is decided here, not at admission. The pin is the
+        # worker's configured count, read at the last moment so a manifest
+        # change lands on the next run. The environment of a started process
+        # cannot be rewritten, so the only moment this can be right is the
+        # last one before the command starts.
+        limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths))
         ledger.update(run_id, cpus_hint=limits.cpus_hint)
         note(running_line(ledger, row, limits.cpus_hint))
         queue_marker = attempt / 'batchqueue.json'
@@ -392,7 +390,8 @@ def supervise(root, run_id, *, driver=None):
                 store = admission.Store(str(paths.peaks))
                 try:
                     scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths),
-                                          max_running=max_running_of(paths)[0])
+                                          max_running=max_running_of(paths)[0],
+                                          cpus_per_run=cpus_per_run_of(paths)[0])
                     learned = scheduler.learn(ledger.get(run_id), peak_mib, outcome)
                 finally:
                     store.close()
@@ -418,7 +417,7 @@ def supervise(root, run_id, *, driver=None):
 
 
 def running_line(ledger, row, cpus_hint):
-    """`running (typical 4m10s for check; cpus hint 2)`, from the ledger alone.
+    """`running (typical 4m10s for check; cpus 8)`, from the ledger alone.
 
     The typical time is the median of this job's last few verdicts in the same
     role -- a shard is compared with shards, a whole run with whole runs -- and
@@ -434,25 +433,34 @@ def running_line(ledger, row, cpus_hint):
         parts.append('typical %s %s %s' % (history.fmt_seconds(expected),
                                            'per shard of' if role == 'shard' else 'for',
                                            row['job']))
-    parts.append('cpus hint %d' % cpus_hint)
+    parts.append('cpus %d' % cpus_hint)
     return 'running (%s)' % '; '.join(parts)
 
 
-def cpus_now(paths, ledger):
-    """Host cores over the runs admitted *at this instant*, never below one.
+def cpus_now(paths):
+    """The core pin a run starts with: `PANDORA_CPUS` and `limits.cpu` both.
 
-    Read under the admission lock so it cannot land between a sibling's
-    admission and that sibling's ledger row, which is precisely the window
-    that made the slice's proof 7 report 4 and 2 on a four-core box.
+    One number for every run, from the manifest or a quarter of the host's
+    threads. It does not move with how many siblings were admitted, which is
+    what makes a run's memory appetite a property of the job and learnable.
     """
-    with gate(paths.root):
-        store = admission.Store(str(paths.peaks))
-        try:
-            scheduler = Scheduler(ledger, store, budget_mib=budget_of(paths),
-                                          max_running=max_running_of(paths)[0])
-            return scheduler.cpus_hint(scheduler.lanes())
-        finally:
-            store.close()
+    return cpus_per_run_of(paths)[0]
+
+
+def cpus_per_run_of(paths, threads=None):
+    """The per-run core pin for this worker, and where it came from.
+
+    `PANDORA_CPUS_PER_RUN` in the environment wins, then a positive
+    `cpus_per_run` the manifest wrote into the engine root, then a quarter of
+    the host's threads. Returns (pin, source)."""
+    override = os.environ.get('PANDORA_CPUS_PER_RUN') or ''
+    if override.isdigit() and int(override) > 0:
+        return int(override), 'PANDORA_CPUS_PER_RUN'
+    configured = read_text(Path(paths.root) / 'cpus_per_run') or '0'
+    if configured.isdigit() and int(configured) > 0:
+        return int(configured), 'manifest cpus_per_run'
+    threads = threads or os.cpu_count() or 1
+    return derived_cpus_per_run(threads), 'threads %d / 4' % threads
 
 
 def remote_cwd(relative):

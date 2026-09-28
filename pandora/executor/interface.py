@@ -111,7 +111,9 @@ class Limits:
     `memory_mib` is the learned reservation the scheduler admitted against;
     `ceiling_mib` is the hard cap for the size class. Exceeding the reservation
     is allowed and is fed back to admission; exceeding the ceiling is `oom`.
-    `cpu_weight` is a share, never a quota. `cpus_hint` becomes PANDORA_CPUS.
+    `cpu_weight` is a share, never a quota. `cpus_hint` becomes `PANDORA_CPUS`
+    and, below the host's count, the instance's `limits.cpu` pin: the number a
+    run sees and the number it is told are one number.
     """
     memory_mib: int
     ceiling_mib: int

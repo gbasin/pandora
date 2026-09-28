@@ -145,8 +145,10 @@ printf '%s\\n' "$ids" > "test-results/batch-$seq.txt"
 SELFTEST_SH = '''#!/bin/sh
 # The scratch repository's runner. The marker on stdout proves the command
 # executed on the worker; the file proves the write-back path when the job's
-# --update option armed it.
+# --update option armed it. `cpus` is what the instance can see, `env` is what
+# the run was told: the core pin makes them the same number.
 echo "{marker}"
+echo "cpus=$(nproc) env=${{PANDORA_CPUS:-0}}"
 if [ "${{1:-}}" = "--update" ]; then
     echo "{writeback_text}" > "{writeback}"
 fi
@@ -583,6 +585,13 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
             if argv[0] == 'selftest' and MARKER not in (out or ''):
                 say('the run\'s marker is missing from its stdout; stdout tail: %s'
                     % (out or '')[-300:])
+            if argv[0] == 'selftest':
+                seen = re.search(r'cpus=(\d+) env=(\d+)\b', out or '')
+                if not seen or int(seen.group(1)) != int(seen.group(2)):
+                    raise SelftestError(
+                        'the run saw %s core(s) but was told %s: the cpuset and '
+                        'PANDORA_CPUS disagree'
+                        % (seen.groups() if seen else ('?', '?')), exit=1)
             if code != 0 or (result or {}).get('outcome') != 'passed':
                 say('run %s failed: exit %s, outcome %s; stderr tail: %s'
                     % (record['id'], code, (result or {}).get('outcome'), (err or '')[-400:]))
