@@ -97,8 +97,9 @@ class SchedulerTest(unittest.TestCase):
         self.ledger.close()
         self.tmp.cleanup()
 
-    def scheduler(self, budget=12288, cores=4):
-        return Scheduler(self.ledger, self.store, budget_mib=budget, cores=cores)
+    def scheduler(self, budget=12288, cores=4, cpus_per_run=None):
+        return Scheduler(self.ledger, self.store, budget_mib=budget, cores=cores,
+                         cpus_per_run=cpus_per_run)
 
     def test_a_cold_job_reserves_its_whole_ceiling(self):
         reserve, ceiling, size_class, samples = self.scheduler().reservation('demo', 'suite')
@@ -144,20 +145,25 @@ class SchedulerTest(unittest.TestCase):
         self.assertEqual(verdict['reason'], 'memory')
         self.assertEqual(verdict['held_mib'], 4096)
 
-    def test_the_cpu_hint_is_a_share_of_the_box_not_its_core_count(self):
-        scheduler = self.scheduler(cores=4)
-        self.assertEqual(scheduler.cpus_hint(1), 4)
-        self.assertEqual(scheduler.cpus_hint(2), 2)
-        self.assertEqual(scheduler.cpus_hint(3), 1)
-        self.assertEqual(scheduler.cpus_hint(8), 1)
+    def test_the_cpu_number_is_a_pin_not_a_share_of_the_box(self):
+        scheduler = self.scheduler(cores=32, cpus_per_run=8)
+        for lanes in (1, 2, 8):
+            self.assertEqual(scheduler.cpus_hint(lanes), 8)
 
-    def test_two_admitted_runs_each_get_half_the_box(self):
+    def test_the_pin_derives_a_quarter_of_the_box_and_never_exceeds_it(self):
+        self.assertEqual(self.scheduler(cores=32).cpus_hint(), 8)
+        self.assertEqual(self.scheduler(cores=4).cpus_hint(), 2)
+        self.assertEqual(self.scheduler(cores=4, cpus_per_run=8).cpus_hint(), 4)
+
+    def test_two_admitted_runs_each_get_the_pin(self):
         claim(self.ledger)
-        first = self.scheduler().admit('r1', 'demo', 'suite', 'medium')
+        first = self.scheduler(cores=32, cpus_per_run=8).admit(
+            'r1', 'demo', 'suite', 'medium')
         claim(self.ledger, request_id='req-2', run_id='r2')
-        second = self.scheduler().admit('r2', 'demo', 'suite', 'medium')
-        self.assertEqual(first['cpus_hint'], 4)      # alone when it was admitted
-        self.assertEqual(second['cpus_hint'], 2)
+        second = self.scheduler(cores=32, cpus_per_run=8).admit(
+            'r2', 'demo', 'suite', 'medium')
+        self.assertEqual(first['cpus_hint'], 8)
+        self.assertEqual(second['cpus_hint'], 8)
 
     def test_learning_from_a_finished_run_lowers_the_next_reservation(self):
         claim(self.ledger)

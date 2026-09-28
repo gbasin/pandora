@@ -41,6 +41,10 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
    concurrent-run cap from the host: `max(2, threads / 2)`, so every admitted
    run keeps at least two threads. A positive value is the cap itself.
    `pandora worker status` prints the effective cap and where it came from.
+10. Leave `cpus_per_run = 0` unless you have measured a reason. Zero derives
+   the core pin from the host: `max(2, threads / 4)`, the count `nproc` and
+   `PANDORA_CPUS` report inside every run. A positive value is the pin itself.
+   `pandora worker status` prints the effective pin and where it came from.
 
 ### Example
 
@@ -69,6 +73,7 @@ loop_size_gib = 18
 disk_floor_gib = 4
 run_disk_gib = 12
 max_running = 0
+cpus_per_run = 0
 golden_keep = 2
 unattended_upgrades = false
 ```

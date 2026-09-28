@@ -468,20 +468,25 @@ rm -rf "$2"
                         clone_seconds=copied, start_seconds=time.monotonic() - mark)
 
     def apply(self, name, limits):
-        """Admit on memory, CPU soft.
+        """Admit on memory, pin the visible cores, share their time.
 
-        `limits.memory.enforce=hard` writes memory.max. CPU uses the
-        *percentage* form of `limits.cpu.allowance`, which Incus writes to
-        `cpu.weight` and leaves `cpu.max` unlimited — a share, not a quota, so
-        a run alone on the box gets the whole box. `limits.cpu.priority` is
-        not used: it only spans cpu.weight 90-100, which is not a usable
-        differential (measured in §6).
+        `limits.memory.enforce=hard` writes memory.max. `limits.cpu` pins the
+        cpuset to the run's share, so `nproc` inside reports it and tools that
+        size their worker pools off it agree with `PANDORA_CPUS`. Below the
+        host's count it is left unset -- pinning to every core the box has is
+        the default anyway. `limits.cpu.allowance` in its *percentage* form is
+        what Incus writes to `cpu.weight`: a share, not a quota, so contention
+        is still decided by weight rather than by who was pinned where.
+        `limits.cpu.priority` is not used: it only spans cpu.weight 90-100,
+        which is not a usable differential (measured in §6).
         """
-        self.incus('config', 'set', name,
-                   'limits.memory=%dMiB' % limits.ceiling_mib,
-                   'limits.memory.enforce=hard',
-                   'limits.memory.swap=false',
-                   'limits.cpu.allowance=%d%%' % max(1, min(100, limits.cpu_weight)))
+        config = ['limits.memory=%dMiB' % limits.ceiling_mib,
+                  'limits.memory.enforce=hard',
+                  'limits.memory.swap=false',
+                  'limits.cpu.allowance=%d%%' % max(1, min(100, limits.cpu_weight))]
+        if 0 < limits.cpus_hint < (os.cpu_count() or 1):
+            config.append('limits.cpu=%d' % limits.cpus_hint)
+        self.incus('config', 'set', name, *config)
         gib = getattr(limits, 'disk_gib', 0) or self.default_disk_gib()
         if gib:
             self.quota(name, gib)

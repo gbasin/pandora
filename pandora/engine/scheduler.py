@@ -1,4 +1,4 @@
-"""Admit on memory, share the CPU, and keep the answer across restarts.
+"""Admit on memory, pin the CPU, and keep the answer across restarts.
 
 The POC's `Admission` held its running set in a dict, which a worker restart
 forgot (POC blocker 6). Here the ledger *is* the running set: held memory is the
@@ -9,11 +9,14 @@ arithmetic below is `admission.reserve`, unmodified.
 Admission is serialized by one file lock. Two SSH calls arriving together must
 not both read `held = 8 GiB` and both decide they fit.
 
-The CPU hint is the other half of the POC's result and the easier half to get
-wrong. `PANDORA_CPUS` is a *share* -- host cores divided by the number of
-admitted runs -- not the core count. Telling every run it has four cores on a
-four-core box cost 59% at two runs and 66% at three, because each run then sizes
-its own worker pool for a machine it does not have to itself.
+The CPU number is the other half of the POC's result and the easier half to
+get wrong. `PANDORA_CPUS` is a *pin*: the same count for every run, written as
+the instance's `limits.cpu`, so `nproc` inside reports it and a run sizes its
+own worker pool for the machine it actually gets. The earlier form, host cores
+divided by admitted runs, made a run's memory appetite a function of who else
+was admitted -- the same command peaked at 3 GiB or 11 GiB -- which made its
+size class unlearnable. A fixed pin makes the peak a property of the job, so
+`learn` can trust it again.
 """
 import fcntl
 import os
@@ -24,15 +27,24 @@ from pathlib import Path
 from . import admission
 from .ledger import LIVE
 
-# A hint of 1 tells a runner to go single-file, which is right on a small box
-# but wrong on a large one: 16 cores split 8 ways is still 2. The floor is a
-# guess, flagged as such in the POC note, and untested above 4 cores.
-MIN_CPUS = 1
+# A pin of 1 serializes everything a run does; two is the floor a bundler or a
+# browser suite survives on.
+MIN_CPUS = 2
 # A queued row whose waiter has not touched it for this long is not in the
 # queue. Its waiter died (a killed process, a rebooted worker before
 # `reconcile`), and a row nobody is waiting on must not hold the head of the
 # one queue for everybody behind it. Waiters touch their row every few seconds.
 QUEUE_STALE = 30.0
+
+
+def derived_cpus_per_run(threads):
+    """The pin a host earns: a quarter of its threads, never below the floor.
+
+    A quarter leaves about four heavy runs of headroom before cores are
+    oversubscribed; `cpu.weight` arbitrates when they are. The manifest's
+    `cpus_per_run` is the operator's override of this guess.
+    """
+    return max(MIN_CPUS, int(threads or 0) // 4)
 
 
 @contextmanager
@@ -53,7 +65,8 @@ def gate(state):
 
 class Scheduler:
     def __init__(self, ledger, store, *, budget_mib, cores=None, max_running=None,
-                 margin=admission.MARGIN, floor=admission.FLOOR_MIB):
+                 cpus_per_run=None, margin=admission.MARGIN,
+                 floor=admission.FLOOR_MIB):
         if not isinstance(budget_mib, int) or budget_mib < admission.FLOOR_MIB:
             raise admission.AdmissionError(
                 'host budget must be an integer of at least %d MiB' % admission.FLOOR_MIB)
@@ -64,6 +77,11 @@ class Scheduler:
         # None derives from the cores this scheduler sees; the engine passes the
         # worker's configured cap (`runner.max_running_of`).
         self.max_running = max_running if max_running else max(2, self.cores // 2)
+        # None derives a quarter of the cores this scheduler sees; the engine
+        # passes the worker's configured pin (`runner.cpus_per_run_of`). The pin
+        # can never exceed the box: a manifest naming 8 on a 4-core host pins 4.
+        self.cpus_per_run = max(1, min(cpus_per_run or derived_cpus_per_run(self.cores),
+                                     self.cores))
         self.margin = margin
         self.floor = floor
 
@@ -128,9 +146,9 @@ class Scheduler:
             names.add(including)
         return max(1, len(names))
 
-    def cpus_hint(self, lanes):
-        """Host cores split between the admitted runs, never below the floor."""
-        return max(MIN_CPUS, self.cores // max(1, lanes))
+    def cpus_hint(self, lanes=None):
+        """The run's core pin: one number for every run, independent of lanes."""
+        return self.cpus_per_run
 
     def admit(self, run_id, repo, job, declared_class=None):
         """Decide, and write the decision into the ledger under one lock.
@@ -170,7 +188,7 @@ class Scheduler:
                     'held_mib': held, 'budget_mib': self.budget_mib,
                     'size_class': size_class}
         lanes = self.lanes(including=run_id)
-        hint = self.cpus_hint(lanes)
+        hint = self.cpus_hint()
         self.ledger.update(run_id, state='admitted', reservation_mib=reserve,
                            ceiling_mib=ceiling, cpus_hint=hint, size_class=size_class,
                            admitted_at=time.time())
@@ -237,7 +255,7 @@ class Scheduler:
         return {'budget_mib': self.budget_mib, 'held_mib': self.held_mib(),
                 'queued': len(self.queue()),
                 'cores': self.cores, 'lanes': self.lanes(),
-                'cpus_hint_now': self.cpus_hint(self.lanes()),
+                'cpus_hint_now': self.cpus_hint(),
                 'running': [{'run_id': row['run_id'], 'repo': row['repo'], 'job': row['job'],
                              'state': row['state'], 'reservation_mib': row['reservation_mib']}
                             for row in rows]}

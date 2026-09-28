@@ -218,7 +218,8 @@ def free_lanes(paths, ledger, plan):
         store = admission.Store(str(paths.peaks))
         try:
             scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
             reserve, _, _, _ = scheduler.reservation(plan['repo'], plan['job'],
                                                      plan['size_class'], 'shard')
             spare = scheduler.budget_mib - scheduler.held_mib()
@@ -307,7 +308,8 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
             store = admission.Store(str(paths.peaks))
             try:
                 scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
-                                          max_running=runner.max_running_of(paths)[0])
+                                          max_running=runner.max_running_of(paths)[0],
+                                          cpus_per_run=runner.cpus_per_run_of(paths)[0])
                 current = ledger.get(run_id)
                 if current is not None and current['state'] != 'queued':
                     # Not queued any more: something else admitted or closed it.

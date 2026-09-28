@@ -164,6 +164,9 @@ def render_status(answer):
     cap = answer.get('run_cap') or {}
     if cap:
         lines.append('run cap: %s concurrent (%s)' % (cap.get('max_running'), cap.get('source')))
+    pin = answer.get('cpu_pin') or {}
+    if pin:
+        lines.append('cpu pin: %s core(s) per run (%s)' % (pin.get('cpus_per_run'), pin.get('source')))
     lines.append('goldens:')
     for item in answer.get('goldens') or []:
         lines.append('  %-26s %-10s %6.2f GiB  %-7s %s'

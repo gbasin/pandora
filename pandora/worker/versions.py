@@ -21,6 +21,7 @@ make two identical workers look different.
     loop_size_gib = 32
     disk_floor_gib = 4          # admission stops below this much pool free
     max_running = 0             # concurrent runs; 0 means max(2, threads // 2)
+    cpus_per_run = 0            # each run's visible cores; 0 means max(2, threads // 4)
     golden_keep = 2             # goldens kept per toolchain family by `worker gc`
 """
 import hashlib
@@ -57,11 +58,13 @@ WORKER = {
     'run_disk_gib': 12,
     'golden_keep': 2,
     'max_running': 0,           # 0 derives the run cap from the host's threads
+    'cpus_per_run': 0,          # 0 derives the core pin from the host's threads
     'unattended_upgrades': False,
     'user': 'ubuntu',
 }
 
-INTS = ('loop_size_gib', 'disk_floor_gib', 'run_disk_gib', 'golden_keep', 'max_running')
+INTS = ('loop_size_gib', 'disk_floor_gib', 'run_disk_gib', 'golden_keep', 'max_running',
+        'cpus_per_run')
 
 # A shared worker's named users, declared beside the machine they can reach:
 #
@@ -139,6 +142,8 @@ def normalize(raw):
         raise ConfigError('[worker] min_engine_version must be an integer')
     if worker['max_running'] < 0:
         raise ConfigError('[worker] max_running must be 0 (derive from threads) or a positive count')
+    if worker['cpus_per_run'] < 0:
+        raise ConfigError('[worker] cpus_per_run must be 0 (derive from threads) or a positive count')
     if not isinstance(worker['unattended_upgrades'], bool):
         raise ConfigError('[worker] unattended_upgrades must be true or false')
     if worker['device'] and not worker['device'].startswith('/dev/'):

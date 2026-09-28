@@ -1,4 +1,4 @@
-"""The worker's concurrent-run cap follows the host unless the manifest says otherwise."""
+"""The worker's run cap and core pin follow the host unless the manifest says otherwise."""
 import os
 import tempfile
 import unittest
@@ -50,6 +50,49 @@ class ConfiguredCap(unittest.TestCase):
             self.assertEqual(runner.max_running_of(self.paths, threads=32), (3, 'PANDORA_MAX_RUNNING'))
 
 
+class DerivedPin(unittest.TestCase):
+    def test_a_quarter_of_the_threads_with_a_floor_of_two(self):
+        self.assertEqual(scheduler.derived_cpus_per_run(32), 8)
+        self.assertEqual(scheduler.derived_cpus_per_run(16), 4)
+        self.assertEqual(scheduler.derived_cpus_per_run(9), 2)
+
+    def test_a_tiny_host_still_pins_two(self):
+        for threads in (0, 1, 4, None):
+            self.assertEqual(scheduler.derived_cpus_per_run(threads), 2)
+
+
+class ConfiguredPin(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.paths = runner.Paths(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_default_derives_from_threads(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('PANDORA_CPUS_PER_RUN', None)
+            self.assertEqual(runner.cpus_per_run_of(self.paths, threads=32),
+                             (8, 'threads 32 / 4'))
+
+    def test_manifest_value_wins_over_threads(self):
+        Path(self.paths.root, 'cpus_per_run').write_text('6\n')
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('PANDORA_CPUS_PER_RUN', None)
+            self.assertEqual(runner.cpus_per_run_of(self.paths, threads=32),
+                             (6, 'manifest cpus_per_run'))
+
+    def test_zero_in_the_file_means_derive(self):
+        Path(self.paths.root, 'cpus_per_run').write_text('0\n')
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('PANDORA_CPUS_PER_RUN', None)
+            self.assertEqual(runner.cpus_per_run_of(self.paths, threads=16)[0], 4)
+
+    def test_environment_wins_over_everything(self):
+        Path(self.paths.root, 'cpus_per_run').write_text('6\n')
+        with mock.patch.dict(os.environ, {'PANDORA_CPUS_PER_RUN': '3'}):
+            self.assertEqual(runner.cpus_per_run_of(self.paths, threads=32),
+                             (3, 'PANDORA_CPUS_PER_RUN'))
+
+
 class SchedulerDefault(unittest.TestCase):
     def test_scheduler_derives_when_not_told(self):
         s = scheduler.Scheduler(ledger=None, store=None, budget_mib=4096, cores=32)
@@ -68,6 +111,17 @@ class Manifest(unittest.TestCase):
     def test_negative_is_refused(self):
         with self.assertRaises(ConfigError):
             versions.normalize({'worker': {'max_running': -1}})
+
+    def test_cpu_pin_default_is_derive(self):
+        self.assertEqual(versions.normalize({})['worker']['cpus_per_run'], 0)
+
+    def test_cpu_pin_positive_count_is_kept(self):
+        self.assertEqual(versions.normalize({'worker': {'cpus_per_run': 8}})['worker']
+                         ['cpus_per_run'], 8)
+
+    def test_cpu_pin_negative_is_refused(self):
+        with self.assertRaises(ConfigError):
+            versions.normalize({'worker': {'cpus_per_run': -1}})
 
 
 if __name__ == '__main__':
