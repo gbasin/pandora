@@ -171,17 +171,28 @@ class Monitor:
         """The daemon's thread: poll now, then every `interval` or on a nudge."""
         while not self.stopping.is_set():
             self.poll()
+            if self.stopping.is_set():
+                # Checked again after the poll: `stop` sets `nudge` to break the
+                # wait, and a clear here would eat that signal and park the
+                # thread for the whole interval past the daemon's stop.
+                return
             self.nudge.clear()
             self.nudge.wait(self.interval)
 
     def start(self):
-        thread = threading.Thread(target=self.run, daemon=True, name='pandora-health')
-        thread.start()
-        return thread
+        self.thread = threading.Thread(target=self.run, daemon=True, name='pandora-health')
+        self.thread.start()
+        return self.thread
 
     def stop(self):
         self.stopping.set()
         self.nudge.set()
+        # Wait for a poll in flight: its record() writes the cache file, and a
+        # caller that tears `store`'s directory down right after `stop` --
+        # the test suite's temporary state directory -- must not race it.
+        thread = getattr(self, 'thread', None)
+        if thread is not None:
+            thread.join(timeout=5.0)
 
     # -- the cache on disk -------------------------------------------------
 
