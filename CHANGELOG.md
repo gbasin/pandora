@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/gbasin/pandora/compare/v0.3.6...v0.3.7) (2026-09-28)
+
+
+### Bug Fixes
+
+* two macOS CI flakes — a health write after stop, and a second-tick racy index ([#191](https://github.com/gbasin/pandora/issues/191)) ([17a7530](https://github.com/gbasin/pandora/commit/17a7530948ad9cc137e76af7b820879a31edeadb))
+
 ## [0.3.6](https://github.com/gbasin/pandora/compare/v0.3.5...v0.3.6) (2026-09-28)
 
 
