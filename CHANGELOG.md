@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/gbasin/pandora/compare/v0.3.5...v0.3.6) (2026-09-28)
+
+
+### Features
+
+* pin each run's visible cores instead of dividing them by lanes ([#189](https://github.com/gbasin/pandora/issues/189)) ([8741664](https://github.com/gbasin/pandora/commit/874166463a13388dd783aaca67331776a9dd5354))
+
 ## [0.3.5](https://github.com/gbasin/pandora/compare/v0.3.4...v0.3.5) (2026-09-26)
 
 
