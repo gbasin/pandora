@@ -124,9 +124,10 @@ A hint comes from evidence. The rules, worst first: `oom`, `timed_out`, `drifted
 review, a path in the log that Git ignores and the snapshot therefore did not
 ship.
 
-The `oom` hint starts from the class the run used. When the worker had learned
-a class below the declared one, it says the declared class applies again from
-the next run, and nothing needs to change. A kernel OOM kill reports the peak
+The `oom` hint starts from the class the run used. The worker never learns a
+class below the declared one. A run recorded before that rule, in a learned
+class below the declared one, gets a hint that says the declared class applies
+again from the next run, and nothing needs to change. A kernel OOM kill reports the peak
 against the ceiling. A watchdog kill (`memory-thrash` in the evidence) reports
 the limit that applied: `memory.high`, 90% of the ceiling, where the run
 stalled in reclaim. When the record has the `memory.stat` breakdown, the hint

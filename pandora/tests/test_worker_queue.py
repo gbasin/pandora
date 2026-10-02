@@ -18,6 +18,8 @@ from unittest import mock
 from pandora.engine import admission, runner, scheduler as scheduler_module, service, waitlist
 from pandora.engine.ledger import Ledger
 from pandora.engine.scheduler import Scheduler
+from pandora.engine.admission import HISTORY
+from pandora.tests.test_admission import EICHLER
 from pandora.tests.test_engine import PLAN, FakeDriver, claim
 
 
@@ -436,18 +438,30 @@ class LearnedSizeClasses(unittest.TestCase):
         return self.scheduler.learn(self.row, peak, outcome)
 
     def test_the_declared_class_holds_until_three_clean_samples(self):
-        self.learn(800)
-        learned = self.learn(800)
-        self.assertEqual(learned['size_class'], 'large')
-        self.assertIsNone(learned['size_change'])
-        learned = self.learn(800)
-        self.assertEqual(learned['size_class'], 'small')        # 800 x 1.25 fits 1 GiB
-        self.assertEqual(learned['size_change']['from'], 'large')
-        self.assertEqual(learned['size_change']['p95_mib'], 800)
+        claim(self.ledger, request_id='req-2', run_id='r2', size_class='medium')
+        row = self.ledger.get('r2')
+        for _ in range(2):
+            learned = self.scheduler.learn(row, 5000, 'passed')
+            self.assertEqual(learned['size_class'], 'medium')
+            self.assertIsNone(learned['size_change'])
+        learned = self.scheduler.learn(row, 5000, 'passed')
+        self.assertEqual(learned['size_class'], 'large')        # 5000 x 1.25 fits 8 GiB
+        self.assertEqual(learned['size_change']['from'], 'medium')
+        self.assertEqual(learned['size_change']['max_mib'], 5000)
+        self.assertEqual(learned['size_change']['p95_mib'], 5000)
         self.assertEqual(learned['size_change']['samples'], 3)
+
+    def test_never_below_the_declared_class(self):
+        # Declared large, every run 1 GiB: the ceiling stays large, the
+        # reservation follows p95 down.
+        for _ in range(10):
+            learned = self.learn(1024)
+            self.assertEqual(learned['size_class'], 'large')
+            self.assertIsNone(learned['size_change'])
         reserve, ceiling, size_class, _ = self.scheduler.reservation('demo', 'suite', 'large')
-        self.assertEqual((size_class, ceiling), ('small', 1024))
-        self.assertEqual(reserve, 1000)                          # p95 800 x 1.25, under it
+        self.assertEqual((size_class, ceiling), ('large', 8192))
+        self.assertEqual(reserve, 1280)                          # p95 1024 x 1.25
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'large')
 
     def test_it_learns_up_as_well_as_down(self):
         claim(self.ledger, request_id='req-2', run_id='r2', size_class='small')
@@ -455,30 +469,72 @@ class LearnedSizeClasses(unittest.TestCase):
         for _ in range(3):
             learned = self.scheduler.learn(row, 7000, 'passed')
         self.assertEqual(learned['size_class'], 'xlarge')        # 7000 x 1.25 > 8192
+        for _ in range(HISTORY):
+            learned = self.scheduler.learn(row, 600, 'passed')
+        # Once the big peaks leave the window, back down, to the declared floor.
+        self.assertEqual(learned['size_class'], 'small')
 
-    def test_p95_not_an_old_maximum_decides(self):
-        for peak in [6000] + [3000] * 19:
+    def test_it_rises_above_the_declared_class_on_one_clean_big_peak(self):
+        for peak in (2000, 2000, 7000):
             learned = self.learn(peak)
-        self.assertEqual(learned['size_class'], 'medium')        # p95 3000 -> 3750
+        self.assertEqual(learned['size_class'], 'xlarge')        # 7000 x 1.25 = 8750
+        self.assertEqual(learned['size_change']['max_mib'], 7000)
+        self.assertEqual(learned['size_change']['p95_mib'], 7000)
+        reserve, ceiling, _, _ = self.scheduler.reservation('demo', 'suite', 'large')
+        self.assertEqual((reserve, ceiling), (8750, 12288))
 
-    def test_never_a_ceiling_below_the_newest_peak(self):
-        # p95 of 20 drops the top one; the newest run used 6000 MiB, and a
-        # 4096 MiB ceiling would kill the next one.
-        for peak in [3000] * 19 + [6000]:
+    def test_the_eichler_window_keeps_xlarge_and_reserves_from_p95(self):
+        # gbasin/pandora#194: declared large; 50 clean peaks, two cold. The old
+        # rule stepped this window down to large (p95 6009 x 1.25 = 7511) and
+        # every cold run after it was killed.
+        for peak in reversed(EICHLER):                           # oldest first
             learned = self.learn(peak)
-        self.assertEqual(learned['size_class'], 'large')         # 6000 x 1.25 = 7500
+        self.assertEqual(self.store.clean_since_oom('demo', 'suite', 'large'), EICHLER)
+        self.assertEqual(learned['size_class'], 'xlarge')
+        reserve, ceiling, size_class, samples = self.scheduler.reservation(
+            'demo', 'suite', 'large')
+        self.assertEqual((size_class, ceiling, samples), ('xlarge', 12288, 50))
+        self.assertEqual(reserve, 7512)                          # p95 6009 x 1.25
+        # Warm runs after it leave the class where it is until both cold runs
+        # have left the window: 10422 is 46th newest and goes after 5 more runs,
+        # 10780 is 3rd newest and goes after 48.
+        for count in range(1, 48):
+            learned = self.learn(3000)
+            self.assertEqual(learned['size_class'], 'xlarge', count)
+        learned = self.learn(3000)
+        self.assertEqual(learned['size_class'], 'large')         # floor: declared
+        self.assertEqual(learned['size_change']['max_mib'], 3723)
+
+    def test_a_stored_class_below_the_declared_one_is_corrected(self):
+        # A store written by the old rule: learned `small` under declared `large`.
+        for _ in range(3):
+            self.store.record('demo', 'suite', 800, 'ok', declared='large')
+        self.store.set_class('demo', 'suite', 'small', declared='large')
+        reserve, ceiling, size_class, _ = self.scheduler.reservation('demo', 'suite', 'large')
+        self.assertEqual((size_class, ceiling, reserve), ('large', 8192, 1000))
+        learned = self.learn(800)
+        self.assertEqual(learned['size_class'], 'large')
+        self.assertIsNone(learned['size_change'])               # it already ran at large
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'large')
+
+    def test_a_class_stored_without_a_declaration_is_corrected_too(self):
+        # A store from before learning recorded `declared`: the row reads as is,
+        # and the declared class still floors it.
+        self.store.set_class('demo', 'suite', 'medium')
+        self.assertEqual(self.scheduler.reservation('demo', 'suite', 'large')[2], 'large')
 
     def test_raising_size_in_the_toml_restarts_learning_from_it(self):
-        for _ in range(5):
-            self.learn(2500)                                     # large -> medium
-        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'medium')
-        claim(self.ledger, request_id='req-x', run_id='rx', size_class='xlarge')
+        for _ in range(3):
+            self.learn(7000)                                     # large -> xlarge
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'xlarge')
+        claim(self.ledger, request_id='req-x', run_id='rx', size_class='medium')
         row = self.ledger.get('rx')
         for _ in range(2):
             learned = self.scheduler.learn(row, 2600, 'passed')
-            self.assertEqual(learned['size_class'], 'xlarge')    # old peaks do not count
+            self.assertEqual(learned['size_class'], 'medium')    # old peaks do not count
         learned = self.scheduler.learn(row, 2600, 'passed')
         self.assertEqual(learned['size_class'], 'medium')        # 3 under the new one
+        self.assertIsNone(learned['size_change'])
 
     def test_a_plan_step_and_its_shards_keep_separate_histories(self):
         claim(self.ledger, request_id='p:plan', run_id='rplan', role='plan', size_class='large')
@@ -487,43 +543,68 @@ class LearnedSizeClasses(unittest.TestCase):
         for _ in range(3):
             self.scheduler.learn(self.ledger.get('rplan'), 7000, 'passed')
             learned = self.scheduler.learn(self.ledger.get('rs1'), 700, 'passed')
-        self.assertEqual(learned['size_class'], 'small')
+        self.assertEqual(learned['size_class'], 'large')         # never below declared
         plan = self.scheduler.reservation('demo', 'suite', 'large', 'plan')
         shard = self.scheduler.reservation('demo', 'suite', 'large', 'shard')
-        self.assertEqual((plan[2], shard[2]), ('xlarge', 'small'))
+        self.assertEqual((plan[2], shard[2]), ('xlarge', 'large'))
+        self.assertEqual((plan[0], shard[0]), (8750, 875))
         self.assertEqual(self.scheduler.reservation('demo', 'suite', 'large')[3], 0)
+
+    def test_a_shards_stored_class_below_declared_is_corrected(self):
+        self.store.set_class('demo', 'suite@shard', 'small', declared='large')
+        self.assertEqual(self.scheduler.reservation('demo', 'suite', 'large', 'shard')[2],
+                         'large')
 
     def test_an_oom_resets_to_declared_and_learning_restarts_after_it(self):
         for _ in range(3):
-            self.learn(3000)
-        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'medium')
-        learned = self.learn(4096, 'oom')
+            self.learn(9000)
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'xlarge')
+        learned = self.learn(8192, 'oom')
         self.assertEqual(learned['size_class'], 'large')
         self.assertEqual(learned['size_change']['reason'], 'oom')
-        # The peaks before the oom chose `medium`; they do not choose it again.
+        self.assertEqual(learned['size_change']['from'], 'xlarge')
+        # The peaks before the oom chose `xlarge`; they do not choose it again.
         learned = self.learn(3000)
         self.assertEqual(learned['size_class'], 'large')
-        self.learn(5000)
-        learned = self.learn(5000)
-        self.assertEqual(learned['size_class'], 'large')         # p95 5000 -> 6250
-        self.assertEqual(self.store.peaks('demo', 'suite')[:1], [5000])
+        self.learn(3000)
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'large')
+        # After MIN_SAMPLES clean runs, the max rule applies again.
+        learned = self.learn(7000)
+        self.assertEqual(learned['size_class'], 'xlarge')         # 7000 x 1.25 = 8750
+        self.assertEqual(learned['size_change']['max_mib'], 7000)
+        self.assertEqual(learned['size_change']['samples'], 3)
+
+    def test_an_oom_at_the_declared_class_says_nothing_about_size(self):
+        learned = self.learn(8192, 'oom')
+        self.assertEqual(learned['size_class'], 'large')
+        self.assertIsNone(learned['size_change'])
 
     def test_a_timeout_or_infra_failure_teaches_nothing_about_size(self):
         for _ in range(3):
-            learned = self.learn(900, 'timed_out')
+            learned = self.learn(9000, 'timed_out')
         self.assertEqual(learned['size_class'], 'large')
 
     def test_a_changed_declaration_starts_learning_again_from_it(self):
         for _ in range(3):
-            self.learn(800)
-        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'small')
-        self.assertEqual(self.store.size_class('demo', 'suite', 'xlarge'), 'xlarge')
+            self.learn(9000)
+        self.assertEqual(self.store.size_class('demo', 'suite', 'large'), 'xlarge')
+        self.assertEqual(self.store.size_class('demo', 'suite', 'medium'), 'medium')
 
     def test_the_change_is_one_line(self):
         from pandora.engine.scheduler import size_line
+        self.assertEqual(size_line({'job': 'check', 'from': 'large', 'to': 'xlarge',
+                                    'reason': 'learned', 'max_mib': 10780, 'p95_mib': 6009,
+                                    'samples': 50}),
+                         'size for check: large -> xlarge '
+                         '(largest clean peak 10780 MiB over 50 runs)')
+        # A change recorded before 2026-10-02 still renders as it was.
         self.assertEqual(size_line({'job': 'build', 'from': 'large', 'to': 'medium',
                                     'reason': 'learned', 'p95_mib': 2900, 'samples': 5}),
                          'size for build: large -> medium (p95 2900 MiB over 5 runs)')
+        self.assertEqual(size_line({'job': 'build', 'from': 'xlarge', 'to': 'large',
+                                    'reason': 'oom'}),
+                         'size for build: xlarge -> large '
+                         '(an oom resets it to the declared class)')
         self.assertIsNone(size_line(None))
 
 
@@ -542,14 +623,17 @@ class TheOomHint(unittest.TestCase):
 
 class TheRunUsesTheLearnedClass(Engine):
     def test_reservation_ceiling_limits_result_and_stderr_follow_the_learned_class(self):
+        # One cold 7000 MiB run among 20: the ceiling holds it, the reservation
+        # is p95 of the 20, which leaves it out.
         store = admission.Store(str(self.paths.peaks))
-        for _ in range(3):
-            store.record('demo', 'suite', 800, 'ok')
-        store.set_class('demo', 'suite', 'small', declared='large')
+        for peak in [7000] + [2000] * 19:
+            store.record('demo', 'suite', peak, 'ok')
+        store.set_class('demo', 'suite', 'xlarge', declared='large')
         store.close()
         run = self.submit('a:suite', size='large')
-        self.assertEqual(run['admission']['size_class'], 'small')
-        self.assertEqual(run['admission']['ceiling_mib'], 1024)
+        self.assertEqual(run['admission']['size_class'], 'xlarge')
+        self.assertEqual(run['admission']['ceiling_mib'], 12288)
+        self.assertEqual(run['admission']['reservation_mib'], 2500)
         seen = {}
 
         class Driver(FakeDriver):
@@ -558,9 +642,29 @@ class TheRunUsesTheLearnedClass(Engine):
                 return super().clone(golden, run_id, limits=limits)
         (self.paths.attempt(run['run_id']) / 'toolchain.json').write_text(
             json.dumps(PLAN['worker']))
-        result = runner.supervise(self.root, run['run_id'], driver=Driver(peak=800 * 1048576))
-        self.assertEqual(seen['limits'].ceiling_mib, 1024)
-        self.assertEqual((result['size_declared'], result['size_used']), ('large', 'small'))
+        result = runner.supervise(self.root, run['run_id'], driver=Driver(peak=7000 * 1048576))
+        self.assertEqual(seen['limits'].ceiling_mib, 12288)
+        self.assertEqual((result['size_declared'], result['size_used']), ('large', 'xlarge'))
+
+    def test_a_stored_class_below_the_declared_one_runs_at_the_declared_one(self):
+        # State an older engine left on the worker: learned `small` under `large`.
+        store = admission.Store(str(self.paths.peaks))
+        for _ in range(3):
+            store.record('demo', 'suite', 800, 'ok', declared='large')
+        store.set_class('demo', 'suite', 'small', declared='large')
+        store.close()
+        run = self.submit('a:suite', size='large')
+        self.assertEqual(run['admission']['size_class'], 'large')
+        self.assertEqual(run['admission']['ceiling_mib'], 8192)
+        self.assertEqual(run['admission']['reservation_mib'], 1000)
+        (self.paths.attempt(run['run_id']) / 'toolchain.json').write_text(
+            json.dumps(PLAN['worker']))
+        result = runner.supervise(self.root, run['run_id'], driver=FakeDriver(peak=800 * 1048576))
+        self.assertEqual((result['size_declared'], result['size_used']), ('large', 'large'))
+        self.assertIsNone(result['learned']['size_change'])
+        store = admission.Store(str(self.paths.peaks))
+        self.addCleanup(store.close)
+        self.assertEqual(store.size_class('demo', 'suite', 'large'), 'large')
 
     def test_a_learning_failure_never_leaves_the_run_running(self):
         run = self.submit('a:suite', size='large')['run_id']
@@ -573,13 +677,14 @@ class TheRunUsesTheLearnedClass(Engine):
     def test_a_change_is_said_on_the_runs_stderr_before_it_finishes(self):
         store = admission.Store(str(self.paths.peaks))
         for _ in range(2):
-            store.record('demo', 'suite', 800, 'ok', declared='large')
+            store.record('demo', 'suite', 2000, 'ok', declared='large')
         store.close()
         run = self.submit('a:suite', size='large')['run_id']
         (self.paths.attempt(run) / 'toolchain.json').write_text(json.dumps(PLAN['worker']))
-        result = runner.supervise(self.root, run, driver=FakeDriver(peak=800 * 1048576))
-        self.assertEqual(result['learned']['size_change']['to'], 'small')
-        self.assertIn('pandora: size for suite: large -> small (p95 800 MiB over 3 runs)',
+        result = runner.supervise(self.root, run, driver=FakeDriver(peak=7000 * 1048576))
+        self.assertEqual(result['learned']['size_change']['to'], 'xlarge')
+        self.assertIn('pandora: size for suite: large -> xlarge '
+                      '(largest clean peak 7000 MiB over 3 runs)',
                       self.paths.log(run).read_text())
         self.assertEqual(result['size_used'], 'large')      # this run already had its class
 

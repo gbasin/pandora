@@ -497,7 +497,8 @@ def cmd_stats(args):
         key = (row['repo'], row['job'])
         if key in [(item['repo'], item['job']) for item in reservations]:
             continue
-        reserve, ceiling, size_class, samples = scheduler.reservation(*key, row['size_class'])
+        reserve, ceiling, size_class, samples = scheduler.reservation(
+            *key, row['size_declared'] or row['size_class'])
         reservations.append({'repo': key[0], 'job': key[1], 'reservation_mib': reserve,
                              'ceiling_mib': ceiling, 'size_class': size_class,
                              'samples': samples})

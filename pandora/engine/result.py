@@ -89,10 +89,14 @@ def oom(facts):
     of memory filled the cgroup is said only when the record carries the
     `memory.stat` breakdown; a record without one makes no cause claim.
 
-    The learned-class case comes first for both kills: the oom resets the class
-    to the declared one, so nothing in `pandora.toml` needs to change. Otherwise
-    the cure names the next class up from the one the run *used*, never the one
-    it already has, and says so when there is none.
+    The learned-class case comes first for both kills: a run that used a class
+    below the declared one was in a class the worker had learned, the oom
+    resets it to the declared one, and nothing in `pandora.toml` needs to
+    change. Since 2026-10-02 (gbasin/pandora#194) the worker never learns a
+    class below the declared one, so only a record written before that carries
+    this case; it still renders for those. Otherwise the cure names the next
+    class up from the one the run *used*, never the one it already has, and
+    says so when there is none.
     """
     if facts.get('outcome') != 'oom':
         return None
@@ -102,7 +106,9 @@ def oom(facts):
     declared, used = facts.get('size_declared'), facts.get('size_used')
     if declared in ORDER and used in ORDER and ORDER.index(declared) > ORDER.index(used):
         # The worker had learned a smaller class than the repository declared,
-        # and the oom resets it: nothing in pandora.toml needs to change.
+        # and the oom resets it: nothing in pandora.toml needs to change. Only
+        # records from before 2026-10-02 have this; the ceiling no longer
+        # learns below the declared class.
         if thrash:
             return ("the learned class for job %s was %s and the watchdog killed it at "
                     "that class's limit (%s); declared %s applies again from the next run"
