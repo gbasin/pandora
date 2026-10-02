@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.10](https://github.com/gbasin/pandora/compare/v0.3.9...v0.3.10) (2026-10-02)
+
+
+### Bug Fixes
+
+* never learn the size ceiling below the declared class ([#202](https://github.com/gbasin/pandora/issues/202)) ([a1f1b35](https://github.com/gbasin/pandora/commit/a1f1b355bdde441af581fd918e1079828c4b3ddb))
+
 ## [0.3.9](https://github.com/gbasin/pandora/compare/v0.3.8...v0.3.9) (2026-10-02)
 
 
