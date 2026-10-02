@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.9](https://github.com/gbasin/pandora/compare/v0.3.8...v0.3.9) (2026-10-02)
+
+
+### Bug Fixes
+
+* build the memory-thrash oom hint from measured memory and the class used ([#197](https://github.com/gbasin/pandora/issues/197)) ([a7b8e20](https://github.com/gbasin/pandora/commit/a7b8e209eec212bcb46fe80e2925f980f2b4fa06)), closes [#193](https://github.com/gbasin/pandora/issues/193)
+
 ## [0.3.8](https://github.com/gbasin/pandora/compare/v0.3.7...v0.3.8) (2026-10-02)
 
 
