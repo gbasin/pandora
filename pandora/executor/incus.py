@@ -27,6 +27,27 @@ from .interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usa
 
 NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
+# The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
+# `file` is what says whether the run's own processes filled the cgroup or its
+# file pages did (`file` includes `shmem`, which cannot be reclaimed without
+# swap). The rest of the file is a few dozen counters nobody reads in a hint.
+MEMORY_STAT_KEYS = ('anon', 'file', 'kernel', 'shmem', 'file_mapped', 'file_dirty',
+                    'file_writeback', 'active_anon', 'inactive_anon', 'active_file',
+                    'inactive_file', 'slab', 'sock', 'pagetables', 'kernel_stack')
+
+
+def memory_breakdown(stat):
+    """The kept `memory.stat` fields, or {} when the read had none.
+
+    Tolerant on purpose: a kernel without a field (`kernel` is 5.18+) or a read
+    that came back empty leaves the field out, and the verdict never waits on it.
+    """
+    out = {}
+    for key in MEMORY_STAT_KEYS:
+        value = (stat or {}).get(key)
+        if isinstance(value, int) and value >= 0:
+            out[key] = value
+    return out
 
 
 def untagged(image):
@@ -749,6 +770,12 @@ rm -rf "$2"
                             'psi_memory_some_avg10': use.pressure.get('memory_some_avg10', 0.0),
                             'psi_memory_full_avg10': psi,
                             'events': use.events}
+                # From the same host-side read as the verdict, so the
+                # breakdown is the cgroup at the sample that crossed the bar,
+                # just before the kill. Omitted when the read carried none.
+                breakdown = memory_breakdown(use.memory_stat)
+                if breakdown:
+                    evidence['memory_stat'] = breakdown
                 break
             if time.monotonic() > deadline:
                 outcome, evidence = 'timeout', {'reason': 'wall', 'seconds': limits.wall_seconds}
@@ -831,11 +858,18 @@ rm -rf "$2"
     # --- usage -------------------------------------------------------------
 
     def usage(self, instance):
+        """One host-side read of the instance cgroup's files.
+
+        Host-side, never `incus exec`: nothing here is charged to the capped
+        cgroup, so a thrashing run cannot slow its own watchdog. `memory.stat`
+        rides along in the same read rather than costing a second one.
+        """
         path = self.cgroup(instance.name)
         rc, out, _ = run(['sudo', 'bash', '-c',
                           'cd %s && for f in memory.current memory.peak memory.max memory.high '
-                          'memory.swap.current memory.events memory.pressure cpu.pressure '
-                          'io.pressure cpu.stat pids.current; do echo "==$f"; cat $f 2>/dev/null; done'
+                          'memory.swap.current memory.events memory.stat memory.pressure '
+                          'cpu.pressure io.pressure cpu.stat pids.current; '
+                          'do echo "==$f"; cat $f 2>/dev/null; done'
                           % shlex.quote(path)], check=False, timeout=60)
         if rc != 0:
             raise InstanceLost('cgroup for %s unreadable' % instance.name)
@@ -931,4 +965,5 @@ def parse_cgroup(text):
                  cpu_usec=cpu.get('usage_usec', 0),
                  events=pairs('memory.events'),
                  pressure=pressure,
-                 processes=number('pids.current'))
+                 processes=number('pids.current'),
+                 memory_stat=pairs('memory.stat'))

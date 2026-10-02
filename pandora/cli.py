@@ -764,6 +764,10 @@ def render_result(run_id, result):
     if placed.get('overridden'):
         lines.append('  placed %s by override; the job says %s'
                      % (placed.get('where'), placed.get('declared')))
+    from .engine.result import thrash_summary
+    thrash = thrash_summary(result)
+    if thrash:
+        lines.append('  ' + thrash)
     if result.get('size_used') and result.get('size_used') != result.get('size_declared'):
         lines.append('  size %s, learned (declared %s)'
                      % (result['size_used'], result.get('size_declared')))

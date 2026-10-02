@@ -80,29 +80,129 @@ def mib(value):
 # -- the rules ---------------------------------------------------------------
 
 def oom(facts):
-    """Killed for memory. Two different cures, and the evidence says which."""
+    """Killed for memory. The class it ran in, and what the evidence says next.
+
+    Two kills. The kernel's (`oom_kill`) is a run that reached the ceiling. The
+    watchdog's (`memory-thrash`) is a run that stalled in reclaim at the
+    effective limit, `memory.high`, which is 90% of the ceiling: it never got
+    to the ceiling at all, so the hint names the limit that applied. Which kind
+    of memory filled the cgroup is said only when the record carries the
+    `memory.stat` breakdown; a record without one makes no cause claim.
+
+    The learned-class case comes first for both kills: the oom resets the class
+    to the declared one, so nothing in `pandora.toml` needs to change. Otherwise
+    the cure names the next class up from the one the run *used*, never the one
+    it already has, and says so when there is none.
+    """
     if facts.get('outcome') != 'oom':
         return None
     evidence = facts.get('evidence') or {}
     job = facts.get('job') or 'this job'
-    if (evidence.get('reason') or '') == 'memory-thrash':
-        return ('watchdog killed for file-cache thrash; likely a large build or install '
-                '-- declare size large for job %s (peak %d MiB of a %d MiB ceiling)'
-                % (job, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib'))))
+    thrash = (evidence.get('reason') or '') == 'memory-thrash'
     declared, used = facts.get('size_declared'), facts.get('size_used')
     if declared in ORDER and used in ORDER and ORDER.index(declared) > ORDER.index(used):
         # The worker had learned a smaller class than the repository declared,
         # and the oom resets it: nothing in pandora.toml needs to change.
+        if thrash:
+            return ("the learned class for job %s was %s and the watchdog killed it at "
+                    "that class's limit (%s); declared %s applies again from the next run"
+                    % (job, used, thrash_limit(facts, evidence), declared))
         return ('the learned class for job %s was %s (peak %d MiB of a %d MiB ceiling); '
                 'declared %s applies again from the next run'
                 % (job, used, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib')),
                    declared))
+    if thrash:
+        return thrash_hint(facts, evidence, job, used)
     return ('raise the size class for job %s (peak %d MiB of a %d MiB ceiling)'
             % (job, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib'))))
 
 
 # Size classes, smallest first (`admission.CLASSES`), for the oom rule.
 ORDER = ('small', 'medium', 'large', 'xlarge')
+# Above this share of anon + file, one of the two is named as what filled the
+# cgroup. Below it the record says both were large, which is also a finding.
+DOMINANT = 0.6
+
+
+def bytes_mib(value):
+    return int(value) // 1048576 if isinstance(value, (int, float)) and value > 0 else 0
+
+
+def thrash_limit(facts, evidence):
+    """The limit the watchdog stopped the run at, and how long it stalled there.
+
+    `memory.high` against the ceiling when the record has it (every watchdog
+    record does), the effective wall otherwise, and the peak against the
+    ceiling only for a record that carries neither.
+    """
+    ceiling = mib(facts.get('ceiling_mib')) or bytes_mib(evidence.get('memory_max'))
+    limit = bytes_mib(evidence.get('memory_high')) or bytes_mib(evidence.get('memory_wall'))
+    stalled = evidence.get('thrashing_seconds')
+    if limit and ceiling and limit < ceiling:
+        text = 'memory.high %d MiB of the %d MiB ceiling' % (limit, ceiling)
+    elif limit:
+        text = '%d MiB limit' % limit
+    else:
+        text = 'peak %d MiB of a %d MiB ceiling' % (mib(facts.get('peak_mib')), ceiling)
+    if isinstance(stalled, (int, float)) and stalled > 0:
+        text += ', stalled %d s' % round(float(stalled))
+    return text
+
+
+def breakdown(evidence):
+    """`anon 8450 MiB, file 1492 MiB, ...` from a recorded `memory.stat`, or None."""
+    stat = evidence.get('memory_stat')
+    if not isinstance(stat, dict):
+        return None
+    anon, file = stat.get('anon'), stat.get('file')
+    if not isinstance(anon, int) or not isinstance(file, int) or anon + file <= 0:
+        return None
+    return ', '.join('%s %d MiB' % (key, bytes_mib(stat[key]))
+                     for key in ('anon', 'file', 'kernel', 'shmem')
+                     if isinstance(stat.get(key), int))
+
+
+def thrash_cause(evidence):
+    """What filled the cgroup, from `memory.stat`, or None when it is not recorded."""
+    parts = breakdown(evidence)
+    if parts is None:
+        return None
+    anon, file = evidence['memory_stat']['anon'], evidence['memory_stat']['file']
+    if anon >= DOMINANT * (anon + file):
+        return "%s: mostly anonymous memory, the job's own processes" % parts
+    if file >= DOMINANT * (anon + file):
+        return '%s: mostly file pages, page cache and shmem' % parts
+    return '%s: anonymous memory and file pages in similar shares' % parts
+
+
+def thrash_summary(result):
+    """One line for `pandora result`: the limit a watchdog oom stalled at, and
+    the breakdown when the record has one. None for any other result."""
+    evidence = (result or {}).get('evidence') or {}
+    if result.get('outcome') != 'oom' or evidence.get('reason') != 'memory-thrash':
+        return None
+    parts = breakdown(evidence)
+    return 'watchdog: %s%s' % (thrash_limit(result, evidence),
+                               '; %s' % parts if parts else '; no memory breakdown recorded')
+
+
+def thrash_hint(facts, evidence, job, used):
+    """The watchdog's oom at the class the run used, with the next step up."""
+    where = ("the %s class's limit" % used) if used in ORDER else 'its memory limit'
+    cause = thrash_cause(evidence) or 'no memory breakdown recorded, so the cause is unknown'
+    cpus = facts.get('cpus_hint')
+    fewer = (('lower its parallelism (it ran with PANDORA_CPUS=%d)' % cpus)
+             if isinstance(cpus, int) and cpus > 1 else None)
+    if used == ORDER[-1]:
+        cure = '%s is the largest class, so %s' % (
+            used, ' or '.join(step for step in (fewer, 'split it into shards') if step))
+    else:
+        bigger = (('declare size = "%s" for job %s in pandora.toml'
+                   % (ORDER[ORDER.index(used) + 1], job)) if used in ORDER
+                  else 'declare a larger size for job %s in pandora.toml' % job)
+        cure = ' or '.join(step for step in (fewer, bigger) if step)
+    return ('watchdog killed job %s at %s (%s); %s; %s'
+            % (job, where, thrash_limit(facts, evidence), cause, cure))
 
 
 def timed_out(facts):
@@ -304,6 +404,7 @@ def facts_from_result(result, **extra):
         'reservation_mib': result.get('reservation_mib'),
         'size_declared': result.get('size_declared'),
         'size_used': result.get('size_used'),
+        'cpus_hint': result.get('cpus_hint'),
         'observed_exit': result.get('observed_exit'),
         'wall_seconds': (result.get('durations') or {}).get('execute')
                         or result.get('wall_seconds'),

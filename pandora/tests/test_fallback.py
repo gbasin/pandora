@@ -1437,17 +1437,20 @@ class Hints(DaemonCase):
         FakeWorker.follow = lambda self, run_id, **k: (
             {'outcome': 'oom', 'cli_exit': 137, 'job': 'unit', 'peak_mib': 4096,
              'ceiling_mib': 4096, 'evidence': {'reason': 'memory-thrash'},
-             'hint': 'watchdog killed for file-cache thrash; likely a large build or install '
-                     '-- declare size large for job unit (peak 4096 MiB of a 4096 MiB ceiling)'},
+             'hint': "watchdog killed job unit at the medium class's limit (memory.high "
+                     '3686 MiB of the 4096 MiB ceiling, stalled 15 s); no memory breakdown '
+                     'recorded, so the cause is unknown; declare size = "large" for job '
+                     'unit in pandora.toml'},
             0)
         self.addCleanup(setattr, FakeWorker, 'follow', original)
         answer = self.call(['pnpm', 'unit'])
         self.assertEqual(answer.exit, 137)
-        self.assertIn(b'pandora: hint: watchdog killed for file-cache thrash', answer.err)
+        self.assertIn(b"pandora: hint: watchdog killed job unit at the medium class's limit",
+                      answer.err)
         self.assertTrue(answer.err.rstrip().splitlines()[-1].startswith(b'pandora: hint: '),
                         'the hint is the final stderr line')
         result = self.result_of(answer.accepted['run'])
-        self.assertIn('declare size large', result['hint'])
+        self.assertIn('declare size = "large"', result['hint'])
 
     def test_a_client_side_rule_fills_in_when_the_engine_has_none(self):
         ignored = self.repo / 'tmp' / 'fixture.json'

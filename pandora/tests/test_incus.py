@@ -7,8 +7,9 @@ import unittest
 
 from pandora.executor import incus as incus_driver
 from pandora.executor.incus import IncusDriver, parse_cgroup
-from pandora.executor.interface import (Golden, Limits, Receipt, Toolchain,
-                                        CloneFailed, ExecutionFailed, InstanceLost)
+from pandora.executor.interface import (Golden, Instance, Limits, Receipt, Toolchain,
+                                        Usage, CloneFailed, ExecutionFailed,
+                                        InstanceLost)
 
 SAMPLE = '''==memory.current
 312356864
@@ -27,6 +28,13 @@ max 29603
 oom 18
 oom_kill 1
 oom_group_kill 0
+==memory.stat
+anon 209715200
+file 83886080
+kernel 12582912
+shmem 1048576
+file_mapped 4194304
+pgfault 123456
 ==memory.pressure
 some avg10=9.07 avg60=3.11 avg300=0.63 total=4321
 full avg10=8.27 avg60=2.90 avg300=0.58 total=3990
@@ -73,6 +81,24 @@ class ParseCgroup(unittest.TestCase):
         usage = parse_cgroup('')
         self.assertEqual(usage.memory_current, 0)
         self.assertEqual(usage.events, {})
+        self.assertEqual(usage.memory_stat, {})
+
+    def test_memory_stat_is_read_in_bytes(self):
+        self.assertEqual(self.usage.memory_stat['anon'], 209715200)
+        self.assertEqual(self.usage.memory_stat['file'], 83886080)
+        self.assertEqual(self.usage.memory_stat['kernel'], 12582912)
+
+    def test_the_breakdown_keeps_the_named_fields_and_drops_the_rest(self):
+        kept = incus_driver.memory_breakdown(self.usage.memory_stat)
+        self.assertEqual(kept, {'anon': 209715200, 'file': 83886080, 'kernel': 12582912,
+                                'shmem': 1048576, 'file_mapped': 4194304})
+        self.assertNotIn('pgfault', kept)
+
+    def test_an_unparsable_memory_stat_is_an_empty_breakdown(self):
+        usage = parse_cgroup('==memory.stat\nanon lots\nfile\n\n==memory.current\n5\n')
+        self.assertEqual(usage.memory_current, 5)
+        self.assertEqual(incus_driver.memory_breakdown(usage.memory_stat), {})
+        self.assertEqual(incus_driver.memory_breakdown(None), {})
 
     def test_a_truncated_read_keeps_what_arrived(self):
         usage = parse_cgroup('==memory.current\n123\n==memory.events\nmax 7\n')
@@ -250,6 +276,64 @@ class StalledSeconds(unittest.TestCase):
     def test_time_older_than_the_window_does_not_count(self):
         samples = self.samples([True] * 40 + [False] * 80)
         self.assertEqual(self.driver.stalled_seconds(samples), 0.0)
+
+
+class ThrashingDriver(IncusDriver):
+    """The watchdog loop over scripted cgroup reads: nothing runs, nothing is killed."""
+
+    def __init__(self, stat):
+        super().__init__(root='/tmp', sample_interval=0.01, thrash_seconds=0.1,
+                         thrash_window=0.5)
+        self.stat, self.events, self.killed = stat, 0, False
+
+    def usage(self, instance):
+        self.events += 1000
+        high = 7730102272
+        return Usage(memory_current=high, memory_peak=high + 1048576,
+                     memory_max=8589934592, memory_high=high,
+                     events={'high': self.events, 'max': 0, 'oom_kill': 0},
+                     pressure={'memory_full_avg10': 55.0, 'memory_some_avg10': 63.0},
+                     memory_stat=self.stat)
+
+    def poll(self, instance, offset, timeout):
+        return None, None
+
+    def kill(self, instance, **kw):
+        self.killed = True
+
+
+class ThrashEvidence(unittest.TestCase):
+    """A memory-thrash verdict carries the limit that applied and what filled it."""
+
+    INSTANCE = Instance(name='r-1', run_id='r1', golden='golden-abc')
+    LIMITS = Limits(memory_mib=7000, ceiling_mib=8192, wall_seconds=30)
+
+    def verdict(self, stat):
+        driver = ThrashingDriver(stat)
+        result = driver.supervise(self.INSTANCE, self.LIMITS)
+        self.assertTrue(driver.killed)
+        self.assertEqual(result.outcome, 'oom')
+        self.assertEqual(result.evidence['reason'], 'memory-thrash')
+        return result.evidence
+
+    def test_the_breakdown_is_recorded_with_the_verdict(self):
+        evidence = self.verdict({'anon': 8450 << 20, 'file': 1492 << 20, 'kernel': 314 << 20,
+                                 'shmem': 7 << 20, 'pgfault': 99})
+        self.assertEqual(evidence['memory_stat'], {'anon': 8450 << 20, 'file': 1492 << 20,
+                                                   'kernel': 314 << 20, 'shmem': 7 << 20})
+        self.assertEqual(evidence['memory_high'], 7730102272)
+        self.assertEqual(evidence['memory_max'], 8589934592)
+        self.assertEqual(evidence['memory_wall'], 7730102272)
+
+    def test_a_missing_memory_stat_leaves_the_verdict_and_omits_the_breakdown(self):
+        evidence = self.verdict({})
+        self.assertNotIn('memory_stat', evidence)
+        self.assertEqual(evidence['memory_high'], 7730102272)
+
+    def test_the_samples_do_not_carry_the_breakdown(self):
+        evidence = self.verdict({'anon': 1, 'file': 2})
+        self.assertTrue(evidence['samples'])
+        self.assertTrue(all('memory_stat' not in sample for sample in evidence['samples']))
 
 
 class LimitsShape(unittest.TestCase):

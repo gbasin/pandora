@@ -224,7 +224,10 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
             result = driver.execute(instance, hog(hog_kind), env={}, cwd='/work', limits=limits)
             elapsed = time.monotonic() - mark
             evidence = {key: value for key, value in result.evidence.items() if key != 'samples'}
-            checks.add('file-cache thrash is killed as oom', result.outcome == 'oom',
+            # The default hog is a file-cache overrun; another `--hog` says its own name.
+            checks.add('file-cache thrash is killed as oom' if hog_kind == 'file'
+                       else '%s memory hog is killed as oom' % hog_kind,
+                       result.outcome == 'oom',
                        json.dumps(evidence)[:300])
             checks.add('oom verdict inside 60s', elapsed < 60, '%.1fs' % elapsed)
             checks.add('oom verdict carries evidence',

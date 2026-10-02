@@ -15,6 +15,118 @@ from pandora.client.protocol import log_frame
 from pandora.engine import result as rules
 
 
+MIB = 1048576
+# The eichler `check` of 2026-10-02 (gbasin/pandora#193): declared and run at
+# `large`, stalled at memory.high, 90% of the 8192 MiB ceiling.
+THRASH = {'reason': 'memory-thrash', 'throttle_events_per_second': 6736.0,
+          'thrashing_seconds': 15.4, 'memory_current': 7730851840,
+          'memory_high': 7730102272, 'memory_max': 8589934592,
+          'memory_wall': 7730102272}
+# The breakdown is the same job's cold rerun at `xlarge`, at its peak: the
+# shape of an anon-dominated run, not a reading taken at the large limit.
+ANON = {'anon': 8450 * MIB, 'file': 1492 * MIB, 'kernel': 314 * MIB, 'shmem': 7 * MIB}
+FILE = {'anon': 600 * MIB, 'file': 6500 * MIB, 'kernel': 200 * MIB, 'shmem': 5 * MIB}
+
+
+def thrash(size_used='large', size_declared='large', ceiling_mib=8192, cpus_hint=8,
+           **evidence):
+    return {'outcome': 'oom', 'job': 'check', 'peak_mib': 7405, 'ceiling_mib': ceiling_mib,
+            'size_used': size_used, 'size_declared': size_declared, 'cpus_hint': cpus_hint,
+            'evidence': dict(THRASH, **evidence)}
+
+
+class ThrashHint(unittest.TestCase):
+    """The watchdog's oom: built from the class used and the recorded memory."""
+
+    def test_at_large_declared_large_it_names_xlarge_and_the_limit_that_applied(self):
+        hint = rules.hint_for(thrash(memory_stat=ANON))
+        self.assertIn("at the large class's limit", hint)
+        self.assertIn('memory.high 7372 MiB of the 8192 MiB ceiling', hint)
+        self.assertIn('stalled 15 s', hint)
+        self.assertIn('declare size = "xlarge" for job check', hint)
+        self.assertIn('PANDORA_CPUS=8', hint)
+        self.assertNotIn('size = "large"', hint)
+        self.assertNotIn('file-cache', hint)
+
+    def test_it_never_names_the_class_the_run_already_had(self):
+        for index, used in enumerate(rules.ORDER):
+            hint = rules.hint_for(thrash(size_used=used, size_declared=used))
+            self.assertNotIn('size = "%s"' % used, hint)
+            if index + 1 < len(rules.ORDER):
+                self.assertIn('size = "%s"' % rules.ORDER[index + 1], hint)
+
+    def test_at_xlarge_there_is_no_bigger_class(self):
+        hint = rules.hint_for(thrash(size_used='xlarge', size_declared='xlarge',
+                                     ceiling_mib=12288, memory_high=11059 * MIB,
+                                     memory_max=12288 * MIB, memory_wall=11059 * MIB))
+        self.assertIn('xlarge is the largest class', hint)
+        self.assertIn('memory.high 11059 MiB of the 12288 MiB ceiling', hint)
+        self.assertIn('PANDORA_CPUS=8', hint)
+        self.assertIn('shards', hint)
+        self.assertNotIn('declare size', hint)
+
+    def test_parallelism_is_not_offered_to_a_run_that_had_one_cpu(self):
+        hint = rules.hint_for(thrash(cpus_hint=1))
+        self.assertNotIn('parallelism', hint)
+        self.assertIn('declare size = "xlarge"', hint)
+        self.assertNotIn('parallelism', rules.hint_for(thrash(cpus_hint=None)))
+
+    def test_a_learned_class_below_the_declared_one_says_the_declared_one_applies(self):
+        hint = rules.hint_for(thrash(size_used='large', size_declared='xlarge'))
+        self.assertIn('learned class for job check was large', hint)
+        self.assertIn('declared xlarge applies again from the next run', hint)
+        self.assertIn('memory.high 7372 MiB of the 8192 MiB ceiling', hint)
+        self.assertNotIn('declare size', hint)
+
+    def test_anon_dominated_names_anonymous_memory(self):
+        hint = rules.hint_for(thrash(memory_stat=ANON))
+        self.assertIn('anon 8450 MiB, file 1492 MiB, kernel 314 MiB, shmem 7 MiB', hint)
+        self.assertIn('mostly anonymous memory', hint)
+        self.assertNotIn('file pages', hint)
+
+    def test_file_dominated_names_file_pages(self):
+        hint = rules.hint_for(thrash(memory_stat=FILE))
+        self.assertIn('anon 600 MiB, file 6500 MiB', hint)
+        self.assertIn('mostly file pages', hint)
+        self.assertNotIn('anonymous memory', hint)
+
+    def test_neither_dominating_says_both(self):
+        hint = rules.hint_for(thrash(memory_stat={'anon': 3000 * MIB, 'file': 3000 * MIB}))
+        self.assertIn('in similar shares', hint)
+        self.assertNotIn('mostly', hint)
+
+    def test_no_breakdown_makes_no_cause_claim(self):
+        hint = rules.hint_for(thrash())
+        self.assertIn('no memory breakdown recorded', hint)
+        for claim in ('mostly', 'anonymous', 'file pages', 'file-cache'):
+            self.assertNotIn(claim, hint)
+
+    def test_an_unusable_breakdown_is_treated_as_none(self):
+        for stat in ({}, {'anon': 'x'}, {'file': 5}, 'garbage', {'anon': 0, 'file': 0}):
+            hint = rules.hint_for(thrash(memory_stat=stat))
+            self.assertIn('no memory breakdown recorded', hint, stat)
+
+    def test_an_old_record_without_memory_high_still_gets_a_hint(self):
+        # A record from before memory.high was in the evidence: peak and ceiling.
+        hint = rules.hint_for({'outcome': 'oom', 'job': 'check', 'peak_mib': 7405,
+                               'ceiling_mib': 8192, 'size_used': 'large',
+                               'size_declared': 'large',
+                               'evidence': {'reason': 'memory-thrash'}})
+        self.assertIn('peak 7405 MiB of a 8192 MiB ceiling', hint)
+        self.assertIn('declare size = "xlarge"', hint)
+        self.assertIn('no memory breakdown recorded', hint)
+
+    def test_the_engine_passes_the_cpus_hint_and_the_breakdown_through(self):
+        facts = rules.facts_from_result({
+            'outcome': 'oom', 'job': 'check', 'peak_mib': 7405, 'ceiling_mib': 8192,
+            'size_declared': 'large', 'size_used': 'large', 'cpus_hint': 8,
+            'evidence': dict(THRASH, memory_stat=ANON, samples=[{'t': 0}])})
+        self.assertEqual(facts['cpus_hint'], 8)
+        self.assertEqual(facts['evidence']['memory_stat'], ANON)
+        self.assertNotIn('samples', facts['evidence'])
+        self.assertIn('mostly anonymous memory', rules.hint_for(facts))
+
+
 class Rules(unittest.TestCase):
     def test_oom_names_the_job_the_peak_and_the_ceiling(self):
         hint = rules.hint_for({'outcome': 'oom', 'job': 'journey', 'peak_mib': 7900,
@@ -23,14 +135,14 @@ class Rules(unittest.TestCase):
         self.assertIn('7900 MiB', hint)
         self.assertIn('8192 MiB', hint)
 
-    def test_file_cache_thrash_gets_the_other_cure(self):
+    def test_a_thrash_kill_is_not_told_to_raise_the_size_class_blindly(self):
         hint = rules.hint_for({'outcome': 'oom', 'job': 'install', 'peak_mib': 460,
                                'ceiling_mib': 482,
                                'evidence': {'reason': 'memory-thrash',
                                             'throttle_events_per_second': 1167}})
-        self.assertIn('file-cache thrash', hint)
-        self.assertIn('declare size large', hint)
+        self.assertIn('watchdog killed job install', hint)
         self.assertNotIn('raise the size class', hint)
+        self.assertNotIn('file-cache', hint)
 
     def test_timed_out_names_the_wall_and_the_knob(self):
         hint = rules.hint_for({'outcome': 'timed_out', 'job': 'surface',

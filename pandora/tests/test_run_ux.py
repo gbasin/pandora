@@ -706,6 +706,26 @@ class Readers(unittest.TestCase):
         self.assertIn('  attempt 2 r2: passed', text)
         self.assertIn('flaky: whole run failed-then-passed (failed old, passed abc)', text)
 
+    def test_a_watchdog_oom_shows_the_limit_that_applied_and_the_breakdown(self):
+        thrash = {'outcome': 'oom', 'cli_exit': 70, 'wall_seconds': 102, 'peak_mib': 7405,
+                  'ceiling_mib': 8192,
+                  'evidence': {'reason': 'memory-thrash', 'thrashing_seconds': 15.4,
+                               'memory_high': 7730102272, 'memory_max': 8589934592,
+                               'memory_stat': {'anon': 8450 << 20, 'file': 1492 << 20,
+                                               'kernel': 314 << 20, 'shmem': 7 << 20}}}
+        text = cli.render_result('abc', thrash)
+        self.assertIn('  watchdog: memory.high 7372 MiB of the 8192 MiB ceiling, stalled 15 s; '
+                      'anon 8450 MiB, file 1492 MiB, kernel 314 MiB, shmem 7 MiB', text)
+        # A record from before the breakdown was captured still renders.
+        del thrash['evidence']['memory_stat']
+        self.assertIn('stalled 15 s; no memory breakdown recorded',
+                      cli.render_result('abc', thrash))
+        # A kernel oom and a passing run get no watchdog line.
+        self.assertNotIn('watchdog:', cli.render_result('abc', {
+            'outcome': 'oom', 'cli_exit': 70, 'evidence': {'reason': 'oom_kill'}}))
+        self.assertNotIn('watchdog:', cli.render_result('abc', {'outcome': 'passed',
+                                                                 'cli_exit': 0}))
+
     def test_stats_counts_flaky_pairs_in_its_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             for run_id, flaky in (('a', None),

@@ -142,6 +142,7 @@ class Usage:
     events: dict = field(default_factory=dict)      # memory.events
     pressure: dict = field(default_factory=dict)    # {memory,cpu,io}.pressure
     processes: int = 0
+    memory_stat: dict = field(default_factory=dict)  # memory.stat, bytes
 
 
 @dataclass(frozen=True)
