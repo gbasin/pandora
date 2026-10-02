@@ -88,19 +88,28 @@ class Scheduler:
     def reservation(self, repo, job, declared_class=None, role='single'):
         """(reservation, ceiling, size_class) for the next run of this job.
 
-        The repository declares a size class, and `learn` may since have moved
-        it; the ceiling is the operator's number for the class in use and is
-        also the run's cgroup `memory.max`. The
+        The repository declares a size class, and `learn` may since have raised
+        it, never lowered it; the ceiling is the operator's number for the
+        class in use and is also the run's cgroup `memory.max`. The
         reservation is learned from what this job actually peaked at, and a job
         with fewer than three observations reserves its whole ceiling, because
         the first runs of an unknown job are the ones most likely to surprise.
         """
         key = admission.peak_key(job, role)
-        size_class = self.store.size_class(repo, key, default=declared_class or 'medium')
+        size_class = self.size_class(repo, key, declared_class)
         peaks = self.store.peaks(repo, key)
         reserve = admission.reserve(peaks, size_class=size_class,
                                     margin=self.margin, floor=self.floor)
         return reserve, admission.ceiling_for(size_class), size_class, len(peaks)
+
+    def size_class(self, repo, key, declared_class=None):
+        """The class a run of this job gets: the learned one, never below the
+        declared one. A class a store learned below the declaration before
+        2026-10-02 reads as the declared class here, so the next run already
+        has the room the repository asked for and `learn` overwrites it."""
+        declared = declared_class or 'medium'
+        stored = self.store.size_class(repo, key, default=declared)
+        return admission.at_least(stored, declared) if declared_class else stored
 
     def live_rows(self):
         """Live attempts that occupy the box.
@@ -206,10 +215,13 @@ class Scheduler:
         the learned class to the declared one, so the next run gets the room
         the repository asked for.
 
-        The class itself is learned both ways (ruled 2026-09-24): after
-        `MIN_SAMPLES` clean peaks since the last `oom`, the class used for both
-        reservation and ceiling is whatever p95 x margin justifies
-        (`admission.classify(learned=True)`), anywhere from small to xlarge.
+        The class is the ceiling, and it is split from the reservation (ruled
+        2026-10-02, gbasin/pandora#194): after `MIN_SAMPLES` clean peaks since
+        the last `oom` under the current declaration, it is the smallest class
+        that holds the largest of them (the newest `HISTORY`) times the margin,
+        and never below the declared class (`admission.classify`). The
+        reservation stays p95 x margin of the recent peaks, capped at that
+        ceiling (`admission.reserve`).
         """
         mapped = {'passed': 'ok', 'command_failed': 'failed', 'oom': 'oom',
                   'timed_out': 'timeout', 'cancelled': 'lost',
@@ -219,7 +231,7 @@ class Scheduler:
         job = admission.peak_key(row['job'], role)
         declared = ((row['size_declared'] if 'size_declared' in keys else None)
                     or row['size_class'] or 'medium')
-        before = self.store.size_class(repo, job, default=declared)
+        before = self.size_class(repo, job, declared)
         self.store.record(repo, job, int(peak_mib), mapped, declared=declared)
         change = None
         if mapped == 'oom':
@@ -229,9 +241,9 @@ class Scheduler:
         elif mapped in ('ok', 'failed'):
             clean = self.store.clean_since_oom(repo, job, declared=declared)
             if len(clean) >= admission.MIN_SAMPLES:
-                chosen = admission.classify(clean, current=declared, learned=True)
+                chosen = admission.classify(clean, current=declared)
                 if chosen != before:
-                    change = {'reason': 'learned',
+                    change = {'reason': 'learned', 'max_mib': max(clean),
                               'p95_mib': admission.percentile(clean, 95),
                               'samples': len(clean)}
                 self.store.set_class(repo, job, chosen, declared=declared)
@@ -262,11 +274,16 @@ class Scheduler:
 
 
 def size_line(change):
-    """`size for build: large -> medium (p95 2900 MiB over 5 runs)`, or None."""
+    """`size for check: large -> xlarge (largest clean peak 10780 MiB over 50 runs)`,
+    or None. The ceiling moves on the window's largest clean peak, so that is
+    the number the line gives; the reservation's p95 is in `size_change`."""
     if not change:
         return None
     if change.get('reason') == 'oom':
         why = 'an oom resets it to the declared class'
+    elif change.get('max_mib') is not None:
+        why = 'largest clean peak %d MiB over %d runs' % (change['max_mib'], change['samples'])
     else:
+        # A change recorded before the ceiling moved on the maximum (2026-10-02).
         why = 'p95 %d MiB over %d runs' % (change['p95_mib'], change['samples'])
     return 'size for %s: %s -> %s (%s)' % (change['job'], change['from'], change['to'], why)

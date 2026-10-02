@@ -19,7 +19,8 @@ import sqlite3
 import time
 
 # Size classes exist so that one runaway job cannot learn its way to the whole
-# box. The ceiling is an operator decision; the reservation is learned.
+# box. The declared class is the operator's floor for the ceiling; above it the
+# ceiling follows the job's largest clean peak, and the reservation is learned.
 CLASSES = {'small': 1024, 'medium': 4096, 'large': 8192, 'xlarge': 12288}
 FLOOR_MIB = 512
 MARGIN = 1.25
@@ -77,29 +78,42 @@ def reserve(peaks, *, size_class, floor=FLOOR_MIB, margin=MARGIN, min_samples=MI
     return int(min(ceiling, max(floor, math.ceil(percentile(usable, 95) * margin))))
 
 
-def classify(peaks, *, current='medium', learned=False):
-    """Suggest a size class from history.
+def classify(peaks, *, current='medium'):
+    """The size class, which is the ceiling: the run's kill limit.
 
-    By default it never lowers below `current` and reads the largest peak: the
-    suggestion a person is shown after an `oom`. With `learned=True` it is the
-    rule the worker applies by itself (ruled 2026-09-24): the smallest class
-    whose ceiling holds p95 of the peaks times the margin, up *or* down, from
-    `small` to `xlarge`. p95 rather than the maximum, so one old outlier does
-    not pin a job to a class its other runs never needed; the margin, so a
-    class is not chosen that the p95 run would fill to the brim. But never
-    below the newest peak times the margin (`peaks` is newest first): with 20
-    or more samples p95 drops the top one, and a class whose ceiling is below
-    what the job used last time is a class that kills its next run.
+    The smallest class whose ceiling holds the largest of `peaks` times the
+    margin, and never one below `current`, which is the class the repository
+    declares (ruled 2026-10-02, gbasin/pandora#194). Up to `xlarge`, and
+    `xlarge` above that. With no peaks, `current`.
+
+    The maximum, not p95: the ceiling decides whether a run is killed, and a
+    job with a rare heavy mode (a cold build cache) is killed by any class its
+    heavy runs do not fit, however few of them the window holds. A loose
+    ceiling costs no budget; only the reservation does, and the reservation
+    stays on p95 (`reserve`). So one old outlier keeps the ceiling high until
+    it leaves the window, on purpose. Never below the declared class: the
+    declaration is the room the repository asked for, and learning only adds.
     """
+    floor = ceiling_for(current)
     if not peaks:
         return current
-    observed = max(percentile(peaks, 95), peaks[0]) if learned else max(peaks)
+    need = max(peaks) * MARGIN
     for name in sorted(CLASSES, key=CLASSES.get):
-        if CLASSES[name] >= observed * MARGIN:
-            if learned:
-                return name
-            return name if CLASSES[name] >= CLASSES[current] else current
+        if CLASSES[name] >= floor and CLASSES[name] >= need:
+            return name
     return max(CLASSES, key=CLASSES.get)
+
+
+def at_least(size_class, declared):
+    """`size_class`, raised to `declared` when it is the smaller of the two.
+
+    A store written before the ceiling stopped learning below the declared
+    class (2026-10-02) can hold a learned class under it. Read through this, it
+    is the declared one from the next run, with no reset by hand.
+    """
+    if declared not in CLASSES or size_class not in CLASSES:
+        return size_class
+    return declared if CLASSES[declared] > CLASSES[size_class] else size_class
 
 
 class Store:

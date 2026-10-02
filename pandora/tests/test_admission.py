@@ -1,8 +1,9 @@
 """Policy tests. No Incus, no worker, no clock."""
 import unittest
 
-from pandora.engine.admission import (CLASSES, Admission, AdmissionError, Store,
-                                      ceiling_for, classify, percentile, reserve)
+from pandora.engine.admission import (CLASSES, HISTORY, MIN_SAMPLES, Admission,
+                                      AdmissionError, Store, at_least, ceiling_for,
+                                      classify, percentile, reserve)
 
 
 class Percentile(unittest.TestCase):
@@ -68,6 +69,60 @@ class Classify(unittest.TestCase):
 
     def test_beyond_every_class_takes_the_largest(self):
         self.assertEqual(classify([99999], current='small'), 'xlarge')
+
+    def test_the_largest_peak_decides_not_p95(self):
+        # p95 of 20 is the 19th: 3000, which fits medium. The one 6000 does not.
+        self.assertEqual(classify([6000] + [3000] * 19, current='small'), 'large')
+
+    def test_it_rises_above_the_declared_class_on_a_clean_big_peak(self):
+        self.assertEqual(classify([7000, 2000, 2000], current='large'), 'xlarge')
+        self.assertEqual(classify([3500, 900, 900], current='small'), 'large')
+
+    def test_an_unknown_declared_class_is_an_error(self):
+        with self.assertRaises(AdmissionError):
+            classify([100], current='enormous')
+
+
+# The eichler `check` window of 2026-10-02 (gbasin/pandora#194): declared
+# `large`, 50 clean peaks, two of them cold. Top five 10780, 10422, 6009, 5952,
+# 5750 MiB; the rest warm, 2 to 4 GiB. Newest first, a warm one newest (3723).
+EICHLER = ([3723, 2400, 10780, 3100, 2900, 5750, 2600, 3300, 2200, 3800]
+           + [2000 + 37 * index for index in range(35)]
+           + [10422, 6009, 5952, 3600, 2800])
+
+
+class CeilingAndReservationSplit(unittest.TestCase):
+    """Ruled 2026-10-02: the ceiling on the window's max, the reservation on p95."""
+
+    def test_the_eichler_window(self):
+        self.assertEqual(len(EICHLER), HISTORY)
+        self.assertEqual(sorted(EICHLER, reverse=True)[:5], [10780, 10422, 6009, 5952, 5750])
+        self.assertEqual(percentile(EICHLER, 95), 6009)
+        # 10780 x 1.25 = 13475 MiB: more than any class, so the largest.
+        self.assertEqual(classify(EICHLER, current='large'), 'xlarge')
+        # The reservation is unchanged: p95 6009 x 1.25, under the new ceiling.
+        self.assertEqual(reserve(EICHLER, size_class='xlarge'), 7512)
+        self.assertEqual(reserve(EICHLER, size_class='large'), 7512)
+
+    def test_never_below_the_declared_class(self):
+        peaks = [1024] * HISTORY
+        self.assertEqual(classify(peaks, current='large'), 'large')
+        # The ceiling stays large; the reservation is small all the same.
+        self.assertEqual(reserve(peaks, size_class='large'), 1280)
+
+    def test_the_whole_ceiling_until_min_samples(self):
+        self.assertEqual(reserve([900] * (MIN_SAMPLES - 1), size_class='xlarge'),
+                         CLASSES['xlarge'])
+
+    def test_the_reservation_never_exceeds_the_ceiling(self):
+        for size_class in CLASSES:
+            self.assertLessEqual(reserve(EICHLER, size_class=size_class), CLASSES[size_class])
+
+    def test_at_least_raises_a_stored_class_to_the_declared_one(self):
+        self.assertEqual(at_least('medium', 'large'), 'large')
+        self.assertEqual(at_least('xlarge', 'large'), 'xlarge')
+        self.assertEqual(at_least('large', 'large'), 'large')
+        self.assertEqual(at_least('small', None), 'small')
 
 
 class StoreHistory(unittest.TestCase):
