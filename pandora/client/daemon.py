@@ -823,6 +823,24 @@ class Daemon:
                 resumed.append(run.id)
         return resumed
 
+    def register(self, run):
+        """Make `run` the one `live` finds for its id, and let go of finished ones.
+
+        `self.runs` is for rows a thread here drives. A finished Run keeps its
+        request, its result and `shipped` (the frozen manifest's ~5,000 paths),
+        about 1 MiB per remote run; kept for the daemon's lifetime, that was
+        2.8 GB after 1,354 runs (#195). A finished row needs nothing in memory:
+        `adopt` replays it from disk, which is complete once `done` is set.
+        """
+        with self.runs_lock:
+            self.forget_finished()
+            self.runs[run.id] = run
+
+    def forget_finished(self):
+        """Drop finished Runs from `self.runs`. The caller holds `runs_lock`."""
+        for run_id in [key for key, item in self.runs.items() if item.done.is_set()]:
+            del self.runs[run_id]
+
     def hold(self, run):
         """Register a pre-accept row this daemon drives, before its first save."""
         with self.runs_lock:
@@ -866,8 +884,7 @@ class Daemon:
         run.phase = payload.get('phase')
         if cancel:
             run.canceled.set()
-        with self.runs_lock:
-            self.runs[run.id] = run
+        self.register(run)
         if run.lane == 'local':
             self.close_local(run, payload)
         elif not run.remote:
@@ -1033,6 +1050,8 @@ class Daemon:
     def prune(self, now=None):
         keep = runindex.keep_seconds(self.config)
         with self.runs_lock:
+            # A daemon that goes idle still lets go of its last finished runs.
+            self.forget_finished()
             live = {run_id for run_id, run in list(self.runs.items()) + list(self.pending.items())
                     if not run.done.is_set()}
         try:
@@ -1741,8 +1760,7 @@ class Daemon:
             # the next daemon re-attaches to it, since the row names its remote.
             run.remote, run.state, run.queue = submission.run_id, 'running', None
             run.save()
-            with self.runs_lock:
-                self.runs[run.id] = run
+            self.register(run)
             threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
             return
         if waited is not None and waited['verdict'] != 'admitted':
@@ -1769,8 +1787,7 @@ class Daemon:
         run.accepted = now()
         run.phase = None                 # from here, the engine's row state
         run.save()
-        with self.runs_lock:
-            self.runs[run.id] = run
+        self.register(run)
         # Only now has the worker acknowledged anything. Past this frame the
         # client will never run the command locally.
         try:
@@ -2195,8 +2212,7 @@ class Daemon:
             run.state = 'running'
         run.accepted = now()
         run.save()
-        with self.runs_lock:
-            self.runs[run.id] = run
+        self.register(run)
         try:
             conn.sendall(dump({'v': VERSION, 't': 'accepted', 'run': run.id, 'lane': 'local',
                                'remote': None, 'reason': run.reason,
@@ -2581,8 +2597,7 @@ class Daemon:
             # Live and saved by this daemon, but no longer held: a view only.
             # Registered, it would be a stand-in nothing ever finishes.
             return run
-        with self.runs_lock:
-            self.runs[run_id] = run
+        self.register(run)
         return run
 
     def stream(self, conn, reader, run, offset):
