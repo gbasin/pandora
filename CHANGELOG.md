@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.8](https://github.com/gbasin/pandora/compare/v0.3.7...v0.3.8) (2026-10-02)
+
+
+### Bug Fixes
+
+* release finished runs from the daemon's memory ([#195](https://github.com/gbasin/pandora/issues/195)) ([#196](https://github.com/gbasin/pandora/issues/196)) ([52e9b92](https://github.com/gbasin/pandora/commit/52e9b92f3bc5657841611ef95aa5a517c488d12e))
+
 ## [0.3.7](https://github.com/gbasin/pandora/compare/v0.3.6...v0.3.7) (2026-09-28)
 
 
