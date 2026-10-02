@@ -8,6 +8,7 @@ different code paths.
 """
 import base64
 import contextlib
+import gc
 import io
 import json
 import os
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+import weakref
 from pathlib import Path
 from unittest import mock
 
@@ -1543,3 +1545,40 @@ class StatsOverTheSocket(DaemonCase):
         self.assertEqual(data['by_job'][0]['job'], 'unit')
         self.assertEqual(data['worker']['worker'], 'reachable')
         self.assertEqual(data['queue_wait_seconds']['remote']['n'], 1)
+
+
+class FinishedRunsAreReleased(DaemonCase):
+    """A finished run is not held in memory for the daemon's lifetime (#195).
+
+    Each remote Run carries the frozen manifest's paths (`shipped`, ~5,000
+    strings) and its result. `self.runs` kept every one, about 1 MiB a run,
+    until the daemon grew to 2.8 GB. A finished row is replayed from disk.
+    """
+
+    attach = OrphanedRows.attach
+
+    def test_finished_runs_leave_memory_and_still_replay_from_disk(self):
+        count = iter(range(100))
+
+        def submit(worker, **kwargs):
+            submission = Submission('r%d' % next(count))
+            submission.shipped = frozenset('src/file-%d.ts' % i for i in range(1000))
+            return submission
+
+        held, ids = [], []
+        with mock.patch.object(FakeWorker, 'submit', submit):
+            for _ in range(5):
+                answer = self.call(['pnpm', 'unit'])
+                self.assertEqual(answer.exit, 0)
+                ids.append(answer.accepted['run'])
+                held.append(weakref.ref(self.daemon.runs[ids[-1]]))
+        self.assertEqual(list(self.daemon.runs), ids[-1:])
+        deadline = time.monotonic() + 10
+        while any(ref() is not None for ref in held[:-1]) and time.monotonic() < deadline:
+            gc.collect()                 # a stream thread may still be letting go
+            time.sleep(0.05)
+        self.assertEqual([ref() is None for ref in held[:-1]], [True] * 4)
+        first, code = self.attach(ids[0])
+        self.assertEqual((first['owned'], code), (True, 0))
+        self.daemon.prune()              # an idle daemon lets go of the last one too
+        self.assertEqual(self.daemon.runs, {})
