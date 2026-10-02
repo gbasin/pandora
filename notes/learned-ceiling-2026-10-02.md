@@ -92,8 +92,10 @@ costs no budget, and only the reservation does. There is no decay.
 A store written by the old rule can hold a learned class below the declared
 one. `Scheduler.size_class` reads the stored class through
 `admission.at_least(stored, declared)`, so admission gives the declared class
-from the next run. The next clean run's `learn` then overwrites the stored row.
-No manual reset is needed. A row stored before `declared` was recorded (NULL)
+from the next run. The stored row itself is rewritten by `learn` once 3 clean runs have been
+recorded under the current declaration; until then it stays as it was and the
+floor applies on every read. The ceiling is right from the first run. No manual
+reset is needed. A row stored before `declared` was recorded (NULL)
 is floored the same way.
 
 ### The eichler window under the new rule

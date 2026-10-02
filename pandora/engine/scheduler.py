@@ -106,7 +106,8 @@ class Scheduler:
         """The class a run of this job gets: the learned one, never below the
         declared one. A class a store learned below the declaration before
         2026-10-02 reads as the declared class here, so the next run already
-        has the room the repository asked for and `learn` overwrites it."""
+        has the room the repository asked for. The stored row is rewritten by `learn`
+        after `MIN_SAMPLES` clean runs; until then this floor applies on every read."""
         declared = declared_class or 'medium'
         stored = self.store.size_class(repo, key, default=declared)
         return admission.at_least(stored, declared) if declared_class else stored
