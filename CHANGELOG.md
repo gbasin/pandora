@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.11](https://github.com/gbasin/pandora/compare/v0.3.10...v0.3.11) (2026-10-03)
+
+
+### Bug Fixes
+
+* oom hint names a real cure at xlarge and during prepare_command ([#204](https://github.com/gbasin/pandora/issues/204)) ([202f4ea](https://github.com/gbasin/pandora/commit/202f4eacfbc595d30b4e54bf00c46961d3f3ae05)), closes [#200](https://github.com/gbasin/pandora/issues/200)
+* pin runs to whole cores and report physical cores in PANDORA_CPUS ([#205](https://github.com/gbasin/pandora/issues/205)) ([a7fcc2d](https://github.com/gbasin/pandora/commit/a7fcc2d162e9eecea3e88ef69b66ddd8e5f7a155)), closes [#201](https://github.com/gbasin/pandora/issues/201)
+
 ## [0.3.10](https://github.com/gbasin/pandora/compare/v0.3.9...v0.3.10) (2026-10-02)
 
 
