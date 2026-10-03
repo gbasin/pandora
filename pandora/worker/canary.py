@@ -3,8 +3,9 @@
 The POC's canary proved the *driver*. This one proves the *worker*: the same
 memory checks, plus the nested docker and compose stack a repository's own
 services need, plus a real journey and a real surface command in clones of the
-golden each enrolled repository's `pandora.toml` names, plus the disk quota,
-the receipts and the headroom.
+golden each enrolled repository's `pandora.toml` names, plus the bridge port
+isolation between two concurrent clones (#172), the disk quota, the receipts
+and the headroom.
 
 Which golden, and which journey, come from the client: `pandora worker canary`
 reads the enrolled repositories' `[worker]` tables and ships one target per
@@ -25,6 +26,7 @@ refuses to write `ready` when it is.
 """
 import json
 import shlex
+import socket
 import time
 from pathlib import Path
 
@@ -185,6 +187,11 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
             surface_check(driver, checks, clone, instances, label, toolchain, src,
                           target['surface'], 'canary-surfaces' + suffix)
 
+    # --- runs cannot reach each other ---------------------------------------
+    if proven:
+        isolation_check(driver, checks, clone, instances, proven[0],
+                        cache_root=paths.root / 'turbo-cache')
+
     # --- the disk quota -----------------------------------------------------
     # A quota that is set and not enforced is worse than no quota: the pool
     # fills anyway and the operator believes it cannot.
@@ -333,6 +340,103 @@ def journey_check(driver, checks, clone, instances, label, toolchain, source, sp
         checks.add(*receipt_of(driver, instance, instances))
     except Exception as error:                                       # noqa: BLE001
         checks.add('%s journey golden usable' % label, False,
+                   '%s: %s' % (type(error).__name__, error))
+
+
+PROBE_PORT = 8172
+LISTEN_SECONDS = 15
+# Incus runs dnsmasq on the bridge address and opens 53 to every port on it,
+# so it is the one thing on the bridge a run can always reach.
+BRIDGE_DNS_PORT = 53
+
+
+def connects(host, port, timeout=2.0):
+    """True when this host opens a TCP connection to host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def probe(driver, name, host, port, seconds=2):
+    """'open' or 'closed': a TCP connect from inside one instance, with a deadline."""
+    _, out, _ = driver.sh(
+        name, "timeout %d bash -c 'exec 3<>/dev/tcp/%s/%d' 2>/dev/null && echo open || echo closed"
+        % (seconds, host, port), check=False, timeout=30)
+    return 'open' if out.strip().endswith('open') else 'closed'
+
+
+def address_of(driver, name, ready=lambda address: True):
+    """The instance's eth0 address once `ready` accepts it, or the last one seen."""
+    deadline = time.monotonic() + LISTEN_SECONDS
+    while True:
+        address = driver.address(name)
+        if (address and ready(address)) or time.monotonic() >= deadline:
+            return address
+        time.sleep(0.2)
+
+
+def bridge_target(cache_root):
+    """(label, host, port) of something on the bridge address an isolated run must reach.
+
+    The turbo cache when it is serving, because that is the reach isolation
+    must not cost. Otherwise the bridge's own DNS.
+    """
+    endpoint, _ = turbocache.env_for(cache_root, 'canary') if cache_root else ({}, '')
+    if endpoint:
+        host, port = endpoint['TURBO_API'].split('//', 1)[1].split('/', 1)[0].rsplit(':', 1)
+        return 'the turbo cache', host, int(port)
+    try:
+        host = turbocache.bridge_address(turbocache.DEFAULT_BRIDGE)
+    except OSError:
+        host = None
+    return 'the bridge DNS', host, BRIDGE_DNS_PORT
+
+
+def isolation_check(driver, checks, clone, instances, toolchain, cache_root=None):
+    """Two runs at once, and neither can reach a port the other opened (#172).
+
+    A refused connect proves isolation only when both ends work, so two
+    positive rows come first. A listens on 0.0.0.0, as a postgres or an API
+    under test does, and the host must reach it: the port is open. B must
+    reach the bridge address (the turbo cache when it serves, else the
+    bridge's DNS): B has a network, and isolation has not cut runs off from
+    the cache. Only then must B's connect to A fail.
+    """
+    limits = Limits(memory_mib=256, ceiling_mib=512, cpus_hint=1, wall_seconds=60)
+    try:
+        _, a = clone(toolchain, 'canary-net-a', limits, None)
+        _, b = clone(toolchain, 'canary-net-b', limits, None)
+        _, out, _ = driver.sh(
+            a.name,
+            'if command -v python3 >/dev/null; then '
+            'setsid python3 -m http.server %d --bind 0.0.0.0 </dev/null >/dev/null 2>&1 & '
+            'elif command -v node >/dev/null; then '
+            'setsid node -e "require(\'net\').createServer(s => s.end()).listen(%d)" '
+            '</dev/null >/dev/null 2>&1 & '
+            'else echo "no python3 or node to listen with"; fi' % (PROBE_PORT, PROBE_PORT),
+            check=False, timeout=30)
+        address = address_of(driver, a.name,
+                             lambda found: connects(found, PROBE_PORT, timeout=1.0))
+        listening = checks.add('a run port answers the host', bool(address) and
+                               connects(address, PROBE_PORT),
+                               '%s:%d %s' % (address or 'no eth0 address', PROBE_PORT,
+                                             out.strip()[:120]))
+        label, host, port = bridge_target(cache_root)
+        theirs = address_of(driver, b.name)
+        got = probe(driver, b.name, host, port) if theirs and host else 'not probed'
+        networked = checks.add('an isolated run reaches %s' % label, got == 'open',
+                               '%s (%s) -> %s:%s %s' % (b.name, theirs or 'no eth0 address',
+                                                        host or 'no bridge address', port, got))
+        if listening and networked:
+            got = probe(driver, b.name, address, PROBE_PORT)
+            checks.add('runs cannot reach each other on the bridge', got == 'closed',
+                       '%s -> %s:%d %s' % (b.name, address, PROBE_PORT, got))
+        checks.add(*receipt_of(driver, a, instances))
+        checks.add(*receipt_of(driver, b, instances))
+    except Exception as error:                                       # noqa: BLE001
+        checks.add('runs cannot reach each other on the bridge', False,
                    '%s: %s' % (type(error).__name__, error))
 
 

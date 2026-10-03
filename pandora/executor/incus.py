@@ -145,6 +145,22 @@ class IncusDriver(Executor):
             raise InstanceLost('no cgroup for instance %s' % name)
         return found[0]
 
+    def address(self, name):
+        """The instance's IPv4 address on eth0, or '' before DHCP has answered."""
+        rc, out, _ = self.incus('list', name, '--format', 'json', check=False)
+        try:
+            rows = json.loads(out) if rc == 0 else []
+        except ValueError:
+            return ''
+        for row in rows:
+            if row.get('name') != name:
+                continue
+            nic = ((row.get('state') or {}).get('network') or {}).get('eth0') or {}
+            for item in nic.get('addresses') or ():
+                if item.get('family') == 'inet' and item.get('scope') == 'global':
+                    return item.get('address') or ''
+        return ''
+
     def veth(self, name):
         rc, out, _ = self.incus('config', 'get', name, 'volatile.eth0.host_name', check=False)
         return out.strip() if rc == 0 else ''
@@ -481,6 +497,9 @@ rm -rf "$2"
             raise CloneFailed('copy %s -> %s: %s' % (golden.name, name, err.strip()[:400]))
         copied = time.monotonic() - t0
         try:
+            # Part of making the copy a run may use, so it counts as clone time.
+            self.isolate(name)
+            copied = time.monotonic() - t0
             if limits:
                 self.apply(name, limits)
             mark = time.monotonic()
@@ -503,6 +522,52 @@ rm -rf "$2"
             raise
         return Instance(name=name, run_id=run_id, golden=golden.name,
                         clone_seconds=copied, start_seconds=time.monotonic() - mark)
+
+    def isolate(self, name):
+        """Cut this run off from every other run on the bridge (#172).
+
+        Every run's eth0 is a port on the one bridge, so without this a service
+        a run binds on 0.0.0.0 -- a postgres, an API under test -- answers
+        every concurrent run, and a test can pass against a neighbor's
+        database. `security.port_isolation` marks the host side of the veth an
+        isolated bridge port: isolated ports cannot reach each other, and still
+        reach the bridge address itself (the turbo cache) and NAT egress.
+
+        Set per instance, before start, rather than trusted to the profile: a
+        worker provisioned before the profile carried the key is protected by
+        the client's next bundle, without a re-provision and the canary a
+        changed worker owes. The NIC comes from the profile, so it is
+        *overridden* onto the instance; `set` is the answer when a local eth0
+        already exists. A clone that cannot be isolated is not handed out.
+        """
+        setting = 'security.port_isolation=true'
+        rc, _, err = self.incus('config', 'device', 'override', name, 'eth0', setting,
+                                check=False, timeout=300)
+        if rc != 0:
+            rc, _, err = self.incus('config', 'device', 'set', name, 'eth0', setting,
+                                    check=False, timeout=300)
+        if rc != 0:
+            raise CloneFailed('port isolation on %s: %s' % (name, err.strip()[:200]))
+
+    def port_isolated(self, name):
+        """'on' when the kernel has the run's bridge port isolated, else 'ERR:...'.
+
+        Reads the bridge port flag itself rather than the Incus config, because
+        the flag is what drops the packets. Read-only on purpose: with the
+        device key set, Incus applies the flag when it attaches the NIC or the
+        start fails, so a port found open is a fault to report, not to patch
+        over. The runner refuses a run whose answer is an ERR.
+        """
+        veth = self.veth(name)
+        if not veth:
+            return 'ERR:no host veth for eth0'
+        try:
+            rc, out, err = run(['bridge', '-d', 'link', 'show', 'dev', veth], check=False)
+        except OSError as error:
+            return 'ERR:%s' % str(error)[:80]
+        if re.search(r'\bisolated on\b', out):
+            return 'on'
+        return 'ERR:%s not isolated %s' % (veth, (err.strip() or out.strip())[:80])
 
     def apply(self, name, limits):
         """Admit on memory, pin the visible cores, share their time.
@@ -624,6 +689,10 @@ rm -rf "$2"
           memory.high          throttle before the wall, so PSI rises early
           memory.oom.group=1   when the kernel does OOM, take the whole run
         Applied after start because the cgroup does not exist before it.
+
+        It also reads whether the run's bridge port is isolated (`isolate`),
+        which is only readable once the veth exists, and records the answer
+        under `eth0.port_isolation` with the cgroup leaves.
         """
         path = self.cgroup(instance.name)
         high = int(limits.ceiling_mib * 0.9) * 1024 * 1024
@@ -634,6 +703,7 @@ rm -rf "$2"
             rc, _, err = run(['sudo', 'tee', os.path.join(path, leaf)],
                              stdin=value.encode(), check=False)
             written[leaf] = value if rc == 0 else 'ERR:' + err.strip()[:80]
+        written['eth0.port_isolation'] = self.port_isolated(instance.name)
         return written
 
     # --- execute -----------------------------------------------------------

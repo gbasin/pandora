@@ -111,7 +111,8 @@ build those goldens from. Choose one:
 `provision` installs the declared packages, disables unattended upgrades,
 creates the pool on the device, creates the bridge and its forwarding rules,
 creates the `pandora` project and the `runner` profile, enables the boot units,
-writes the manifest, and then runs the canary.
+writes the manifest, and then runs the canary. The profile's `eth0` has
+`security.port_isolation=true`, so runs on the bridge cannot reach each other.
 
 The first canary on a fresh machine builds each golden. Allow 20 minutes. A
 golden build downloads the base image, installs the toolchain, runs
