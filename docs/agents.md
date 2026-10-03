@@ -53,7 +53,7 @@ out:
 | the command's own | The command's verdict. | As without Pandora. |
 | 1 | The job refused these arguments (`args`, `reject`, `reject_if_set`, `subdirectory = "reject"`). Nothing ran. A validator's refusal exits with the validator's own code instead. | Read the usage line. |
 | 64 | A path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
-| 70 | Infrastructure failure, including `oom` and `timed_out`. Not a test verdict. | Read the `pandora: hint:` line first: an `oom` hint names the next `size` class, or less parallelism, or that the declared size applies again. Otherwise retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry. Do not bypass it. |
+| 70 | Infrastructure failure, including `oom` and `timed_out`. Not a test verdict. | Read the `pandora: hint:` line first: an `oom` hint names the next `size` class, or less parallelism or shards at `xlarge`, or that the declared size applies again. Otherwise retry. Or run it in the local queue with `PANDORA_WHERE=local <command>`. If the message says this Mac is under memory pressure, wait a few minutes, then retry. Do not bypass it. |
 | 75 | A local job is already active in this worktree, the worktree changed during a local run under `drift = "fail"`, a write-back was refused as stale or conflicted, or shards wrote one path differently. Or the local queue did not admit the run within `queue_timeout_seconds`, or a restart did not finish within `PANDORA_DRAIN_WAIT`, and nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After a write-back conflict, follow the printed `pandora resolve` step. |
 | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 | 130 | Canceled. | Nothing. |
@@ -132,9 +132,14 @@ against the ceiling. A watchdog kill (`memory-thrash` in the evidence) reports
 the limit that applied: `memory.high`, 90% of the ceiling, where the run
 stalled in reclaim. When the record has the `memory.stat` breakdown, the hint
 gives anon, file, kernel and shmem and says which of anon and file dominated.
-Without one it makes no cause claim. Then it names the next class up, never
-the one the run had, and offers lower parallelism with the run's `PANDORA_CPUS`
-when that was more than 1. At `xlarge` there is no larger class, and it says so:
+Without one it makes no cause claim. For either kill it then names the next
+class up, never the one the run had, and offers lower parallelism with the
+run's `PANDORA_CPUS` when that was more than 1. At `xlarge` there is no larger
+class, and it says so and offers lower parallelism or shards. A kill during
+`prepare_command` is read from `evidence.preparation`, and the hint names the
+prepare_command, not the job. It offers the next class, or at `xlarge` a
+preparation that holds less in memory at once, and not the job's parallelism
+or shards:
 
 ```
 pandora: hint: watchdog killed job check at the large class's limit (memory.high 7372 MiB of the 8192 MiB ceiling, stalled 15 s); anon 6900 MiB, file 300 MiB, kernel 150 MiB, shmem 7 MiB: mostly anonymous memory, the job's own processes; lower its parallelism (it ran with PANDORA_CPUS=8) or declare size = "xlarge" for job check in pandora.toml

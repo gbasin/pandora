@@ -96,11 +96,16 @@ def oom(facts):
     class below the declared one, so only a record written before that carries
     this case; it still renders for those. Otherwise the cure names the next
     class up from the one the run *used*, never the one it already has, and
-    says so when there is none.
+    says so when there is none, for either kill.
+
+    A kill during `prepare_command` records its evidence under
+    `evidence.preparation`, and the hint reads it from there and says the kill
+    was in preparation: the job's parallelism and its shards are not levers on
+    a preparation, so the cure is a larger class or a lighter preparation.
     """
     if facts.get('outcome') != 'oom':
         return None
-    evidence = facts.get('evidence') or {}
+    evidence, preparing = oom_evidence(facts.get('evidence') or {})
     job = facts.get('job') or 'this job'
     thrash = (evidence.get('reason') or '') == 'memory-thrash'
     declared, used = facts.get('size_declared'), facts.get('size_used')
@@ -109,18 +114,26 @@ def oom(facts):
         # and the oom resets it: nothing in pandora.toml needs to change. Only
         # records from before 2026-10-02 have this; the ceiling no longer
         # learns below the declared class.
+        what = ('the prepare_command of job %s' if preparing else 'job %s') % job
         if thrash:
-            return ("the learned class for job %s was %s and the watchdog killed it at "
+            return ("the learned class for %s was %s and the watchdog killed it at "
                     "that class's limit (%s); declared %s applies again from the next run"
-                    % (job, used, thrash_limit(facts, evidence), declared))
-        return ('the learned class for job %s was %s (peak %d MiB of a %d MiB ceiling); '
+                    % (what, used, thrash_limit(facts, evidence), declared))
+        return ('the learned class for %s was %s (peak %d MiB of a %d MiB ceiling); '
                 'declared %s applies again from the next run'
-                % (job, used, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib')),
+                % (what, used, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib')),
                    declared))
     if thrash:
-        return thrash_hint(facts, evidence, job, used)
-    return ('raise the size class for job %s (peak %d MiB of a %d MiB ceiling)'
-            % (job, mib(facts.get('peak_mib')), mib(facts.get('ceiling_mib'))))
+        return thrash_hint(facts, evidence, job, used, preparing)
+    peak = 'peak %d MiB of a %d MiB ceiling' % (mib(facts.get('peak_mib')),
+                                                mib(facts.get('ceiling_mib')))
+    if used not in ORDER and not preparing:
+        # A record without the class it ran in: no class to name.
+        return 'raise the size class for job %s (%s)' % (job, peak)
+    what = ('the prepare_command of job %s' if preparing else 'job %s') % job
+    where = ("the %s class's ceiling" % used) if used in ORDER else 'its memory ceiling'
+    return ('%s hit %s (%s); %s'
+            % (what, where, peak, oom_cure(facts, job, used, preparing)))
 
 
 # Size classes, smallest first (`admission.CLASSES`), for the oom rule.
@@ -128,6 +141,18 @@ ORDER = ('small', 'medium', 'large', 'xlarge')
 # Above this share of anon + file, one of the two is named as what filled the
 # cgroup. Below it the record says both were large, which is also a finding.
 DOMINANT = 0.6
+
+
+def oom_evidence(evidence):
+    """(the evidence of the kill, whether it was in `prepare_command`).
+
+    A kill in preparation is recorded under `evidence.preparation`, not at the
+    top level, because the job's own command never started.
+    """
+    preparation = evidence.get('preparation')
+    if isinstance(preparation, dict) and preparation.get('outcome') == 'oom':
+        return preparation, True
+    return evidence, False
 
 
 def bytes_mib(value):
@@ -168,14 +193,14 @@ def breakdown(evidence):
                      if isinstance(stat.get(key), int))
 
 
-def thrash_cause(evidence):
+def thrash_cause(evidence, owner="the job's"):
     """What filled the cgroup, from `memory.stat`, or None when it is not recorded."""
     parts = breakdown(evidence)
     if parts is None:
         return None
     anon, file = evidence['memory_stat']['anon'], evidence['memory_stat']['file']
     if anon >= DOMINANT * (anon + file):
-        return "%s: mostly anonymous memory, the job's own processes" % parts
+        return '%s: mostly anonymous memory, %s own processes' % (parts, owner)
     if file >= DOMINANT * (anon + file):
         return '%s: mostly file pages, page cache and shmem' % parts
     return '%s: anonymous memory and file pages in similar shares' % parts
@@ -184,31 +209,46 @@ def thrash_cause(evidence):
 def thrash_summary(result):
     """One line for `pandora result`: the limit a watchdog oom stalled at, and
     the breakdown when the record has one. None for any other result."""
-    evidence = (result or {}).get('evidence') or {}
+    evidence, preparing = oom_evidence((result or {}).get('evidence') or {})
     if result.get('outcome') != 'oom' or evidence.get('reason') != 'memory-thrash':
         return None
     parts = breakdown(evidence)
-    return 'watchdog: %s%s' % (thrash_limit(result, evidence),
-                               '; %s' % parts if parts else '; no memory breakdown recorded')
+    return 'watchdog%s: %s%s' % (' (prepare_command)' if preparing else '',
+                                 thrash_limit(result, evidence),
+                                 '; %s' % parts if parts else '; no memory breakdown recorded')
 
 
-def thrash_hint(facts, evidence, job, used):
+def thrash_hint(facts, evidence, job, used, preparing=False):
     """The watchdog's oom at the class the run used, with the next step up."""
     where = ("the %s class's limit" % used) if used in ORDER else 'its memory limit'
-    cause = thrash_cause(evidence) or 'no memory breakdown recorded, so the cause is unknown'
+    cause = (thrash_cause(evidence, "prepare_command's" if preparing else "the job's")
+             or 'no memory breakdown recorded, so the cause is unknown')
+    what = ('the prepare_command of job %s' if preparing else 'job %s') % job
+    return ('watchdog killed %s at %s (%s); %s; %s'
+            % (what, where, thrash_limit(facts, evidence), cause,
+               oom_cure(facts, job, used, preparing)))
+
+
+def oom_cure(facts, job, used, preparing=False):
+    """The next step after an oom at the class the run used.
+
+    The next class up, or at the largest class what is left: lower parallelism
+    (with the run's `PANDORA_CPUS` when that was more than 1) or shards for the
+    job's own command, a lighter preparation for `prepare_command`.
+    """
     cpus = facts.get('cpus_hint')
     fewer = (('lower its parallelism (it ran with PANDORA_CPUS=%d)' % cpus)
-             if isinstance(cpus, int) and cpus > 1 else None)
+             if not preparing and isinstance(cpus, int) and cpus > 1 else None)
     if used == ORDER[-1]:
-        cure = '%s is the largest class, so %s' % (
+        if preparing:
+            return ('%s is the largest class, so reduce what prepare_command holds in '
+                    'memory at once' % used)
+        return '%s is the largest class, so %s' % (
             used, ' or '.join(step for step in (fewer, 'split it into shards') if step))
-    else:
-        bigger = (('declare size = "%s" for job %s in pandora.toml'
-                   % (ORDER[ORDER.index(used) + 1], job)) if used in ORDER
-                  else 'declare a larger size for job %s in pandora.toml' % job)
-        cure = ' or '.join(step for step in (fewer, bigger) if step)
-    return ('watchdog killed job %s at %s (%s); %s; %s'
-            % (job, where, thrash_limit(facts, evidence), cause, cure))
+    bigger = (('declare size = "%s" for job %s in pandora.toml'
+               % (ORDER[ORDER.index(used) + 1], job)) if used in ORDER
+              else 'declare a larger size for job %s in pandora.toml' % job)
+    return ' or '.join(step for step in (fewer, bigger) if step)
 
 
 def timed_out(facts):

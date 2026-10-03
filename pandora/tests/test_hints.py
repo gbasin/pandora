@@ -127,6 +127,98 @@ class ThrashHint(unittest.TestCase):
         self.assertIn('mostly anonymous memory', rules.hint_for(facts))
 
 
+def kernel(size_used='large', size_declared=None, cpus_hint=8, **extra):
+    return dict({'outcome': 'oom', 'job': 'check', 'peak_mib': 8180, 'ceiling_mib': 8192,
+                 'size_used': size_used, 'size_declared': size_declared or size_used,
+                 'cpus_hint': cpus_hint, 'evidence': {'reason': 'oom_kill'}}, **extra)
+
+
+def prepared(size_used='large', **kill):
+    """An oom in `prepare_command`: the runner records it under `preparation`."""
+    return kernel(size_used, evidence={
+        'cause': 'prepare-command-oom', 'error': 'transferred source preparation oom',
+        'preparation': dict({'outcome': 'oom', 'exit_code': -9}, **kill)})
+
+
+class KernelHint(unittest.TestCase):
+    """The kernel's oom: the same cure as the watchdog's, from the class used."""
+
+    def test_it_names_the_next_class_and_the_ceiling(self):
+        hint = rules.hint_for(kernel())
+        self.assertIn("job check hit the large class's ceiling", hint)
+        self.assertIn('peak 8180 MiB of a 8192 MiB ceiling', hint)
+        self.assertIn('declare size = "xlarge" for job check', hint)
+        self.assertIn('PANDORA_CPUS=8', hint)
+
+    def test_at_xlarge_there_is_no_bigger_class(self):
+        hint = rules.hint_for(kernel('xlarge'))
+        self.assertIn('xlarge is the largest class', hint)
+        self.assertIn('PANDORA_CPUS=8', hint)
+        self.assertIn('split it into shards', hint)
+        self.assertNotIn('raise the size class', hint)
+        self.assertNotIn('declare size', hint)
+        self.assertNotIn('parallelism', rules.hint_for(kernel('xlarge', cpus_hint=1)))
+
+    def test_it_never_names_the_class_the_run_already_had(self):
+        for index, used in enumerate(rules.ORDER[:-1]):
+            hint = rules.hint_for(kernel(used))
+            self.assertNotIn('size = "%s"' % used, hint)
+            self.assertIn('size = "%s"' % rules.ORDER[index + 1], hint)
+
+
+class PreparationHint(unittest.TestCase):
+    """An oom in `prepare_command`: named as such, read from `evidence.preparation`."""
+
+    def test_a_thrash_in_preparation_uses_its_limit_and_breakdown(self):
+        hint = rules.hint_for(prepared(**dict(THRASH, memory_stat=ANON)))
+        self.assertIn("watchdog killed the prepare_command of job check at the large "
+                      "class's limit", hint)
+        self.assertIn('memory.high 7372 MiB of the 8192 MiB ceiling', hint)
+        self.assertIn("mostly anonymous memory, prepare_command's own processes", hint)
+        self.assertIn('declare size = "xlarge" for job check', hint)
+        self.assertNotIn('raise the size class', hint)
+        # The job's parallelism and shards are not levers on its preparation.
+        self.assertNotIn('parallelism', hint)
+        self.assertNotIn('shards', hint)
+
+    def test_a_thrash_in_preparation_at_xlarge_names_no_class(self):
+        hint = rules.hint_for(prepared('xlarge', **THRASH))
+        self.assertIn('prepare_command of job check', hint)
+        self.assertIn('xlarge is the largest class', hint)
+        self.assertIn('prepare_command holds in memory', hint)
+        self.assertNotIn('declare size', hint)
+        self.assertNotIn('parallelism', hint)
+        self.assertNotIn('shards', hint)
+
+    def test_a_kernel_kill_in_preparation_names_the_phase(self):
+        hint = rules.hint_for(prepared(reason='oom_kill'))
+        self.assertIn("the prepare_command of job check hit the large class's ceiling",
+                      hint)
+        self.assertIn('declare size = "xlarge"', hint)
+        self.assertNotIn('parallelism', hint)
+        hint = rules.hint_for(prepared('xlarge', reason='oom_kill'))
+        self.assertIn('xlarge is the largest class', hint)
+        self.assertNotIn('declare size', hint)
+
+    def test_a_preparation_that_did_not_oom_is_not_read(self):
+        # Only the kill's own record is evidence for the hint.
+        facts = kernel(evidence={'reason': 'oom_kill',
+                                 'preparation': {'outcome': 'ok', 'exit_code': 0}})
+        self.assertIn("job check hit the large class's ceiling", rules.hint_for(facts))
+        self.assertNotIn('prepare_command', rules.hint_for(facts))
+
+    def test_the_result_summary_names_the_preparation(self):
+        result = prepared(**THRASH)
+        self.assertEqual(rules.thrash_summary(result),
+                         'watchdog (prepare_command): memory.high 7372 MiB of the '
+                         '8192 MiB ceiling, stalled 15 s; no memory breakdown recorded')
+
+    def test_the_engine_passes_the_preparation_through(self):
+        facts = rules.facts_from_result(prepared(**dict(THRASH, memory_stat=FILE)))
+        self.assertIn('prepare_command of job check', rules.hint_for(facts))
+        self.assertIn('mostly file pages', rules.hint_for(facts))
+
+
 class Rules(unittest.TestCase):
     def test_oom_names_the_job_the_peak_and_the_ceiling(self):
         hint = rules.hint_for({'outcome': 'oom', 'job': 'journey', 'peak_mib': 7900,
@@ -365,7 +457,7 @@ class EngineAttachment(unittest.TestCase):
                                   exit_code=-9, peak_mib=7900, durations={'execute': 30.0},
                                   evidence={'reason': 'oom_kill'}, receipt=None)
             ledger.close()
-            self.assertIn('raise the size class for job journey', result['hint'])
+            self.assertIn('declare size = "xlarge" for job journey', result['hint'])
             self.assertEqual(result['hint_rule'], 'oom')
             written = json.loads(paths.result('r1').read_text())
             self.assertEqual(written['hint'], result['hint'])
