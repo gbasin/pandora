@@ -42,7 +42,10 @@ class Engine(unittest.TestCase):
                 mock.patch.object(runner, 'spawn_waiter', lambda root, run_id, python=None:
                                   self.waiters.append(run_id) or 4343),
                 mock.patch.object(runner, 'disk_headroom',
-                                  lambda paths, driver=None: {'ok': True})):
+                                  lambda paths, driver=None: {'ok': True}),
+                # Every probe fresh, so a test can move the pool across its
+                # floor between two calls. `TheDiskReading` tests the cache.
+                mock.patch.object(waitlist, 'DISK_CACHE_SECONDS', 0)):
             patch.start()
             self.addCleanup(patch.stop)
         self.paths = runner.Paths(self.root).ensure()
@@ -393,6 +396,126 @@ class ShardsWaitOnDisk(Engine):
         self.assertTrue(verdict['admitted'])
         self.assertIn('rshard', self.spawned)
         self.assertEqual(self.row('rshard')['state'], 'admitted')
+
+
+class QueuedRowsWaitOnDisk(Engine):
+    """Issue #142: the waiter checks the disk floor before memory, as submit does."""
+
+    LOW = {'ok': False, 'reason': 'pool low', 'free_gib': 2.0, 'floor_gib': 4}
+
+    def queued(self):
+        first = self.submit('a:suite', size='large')['run_id']
+        queued = self.submit('b:suite', size='medium')['run_id']
+        self.assertEqual(self.row(queued)['state'], 'queued')
+        return first, queued
+
+    def low(self):
+        return mock.patch.object(runner, 'disk_headroom',
+                                 lambda paths, driver=None: dict(self.LOW))
+
+    def test_a_queued_row_with_memory_free_is_not_admitted_below_the_floor(self):
+        first, queued = self.queued()
+        self.finish(first)                      # memory is free again
+        before = self.row(queued)
+        with self.low():
+            self.assertEqual(self.wait(queued), 'waiting')
+        self.assertEqual(self.spawned, [first])
+        after = self.row(queued)
+        self.assertEqual(after['state'], 'queued')
+        self.assertIsNone(after['supervisor_pid'])
+        self.assertIsNone(after['reservation_mib'])
+        self.assertEqual(after['queued_at'], before['queued_at'])     # keeps its place
+        self.assertEqual(after['queue_deadline'], before['queue_deadline'])
+        self.assertIn('queued run waits on disk: pool low',
+                      self.paths.log(queued).read_text())
+
+    def test_it_is_admitted_once_headroom_returns(self):
+        first, queued = self.queued()
+        self.finish(first)
+        with self.low():
+            self.assertEqual(self.wait(queued), 'waiting')
+        self.assertEqual(self.wait(queued), 'admitted')
+        self.assertEqual(self.spawned, [first, queued])
+        self.assertEqual(self.row(queued)['state'], 'admitted')
+
+    def test_the_waiter_says_so_once_a_minute_not_every_poll(self):
+        first, queued = self.queued()
+        self.finish(first)
+        now = [time.time()]
+        polls = [0]
+
+        def sleep(seconds):
+            polls[0] += 1
+            now[0] += 2.0
+            if polls[0] >= 40:                  # 80 s of waiting
+                raise StopIteration
+        with self.low(), self.assertRaises(StopIteration):
+            waitlist.wait(self.root, queued, clock=lambda: now[0], sleep=sleep)
+        self.assertEqual(self.paths.log(queued).read_text().count('waits on disk'), 2)
+
+    def test_past_its_bound_below_the_floor_it_is_queue_timeout_with_the_reading(self):
+        first, queued = self.queued()
+        self.finish(first)
+        deadline = self.row(queued)['queue_deadline']
+        times = iter([deadline - 1, deadline - 1, deadline + 1, deadline + 1, deadline + 1])
+
+        with self.low():
+            answer = waitlist.wait(self.root, queued, clock=lambda: next(times),
+                                   sleep=lambda seconds: None)
+        self.assertEqual(answer, 'queue-timeout')
+        result = json.loads(self.paths.result(queued).read_text())
+        self.assertEqual((result['outcome'], result['cli_exit']), ('infra_failed', 70))
+        self.assertEqual(result['evidence']['cause'], 'queue-timeout')
+        self.assertEqual(result['evidence']['capacity']['reason'], 'pool low')
+        from pandora.engine import retry
+        self.assertEqual(retry.cause_of(result), 'queue-timeout')
+        self.assertNotIn(queued, self.spawned)
+        self.assertIn('below its disk floor', self.paths.log(queued).read_text())
+
+    def test_a_memory_only_timeout_carries_no_disk_reading(self):
+        self.submit('a:suite', size='large')
+        queued = self.submit('b:suite')['run_id']
+        self.assertEqual(self.wait(queued, now=self.row(queued)['queue_deadline'] + 1),
+                         'queue-timeout')
+        result = json.loads(self.paths.result(queued).read_text())
+        self.assertNotIn('capacity', result['evidence'])
+
+    def test_submit_and_the_waiter_share_one_floor_check(self):
+        calls = []
+        with mock.patch.object(waitlist, 'below_floor',
+                               lambda paths: calls.append('floor')):
+            first, queued = self.queued()
+            self.finish(first)
+            self.assertEqual(self.wait(queued), 'admitted')
+        self.assertEqual(calls, ['floor', 'floor', 'floor'])
+
+
+class TheDiskReading(Engine):
+    def test_a_probe_that_raises_fails_open_and_the_waiter_carries_on(self):
+        first = self.submit('a:suite', size='large')['run_id']
+        queued = self.submit('b:suite', size='medium')['run_id']
+        self.finish(first)
+
+        def broken(paths, driver=None):
+            raise OSError('sudo: btrfs timed out')
+        with mock.patch.object(runner, 'disk_headroom', broken):
+            self.assertIsNone(waitlist.below_floor(self.paths))
+            self.assertEqual(self.wait(queued), 'admitted')
+        self.assertEqual(self.spawned, [first, queued])
+
+    def test_two_reads_inside_the_window_probe_once(self):
+        probes = []
+        with mock.patch.object(waitlist, 'DISK_CACHE_SECONDS', 10.0), \
+                mock.patch.object(runner, 'disk_headroom',
+                                  lambda paths, driver=None:
+                                  probes.append(1) or {'ok': False, 'reason': 'low'}):
+            now = time.time()
+            first = waitlist.disk_reading(self.paths, now=now)
+            second = waitlist.disk_reading(self.paths, now=now + 5)
+            self.assertEqual(first, second)
+            self.assertEqual(len(probes), 1)
+            waitlist.disk_reading(self.paths, now=now + 11)
+            self.assertEqual(len(probes), 2)
 
 
 class ShardsStandInTheSameLine(Engine):

@@ -192,8 +192,10 @@ def submit(args, paths, ledger, request):
         # the pool has no room for -- and each shard checks the floor again as
         # it is dispatched (`fanout.admit_and_spawn`). A run already going is
         # never touched by this; only the next one is refused.
-        room = runner.disk_headroom(paths)
-        if not room.get('ok'):
+        # A row already queued waits on the floor instead (`waitlist.admit`).
+        refused = waitlist.below_floor(paths)
+        if refused:
+            room = refused['capacity']
             runner.write_result(paths, ledger, run_id, outcome='infra_failed',
                                 layer='engine', exit_code=None, peak_mib=0,
                                 durations={}, evidence={'capacity': room, 'cause': 'disk-floor'},

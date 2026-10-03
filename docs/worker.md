@@ -96,10 +96,12 @@ pandora worker status
 ```
 
 `status` prints the ready state, the host and kernel, installed versions against
-the manifest, pool use, the admission gate, the goldens and the last canary. A
-package or setting that differs from the manifest, or a kernel that differs from
-the one the canary passed on, reads `drifted`, not `ready`. Re-run the canary
-with `--mark` after any change to the machine.
+the manifest, pool use, the admission gate, the goldens and the last canary.
+The admission gate is `CLOSED` while the pool is below `disk_floor_gib`. Then
+new runs are refused, and queued runs and shards wait. A package or setting
+that differs from the manifest, or a kernel that differs from the one the
+canary passed on, reads `drifted`, not `ready`. Re-run the canary with `--mark`
+after any change to the machine.
 
 ## Sharing a worker
 
