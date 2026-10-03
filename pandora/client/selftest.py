@@ -145,10 +145,12 @@ printf '%s\\n' "$ids" > "test-results/batch-$seq.txt"
 SELFTEST_SH = '''#!/bin/sh
 # The scratch repository's runner. The marker on stdout proves the command
 # executed on the worker; the file proves the write-back path when the job's
-# --update option armed it. `cpus` is what the instance can see, `env` is what
-# the run was told: the core pin makes them the same number.
+# --update option armed it. `cpus` is what the instance can see, `threads` is
+# the width the run was told it was pinned to: the pin makes them the same
+# number. `env` is PANDORA_CPUS, the whole physical cores in that pin. A
+# worker that predates PANDORA_CPU_THREADS says `none` and pins by count.
 echo "{marker}"
-echo "cpus=$(nproc) env=${{PANDORA_CPUS:-0}}"
+echo "cpus=$(nproc) env=${{PANDORA_CPUS:-0}} threads=${{PANDORA_CPU_THREADS:-none}}"
 if [ "${{1:-}}" = "--update" ]; then
     echo "{writeback_text}" > "{writeback}"
 fi
@@ -174,6 +176,19 @@ class SelftestError(Exception):
         super().__init__(message)
         self.exit = exit
         self.report = None
+
+
+def pin_agrees(cpus, env, threads):
+    """Whether a run's `nproc`, `PANDORA_CPUS` and `PANDORA_CPU_THREADS` agree.
+
+    A worker that sets `PANDORA_CPU_THREADS` pins whole cores: `nproc` is that
+    width, and `PANDORA_CPUS` is its cores, from all of them (no SMT) down to
+    half (two threads per core). A worker that predates it (`threads` None)
+    pins by count, and `nproc` is `PANDORA_CPUS` itself."""
+    if threads is None:
+        return cpus == env
+    # Assumes at most two threads per core; a 4-way SMT host would fail here.
+    return cpus == threads and threads <= 2 * env and env <= threads
 
 
 def notice(text):
@@ -586,12 +601,14 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
                 say('the run\'s marker is missing from its stdout; stdout tail: %s'
                     % (out or '')[-300:])
             if argv[0] == 'selftest':
-                seen = re.search(r'cpus=(\d+) env=(\d+)\b', out or '')
-                if not seen or int(seen.group(1)) != int(seen.group(2)):
+                seen = re.search(r'cpus=(\d+) env=(\d+) threads=(\d+|none)\b', out or '')
+                if not seen or not pin_agrees(
+                        int(seen.group(1)), int(seen.group(2)),
+                        None if seen.group(3) == 'none' else int(seen.group(3))):
                     raise SelftestError(
-                        'the run saw %s core(s) but was told %s: the cpuset and '
-                        'PANDORA_CPUS disagree'
-                        % (seen.groups() if seen else ('?', '?')), exit=1)
+                        'the run saw %s thread(s) but was told PANDORA_CPUS=%s, '
+                        'PANDORA_CPU_THREADS=%s: the cpuset and the pin disagree'
+                        % (seen.groups() if seen else ('?', '?', '?')), exit=1)
             if code != 0 or (result or {}).get('outcome') != 'passed':
                 say('run %s failed: exit %s, outcome %s; stderr tail: %s'
                     % (record['id'], code, (result or {}).get('outcome'), (err or '')[-400:]))

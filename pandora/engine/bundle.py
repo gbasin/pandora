@@ -42,6 +42,7 @@ MEMBERS = (
     'engine/waitlist.py',
     'engine/writeback.py',
     'executor/__init__.py',
+    'executor/cpuset.py',
     'executor/interface.py',
     'executor/incus.py',
     'executor/memtest.py',

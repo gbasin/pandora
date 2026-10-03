@@ -105,7 +105,7 @@ else
   step changed run-cap "$cap_detail"
 fi
 # The core pin, read the same way: 0 means the engine derives it.
-pin_detail=$([ "$CPUS_PER_RUN" = 0 ] && echo 'derived: max(2, threads / 4)' || echo "${CPUS_PER_RUN} cores")
+pin_detail=$([ "$CPUS_PER_RUN" = 0 ] && echo 'derived: max(2, threads / 4)' || echo "${CPUS_PER_RUN} threads")
 if [ "$(cat "$ENGINE_ROOT/cpus_per_run" 2>/dev/null || true)" = "$CPUS_PER_RUN" ]; then
   step present cpu-pin "$pin_detail"
 else

@@ -24,6 +24,7 @@ if __package__ in (None, ''):                # invoked as a file by the bootstra
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pandora.engine.runner import Paths, cpus_per_run_of, max_running_of  # noqa: E402
+from pandora.executor import cpuset                                  # noqa: E402
 from pandora.executor.incus import IncusDriver                       # noqa: E402
 from pandora.worker import facts, gc, goldens, versions              # noqa: E402
 
@@ -118,10 +119,28 @@ def cmd_status(args):
                      floor_gib=manifest['worker']['disk_floor_gib']),
                  'run_cap': dict(zip(('max_running', 'source'),
                                      max_running_of(Paths(engine_root)))),
-                 'cpu_pin': dict(zip(('cpus_per_run', 'source'),
-                                     cpus_per_run_of(Paths(engine_root)))),
+                 'cpu_pin': cpu_pin_of(Paths(engine_root), driver),
                  'goldens': listed, 'run_instances': running,
                  'canary': state.get('canary'), 'reason': state.get('reason')})
+
+
+def cpu_pin_of(paths, driver):
+    """The per-run pin, and what it means on this host's topology.
+
+    `cpus_per_run` is the width in threads. `topology` and `pandora_cpus` (the
+    physical cores a run on an idle host gets) are present only when the
+    driver read the sibling map; otherwise runs are pinned by count."""
+    width, source = cpus_per_run_of(paths)
+    answer = {'cpus_per_run': width, 'source': source}
+    reader = getattr(driver, 'topology', None)
+    try:
+        cores = reader() if callable(reader) else None
+    except Exception:                               # noqa: BLE001 - a status line, never fatal
+        cores = None
+    if cores:
+        answer['topology'] = cpuset.describe(cores)
+        answer['pandora_cpus'] = cpuset.physical_cores(cores, cpuset.allocate(cores, width))
+    return answer
 
 
 def cmd_capacity(args):
