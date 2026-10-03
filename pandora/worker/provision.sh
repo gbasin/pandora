@@ -291,6 +291,17 @@ for kv in security.nesting=true security.syscalls.intercept.mknod=true \
 done
 [ "$profile_changed" = yes ] && step changed profile "$PROFILE nesting+idmap defaults" \
                              || step present profile "$PROFILE"
+# Runs share the bridge, so a service one binds on 0.0.0.0 answers every other
+# run (#172). An isolated bridge port cannot reach another isolated port and
+# still reaches the bridge address (the turbo cache) and NAT egress. The
+# executor also sets this on every clone, so a worker provisioned before this
+# line is protected without a re-provision; the profile is the second layer.
+if [ "$($P profile device get "$PROFILE" eth0 security.port_isolation 2>/dev/null || true)" = true ]; then
+  step present port-isolation "$PROFILE eth0"
+else
+  $P profile device set "$PROFILE" eth0 security.port_isolation=true >/dev/null
+  step changed port-isolation "$PROFILE eth0: runs cannot reach each other on $BRIDGE"
+fi
 
 # --- 8. the engine service -------------------------------------------------
 # A user unit, with linger, because the engine owns files in the worker user's
