@@ -42,9 +42,13 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
    run keeps at least two threads. A positive value is the cap itself.
    `pandora worker status` prints the effective cap and where it came from.
 10. Leave `cpus_per_run = 0` unless you have measured a reason. Zero derives
-   the core pin from the host: `max(2, threads / 4)`, the count `nproc` and
-   `PANDORA_CPUS` report inside every run. A positive value is the pin itself.
-   `pandora worker status` prints the effective pin and where it came from.
+   the pin from the host: `max(2, threads / 4)` threads, the count `nproc`
+   reports inside every run. A positive value is the pin itself, in threads.
+   On an SMT host the engine pins whole physical cores, rounding the width up
+   to a whole core, and `PANDORA_CPUS` is the cores in the pin: half the
+   threads with two threads per core.
+   `pandora worker status` prints the effective pin, where it came from, the
+   host's topology and the resulting `PANDORA_CPUS`.
 
 ### Example
 

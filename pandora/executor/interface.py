@@ -111,14 +111,19 @@ class Limits:
     `memory_mib` is the learned reservation the scheduler admitted against;
     `ceiling_mib` is the hard cap for the size class. Exceeding the reservation
     is allowed and is fed back to admission; exceeding the ceiling is `oom`.
-    `cpu_weight` is a share, never a quota. `cpus_hint` becomes `PANDORA_CPUS`
-    and, below the host's count, the instance's `limits.cpu` pin: the number a
-    run sees and the number it is told are one number.
+    `cpu_weight` is a share, never a quota. `cpus_hint` becomes `PANDORA_CPUS`.
+    With a `cpuset` (an explicit CPU list on physical-core boundaries, see
+    `cpuset.py`) that list is the instance's `limits.cpu`, `cpu_threads` is its
+    width and what `nproc` reports, and `cpus_hint` is the physical cores in it.
+    Without one, `cpus_hint` is also the `limits.cpu` count below the host's
+    count, and `cpu_threads` is 0, which means the same as `cpus_hint`.
     """
     memory_mib: int
     ceiling_mib: int
     cpu_weight: int = 100
     cpus_hint: int = 1
+    cpuset: str = ''
+    cpu_threads: int = 0
     wall_seconds: int = 1800
     # What a cancel sends before SIGKILL, and how long it waits. The instance is
     # destroyed either way; the grace is the run's chance to tear down a compose

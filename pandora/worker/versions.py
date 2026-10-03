@@ -21,7 +21,7 @@ make two identical workers look different.
     loop_size_gib = 32
     disk_floor_gib = 4          # admission stops below this much pool free
     max_running = 0             # concurrent runs; 0 means max(2, threads // 2)
-    cpus_per_run = 0            # each run's visible cores; 0 means max(2, threads // 4)
+    cpus_per_run = 0            # each run's pinned threads; 0 means max(2, threads // 4)
     golden_keep = 2             # goldens kept per toolchain family by `worker gc`
 """
 import hashlib

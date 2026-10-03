@@ -726,9 +726,31 @@ Known caveats:
   `plan`), not a browser suite. A real Playwright run does not fit its budget.
 * The surface job declares both apps' output paths, so a one-app run reports
   the other app's paths as missing.
-* `PANDORA_CPUS` equals the run's `limits.cpu` pin: the manifest's
-  `cpus_per_run`, or a quarter of the host's threads. It does not change with
-  how many other runs are admitted.
+* A run is pinned to `cpus_per_run` host threads: the manifest's value, or a
+  quarter of the host's threads. When the engine can read the host's sibling
+  map (`/sys/devices/system/cpu`), the pin is an explicit `limits.cpu` list of
+  whole physical cores, both threads of a core to the same run, on the cores
+  the other live runs use least. The width rounds up to whole cores, so an odd
+  `cpus_per_run` on a two-thread-per-core host gets one more thread.
+  `PANDORA_CPUS` is then the physical cores in that list, and
+  `PANDORA_CPU_THREADS` is its width, which `nproc` reports. On a 16-core,
+  32-thread worker that is 8 threads, 4 cores and `PANDORA_CPUS=4`. Without
+  the sibling map, the pin is a `limits.cpu` count that Incus places and
+  `PANDORA_CPUS` equals it. Neither number changes with how many other runs
+  are admitted.
+* The run cap (half the threads) times the pin (a quarter) is twice the host.
+  Past four concurrent runs on the default derivation, cpusets overlap and
+  `cpu.weight` shares the overlapping cores. `PANDORA_CPUS` says what a run
+  owns, not what it gets on a full worker. When a run ends, the engine moves
+  live runs that share cores onto cores no run uses, with `limits.cpu` on the
+  running container, most recently admitted first. A run moves only when enough whole idle
+  cores exist for its full pin, so it keeps its `PANDORA_CPUS`. A run whose
+  supervisor died is not a trigger: the next run to end rebalances.
+  `pandora worker status` prints the pin, the topology and the `PANDORA_CPUS`
+  a run gets.
+* `pandora selftest` assumes at most two threads per core: it requires
+  `PANDORA_CPUS` to be at least half of `PANDORA_CPU_THREADS`, so a 4-way SMT
+  host fails it.
 * A remote run's verdict is not checked against the worktree afterward. Only
   write-back re-freezes. Do not edit a worktree while a remote validation runs.
 * One remote run per worktree is not enforced. Only the local lane holds a

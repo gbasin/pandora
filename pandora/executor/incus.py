@@ -21,6 +21,7 @@ import shlex
 import subprocess
 import time
 
+from . import cpuset
 from .interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usage,
                         CloneFailed, DestroyIncomplete, ExecutionFailed,
                         ExecutorError, InstanceLost, PrepareFailed)
@@ -300,6 +301,21 @@ class IncusDriver(Executor):
                 'free_gib': round(free / (1 << 30), 2),
                 'used_fraction': round(used / total, 4) if total else 0.0}
 
+    def topology(self):
+        """The host's physical cores, each a tuple of its threads, or None.
+
+        The engine runs on the host, so sysfs is the instances' topology too.
+        None keeps the count pin (`cpuset.host_topology`)."""
+        return cpuset.host_topology()
+
+    def repin(self, name, cpus):
+        """Move a running instance to another explicit CPU list.
+
+        `limits.cpu` on a running container rewrites its cpuset in place; the
+        processes keep running on the new CPUs. The caller holds the admission
+        lock, so the timeout is short: a hung call fails the move, not admission."""
+        self.incus('config', 'set', name, 'limits.cpu=%s' % cpus, timeout=10)
+
     def capacity(self, floor_gib=0):
         """May the box take another run? The engine's admission hook.
 
@@ -492,10 +508,13 @@ rm -rf "$2"
         """Admit on memory, pin the visible cores, share their time.
 
         `limits.memory.enforce=hard` writes memory.max. `limits.cpu` pins the
-        cpuset to the run's share, so `nproc` inside reports it and tools that
-        size their worker pools off it agree with `PANDORA_CPUS`. Below the
-        host's count it is left unset -- pinning to every core the box has is
-        the default anyway. `limits.cpu.allowance` in its *percentage* form is
+        cpuset: to the explicit list the engine chose on physical-core
+        boundaries when it has one (#201), so `nproc` inside reports
+        `PANDORA_CPU_THREADS` and `PANDORA_CPUS` is the physical cores in it;
+        otherwise to a count Incus places, which `nproc` and `PANDORA_CPUS`
+        both report. A count at or above the host's is left unset -- pinning
+        to every core the box has is the default anyway. `limits.cpu.allowance`
+        in its *percentage* form is
         what Incus writes to `cpu.weight`: a share, not a quota, so contention
         is still decided by weight rather than by who was pinned where.
         `limits.cpu.priority` is not used: it only spans cpu.weight 90-100,
@@ -505,7 +524,9 @@ rm -rf "$2"
                   'limits.memory.enforce=hard',
                   'limits.memory.swap=false',
                   'limits.cpu.allowance=%d%%' % max(1, min(100, limits.cpu_weight))]
-        if 0 < limits.cpus_hint < (os.cpu_count() or 1):
+        if getattr(limits, 'cpuset', ''):
+            config.append('limits.cpu=%s' % limits.cpuset)
+        elif 0 < limits.cpus_hint < (os.cpu_count() or 1):
             config.append('limits.cpu=%d' % limits.cpus_hint)
         self.incus('config', 'set', name, *config)
         gib = getattr(limits, 'disk_gib', 0) or self.default_disk_gib()
@@ -630,6 +651,7 @@ rm -rf "$2"
         name = instance.name
         env = dict(env or {})
         env.setdefault('PANDORA_CPUS', str(limits.cpus_hint))
+        env.setdefault('PANDORA_CPU_THREADS', str(limits.cpu_threads or limits.cpus_hint))
         env.setdefault('PANDORA_RUN_ID', instance.run_id)
         if not reattach:
             self.start(name, argv, env, cwd)

@@ -144,7 +144,7 @@ def render_status(answer):
     pool = answer.get('pool') or {}
     lines = ['state: %s%s' % (answer.get('state'),
                               '  since ' + answer['ready_since'] if answer.get('ready_since') else ''),
-             'host: %s, kernel %s, %s cores, %s MiB, %s'
+             'host: %s, kernel %s, %s threads, %s MiB, %s'
              % (host.get('hostname'), host.get('kernel'), host.get('cores'),
                 host.get('memory_mib'), host.get('incus')),
              'manifest: %s%s' % (answer.get('manifest_digest'),
@@ -166,7 +166,11 @@ def render_status(answer):
         lines.append('run cap: %s concurrent (%s)' % (cap.get('max_running'), cap.get('source')))
     pin = answer.get('cpu_pin') or {}
     if pin:
-        lines.append('cpu pin: %s core(s) per run (%s)' % (pin.get('cpus_per_run'), pin.get('source')))
+        lines.append('cpu pin: %s thread(s) per run (%s); %s'
+                     % (pin.get('cpus_per_run'), pin.get('source'),
+                        'whole cores of %s, PANDORA_CPUS %s'
+                        % (pin['topology'], pin.get('pandora_cpus'))
+                        if pin.get('topology') else 'by count, topology unread'))
     lines.append('goldens:')
     for item in answer.get('goldens') or []:
         lines.append('  %-26s %-10s %6.2f GiB  %-7s %s'

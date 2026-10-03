@@ -26,6 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from ..executor import cpuset
 from ..executor.incus import IncusDriver
 from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFailed,
                                   InstanceLost, Limits, PrepareFailed, Result, Toolchain, Usage)
@@ -187,6 +188,12 @@ def supervise(root, run_id, *, driver=None):
         golden = driver.prepare(toolchain, source=row['source_path'], log=note)
         mark('prepare')
         ledger.update(run_id, state='running')
+        limits = pin_cpus(paths, ledger, run_id, driver, limits)
+        if limits.cpuset:
+            evidence['cpuset'] = {'cpus': limits.cpuset, 'threads': limits.cpu_threads,
+                                  'cores': limits.cpus_hint}
+            note('cpu pin %s: %d core(s), %d thread(s)'
+                 % (limits.cpuset, limits.cpus_hint, limits.cpu_threads))
         instance = driver.clone(golden, run_id, limits=limits)
         durations['clone'] = round(instance.clone_seconds, 2)
         durations['start'] = round(instance.start_seconds, 2)
@@ -242,7 +249,7 @@ def supervise(root, run_id, *, driver=None):
             # This runs in the private clone, against the transferred source.
             # It does not change the golden's fingerprint or the local lane.
             note('preparing transferred source')
-            prep_limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths))
+            prep_limits = hint_now(paths, limits)
             if tick() == 'cancel':
                 prep = Result(exit_code=-9, outcome='cancelled', seconds=0, usage=Usage())
             else:
@@ -265,12 +272,13 @@ def supervise(root, run_id, *, driver=None):
             'prepare', 'clone', 'start', 'inject', 'graft', 'git', 'harden',
             'prepare_command')), 2)
         note('instance ready in %.1f s' % durations['boot'])
-        # PANDORA_CPUS is decided here, not at admission. The pin is the
+        # PANDORA_CPUS is decided here, not at admission. A count pin is the
         # worker's configured count, read at the last moment so a manifest
         # change lands on the next run. The environment of a started process
         # cannot be rewritten, so the only moment this can be right is the
-        # last one before the command starts.
-        limits = dataclasses.replace(limits, cpus_hint=cpus_now(paths))
+        # last one before the command starts. A cpuset pin was fixed at clone
+        # and its physical cores are the number.
+        limits = hint_now(paths, limits)
         ledger.update(run_id, cpus_hint=limits.cpus_hint)
         note(running_line(ledger, row, limits.cpus_hint))
         queue_marker = attempt / 'batchqueue.json'
@@ -412,6 +420,8 @@ def supervise(root, run_id, *, driver=None):
                                exit_code=exit_code, peak_mib=peak_mib,
                                durations=durations, evidence=evidence, receipt=receipt_dict,
                                extra=extra or None)
+    # This run's cores are free now; spread any runs that share cores onto them.
+    rebalance_cpus(paths, ledger, driver)
     ledger.close()
     return result_json
 
@@ -438,13 +448,120 @@ def running_line(ledger, row, cpus_hint):
 
 
 def cpus_now(paths):
-    """The core pin a run starts with: `PANDORA_CPUS` and `limits.cpu` both.
+    """The pin's width in threads: what `nproc` reports inside a run.
 
+    With a count pin it is also `PANDORA_CPUS`; with a cpuset pin
+    (`pin_cpus`) `PANDORA_CPUS` is the physical cores in that many threads.
     One number for every run, from the manifest or a quarter of the host's
     threads. It does not move with how many siblings were admitted, which is
     what makes a run's memory appetite a property of the job and learnable.
     """
     return cpus_per_run_of(paths)[0]
+
+
+def hint_now(paths, limits):
+    """`limits` with the `PANDORA_CPUS` a command starting now is told.
+
+    A cpuset pin keeps the physical cores `pin_cpus` counted: the instance is
+    already pinned and the number must describe that pin. A count pin rereads
+    the worker's configured count."""
+    if limits.cpuset:
+        return limits
+    return dataclasses.replace(limits, cpus_hint=cpus_now(paths))
+
+
+def pin_cpus(paths, ledger, run_id, driver, limits):
+    """Choose this run's host CPUs on physical-core boundaries (#201).
+
+    The width is the worker's pin in threads (`cpus_now`). When the driver can
+    read the host's topology, the run gets whole cores, the least used by the
+    other live runs' cpusets, chosen and recorded under the admission lock so
+    two runs starting together do not both take the same idle cores. The
+    returned limits carry the list, its width, and its physical cores as
+    `PANDORA_CPUS`. When the topology is unknown, the run keeps the count pin
+    Incus places, as before.
+    """
+    width = cpus_now(paths)
+    counted = dataclasses.replace(limits, cpus_hint=width, cpuset='', cpu_threads=0)
+    cores = topology_of(driver)
+    if not cores:
+        return counted
+    with gate(paths.root):
+        held = []
+        for row in ledger.live():
+            if row['run_id'] == run_id or not row['cpuset'] or row['state'] == 'queued':
+                continue
+            try:
+                held.append(cpuset.parse_list(row['cpuset']))
+            except ValueError:
+                continue
+        chosen = cpuset.allocate(cores, width, held)
+        text = cpuset.format_list(chosen)
+        ledger.update(run_id, cpuset=text)
+    return dataclasses.replace(limits, cpuset=text, cpu_threads=len(chosen),
+                               cpus_hint=cpuset.physical_cores(cores, chosen))
+
+
+def topology_of(driver):
+    """The driver's host cores, or None when it has no reader or it fails."""
+    reader = getattr(driver, 'topology', None)
+    try:
+        cores = reader() if callable(reader) else None
+    except Exception:                               # noqa: BLE001 - fall back, never fail a run
+        return None
+    return cores if cores and isinstance(cores, (tuple, list)) else None
+
+
+def rebalance_cpus(paths, ledger, driver):
+    """Move live runs that share cores onto cores a finished run left idle.
+
+    A cpuset is chosen when a run starts, and Incus does not rebalance an
+    explicit list the way it rebalances a count. Without this, two runs that
+    started on a full host share their cores for life while the rest of the
+    host idles. Called when a run ends, under the admission lock so it cannot
+    interleave with `pin_cpus`. The most recently admitted sharing run moves
+    first. Only rows with an instance can move (a row between `pin_cpus` and
+    its clone keeps its list and counts as held). Each move is
+    `limits.cpu=<list>` on the running container, then the ledger; a move that
+    cannot be made leaves its run where it was and the plan continues with
+    that in mind. The repin's timeout is short because the admission lock is
+    held across it. Returns the moves made, {run_id: list}. Never raises.
+    """
+    cores = topology_of(driver)
+    repin = getattr(driver, 'repin', None)
+    if not cores or not callable(repin):
+        return {}
+    made = {}
+    try:
+        with gate(paths.root):
+            rows = sorted((row for row in ledger.live()
+                           if row['cpuset'] and row['state'] in ('admitted', 'running',
+                                                                 'collecting')),
+                          key=lambda row: (row['admitted_at'] or 0, row['created']))
+            placed, instances = [], {}
+            for row in rows:
+                try:
+                    placed.append((row['run_id'], cpuset.parse_list(row['cpuset'])))
+                except ValueError:
+                    continue
+                instances[row['run_id']] = row['instance']
+
+            def move(run_id, chosen):
+                if not instances.get(run_id):
+                    return False
+                text = cpuset.format_list(chosen)
+                try:
+                    repin(instances[run_id], text)
+                except Exception:                   # noqa: BLE001 - it keeps its old list
+                    return False
+                ledger.update(run_id, cpuset=text)
+                made[run_id] = text
+                return True
+
+            cpuset.rebalance(cores, placed, apply=move)
+    except Exception:                               # noqa: BLE001 - never fails the ending run
+        return made
+    return made
 
 
 def cpus_per_run_of(paths, threads=None):

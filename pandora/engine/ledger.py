@@ -105,7 +105,12 @@ ADDED = (('role', "TEXT NOT NULL DEFAULT 'single'"),
          ('waiter_pid', 'INTEGER'),
          # The size class `pandora.toml` declared. `size_class` is overwritten
          # at admission with the class actually used, which learning may move.
-         ('size_declared', 'TEXT'))
+         ('size_declared', 'TEXT'),
+         # The explicit host CPU list the run was pinned to (`limits.cpu`),
+         # chosen on physical-core boundaries. NULL when the run was pinned by
+         # count, which is every run before #201 and any run on a host whose
+         # topology could not be read. Live rows' lists spread the next run.
+         ('cpuset', 'TEXT'))
 
 # A parent holds the fan-out and runs nothing itself; `plan` is the build-once
 # attempt a tier-2 parent runs before there are any shards to dispatch.

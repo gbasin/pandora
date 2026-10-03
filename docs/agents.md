@@ -72,10 +72,10 @@ out:
 | `PANDORA_HOME=<dir>` | Sets the package directory the launchers run, instead of the one they are installed in. |
 
 The caller's `PANDORA_*` variables never reach a routed run. Pandora sets its
-own: `PANDORA_CPUS`, a shard's `PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`,
-a queue-fed batch's `PANDORA_BATCH_FILE`, `PANDORA_BATCH_INDEX` and
-`PANDORA_BATCH_REPORT`, and in the local lane `PANDORA_RUN` and
-`PANDORA_RUN_DIR`. A command run with `PANDORA_OFF`, passed through or not
+own: `PANDORA_CPUS` and, on the worker, `PANDORA_CPU_THREADS`, a shard's
+`PANDORA_SHARD_INDEX` and `PANDORA_SHARD_TOTAL`, a queue-fed batch's
+`PANDORA_BATCH_FILE`, `PANDORA_BATCH_INDEX` and `PANDORA_BATCH_REPORT`, and in
+the local lane `PANDORA_RUN` and `PANDORA_RUN_DIR`. A command run with `PANDORA_OFF`, passed through or not
 claimed gets the whole environment.
 
 ## Verbs
@@ -140,6 +140,10 @@ when that was more than 1. At `xlarge` there is no larger class, and it says so:
 pandora: hint: watchdog killed job check at the large class's limit (memory.high 7372 MiB of the 8192 MiB ceiling, stalled 15 s); anon 6900 MiB, file 300 MiB, kernel 150 MiB, shmem 7 MiB: mostly anonymous memory, the job's own processes; lower its parallelism (it ran with PANDORA_CPUS=8) or declare size = "xlarge" for job check in pandora.toml
 ```
 
-A job that runs on the worker gets `PANDORA_CPUS`, the cores pinned to its
-instance: the same number `nproc` reports inside it, fixed for every run. A
-runner can use it for its own parallelism.
+A job that runs on the worker gets `PANDORA_CPUS`, the physical cores pinned to
+its instance, fixed for every run. A runner can use it for its own parallelism.
+On a worker with SMT, `nproc` reports twice that, because the run holds both
+threads of each core. A CPU-bound job, such as a type check, gains little from
+the second thread, so size it from `PANDORA_CPUS` and not from `nproc`.
+`PANDORA_CPU_THREADS` is the thread count `nproc` reports. Other runs can share
+the same cores when the worker is full.

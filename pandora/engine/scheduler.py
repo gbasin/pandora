@@ -11,8 +11,10 @@ not both read `held = 8 GiB` and both decide they fit.
 
 The CPU number is the other half of the POC's result and the easier half to
 get wrong. `PANDORA_CPUS` is a *pin*: the same count for every run, written as
-the instance's `limits.cpu`, so `nproc` inside reports it and a run sizes its
-own worker pool for the machine it actually gets. The earlier form, host cores
+the instance's `limits.cpu`, so a run sizes its own worker pool for the machine
+it actually gets. The pin's width is in threads, what `nproc` reports; on an
+SMT host the runner pins whole physical cores and `PANDORA_CPUS` counts those
+(`runner.pin_cpus`, #201). The earlier form, host cores
 divided by admitted runs, made a run's memory appetite a function of who else
 was admitted -- the same command peaked at 3 GiB or 11 GiB -- which made its
 size class unlearnable. A fixed pin makes the peak a property of the job, so
@@ -38,7 +40,7 @@ QUEUE_STALE = 30.0
 
 
 def derived_cpus_per_run(threads):
-    """The pin a host earns: a quarter of its threads, never below the floor.
+    """The pin a host earns, in threads: a quarter of them, never below the floor.
 
     A quarter leaves about four heavy runs of headroom before cores are
     oversubscribed; `cpu.weight` arbitrates when they are. The manifest's
@@ -157,7 +159,8 @@ class Scheduler:
         return max(1, len(names))
 
     def cpus_hint(self, lanes=None):
-        """The run's core pin: one number for every run, independent of lanes."""
+        """The run's pin width in threads: one number for every run, independent
+        of lanes. The runner turns it into physical cores when it pins a cpuset."""
         return self.cpus_per_run
 
     def admit(self, run_id, repo, job, declared_class=None):
