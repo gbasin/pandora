@@ -618,7 +618,7 @@ class TheOomHint(unittest.TestCase):
         self.assertIn('declared large applies again', hint)
         self.assertNotIn('raise', hint)
         facts.update(size_declared='small')
-        self.assertIn('raise the size class', hint_for(facts))
+        self.assertIn('declare size = "medium" for job build', hint_for(facts))
 
 
 class TheRunUsesTheLearnedClass(Engine):
