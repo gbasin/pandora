@@ -158,6 +158,15 @@ class FakeDriver:
     def __init__(self, built=()):
         self.built = set(built)
         self.prepared, self.executed = [], []
+        self.neighbor = 'closed'          # what a run sees on another run's port
+        self.gateway = 'open'             # what a run sees on the bridge address
+        self.offline = set()              # instances with no eth0 address
+        self.probes = []
+
+    def address(self, name):
+        if name in self.offline:
+            return ''
+        return '10.70.0.%d' % (len(name) % 200 + 2)
 
     def incus(self, *args, **kwargs):
         return 0, 'pandora,\n', ''
@@ -185,6 +194,11 @@ class FakeDriver:
         pass
 
     def sh(self, name, script, check=False, timeout=None):
+        if '/dev/tcp/' in script:
+            self.probes.append((name, script))
+            if '/dev/tcp/10.70.0.1/' in script or '/dev/tcp/10.70.' not in script:
+                return 0, self.gateway + '\n', ''
+            return 0, self.neighbor + '\n', ''
         if 'docker info' in script:
             return 0, 'overlay2 2\n', ''
         if 'up -d' in script:
@@ -211,6 +225,14 @@ class FakeDriver:
 
 class CanaryRun(unittest.TestCase):
     def setUp(self):
+        from unittest import mock
+        patch = mock.patch.object(canary, 'connects', return_value=True)
+        self.host_reaches = patch.start()
+        self.addCleanup(patch.stop)
+        bridge = mock.patch.object(canary.turbocache, 'bridge_address',
+                                   return_value='10.70.0.1')
+        bridge.start()
+        self.addCleanup(bridge.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.config = load(JOURNEYS)
@@ -297,6 +319,79 @@ class CanaryRun(unittest.TestCase):
         self.assertFalse(any(item[1][:2] == ['bash', '-c'] for item in driver.executed
                              if item[0] == 'canary-journey'))
         self.assertFalse(any('prepare_command' in row['check'] for row in verdict['checks']))
+
+    def built(self):
+        return FakeDriver(built={'golden-' + enrolled.fingerprint_of(self.config)})
+
+    def test_two_runs_that_cannot_reach_each_other_pass(self):
+        """#172: a run's 0.0.0.0 port is the host's to reach, not a neighbor's."""
+        driver = self.built()
+        verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+        self.assertTrue(verdict['ok'], verdict['reason'])
+        rows = {row['check']: row for row in verdict['checks']}
+        self.assertTrue(rows['a run port answers the host']['ok'])
+        self.assertTrue(rows['an isolated run reaches the bridge DNS']['ok'])
+        self.assertTrue(rows['runs cannot reach each other on the bridge']['ok'])
+        [(first, gateway), (prober, script)] = driver.probes
+        self.assertEqual((first, prober), ('canary-net-b', 'canary-net-b'))
+        self.assertIn('/dev/tcp/10.70.0.1/53', gateway, 'the positive probe comes first')
+        self.assertIn('/dev/tcp/%s/%d' % (driver.address('canary-net-a'), canary.PROBE_PORT),
+                      script)
+        self.assertIn('canary-net-a destroy receipt clean', rows)
+        self.assertIn('canary-net-b destroy receipt clean', rows)
+
+    def test_a_neighbor_that_answers_fails_the_canary(self):
+        driver = self.built()
+        driver.neighbor = 'open'
+        verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+        self.assertFalse(verdict['ok'])
+        [row] = [row for row in verdict['checks'] if not row['ok']]
+        self.assertEqual(row['check'], 'runs cannot reach each other on the bridge')
+        self.assertIn('open', row['detail'])
+
+    def test_a_listener_the_host_cannot_reach_proves_nothing(self):
+        """A closed neighbor port means isolation only when the port was open."""
+        from unittest import mock
+        self.host_reaches.return_value = False
+        driver = self.built()
+        with mock.patch.object(canary, 'LISTEN_SECONDS', 0):
+            verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+        self.assertFalse(verdict['ok'])
+        [row] = [row for row in verdict['checks'] if not row['ok']]
+        self.assertEqual(row['check'], 'a run port answers the host')
+        self.assertNotIn('runs cannot reach each other on the bridge',
+                         [row['check'] for row in verdict['checks']],
+                         'no neighbor probe against an empty port')
+
+    def test_a_second_run_with_no_network_fails_rather_than_proving_isolation(self):
+        """A refused connect from a run that reaches nothing proves nothing."""
+        from unittest import mock
+        for broken in ('no address', 'no reach'):
+            driver = self.built()
+            if broken == 'no address':
+                driver.offline.add('canary-net-b')
+            else:
+                driver.gateway = 'closed'
+            with mock.patch.object(canary, 'LISTEN_SECONDS', 0.3):
+                verdict = canary.run(self.root, targets=self.targets(self.missing),
+                                     driver=driver)
+            self.assertFalse(verdict['ok'], broken)
+            checks = {row['check']: row['ok'] for row in verdict['checks']}
+            self.assertFalse(checks['an isolated run reaches the bridge DNS'], broken)
+            self.assertNotIn('runs cannot reach each other on the bridge', checks, broken)
+
+    def test_an_isolated_run_still_reaches_a_serving_turbo_cache(self):
+        from unittest import mock
+        driver = self.built()
+        served = ({'TURBO_API': 'http://10.0.0.1:4199/r/canary'}, '')
+        with mock.patch.object(canary.turbocache, 'env_for', return_value=served):
+            verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+        self.assertTrue(verdict['ok'], verdict['reason'])
+        self.assertIn('an isolated run reaches the turbo cache',
+                      [row['check'] for row in verdict['checks']])
+        [(prober, cache), _] = driver.probes
+        self.assertEqual(prober, 'canary-net-b')
+        self.assertIn('/dev/tcp/10.0.0.1/4199', cache)
 
     def test_no_targets_is_a_failure_not_a_pass(self):
         verdict = canary.run(self.root, targets=[], driver=FakeDriver())

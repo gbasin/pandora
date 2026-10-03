@@ -227,6 +227,13 @@ def supervise(root, run_id, *, driver=None):
         note('turbo cache %s' % (cache_env['TURBO_API'] if cache_env else 'off: ' + why))
         evidence['cgroup'] = driver.harden(instance, limits)
         mark('harden')
+        # A run whose bridge port is not isolated could reach, and be reached
+        # by, every concurrent run (#172). Refused as a clone that cannot be
+        # used, which is retryable, rather than run exposed.
+        isolation = str((evidence['cgroup'] or {}).get('eth0.port_isolation', ''))
+        if isolation.startswith('ERR'):
+            raise CloneFailed('%s bridge port is not isolated: %s'
+                              % (instance.name, isolation[4:]))
         canceled = {'yes': False}
 
         def tick():

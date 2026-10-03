@@ -209,7 +209,9 @@ class FakeDriver:
         return 2.9
 
     def harden(self, instance, limits):
-        return {'memory.high': '1'}
+        if self.explode == 'isolation':
+            return {'memory.high': '1', 'eth0.port_isolation': 'ERR:veth9 not isolated'}
+        return {'memory.high': '1', 'eth0.port_isolation': 'on'}
 
     def execute(self, instance, argv, env=None, cwd='/work', limits=None, on_log=None,
                 on_tick=None, reattach=False):
@@ -338,6 +340,17 @@ class SuperviseTest(unittest.TestCase):
         self.assertEqual(result['outcome'], 'infra_failed')
         self.assertEqual(result['layer'], 'executor')
         self.assertEqual(driver.destroyed, [])
+
+    def test_a_run_whose_bridge_port_is_not_isolated_never_executes(self):
+        """#172: refused as a retryable clone failure, and the instance destroyed."""
+        driver = FakeDriver(explode='isolation')
+        result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'infra_failed')
+        self.assertEqual(result['layer'], 'executor')
+        self.assertEqual(result['evidence']['cause'], 'clone-failed')
+        self.assertIn('not isolated', result['evidence']['error'])
+        self.assertFalse(getattr(driver, 'executed', False))
+        self.assertEqual(driver.destroyed, ['run-r1'])
 
     def test_a_passing_run_whose_machine_survives_destroy_is_not_a_pass(self):
         result = self.run_with(FakeDriver(destroy_clean=False))

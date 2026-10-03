@@ -2,8 +2,10 @@
 
 The parts that are subprocesses are tested on the worker by `canary.py`.
 """
+import json
 import subprocess
 import unittest
+import unittest.mock
 
 from pandora.executor import incus as incus_driver
 from pandora.executor.incus import IncusDriver, parse_cgroup
@@ -185,6 +187,89 @@ class CloneCleanup(unittest.TestCase):
             self.driver.clone(self.golden, 'r1', limits=Limits(memory_mib=1,
                                                                ceiling_mib=2, disk_gib=8))
         self.assertIn(('delete', '-f', 'run-r1'), calls)
+
+
+class PortIsolation(unittest.TestCase):
+    """#172: every clone is an isolated port on the shared bridge."""
+
+    def setUp(self):
+        self.driver = IncusDriver(root='/tmp')
+        self.golden = Golden(name='golden-abc', fingerprint='abc', snapshot='warm')
+        self.calls = []
+
+    def fake(self, refuse=()):
+        def incus(*args, **kwargs):
+            self.calls.append(args)
+            if args[:3] in refuse:
+                return 1, '', 'refused'
+            return 0, '', ''
+        self.driver.incus = incus
+
+    def test_the_clone_overrides_eth0_isolated_before_it_starts(self):
+        self.fake()
+        self.driver.clone(self.golden, 'r1')
+        isolate = ('config', 'device', 'override', 'run-r1', 'eth0',
+                   'security.port_isolation=true')
+        self.assertIn(isolate, self.calls)
+        self.assertLess(self.calls.index(isolate), self.calls.index(('start', 'run-r1')))
+
+    def test_a_local_eth0_is_set_instead_of_overridden(self):
+        self.fake(refuse={('config', 'device', 'override')})
+        self.driver.clone(self.golden, 'r1')
+        self.assertIn(('config', 'device', 'set', 'run-r1', 'eth0',
+                       'security.port_isolation=true'), self.calls)
+
+    def test_a_clone_that_cannot_be_isolated_is_refused_and_deleted(self):
+        self.fake(refuse={('config', 'device', 'override'), ('config', 'device', 'set')})
+        with self.assertRaises(CloneFailed):
+            self.driver.clone(self.golden, 'r1')
+        self.assertIn(('delete', '-f', 'run-r1'), self.calls)
+        self.assertNotIn(('start', 'run-r1'), self.calls)
+
+    def bridge(self, *answers):
+        """Fake `bridge` reads in order; record every argv."""
+        argvs, reads = [], list(answers)
+
+        def run(argv, **kwargs):
+            argvs.append(argv)
+            if argv[:2] == ['bridge', '-d']:
+                return 0, reads.pop(0), ''
+            return 0, '', ''
+        return argvs, run
+
+    def harden(self, run):
+        self.driver.veth = lambda name: 'veth1234'
+        self.driver.cgroup = lambda name: '/sys/fs/cgroup/x'
+        instance = Instance(name='run-r1', run_id='r1', golden='golden-abc')
+        with unittest.mock.patch.object(incus_driver, 'run', run):
+            return self.driver.harden(instance, Limits(memory_mib=1, ceiling_mib=2))
+
+    def test_harden_records_an_isolated_port(self):
+        argvs, run = self.bridge('7: veth1234 ... learning on isolated on locked off')
+        self.assertEqual(self.harden(run)['eth0.port_isolation'], 'on')
+
+    def test_harden_reports_an_open_port_and_never_patches_it(self):
+        """Incus applies the flag at attach or fails the start; open is a fault."""
+        argvs, run = self.bridge('isolated off locked off')
+        self.assertTrue(self.harden(run)['eth0.port_isolation'].startswith('ERR:'))
+        self.assertFalse([argv for argv in argvs if 'set' in argv and 'bridge' in argv])
+
+    def test_isolating_counts_as_clone_time(self):
+        self.fake()
+        clock = iter([0.0, 1.0, 3.0, 3.0, 3.5, 4.0, 4.0])
+        with unittest.mock.patch.object(incus_driver.time, 'monotonic',
+                                        lambda: next(clock, 4.0)):
+            instance = self.driver.clone(self.golden, 'r1')
+        self.assertEqual(instance.clone_seconds, 3.0)
+
+    def test_address_reads_the_global_ipv4_on_eth0(self):
+        rows = [{'name': 'run-r1', 'state': {'network': {'eth0': {'addresses': [
+            {'family': 'inet6', 'scope': 'link', 'address': 'fe80::1'},
+            {'family': 'inet', 'scope': 'global', 'address': '10.70.0.9'}]}}}}]
+        self.driver.incus = lambda *args, **kwargs: (0, json.dumps(rows), '')
+        self.assertEqual(self.driver.address('run-r1'), '10.70.0.9')
+        self.driver.incus = lambda *args, **kwargs: (0, 'not json', '')
+        self.assertEqual(self.driver.address('run-r1'), '')
 
 
 class Listing(unittest.TestCase):
