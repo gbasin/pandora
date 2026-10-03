@@ -705,8 +705,10 @@ and four shards were measured, and four was the best of those.
 Sizes that matter:
 
 * A golden is 4-5 GiB. The pool is 18 GiB, so it holds about three goldens and
-  the runs cloned from them. Admission refuses new single runs below
-  `disk_floor_gib` (4 GiB). A sharded run's shards are not checked against it.
+  the runs cloned from them. Admission refuses new runs below
+  `disk_floor_gib` (4 GiB). A run already in the worker queue, and a sharded
+  run's shards, wait for the floor instead, up to the queue bound
+  ([Queueing](pandora-toml.md#queueing)).
 * A cold `pnpm check` with typecheck at `--concurrency=$PANDORA_CPUS` peaks at
   6.5 GiB and needs `size = "large"`. Warm runs peak near 2 GiB. The example
   configuration still says `medium`. Acme's own `pandora.toml` says `large`.

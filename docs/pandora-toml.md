@@ -161,7 +161,7 @@ in `pandora/client/shim.py`).
 | Cause | `small` / `medium` | `large` / `xlarge` | with `--update` |
 |---|---|---|---|
 | `worker-down` (known from the health poll), `worker-unreachable`, `snapshot-failed`, `transfer-failed`, `engine-error` (any other worker refusal, such as the disk floor) | local lane | refuse, 70 | refuse, 70 |
-| the worker is full (memory or slots) | queues on the worker, 70 after the bound (`queue-timeout`) | queues, 70 after the bound | queues, 70 after the bound |
+| the worker is full (memory or slots), or a queued run finds the pool below the disk floor | queues on the worker, 70 after the bound (`queue-timeout`) | queues, 70 after the bound | queues, 70 after the bound |
 | `admission-refused`: the reservation is larger than the worker's whole budget | refuse, 70 | refuse, 70 | refuse, 70 |
 | `engine-version`: this client's bundle is older than the worker's `min_engine_version` | refuse, 70 | refuse, 70 | refuse, 70 |
 | `daemon-unreachable`, the daemon installed here (the client configuration exists) | 70 after a 5 s wait, with the doctor hint | 70 | 70 |
@@ -211,9 +211,14 @@ the worker, and the next daemon adopts it. The original command exits 70, and
 `pandora wait <id>` follows the run. A queued write-back run is stopped
 instead. A reservation larger than the worker's
 whole budget still refuses at once with exit 70, because waiting cannot fix it.
-The disk floor also refuses a single run at once. A sharded run's shards are
-not checked against it. The client treats that refusal as
-`engine-error`, so the [Fallback](#fallback) table decides.
+The disk floor also refuses a new run at once, single or sharded. The client
+treats that refusal as `engine-error`, so the [Fallback](#fallback) table
+decides. A run that is already queued, and a sharded run's shards, are not
+refused by the floor. They wait for it in the same queue, under the same bound,
+because a finished run frees its clone. A queued run's log says `queued run
+waits on disk: <reason>` at most once a minute. At the bound it ends
+`queue-timeout` as above, and its evidence records the pool's last reading
+(`capacity`).
 
 `pandora run --detach` returns at the first queue line with the run id. The run
 stays queued. `pandora wait <id>` follows it through the queue. A drained
