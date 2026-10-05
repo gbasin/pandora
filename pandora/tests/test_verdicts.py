@@ -483,9 +483,20 @@ class DaemonHook(DaemonCase):
             answer = self.call(['unit'])
             self.assertEqual(answer.exit, 0)
             self.assertLess(time.monotonic() - started, 20)
-            alive = [thread for thread in threading.enumerate()
-                     if thread.name.startswith('verdict-') and thread.is_alive()]
-            self.assertTrue(alive, 'the publish finished before the exit returned')
+            # The exit frame goes out before the publish thread starts, so the
+            # caller can return a few milliseconds ahead of it. Give the thread
+            # that long to appear; the gate keeps it from finishing meanwhile.
+            deadline = time.monotonic() + 5
+            alive = []
+            while not alive and time.monotonic() < deadline:
+                alive = [thread for thread in threading.enumerate()
+                         if thread.name.startswith('verdict-') and thread.is_alive()]
+                if not alive:
+                    time.sleep(0.02)
+            self.assertTrue(alive, 'no publish thread appeared within 5 s of the exit')
+            [run_dir] = list((self.state / 'runs').iterdir())
+            self.assertFalse((run_dir / verdicts.RECORD).exists(),
+                             'the publish finished while the remote was still blocked')
             gate.touch()
             verdict_threads()
         [run_dir] = list((self.state / 'runs').iterdir())
