@@ -77,11 +77,12 @@ Integration branch: #212 (engine signing) + #211 (client publication) + #210
   Verdict skipped as `worker_not_ready`: the pandora-ci engine had no ready
   state.
 * Canary on pandora-ci: passed everything except the three OOM checks. The
-  memory hog was not killed in 120 s. That engine's user units
-  (`pandora-engine.service`, `pandora-pool.service`) are not enabled, so the
-  check cannot pass there; unrelated to this change. The ready marker was
-  written by hand for the test engine, labeled as forced, so the signing path
-  could be exercised.
+  memory hog ran the full 120 s wall without being killed. The cause is not
+  established; it predates this change (the pandora-ci account was never
+  provisioned: no `pandora-engine.service` user unit, so no turbo cache
+  server either, but the watchdog does not depend on that unit). The ready
+  marker was written by hand for the test engine, labeled as forced, so the
+  signing path could be exercised, and removed afterward.
 * Run 2: source cache hit, instance ready in 0.6 s, suite passed in 79 s. The
   worker signed; the daemon pushed
   `refs/pandora/verdicts/eb544a55cfbc96c17798f8df9019ce4ab8347ab9/suite` to
