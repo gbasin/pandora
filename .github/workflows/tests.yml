@@ -15,6 +15,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # A signed Pandora verdict for this exact tree stands in for the unittest
+      # step on ubuntu (docs/operations.md, Verdicts in CI). The action fetches
+      # what it needs at depth 1, so the checkout stays shallow. It never fails.
+      - name: pandora verdict
+        id: verdict
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/pandora-verdict
+        with:
+          job: suite
+          argv: '["python3","-m","unittest","discover","-s","pandora"]'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
@@ -31,4 +41,5 @@ jobs:
           # SC3013: -nt is deliberate; dash and bash have had it for decades.
           shellcheck -e SC3013 bin/pnpm bin/pandora
       - name: unittest
+        if: runner.os != 'Linux' || steps.verdict.outputs.verified != 'true'
         run: python3 -m unittest discover -s pandora
