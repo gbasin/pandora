@@ -33,3 +33,6 @@ args = "none"
 timeout_minutes = 30
 forms = [{ prefix = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }]
 run = { argv = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }
+
+[verdicts]
+publish = true
