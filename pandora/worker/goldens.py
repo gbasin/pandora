@@ -34,6 +34,7 @@ def index(paths, driver):
             continue
         name = 'golden-' + toolchain.fingerprint()
         entry = seen.setdefault(name, {'fingerprint': toolchain.fingerprint(), 'name': name,
+                                       'recipe': recipe_of(spec),
                                        'repo': row['repo'], 'source_id': spec.get('source_id', ''),
                                        'pinned': bool(spec.get('pins')),
                                        'pins': dict(spec.get('pins') or {}),
@@ -60,13 +61,25 @@ def index(paths, driver):
         if name in seen:
             continue
         referenced, exclusive = sizes.get('containers/%s_%s' % (driver.project, name), (0, 0))
-        rows.append({'fingerprint': name[len('golden-'):], 'name': name, 'repo': None,
+        rows.append({'fingerprint': name[len('golden-'):], 'name': name, 'recipe': '',
+                     'repo': None,
                      'source_id': '', 'pinned': False, 'pins': {}, 'base_image': '',
                      'uses': 0, 'last_used': 0, 'last_run': '', 'present': True,
                      'state': item['state'], 'created': item['created'],
                      'referenced_bytes': referenced, 'exclusive_bytes': exclusive})
     rows.sort(key=lambda item: (-item['last_used'], item['name']))
     return rows
+
+
+def recipe_of(spec):
+    """The recipe's own fingerprint: the toolchain with its pins left out.
+
+    What a client computes from a `[worker]` table, and what every golden
+    pinned from that table has in common. For a toolchain resolved before
+    pinning existed it is the golden's fingerprint itself.
+    """
+    return toolchain_of({key: value for key, value in spec.items()
+                         if key != 'pins'}).fingerprint()
 
 
 def attempts(paths):
@@ -112,6 +125,44 @@ def live_goldens(paths):
         except (KeyError, TypeError):
             continue
     return names
+
+
+def newest_pinned(paths, recipe_spec, exists):
+    """The newest attempt's resolved toolchain for this recipe whose golden
+    still exists, or None. What the canary proves when it has no source to
+    pin against: the golden routed runs used last."""
+    recipe = recipe_of(recipe_spec)
+    found = sorted(attempts(paths).values(), key=lambda row: -float(row['at'] or 0))
+    for row in found:
+        spec = row['toolchain']
+        if not isinstance(spec, dict) or 'pins' not in spec:
+            continue
+        try:
+            if recipe_of(spec) != recipe:
+                continue
+            name = 'golden-' + toolchain_of(spec).fingerprint()
+        except (KeyError, TypeError):
+            continue
+        if exists(name):
+            return dict(recipe_spec, pins=dict(spec['pins']))
+    return None
+
+
+def live_recipes(paths):
+    """Recipes a live attempt has not resolved to a golden name yet.
+
+    A queued attempt is pinned when its supervisor starts, so until then the
+    golden it will use is any of its recipe's; gc keeps them all.
+    """
+    recipes = set()
+    for run_id, row in attempts(paths).items():
+        if row['state'] not in LIVE or 'pins' in row['toolchain']:
+            continue
+        try:
+            recipes.add(recipe_of(row['toolchain']))
+        except (KeyError, TypeError):
+            continue
+    return recipes
 
 
 def listing(root, driver):

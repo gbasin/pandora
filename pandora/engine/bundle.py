@@ -36,6 +36,7 @@ MEMBERS = (
     'engine/runner.py',
     'engine/fanout.py',
     'engine/history.py',
+    'engine/pinning.py',
     'engine/shards.py',
     'engine/service.py',
     'engine/turbocache.py',

@@ -199,8 +199,8 @@ Run `pandora worker gc --dry-run` weekly. Read what it would remove. Run
 `pandora worker gc` when you agree with it. The sweep removes leaked run
 instances, leaked storage volumes and goldens past the keep count. The keep
 count applies per toolchain family, not per repository. The sweep never removes
-a golden a live attempt needs, a golden an enrolled `pandora.toml` names, a
-golden named by `--protect`, or a pinned golden. It writes a receipt under
+a golden a live attempt needs, the newest golden of a recipe an enrolled
+`pandora.toml` names, or a golden named by `--protect`. It writes a receipt under
 `<root>/worker/receipts/`.
 
 Run `pandora worker status` after any manual change to the worker. Drift

@@ -84,7 +84,7 @@ def ship_plan(remote, root, args):
     targets = enrolled.canary_targets(entries, engine_root=remote.root(),
                                       source=getattr(args, 'source', None))
     for item in targets:
-        notice('canary target %s: golden-%s from %s; journey %s, surface %s'
+        notice('canary target %s: recipe %s, pinned against %s; journey %s, surface %s'
                % ('+'.join(item['repos']), item['fingerprint'], item['source'],
                   (item['journey'] or {}).get('id', '-'), (item['surface'] or {}).get('id', '-')))
     if not targets:
@@ -405,9 +405,10 @@ def add_parser(sub):
         'gc', help='sweep leaked instances, volumes and old goldens',
         description='Remove leaked run instances, leaked volumes, and goldens past the keep '
                     'count. Goldens are ranked by last use inside toolchain families -- one '
-                    "family per (repository, [worker] source_id) -- never across them. A golden "
-                    "whose fingerprint an enrolled repository's pandora.toml names, one a live "
-                    'attempt uses, and a pinned one are never removed. With a config file this '
+                    "family per (repository, [worker] source_id), or per recipe without one -- "
+                    "never across them. Pinned goldens are ranked like any other. The newest "
+                    "golden of each recipe an enrolled repository's pandora.toml names, and one "
+                    'a live attempt uses, are never removed. With a config file this '
                     'command ships the families and repos its enrollments read, so a family none '
                     'of them names -- in a repo the enrollment covers -- is collected once it is '
                     'past its grace. Repos the caller never enrolled, and a bare `gc` on the '
@@ -418,12 +419,13 @@ def add_parser(sub):
                            'family, on top of every protected one (default: golden_keep in '
                            'the manifest, 2)')
     node.add_argument('--protect', action='append', default=[], metavar='FINGERPRINT',
-                      help='never remove this golden, in addition to the fingerprints the '
-                           'enrolled pandora.toml files name; repeatable')
+                      help='never remove this golden (or the newest golden of this recipe), '
+                           'in addition to the recipes the enrolled pandora.toml files name; '
+                           'repeatable')
     node.add_argument('--drop-family', action='append', default=[], metavar='FAMILY',
                       help='remove this family on sight -- the label the receipt prints, '
                            'like "acme acme-journeys" or "(unknown)"; a golden a live '
-                           'attempt needs and a pinned one still hold; repeatable')
+                           'attempt needs still holds; repeatable')
     node.add_argument('--orphan-hours', type=float, default=None, metavar='H',
                       help='grace after last use before a family no enrolled config names '
                            'is collected (default: 24)')
@@ -434,9 +436,19 @@ def add_parser(sub):
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_goldens)
 
-    node = actions.add_parser('pins', help='resolve a toolchain to the digests it names')
-    node.add_argument('--toolchain', required=True)
-    node.add_argument('--source', default=None)
+    node = actions.add_parser(
+        'pins', help='the golden a routed run of a toolchain would use, and its pins',
+        description='Resolve a [worker] toolchain the way a routed run does: the base '
+                    "image's Incus fingerprint (through the worker's image cache) and the "
+                    "sha256 of each lockfile at --source's root, folded into the golden's "
+                    'fingerprint. Prints that golden name, the recipe fingerprint, and the '
+                    'registry digest of each service image, which is reported but not '
+                    'folded in. Without --source no lockfile is pinned, so pass the tree a '
+                    'routed run ships, such as <engine_root>/src/<repo>/latest.')
+    node.add_argument('--toolchain', required=True,
+                      help='a JSON file with the [worker] keys; a path on the Mac is shipped')
+    node.add_argument('--source', default=None,
+                      help='a source tree on the worker whose root lockfiles are pinned')
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_pins)
 

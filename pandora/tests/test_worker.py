@@ -1,5 +1,6 @@
 """The worker half, with no worker: manifests, drift, pins, GC policy, parsing."""
 import contextlib
+import hashlib
 import io
 import json
 import tempfile
@@ -188,9 +189,9 @@ class Pinning(unittest.TestCase):
             (Path(root) / 'pnpm-lock.yaml').write_text('lock\n')
             (Path(root) / 'nested').mkdir()
             (Path(root) / 'nested' / 'pnpm-lock.yaml').write_text('other\n')
-            found = pins.lockfile_pins(root)
-        self.assertEqual(list(found), ['lockfile:pnpm-lock.yaml'])
-        self.assertTrue(found['lockfile:pnpm-lock.yaml'].startswith('sha256:'))
+            found = pins.lockfiles(root)
+        self.assertEqual(list(found), ['pnpm-lock.yaml'])
+        self.assertEqual(found['pnpm-lock.yaml'], hashlib.sha256(b'lock\n').hexdigest())
 
     def test_a_bearer_challenge_without_a_realm_is_refused(self):
         with self.assertRaises(pins.PinFailed):
@@ -387,7 +388,7 @@ class Sweeps(unittest.TestCase):
                              for spec in specs])
         # A fingerprint-named family cannot arrive through `--family`, so the
         # enrollment here is written in the family key's own shape.
-        enrolled = {('acme', 'fingerprint:' + self.name_of(spec)[len('golden-'):])
+        enrolled = {('acme', 'recipe:' + self.name_of(spec)[len('golden-'):])
                     for spec in specs}
         gc.sweep(self.root, driver, keep=1, enrolled=enrolled)
         self.assertEqual(driver.destroyed, [])
@@ -413,17 +414,17 @@ class Sweeps(unittest.TestCase):
         gc.sweep(self.root, driver, keep=0, protect=gc.parse_protect(['golden-%016x' % 1]))
         self.assertEqual(driver.destroyed, ['golden-%016x' % 2])
 
-    def test_a_pinned_golden_is_never_removed(self):
-        specs = [self.rebuilt('a', 1, pins={'base_image': 'abc'}), self.rebuilt('a', 2)]
+    def test_a_pinned_golden_is_ranked_like_any_other(self):
+        """Every routed golden is pinned now; exempting them would keep one
+        golden per image refresh forever."""
+        specs = [self.rebuilt('a', 1, pins={'base_image': 'abc'}),
+                 self.rebuilt('a', 2, pins={'base_image': 'def'})]
         for index, spec in enumerate(specs):
             self.attempt('r%d' % index, 'acme', 'finished', spec, 100.0 * (index + 1))
         driver = FakeDriver([{'name': self.name_of(spec), 'state': 'STOPPED', 'created': ''}
                              for spec in specs])
-        receipt = gc.sweep(self.root, driver, keep=1,
-                           enrolled=self.enrolled(('acme', 'a')))
-        self.assertEqual(driver.destroyed, [])
-        self.assertIn('pinned', {item['name']: item['why']
-                                 for item in receipt['kept']}[self.name_of(specs[0])])
+        gc.sweep(self.root, driver, keep=1, enrolled=self.enrolled(('acme', 'a')))
+        self.assertEqual(driver.destroyed, [self.name_of(specs[0])])
 
     def test_parse_protect_takes_a_name_or_a_fingerprint(self):
         self.assertEqual(gc.parse_protect(['golden-abc=acme', 'def', '']),
@@ -709,13 +710,13 @@ class Sweeps(unittest.TestCase):
         self.assertEqual(sorted(driver.destroyed), sorted(names))
         self.assertIn('--drop-family', receipt['removed'][0]['why'])
 
-    def test_drop_family_still_keeps_a_pinned_golden(self):
+    def test_drop_family_removes_a_pinned_golden(self):
         spec = self.rebuilt('a', 1, pins={'base_image': 'abc'})
         self.attempt('r0', 'acme', 'finished', spec, time.time() - 60)
         driver = FakeDriver([{'name': self.name_of(spec), 'state': 'STOPPED',
                               'created': ''}])
         gc.sweep(self.root, driver, keep=0, drop={'acme a'})
-        self.assertEqual(driver.destroyed, [])
+        self.assertEqual(driver.destroyed, [self.name_of(spec)])
 
     def test_a_drop_family_that_names_nothing_is_reported(self):
         driver = FakeDriver([])

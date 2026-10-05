@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import time
 
@@ -28,6 +29,8 @@ from .interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usa
 
 NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
+# Seconds one base-image alias lookup may take (`image_fingerprint`).
+LOOKUP_TIMEOUT = 30
 # The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
 # `file` is what says whether the run's own processes filled the cgroup or its
 # file pages did (`file` includes `shmem`, which cannot be reclaimed without
@@ -121,6 +124,30 @@ class IncusDriver(Executor):
             argv += ['--cwd', cwd]
         return run(argv + ['--', 'bash', '-lc', script], timeout=timeout, check=check)
 
+    def image_fingerprint(self, alias, timeout=LOOKUP_TIMEOUT):
+        """The fingerprint of the image `alias` points at today, from the image
+        server for a remote alias. Parsed from the plain listing: `image info`
+        on Incus 6.0.5 has no `--format json`. `sudo -n`, so a lookup never
+        waits on a password prompt; no incus at all fails at once."""
+        if not shutil.which('incus'):
+            raise ExecutionFailed('incus is not installed here')
+        base = list(self.base)
+        if base and base[0] == 'sudo':
+            base.insert(1, '-n')
+        rc, out, err = run(base + ['image', 'info', alias], check=False, timeout=timeout)
+        if rc != 0:
+            raise ExecutionFailed('incus image info %s: %s' % (alias, err.strip()[:200]))
+        for line in out.splitlines():
+            key, _, value = line.partition(':')
+            if key.strip().lower() == 'fingerprint' and value.strip():
+                return value.strip()
+        raise ExecutionFailed('incus image info %s printed no Fingerprint line' % alias)
+
+    def warm(self, name):
+        """True when `name` has the `warm` snapshot clones are taken from."""
+        rc, out, _ = self.incus('snapshot', 'list', name, '--format', 'csv', check=False)
+        return rc == 0 and any(line.split(',')[0] == 'warm' for line in out.splitlines())
+
     def exists(self, name):
         rc, _, _ = self.incus('info', name, check=False)
         return rc == 0
@@ -190,8 +217,7 @@ class IncusDriver(Executor):
         if not NAME.fullmatch(name):
             raise PrepareFailed('golden name %r is not an instance name' % name)
         if self.exists(name):
-            rc, out, _ = self.incus('snapshot', 'list', name, '--format', 'csv', check=False)
-            if rc == 0 and any(line.split(',')[0] == 'warm' for line in out.splitlines()):
+            if self.warm(name):
                 return Golden(name=name, fingerprint=toolchain.fingerprint(),
                               snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name))
             self.incus('delete', '-f', name, check=False)
@@ -204,8 +230,10 @@ class IncusDriver(Executor):
         pins = dict(toolchain.pins)
         base = toolchain.base_image
         if pins.get('base_image'):
-            remote = base.split(':', 1)[0] if ':' in base else 'images'
-            base = '%s:%s' % (remote, pins['base_image'])
+            # `images:ubuntu/26.04` launches as `images:<fingerprint>`; a local
+            # alias launches as the bare fingerprint of the local image.
+            remote = base.split(':', 1)[0] + ':' if ':' in base else ''
+            base = remote + pins['base_image']
         self.incus('launch', base, name, '-p', self.profile, timeout=900)
         self.wait_ready(name)
         marks['launch'] = time.monotonic() - t0

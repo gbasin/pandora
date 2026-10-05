@@ -5,7 +5,8 @@ jobs. To replace a worker, follow [worker-rebuild.md](worker-rebuild.md). The
 Mac side is in [operations.md](operations.md).
 
 A worker is a disposable Linux machine. Pandora can repopulate the source
-cache from worktrees, and each golden rebuilds from its toolchain description.
+cache from worktrees, and each golden rebuilds from its toolchain description
+and the current base image.
 The ledger, the learned size classes and the attempt directories
 are history. A rebuild starts them empty. Rebuild a worker rather than
 repair it. [`docs/worker-rebuild.md`](worker-rebuild.md) is the full
@@ -61,6 +62,75 @@ needs no re-provision.
 
 Use `--loop-file 18G` instead of `device` only when there is no spare device.
 
+## Goldens
+
+A golden is the stopped, snapshotted instance every run clones. Its name is
+`golden-<fingerprint>`, 16 hex. A repository's `[worker]` table is the recipe.
+The worker, not the client, turns the recipe into a name. Only the worker can
+see the image server.
+
+The fingerprint covers the recipe and two resolved inputs:
+
+* `base_image`: the Incus image fingerprint that the alias, for example
+  `images:ubuntu/26.04`, points at. A cold build launches that fingerprint,
+  not the alias.
+* Each lockfile at the root of the run's source tree, by sha256:
+  `pnpm-lock.yaml`, `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`,
+  `bun.lock`, `bun.lockb`, `Cargo.lock`, `poetry.lock`, `uv.lock`,
+  `Pipfile.lock`, `go.sum`, `Gemfile.lock`, `composer.lock` and
+  `requirements*.txt`. A lockfile in a subdirectory is not pinned.
+
+These are not pinned:
+
+* Apt package versions. The image pin fixes the starting image, not what
+  `apt-get install` fetches on top of it.
+* `service_images`. They are pulled inside the instance after launch and
+  rarely matter to a static check. `pandora worker pins` prints their current
+  registry digests, but they do not change the name.
+
+The supervisor resolves the pins once per attempt, before `prepare`, and
+writes them into the attempt's `toolchain.json` under `pins`. A fan-out
+resolves once in the parent, and every shard copies the parent's file. The run
+log says `pandora: golden golden-<fingerprint>: image <fp>, <lockfile> <digest>`.
+
+The alias lookup (`incus image info`) is cached in
+`<engine_root>/pins/images.json` for 7 days. Two rules bound the churn:
+
+* Inside those 7 days, a new upstream image does not change the name, so a
+  warm golden stays warm.
+* When the cached image names a golden that is not built, the build is cold
+  anyway. The worker looks the alias up again and builds from the newest
+  image.
+
+If the lookup fails, the worker uses the last cached answer. With no cached
+answer, the name carries no image pin, the log says `unresolved`, and the
+verdict's `golden_pins.image` is null.
+
+A golden is rebuilt when the recipe changes, when a root lockfile changes, or
+when the cached image expires and the alias has moved. Agents see this as one
+cold run: the first run after the change builds the golden, which takes
+minutes, not seconds. The next run clones it. A branch with a different
+lockfile has its own golden, so two worktrees on two lockfiles alternate
+between two warm goldens.
+
+A new golden that no canary has proven does not block runs, and does not make
+the worker read `drifted`. The ready state is about the machine, and routed
+runs never checked which golden the last canary proved. The next
+`pandora worker canary` proves the golden routed runs now use (see
+[Canary](#canary)). `pandora worker gc` collects the old ones (see
+[Maintenance](#maintenance)).
+
+Check what a toolchain resolves to without a run:
+
+```sh
+pandora worker pins --toolchain toolchain.json --source <engine_root>/src/<repo>/latest
+```
+
+It prints the golden name a routed run from that recipe and that source would
+use, through the same image cache, plus the recipe fingerprint, the pins and
+the service image digests. Without `--source` no lockfile is pinned, so the
+name differs from a routed run's whenever the repository has a lockfile.
+
 ## Canary
 
 The canary is the worker's health check: about 35 checks per enrolled golden.
@@ -93,7 +163,10 @@ pandora worker canary --mark
   says so.
 * The golden is built from `<engine_root>/src/<repo>/latest` on the worker. The
   client writes that tree after each transfer, so on a fresh worker it exists
-  only after the first routed run. If it is absent and the golden is not built,
+  only after the first routed run. The canary pins the golden against that
+  tree exactly as a routed run does ([Goldens](#goldens)), so it proves the
+  golden the next routed run clones. If the tree is absent, the canary proves
+  the newest golden routed runs pinned from the same recipe. If there is none,
   the canary fails with that reason. Run one claimed command from an enrolled
   worktree first, or pass `--source <a tree on the worker>`.
 * `--journey F` and `--surfaces F` are overrides for a worker no repository is
@@ -134,9 +207,14 @@ CI job for the same tree can verify the signature and skip the work.
   or untracked. Secret-filtered files never reach the worker, so a tree with
   one of them never equals a commit's tree.
 * The payload is canonical JSON with `kind`, `v`, `run_id`, `repo`, `job`,
-  `argv`, `cwd`, `env_digest`, `input_id`, `tree`, `golden`, `engine`,
-  `outcome` and `finished`. `engine` is the digest of the engine bundle that
-  ran it. `golden` is the toolchain fingerprint in `golden-<fingerprint>`.
+  `argv`, `cwd`, `env_digest`, `input_id`, `tree`, `golden`, `golden_pins`,
+  `engine`, `outcome` and `finished`. `engine` is the digest of the engine
+  bundle that ran it. `golden` is the pinned fingerprint in
+  `golden-<fingerprint>`, the golden the run cloned ([Goldens](#goldens)).
+  `golden_pins` is what that fingerprint was pinned to:
+  `{"image": "<incus image fingerprint>", "lockfiles": {"<name>": "<sha256>"}}`.
+  `image` is null when the lookup never succeeded. `golden_pins` is null for
+  an attempt resolved by an engine older than pinning.
   `cwd` is the job's working directory as the plan carries it. `env_digest`
   is the sha256 hex of the run's environment mapping as the plan carries it,
   serialized as `json.dumps(env, sort_keys=True, separators=(',', ':'))`. The
@@ -229,7 +307,7 @@ refuses everything else with `pandora-gateway: refused as <name>: <reason>`:
 * `python3 -m pandora.engine.service` under an installed bundle, for the
   lifecycle verbs: `submit`, `resubmit`, `lookup`, `status`, `result`,
   `cancel`, `wait`, `logs`, `ps`, `stats`, `health`, `cache-stats`,
-  `reconcile`;
+  `reconcile`, and the read-only `golden`;
 * `pandora.worker.service` under an installed bundle, read-only: `status`,
   `capacity`, `goldens`, `pins`;
 * `rsync --server` with every path operand inside the engine root, never in
@@ -318,19 +396,29 @@ pandora worker gc
 family is one repository's `[worker] source_id`, so a rebuilt toolchain pushes
 out its own older goldens and never another toolchain's
 ([#81](https://github.com/gbasin/pandora/issues/81)). A toolchain with no
-`source_id` is its own family and is never pruned by `--keep 1` or higher. Goldens no
-recorded attempt explains share one `(unknown)` family. The default for `N`
-comes from `golden_keep` in the versions manifest, which is 2.
+`source_id` is one family per recipe, labeled `<repo> recipe-<fingerprint>`.
+Goldens no recorded attempt explains share one `(unknown)` family. The default
+for `N` comes from `golden_keep` in the versions manifest, which is 2.
+
+Every routed golden is pinned ([Goldens](#goldens)), so pinned goldens are
+ranked like any other. A new base image or a lockfile change adds a golden to
+its family, and the keep count pushes out the oldest. With `golden_keep = 2`, a
+family holds the current golden and the one before it, plus a golden per
+lockfile that a live branch still uses until it ranks out. Between weekly
+sweeps a family can grow by one golden per image refresh (at most one per 7
+days) and one per lockfile change. Each is 4 to 5 GiB.
 
 `gc` never removes these goldens, whatever `--keep` says:
 
-* One a live attempt needs.
-* One whose fingerprint an enrolled repository's `pandora.toml` names. The
-  client computes these from `[[repos]]` and passes each as `--protect`. The
-  receipt says `kept ... named by <repo> pandora.toml`. An enrolled
-  configuration that does not load stops `gc` before it asks the worker.
-* One named by `--protect FINGERPRINT` on the command line.
-* A pinned one. Remove a pinned golden by hand.
+* One a live attempt needs. A queued attempt is not pinned until its
+  supervisor starts, so it keeps every golden of its recipe.
+* The newest golden of each recipe an enrolled repository's `pandora.toml`
+  names. The client computes the recipe fingerprints from `[[repos]]` and
+  passes each as `--protect`. The receipt says
+  `kept ... named by <repo> pandora.toml`. An enrolled configuration that does
+  not load stops `gc` before it asks the worker.
+* One named by `--protect FINGERPRINT` on the command line: a golden's own
+  fingerprint, or a recipe's, which protects that recipe's newest golden.
 
 A `gc` without `--dry-run` writes a receipt under `~/pandora/worker/receipts/`
 on the worker.
@@ -340,7 +428,7 @@ The other worker verbs:
 | Verb | What it does |
 |---|---|
 | `pandora worker goldens` | Each golden: repository, referenced and exclusive bytes, pinned or not, last use. |
-| `pandora worker pins --toolchain F [--source D]` | Resolve a toolchain to its base-image fingerprint, lockfile digest and registry manifest digests. |
+| `pandora worker pins --toolchain F [--source D]` | The golden a routed run of toolchain `F` over source `D` would use: its name, the recipe fingerprint, the image and lockfile pins, and the service images' registry digests, which are not pinned. See [Goldens](#goldens). |
 | `pandora worker reconcile` | Adopt or fail runs whose supervisor is gone after the worker service restarts. |
 | `pandora worker retain` | Delete old attempt directories and unreferenced source snapshots. |
 | `pandora worker stats` | The worker's scheduler picture and outcome counts. |

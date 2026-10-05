@@ -37,10 +37,13 @@ def configs(settings_config, load=loader.load_for):
 
 
 def fingerprint_of(config):
-    """The golden fingerprint a run from this configuration would ask for.
+    """The recipe fingerprint a run from this configuration asks for.
 
-    Exactly what the engine computes from the plan's `worker` table, so the
-    name protected here is the name a routed run builds.
+    The client asks for a golden by recipe; the worker names it, by folding
+    the base image's fingerprint and the source's lockfile digests in
+    (`engine.pinning`). So this is not a golden's name but the name every
+    golden pinned from this recipe shares as `recipe`: gc protects the newest
+    of them, and the canary pins one against the repository's latest source.
     """
     return toolchain_of(config['worker']).fingerprint()
 

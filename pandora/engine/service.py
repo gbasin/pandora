@@ -26,6 +26,7 @@ would make a 0.06 s clone unmeasurable.
     canary    the worker's own health gate
     cache-stats   the turbo remote cache: bytes, entries, what the server counted
     cache-clear   empty it, or one repository's share of it
+    golden    the golden a routed run of a recipe would use, and whether it is warm
     supervise (internal) the detached per-run supervisor
 """
 import argparse
@@ -54,7 +55,10 @@ from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 # of whatever the request claims; `status`, `logs`, `result` and `wait` scope to
 # the caller like `cancel`; and a provisioned `min_engine_version` floor
 # refuses bundles older than it at submit, resubmit and fence.
-ENGINE_VERSION = 5
+# 6: the supervisor names the golden: it folds the base image's fingerprint and
+# the source's root lockfile digests into the toolchain (`pinning`), a verdict
+# payload carries `golden_pins`, and `golden` answers what a recipe resolves to.
+ENGINE_VERSION = 6
 CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 
 
@@ -652,6 +656,32 @@ def cmd_cache_clear(args):
     return emit({'ok': True, 'repo': args.repo, **store.clear(args.repo)})
 
 
+def cmd_golden(args):
+    """The golden a routed run from this recipe would use, without running one.
+
+    stdin is `{"worker": <[worker] table>, "lockfiles": {name: sha256}}`: the
+    caller hashed the lockfiles its source will carry, because that source is
+    not on the worker yet. The answer comes from the same `pinning.settle` a
+    supervisor runs, over the same image cache. Read-only apart from that
+    cache. The selftest asks this before it borrows an enrolled golden.
+    """
+    from pandora.engine import pinning
+    from pandora.executor.incus import IncusDriver
+    request = json.loads(sys.stdin.read())
+    paths = runner.Paths(args.root).ensure()
+    driver = IncusDriver(root=paths.root)
+    recipe = {key: value for key, value in request['worker'].items()
+              if key not in ('pins', 'pin_notes')}
+    spec = pinning.settle(recipe, paths.root, driver,
+                          lambda item: 'golden-' + runner.toolchain_of(item).fingerprint(),
+                          digests=request.get('lockfiles') or {})
+    fingerprint = runner.toolchain_of(spec).fingerprint()
+    return emit({'ok': True, 'golden': 'golden-' + fingerprint, 'fingerprint': fingerprint,
+                 'recipe': runner.toolchain_of(recipe).fingerprint(),
+                 'golden_pins': pinning.golden_pins(spec), 'notes': spec['pin_notes'],
+                 'warm': driver.warm('golden-' + fingerprint), 'engine': ENGINE_VERSION})
+
+
 def cmd_supervise(args):
     result = runner.supervise(args.root, args.run)
     return emit({'ok': True, 'run_id': args.run, 'outcome': result['outcome']})
@@ -767,6 +797,7 @@ def main(argv=None):
     clear = sub.add_parser('cache-clear')
     clear.add_argument('--repo', default=None)
     clear.set_defaults(func=cmd_cache_clear)
+    sub.add_parser('golden').set_defaults(func=cmd_golden)
     canary = sub.add_parser('canary')
     canary.add_argument('--run', default='canary')
     canary.add_argument('--toolchain', required=True)

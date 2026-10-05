@@ -7,6 +7,7 @@ decided against a stub SSH link. `LiveRun` is the real submission against the
 production worker; it runs only when PANDORA_SELFTEST_LIVE=1 is set, so CI and
 `python3 -m unittest discover -s pandora` never pay an incus run by accident.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -20,6 +21,7 @@ from unittest import mock
 from pandora import cli
 from pandora.client import selftest, settings, verdicts
 from pandora.config import loader
+from pandora.engine import pinning
 from pandora.engine.runner import toolchain_of
 from pandora.exits import INFRA
 from pandora.tests.test_cli import capture, _exit_code
@@ -34,21 +36,6 @@ WORKER_SPEC = {'base_image': 'images:ubuntu/26.04',
                'service_images': [], 'install_command': 'true',
                'prepare_command': 'echo build', 'source_id': 'acme',
                'env': {'CI': 'true'}, 'workdir': '/work'}
-
-
-class FakeLink:
-    """The `snapshot list` answers `IncusDriver.prepare` would get, without SSH."""
-
-    def __init__(self, warm=()):
-        self.warm = set(warm)
-        self.calls = []
-
-    def run(self, argv, **kw):
-        self.calls.append(argv)
-        name = argv[list(argv).index('list') + 1]
-        if name in self.warm:
-            return 0, 'warm,2026-01-01\n', ''
-        return 1, '', 'no such instance'
 
 
 class Scratch(unittest.TestCase):
@@ -182,21 +169,48 @@ class Names(Scratch):
 
 
 class ToolchainChoice(Scratch):
+    """The worker names the golden; the selftest asks it with its lockfiles."""
+
+    @staticmethod
+    def asker(warm=()):
+        asked = []
+
+        def ask(spec, lockfiles):
+            asked.append((spec, lockfiles))
+            name = 'golden-' + toolchain_of(dict(spec, pins={
+                'lockfile:' + key: value for key, value in lockfiles.items()})).fingerprint()
+            return {'golden': name, 'warm': name in warm}
+        return ask, asked
+
     def test_a_warm_borrowed_golden_wins(self):
         spec = dict(WORKER_SPEC, prepare_command='')
-        warm = 'golden-' + toolchain_of(spec).fingerprint()
-        chosen, label, reused = selftest.choose_toolchain(
-            [('acme', spec)], FakeLink(warm=[warm]), say=lambda text: None)
+        acme = self.root / 'acme'
+        acme.mkdir()
+        (acme / 'pnpm-lock.yaml').write_text('lock\n')
+        digests = {'pnpm-lock.yaml': hashlib.sha256(b'lock\n').hexdigest()}
+        warm = 'golden-' + toolchain_of(dict(spec, pins={
+            'lockfile:pnpm-lock.yaml': digests['pnpm-lock.yaml']})).fingerprint()
+        ask, asked = self.asker(warm=[warm])
+        chosen, label, reused, lockroot = selftest.choose_toolchain(
+            [('acme', spec, str(acme))], ask, say=lambda text: None)
         self.assertTrue(reused)
         self.assertIn('borrowed from acme', label)
         self.assertEqual(chosen['prepare_command'], '')
+        self.assertEqual(asked[0][1], digests)
+        self.assertEqual(lockroot, str(acme))
+        repo = self.root / 'repo'
+        selftest.write_repo(repo, chosen)
+        selftest.copy_lockfiles(lockroot, repo)
+        self.assertEqual(pinning.lockfiles(repo), digests)
 
     def test_no_warm_golden_falls_to_the_minimal_toolchain(self):
-        spec, label, reused = selftest.choose_toolchain(
-            [('acme', dict(WORKER_SPEC))], FakeLink(), say=lambda text: None)
+        ask, _ = self.asker()
+        spec, label, reused, lockroot = selftest.choose_toolchain(
+            [('acme', dict(WORKER_SPEC), str(self.root))], ask, say=lambda text: None)
         self.assertFalse(reused)
         self.assertIn('minimal', label)
         self.assertEqual(spec['source_id'], 'pandora-selftest')
+        self.assertIsNone(lockroot)
 
     def test_borrowed_toolchains_skip_an_unreadable_repo(self):
         repo = self.root / 'repo'

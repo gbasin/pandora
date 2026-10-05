@@ -11,7 +11,7 @@ Three sweeps, in the order of how much they are trusted:
 3. **old goldens** -- keep the `keep` most recently used per toolchain
    family, plus every golden a live attempt still needs (queued ones too),
    every golden a currently enrolled repository's `[worker]` table names
-   (`protect`), and every pinned golden. When the caller supplies its
+   (`protect`, by recipe: the newest golden pinned from it). When the caller supplies its
    enrolled families (`--family`, or `--families-known` for an empty
    enrollment) and the repositories its enrollment covers (`--repos`), a
    family no enrolled config names is orphaned: a member whose own age is
@@ -32,9 +32,9 @@ the tree it bakes in, which survives a node bump or a new package where the
 fingerprint does not. Ranking per repository instead (issue #81) let
 `--keep 1` delete acme's only surfaces golden because its journeys golden
 had been used more recently. A toolchain with no `source_id` is its own
-family, so `keep` never prunes it against a different toolchain -- only
-against nothing, which means it is kept while enrollment names it, and
-orphaned only when enrollment data says nothing does. Goldens no recorded
+family, keyed by its recipe (the fingerprint without pins), so `keep` never
+prunes it against a different toolchain -- only against the goldens pinned
+from the same recipe as its base image and lockfiles moved. Goldens no recorded
 attempt explains (built by a canary, or by hand) have neither a repository
 nor a `source_id` and share one `(unknown)` bucket; no enrollment ever names
 it, so with enrollment data it ages out like any orphan, clocked by the
@@ -88,7 +88,19 @@ def family_of(item):
         return (repo, ''), repo
     if item.get('source_id'):
         return (repo, 'source:' + item['source_id']), '%s %s' % (repo, item['source_id'])
-    return (repo, 'fingerprint:' + item['fingerprint']), '%s %s' % (repo, item['name'])
+    # A pinned golden's own fingerprint changes with every image refresh and
+    # lockfile change, so the family is the recipe the pins were resolved from.
+    recipe = item.get('recipe') or item['fingerprint']
+    return (repo, 'recipe:' + recipe), '%s recipe-%s' % (repo, recipe)
+
+
+def named(item, protect, newest):
+    """True when `protect` names this golden: by its own fingerprint, or by
+    its recipe when it is the most recently used golden of that recipe."""
+    if item['fingerprint'] in protect:
+        return True
+    recipe = item.get('recipe')
+    return bool(recipe) and recipe in protect and newest.get(recipe) == item['name']
 
 
 def parse_protect(values):
@@ -157,7 +169,8 @@ def created_ts(text):
 
 def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
           repos=None, drop=(), orphan_grace=86400):
-    """`protect` is {fingerprint: repo-or-None}: goldens named by a config.
+    """`protect` is {fingerprint: repo-or-None}: goldens named by a config,
+    each a golden's own fingerprint or a recipe's (`goldens.recipe_of`).
 
     `enrolled` is the set of family keys a config still names
     (`parse_families`), or None when no enrollment data reached the caller at
@@ -167,8 +180,9 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
     when its age cannot be read. None means "nobody could say" -- a bare `gc`
     on the worker -- and then every family gets the `keep` ranking and
     nothing is orphaned. A family whose label is in `drop` is collectable on
-    sight either way. A live attempt's golden and a pinned golden are never
-    touched, drop or not.
+    sight either way. A live attempt's golden, and every golden of a live
+    attempt's recipe while that attempt is unpinned, are never touched, drop
+    or not.
 
     `repos` is the set of repository names the caller's enrollment covers, or
     None when the caller did not say. One worker serves several Macs, and a
@@ -185,6 +199,7 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
     started = time.monotonic()
     live = live_run_instances(paths)
     protected = golden_index.live_goldens(paths)
+    unsettled = golden_index.live_recipes(paths)
     removed, kept, failed = [], [], []
     try:
         instances = driver.instances(check=True)
@@ -258,9 +273,14 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
 
     # 3. goldens, newest use first per toolchain family
     families = {}
+    # The golden a recipe in `protect` means is the one its runs used last:
+    # the client names recipes, and the worker names the golden each run used.
+    newest = {}
     for item in golden_index.index(paths, driver):
         if not item['present']:
             continue
+        if item.get('recipe'):
+            newest.setdefault(item['recipe'], item['name'])
         key, label = family_of(item)
         families.setdefault(key, (label, []))[1].append(item)
     dropped = set()
@@ -273,24 +293,24 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
         # `--repos` at all is treated as covering everything.
         covered = repos is None or key[0] == '(unknown)' or key[0] in repos
         wanted = (enrolled is None or not covered or key in enrolled
-                  or any(item['fingerprint'] in protect for item in items))
+                  or any(named(item, protect, newest) for item in items))
         if label in drop:
             dropped.add(label)
         for rank, item in enumerate(items):
             reason = why = None
+            # Pinned goldens are ranked like any other since every routed
+            # golden is pinned: a new base image or lockfile mints a new one,
+            # and the old one is reachable again only if its inputs come back.
             if item['name'] in protected:
                 reason = 'a live attempt needs it'
-            elif item.get('pinned'):
-                # A pinned golden is one somebody resolved to digests on
-                # purpose; its bytes cannot be rebuilt from the description
-                # alone once a tag moves, so a last-use policy does not get to
-                # decide it. Remove one by hand with `incus delete`.
-                reason = 'pinned; gc never removes a pinned golden'
+            elif item.get('recipe') and item['recipe'] in unsettled:
+                reason = 'a queued attempt of its recipe has not been pinned yet'
             elif label in drop:
                 why = 'family %s removed by --drop-family' % label
-            elif item['fingerprint'] in protect:
-                reason = 'named by %s pandora.toml' % (protect[item['fingerprint']]
-                                                       or 'an enrolled')
+            elif named(item, protect, newest):
+                reason = 'named by %s pandora.toml' % (
+                    protect.get(item['fingerprint']) or protect.get(item.get('recipe'))
+                    or 'an enrolled')
             elif wanted:
                 if rank < keep:
                     reason = 'one of the %d most recently used for %s' % (keep, label)
@@ -326,7 +346,9 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
                 # the delete, the same pattern as the volume re-check, and
                 # keep the golden when the answer cannot be had.
                 try:
-                    claimed = item['name'] in golden_index.live_goldens(paths)
+                    claimed = (item['name'] in golden_index.live_goldens(paths)
+                               or (item.get('recipe') or '') in
+                               golden_index.live_recipes(paths))
                 except Exception as error:                        # noqa: BLE001
                     entry['removed'] = False
                     entry['why'] = ('kept: the live-attempt re-check failed: %s'

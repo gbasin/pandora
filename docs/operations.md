@@ -340,8 +340,11 @@ test daemon on a scratch socket, `pnpm selftest` goes through the real shim,
 the daemon freezes and ships the worktree, and the engine runs it in a fresh
 incus instance on the real worker -- the same worker `[worker] host` names,
 recorded as client `e2e-<host>`. It costs one small incus run because the
-scratch repository borrows an enrolled repository's `[worker]` toolchain, so
-the run clones a golden the worker already has. Everything the test owns lives
+scratch repository borrows an enrolled repository's `[worker]` toolchain and
+copies its root lockfiles, so the run clones a golden the worker already has.
+The worker names goldens by base image and lockfiles, so the selftest asks it
+(`golden`, an engine verb) which golden the borrowed recipe resolves to, and
+borrows only a warm one. Everything the test owns lives
 under one temporary directory and is removed on exit (`--keep` keeps it);
 `--update` adds a second run whose write-back must land. The scratch job
 declares `git = "synthetic"` and `[verdicts] publish = true`, so each
@@ -758,7 +761,8 @@ aliases for one release. Each prints a one-line deprecation notice on stderr and
 
 A passing whole run of a `git = "synthetic"` job on a ready worker produces a
 verdict: the git tree the run saw, the job, the argv and the golden
-fingerprint, signed with the worker's verdict key. The key lives in the
+fingerprint (pinned to the base image and the root lockfiles, see
+[Goldens](worker.md#goldens)), signed with the worker's verdict key. The key lives in the
 worker's engine root and never leaves it. `pandora worker status` prints its
 public half under `verdict signer:`. A client that opts in publishes the verdict
 as the ref `refs/pandora/verdicts/<tree>/<job>` on `origin`.

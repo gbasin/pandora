@@ -54,9 +54,8 @@ import tomllib
 from pathlib import Path
 
 from ..config import loader
-from ..engine.runner import toolchain_of
+from ..engine import pinning
 from ..errors import ConfigError, PandoraError, UnknownSchema
-from ..executor import incus
 from ..exits import INFRA
 from . import doctor, settings, verdicts
 from .worker import Worker
@@ -349,11 +348,13 @@ def write_client_config(path, *, host, engine_root, state, name):
 
 
 def borrowed_toolchains(repos, *, say=notice):
-    """[(label, spec)] the enrolled repositories' `[worker]` tables, loadable ones.
+    """[(label, spec, root)] the enrolled repositories' `[worker]` tables, loadable ones.
 
     `prepare_command` is dropped: it is not part of the golden's fingerprint,
     so dropping it keeps the golden name, and it is the enrolled repository's
-    own build step, which must never run against the selftest source.
+    own build step, which must never run against the selftest source. `root`
+    is where the repository's lockfiles are read from: the worker folds their
+    digests into the golden's name, so the scratch tree carries copies of them.
     """
     found = []
     for repo in repos:
@@ -365,44 +366,51 @@ def borrowed_toolchains(repos, *, say=notice):
             continue
         spec = dict(config['worker'])
         spec['prepare_command'] = ''
-        found.append((repo.get('name') or repo['root'], spec))
+        found.append((repo.get('name') or repo['root'], spec, repo['root']))
     return found
 
 
-def golden_warm(link, fingerprint):
-    """True when `golden-<fingerprint>` exists with its `warm` snapshot.
+def golden_asker(worker):
+    """`ask(spec, lockfiles)` over the worker's own `golden` verb.
 
-    The same test `IncusDriver.prepare` makes, over the same SSH link the
-    daemon uses: a golden that is absent or has no `warm` snapshot is not
-    reusable, and a submission naming it would trigger a build against the
-    selftest source.
+    The worker names a golden, not the client: it folds in the base image's
+    fingerprint, which only it can resolve. So the warm check asks it, with
+    the lockfile digests the scratch tree will carry.
     """
-    driver = incus.IncusDriver()
-    code, out, _ = link.run(driver.base + ['snapshot', 'list', 'golden-' + fingerprint,
-                                         '--format', 'csv'],
-                            timeout=60, check=False)
-    return code == 0 and any(line.split(',')[0] == 'warm' for line in out.splitlines())
+    def ask(spec, lockfiles):
+        return worker.engine(['golden'], stdin=json.dumps({'worker': spec,
+                                                           'lockfiles': lockfiles}),
+                             timeout=90)
+    return ask
 
 
-def choose_toolchain(candidates, link, *, say=notice):
-    """(spec, label, warm) for the scratch repository's `[worker]` table.
+def choose_toolchain(candidates, ask, *, say=notice):
+    """(spec, label, warm, lockfile root or None) for the scratch repository.
 
     The first enrolled toolchain whose golden is already built wins: the run
     then costs a clone. With none warm, the minimal toolchain is declared and
     the run builds it -- slow the first time, and afterward warm like any
-    other. A borrowed fingerprint is never submitted cold, because its
+    other. A borrowed toolchain is never submitted cold, because its
     `install_command` is the enrolled repository's own and cannot run against
-    this source.
+    this source. `ask` is `golden_asker`'s: the golden name the worker would
+    pin for a recipe and lockfile digests, and whether it is warm.
     """
-    for label, spec in candidates:
-        fingerprint = toolchain_of(spec).fingerprint()
-        if golden_warm(link, fingerprint):
-            return spec, 'borrowed from %s (golden-%s)' % (label, fingerprint[:12]), True
-        say('golden-%s for %s is not on the worker; trying the next'
-            % (fingerprint[:12], label))
+    for label, spec, root in candidates:
+        answer = ask(spec, pinning.lockfiles(root))
+        golden = answer.get('golden') or '?'
+        if answer.get('warm'):
+            return spec, 'borrowed from %s (%s)' % (label, golden[:19]), True, root
+        say('%s for %s is not on the worker; trying the next' % (golden[:19], label))
     spec = dict(MINIMAL_WORKER)
-    fingerprint = toolchain_of(spec).fingerprint()
-    return spec, 'minimal (golden-%s)' % fingerprint[:12], golden_warm(link, fingerprint)
+    answer = ask(spec, {})
+    return (spec, 'minimal (%s)' % (answer.get('golden') or '?')[:19],
+            bool(answer.get('warm')), None)
+
+
+def copy_lockfiles(source, repo):
+    """Copy `source`'s root lockfiles into the scratch `repo`, by name."""
+    for name in pinning.lockfiles(source):
+        shutil.copyfile(Path(source) / name, Path(repo) / name)
 
 
 # -- the run -----------------------------------------------------------------
@@ -796,8 +804,8 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
             worker = Worker(host, state=state, engine_root=engine_root,
                             client=report['client'])
             candidates = borrowed_toolchains(real['repos'], say=say)
-            spec, report['toolchain'], warm = choose_toolchain(candidates, worker.link,
-                                                             say=say)
+            spec, report['toolchain'], warm, lockroot = choose_toolchain(
+                candidates, golden_asker(worker), say=say)
         except PandoraError as error:
             raise SelftestError('the worker could not be asked about its goldens: %s'
                                 % error)
@@ -806,6 +814,8 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
                 'is minutes, not seconds')
         repo = root / 'repo'
         write_repo(repo, spec, queue=queue)
+        if lockroot:
+            copy_lockfiles(lockroot, repo)
         origin = write_origin(root, repo)
         say('scratch %s: repo %s, state %s' % (root, repo, state))
 

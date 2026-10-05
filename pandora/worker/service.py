@@ -10,7 +10,7 @@ stdout, exit 0 when it answered, `ok: false` when the answer is no.
     canary     the health gate
     gc         sweep leaked instances, volumes and old goldens
     goldens    what is baked in, with fingerprints, sizes and last use
-    pins       resolve a toolchain's inputs to digests
+    pins       the golden a routed run of a toolchain would use, and its pins
     ready      write the ready state after a canary
 """
 import argparse
@@ -211,17 +211,16 @@ def cmd_canary(args):
 
 
 def cmd_pins(args):
+    """The golden a routed run from this recipe and source would use, and why.
+
+    The same `settle` the supervisor calls, over the engine root's image
+    cache, through this worker's driver (`pins`)."""
     from pandora.worker import pins as pinner
+    manifest, _ = manifest_of(args.root, args.versions)
+    engine_root = engine_root_of(manifest, args.engine_root)
     spec = json.loads(Path(args.toolchain).read_text())
-    resolved, problems = pinner.resolve(spec, source=args.source, strict=False)
-    spec['pins'] = resolved
-    from pandora.engine.runner import toolchain_of
-    before = dict(spec)
-    before.pop('pins')
-    return emit({'ok': not problems, 'pins': resolved, 'problems': problems,
-                 'fingerprint_unpinned': toolchain_of(before).fingerprint(),
-                 'fingerprint_pinned': toolchain_of(spec).fingerprint(),
-                 'toolchain': spec})
+    return emit(pinner.resolve(spec, engine_root, driver_for(manifest, engine_root),
+                               source=args.source))
 
 
 def cmd_ready(args):
