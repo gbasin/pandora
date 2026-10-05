@@ -184,6 +184,68 @@ class RefusedShapes(unittest.TestCase):
         self.assertIsNotNone(check('rsync --server --sender -a . %s/' % ER))
         self.assertIsNotNone(check('rsync --server -a --delete . %s' % ER))
 
+    def test_rsync_options_that_follow_symlinks(self):
+        pull = ' . %s/src/demo/x/' % ER
+        for flags in ('-L', '-k', '--copy-links', '--copy-unsafe-links', '--copy-dirlinks',
+                      '-rlptgoDL', '-lLogDtpre.iLsfxCIvu', '-Lr'):
+            with self.subTest(flags=flags):
+                self.assertIsNotNone(check('rsync --server --sender %s%s' % (flags, pull)))
+                self.assertIsNotNone(check('rsync --server %s%s' % (flags, pull)))
+
+    def test_the_capability_flags_after_e_are_not_options(self):
+        # `-e.iLsfxC` is the server's protocol string: its `L` is not -L.
+        self.assertIsNone(check(
+            'rsync --server --sender -logDtpre.iLsfxCIvu . %s/runs/r1/outputs/' % ER))
+        self.assertIsNone(check(
+            'rsync --server -ldogDpcRe.LsfxCIvu --no-r --delete --link-dest %s/src/a/b '
+            '. %s/src/a/c/' % (ER, ER)))
+
+    def test_basis_directories_never_reach_the_keys(self):
+        dest = ' . %s/src/demo/x/' % ER
+        for option in ('--link-dest', '--copy-dest', '--compare-dest'):
+            for target in (ER + '/keys', ER + '/keys/', ER, ER + '/', '/etc', 'keys',
+                           '../../keys'):
+                with self.subTest(option=option, target=target):
+                    self.assertIsNotNone(check(
+                        'rsync --server -a %s=%s%s' % (option, target, dest)))
+            # The separate-word form lands on the path operand check.
+            self.assertIsNotNone(check('rsync --server -a %s %s/keys%s' % (option, ER, dest)))
+            self.assertIsNone(check('rsync --server -a %s=%s/src/demo/w%s'
+                                    % (option, ER, dest)))
+
+    def test_any_option_path_is_confined_and_never_the_keys(self):
+        dest = ' . %s/src/demo/x/' % ER
+        self.assertIsNotNone(check('rsync --server -a --backup-dir=%s/keys%s' % (ER, dest)))
+        self.assertIsNotNone(check('rsync --server -a --temp-dir=/tmp%s' % dest))
+        self.assertIsNotNone(check('rsync --server -a --partial-dir=../keys%s' % dest))
+        self.assertIsNone(check('rsync --server -a --files-from=- --from0%s' % dest))
+
+    def test_a_symlink_to_the_key_cannot_be_pulled_through(self):
+        # The review's scenario: ship a source holding a symlink to the key,
+        # then pull the source back with -L so the server sends the key's bytes.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(os.path.realpath(tmp), 'engine')
+            os.makedirs(os.path.join(root, 'keys'))
+            with open(os.path.join(root, 'keys', 'verdict'), 'w') as handle:
+                handle.write('secret')
+            source = os.path.join(root, 'src', 'demo', 'x')
+            os.makedirs(source)
+            os.symlink(os.path.join(root, 'keys', 'verdict'), os.path.join(source, 'leak'))
+            os.symlink(os.path.join(root, 'keys'), os.path.join(source, 'keydir'))
+            for flags in ('-L', '-lLogDtpre.iLsfxCIvu', '--copy-links',
+                          '--copy-unsafe-links', '-k', '--copy-dirlinks'):
+                with self.subTest(flags=flags):
+                    self.assertIsNotNone(check('rsync --server --sender %s . %s/'
+                                               % (flags, source), engine_root=root))
+            # Naming the link itself resolves into the keys.
+            self.assertIsNotNone(check('rsync --server --sender -a . %s/leak' % source,
+                                       engine_root=root))
+            self.assertIsNotNone(check('rsync --server --sender -a . %s/keydir/' % source,
+                                       engine_root=root))
+            # Without a link-following option the link travels as a link.
+            self.assertIsNone(check('rsync --server --sender -logDtpre.iLsfxCIvu . %s/'
+                                    % source, engine_root=root))
+
     def test_garbage_and_misquoting(self):
         self.assertIsNotNone(check('python3 -c "unterminated'))
         self.assertIsNotNone(check('cd %s && PYTHONPATH=%s' % (BUNDLE, BUNDLE)))
