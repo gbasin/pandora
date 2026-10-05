@@ -733,9 +733,12 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
     # Signed before the row says `finished`, not after: a client reads the
     # result as soon as the row is finished, and signing calls `ssh-keygen`.
     finished = time.time()
+    def note(text):
+        with paths.log(run_id).open('a') as handle:
+            handle.write('pandora: ' + text + '\n')
     signed = verdict.decide(paths.root, row_to_dict(ledger.get(run_id)) or {},
                             outcome=outcome, tree=tree, finished=finished,
-                            golden=golden_of(paths, run_id))
+                            golden=golden_of(paths, run_id), note=note)
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt,
                         finished=finished)
