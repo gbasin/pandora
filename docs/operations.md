@@ -636,9 +636,20 @@ exit and exit code do not wait for it or depend on it. The thread loads the
 worktree's `pandora.toml`, and does nothing when the opt-in is absent, the
 worktree has no such remote, or the result has no verdict. Otherwise it runs
 `git ls-remote` for the ref, skips the push when the ref exists, and else runs
-`git push --quiet <remote> <commit>:<ref>`, with 60 s for the whole sequence.
-Git runs with `GIT_TERMINAL_PROMPT=0` and no stdin, so a remote that asks for
-credentials fails instead of waiting.
+`git push --quiet <remote> <commit>:<ref>`. When the push fails, it runs
+`git ls-remote` once more: a ref that is now there means another publisher
+pushed a verdict for the same tree and job first, and the record says
+`present`. One 60 s deadline covers every git command in the sequence, from
+`git remote get-url` on. A timeout kills git's whole process group, ssh
+included, and the reason names the seconds the step took and how much of the
+deadline was used.
+
+Git cannot prompt. It starts in a session of its own, with no controlling
+terminal and no stdin, and with `GIT_TERMINAL_PROMPT=0` and
+`SSH_ASKPASS_REQUIRE=never`. Unless `GIT_SSH_COMMAND`, `GIT_SSH` or
+`core.sshCommand` is already set, `GIT_SSH_COMMAND` is `ssh -o BatchMode=yes`.
+A remote that asks for a password, a passphrase or a host key confirmation
+fails instead of waiting.
 
 The thread then appends one line to the run's log, after the exit frame:
 

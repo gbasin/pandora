@@ -179,14 +179,32 @@ touch the index or change a file. When the remote already has the ref, nothing
 is pushed. A CI job for the same tree reads the ref, verifies the signature
 against signers it trusts, and may skip the work.
 
+The ref names the tree and the job, and nothing else. The first verdict
+published for a tree stays until someone deletes the ref. For a job that takes
+arguments (`args = "optional"` or `"required"`), a later run of the same tree
+with other arguments finds the ref present and pushes nothing, and a CI job
+that compares the signed argv with its own then refuses the verdict and runs
+the work. Publication is therefore most useful for jobs with `args = "none"`.
+
+Publication ignores the client's final exit code and the write-back state on
+purpose. The signed claim is about the tree the worker ran over, and a
+write-back that fails at home, or an exit code it changes, does not make that
+claim false.
+
 The push runs on a thread of its own after the command has exited. It never
-delays the exit and never changes the exit code. It has 60 s. Without
+delays the exit and never changes the exit code. It has 60 s for every git
+command it runs, and git cannot prompt for credentials
+([operations.md](operations.md#signed-verdict-publication)). Without
 `publish = true`, without that remote in the worktree, or without a verdict,
 nothing happens and nothing is logged. Otherwise one line is appended to the
 run's log, which `pandora logs <id>` shows and a live caller does not see:
-`pandora: verdict published refs/pandora/verdicts/<tree>/<job>` or
-`pandora: verdict not published: <reason>`. A daemon older than this table
-refuses the file, as for any key it does not understand.
+
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job>`
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job> (already on the remote)`
+* `pandora: verdict not published: <reason>`
+
+A daemon older than this table refuses the file, as for any key it does not
+understand.
 
 
 ## Behavior tables
