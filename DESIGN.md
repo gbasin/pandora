@@ -102,8 +102,14 @@ local edits, and finish before command completion. Mutagen remains a candidate,
 not an MVP dependency or a substitute for source-consistency checks.
 
 Warm iteration and independent clean final validation are the intended broader
-workflow. Existing GitHub PR checks stay in place and cannot be satisfied by
-experimental results. No merge/deployment behavior changes.
+workflow. Existing GitHub PR checks stay in place. One result may stand in for
+one of them: a signed verdict from a passing whole run on a ready worker, for
+the identical git tree, may satisfy the same job on CI. The verdict binds the
+tree, the job, the argv and the golden fingerprint, and is signed with a key
+that never leaves the worker. CI reads the allowed signers from the base
+branch, never from the change under review, so a change cannot add the key that
+vouches for it. Failures never transfer: a failed or missing verdict only means
+CI runs the job itself. No merge or deployment behavior changes.
 
 ## Queue, cancellation, and debugging
 

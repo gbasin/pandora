@@ -145,6 +145,13 @@ command's own, except for these:
 
 When the last stderr line is `pandora: hint: ...`, it is the next action. Act on it.
 
+In this repository, run Pandora's own suite through Pandora from the worktree
+root with `pandora run -- python3 -m unittest discover -s pandora`. Plain
+`python3 -m unittest ...` is not routed: the shim claims only `pnpm`. A passing
+run on a ready worker yields a signed verdict for the tree it ran, and the
+ubuntu leg of `tests.yml` skips its unittest step when a signed verdict for
+the same tree exists ([Verdicts in CI](docs/operations.md#verdicts-in-ci)).
+
 The full contract: [docs/agents.md](docs/agents.md). Paragraphs to copy into a
 repository's own agent instructions: [docs/agents-paragraphs.md](docs/agents-paragraphs.md).
 

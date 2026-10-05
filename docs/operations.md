@@ -26,6 +26,7 @@ Pandora does. [worker.md](worker.md) covers the Linux worker.
   * [Migration from the old marker](#migration-from-the-old-marker)
   * [Unenrollment](#unenrollment)
   * [Old spellings](#old-spellings)
+* [Verdicts in CI](#verdicts-in-ci)
 * [Operating limits](#operating-limits)
 * [Run results](#run-results)
 * [Layout](#layout)
@@ -726,6 +727,43 @@ still routes while it is there.
 aliases for one release. Each prints a one-line deprecation notice on stderr and then runs
 `enroll` or `unenroll`. Change scripts to the new spelling.
 
+
+## Verdicts in CI
+
+A passing whole run of a `git = "synthetic"` job on a ready worker produces a
+verdict: the git tree the run saw, the job, the argv and the golden
+fingerprint, signed with the worker's verdict key. The key lives in the
+worker's engine root and never leaves it. `pandora worker status` prints its
+public half under `verdict signer:`. A client that opts in publishes the verdict
+as the ref `refs/pandora/verdicts/<tree>/<job>` on `origin`.
+
+The composite action
+[`.github/actions/pandora-verdict`](../.github/actions/pandora-verdict/action.yml)
+checks for that ref in CI. It runs
+[`scripts/verdict-verify.sh`](../scripts/verdict-verify.sh), which also runs by
+hand from a checkout. Inputs: `job`, `argv` (a JSON array, compared exactly),
+`signers` and `base`. Outputs: `verified`, `reason`, `run_id`, `golden`. It
+never fails a job. A missing ref, a bad signature or any field that differs is
+`verified=false` with a reason, and the job runs as before. Pandora's own
+`tests.yml` runs it on the ubuntu leg and skips the unittest step only when
+`verified` is `true`.
+
+The trust rule: signers are read from the base branch. On a pull request the
+action fetches the base branch at depth 1 and reads
+`.github/pandora/allowed_signers` from it with `git show`, never from the
+checked-out head. A key added in a pull request takes effect only after it
+merges. On a push, the base is `HEAD`. One line per key:
+
+```
+pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAA... pandora-verdict
+```
+
+With no key line in the file, every check answers `reason=no_signers`.
+
+The tree is `HEAD^{tree}` of the CI checkout. On a pull request that is the
+merge commit GitHub builds, which has the branch's own tree only when the
+branch already contains its base. A branch behind its base gets no match and
+runs the suite.
 
 ## Operating limits
 

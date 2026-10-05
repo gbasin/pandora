@@ -1,0 +1,61 @@
+name: pandora-verdict
+description: >-
+  Verify a signed Pandora run verdict for the checked-out tree. A verdict is
+  the parentless commit at refs/pandora/verdicts/<tree>/<job> on origin,
+  signed by a Pandora worker key. The allowed signers file is read from the
+  base ref, never from the checked-out head. This action never fails the job:
+  any problem is verified=false with a reason.
+
+inputs:
+  job:
+    description: The pandora.toml job id the verdict must name.
+    required: true
+  argv:
+    description: The job's run argv as a JSON array string, compared exactly.
+    required: true
+  signers:
+    description: Path of the allowed signers file, read from the base ref.
+    required: false
+    default: .github/pandora/allowed_signers
+  base:
+    description: >-
+      The ref to read the signers file from. Empty means origin/<base_ref> on
+      a pull_request run (that branch is fetched at depth 1 first, so a
+      shallow checkout is enough), else HEAD.
+    required: false
+    default: ''
+
+outputs:
+  verified:
+    description: "'true' when a verdict for this tree, job and argv is signed by an allowed signer, else 'false'."
+    value: ${{ steps.verify.outputs.verified }}
+  reason:
+    description: "'match', or why not: no_verdict, signers_missing, no_signers, bad_signature, tree_mismatch, job_mismatch, argv_mismatch, not_passed, and others."
+    value: ${{ steps.verify.outputs.reason }}
+  run_id:
+    description: The Pandora run id named by the verdict, when it could be read.
+    value: ${{ steps.verify.outputs.run_id }}
+  golden:
+    description: The golden fingerprint named by the verdict, when it could be read.
+    value: ${{ steps.verify.outputs.golden }}
+
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        VERDICT_JOB: ${{ inputs.job }}
+        VERDICT_ARGV: ${{ inputs.argv }}
+        VERDICT_SIGNERS: ${{ inputs.signers }}
+        VERDICT_BASE: ${{ inputs.base }}
+      run: |
+        set -euo pipefail
+        # One implementation: the script the unit tests drive. It exits 0
+        # whatever it finds; this fallback covers a script that could not run.
+        bash "$GITHUB_ACTION_PATH/../../../scripts/verdict-verify.sh" \
+            --job "$VERDICT_JOB" --argv "$VERDICT_ARGV" \
+            --signers "$VERDICT_SIGNERS" --base "$VERDICT_BASE" || {
+          echo "::notice::pandora verdict: not verified: the verify script failed"
+          printf 'verified=false\nreason=script_error\nrun_id=\ngolden=\n' >>"$GITHUB_OUTPUT"
+        }
