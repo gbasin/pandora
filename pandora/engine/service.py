@@ -111,6 +111,23 @@ def below_floor(paths):
     return None
 
 
+def outside_src(paths, source):
+    """The refusal when `source` is not a directory below `<engine_root>/src`,
+    else None.
+
+    The source is mounted into the run's instance, so a source naming the
+    engine root, or a symlink into it, would hand the instance the verdict
+    signing key in `<engine_root>/keys`. Symlinks resolve before comparing.
+    """
+    if isinstance(source, str) and source:
+        real = os.path.realpath(source)
+        base = os.path.realpath(paths.src)
+        if real.startswith(base + os.sep):
+            return None
+    return {'ok': False, 'code': 'source-outside', 'source_path': source,
+            'detail': 'source_path must be a directory inside %s' % paths.src}
+
+
 def not_yours(row):
     return emit({'ok': False, 'code': 'not-yours', 'run_id': row['run_id'],
                  'client': row['client']})
@@ -146,7 +163,7 @@ def cmd_submit(args):
 def submit(args, paths, ledger, request):
     """The body of `submit`, shared with `resubmit` so a retry is admitted exactly
     as a first attempt is: same disk floor, same memory admission, same refusals."""
-    refusal = below_floor(paths)
+    refusal = below_floor(paths) or outside_src(paths, request.get('source_path'))
     if refusal:
         return emit(refusal)
     plan = request['plan']

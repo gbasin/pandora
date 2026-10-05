@@ -34,7 +34,7 @@ from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, derived_cpus_per_run, gate, size_line
 from . import batches, shards as sharding
-from . import admission, history, retry, turbocache, writeback
+from . import admission, history, retry, turbocache, verdict, writeback
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
@@ -164,6 +164,9 @@ def supervise(root, run_id, *, driver=None):
     outcome, layer, exit_code, evidence = 'infra_failed', 'engine', None, {}
     peak_mib, receipt_dict = 0, None
     preparing_clone = False
+    # The tree the synthetic repository saw, the one a verdict names; None for
+    # a job without one.
+    tree = None
     # None when the plan arms no write-back; otherwise always a record, so a
     # client can tell "proposed nothing" from "was never asked to".
     proposal = (writeback.incomplete('the run did not pass, so it proposes nothing', None)
@@ -213,9 +216,10 @@ def supervise(root, run_id, *, driver=None):
         # Before the cache and before the command: the repository is part of
         # the source, and a job that declared it must never start without it.
         if submitted.get('git') == 'synthetic':
-            durations['git'] = round(driver.synthetic_git(
+            seconds, tree = driver.synthetic_git(
                 instance.name, '/work', request.get('git_marks') or {},
-                'pandora %s' % row['input_id']), 2)
+                'pandora %s' % row['input_id'])
+            durations['git'] = round(seconds, 2)
             marks = time.monotonic()
             note('synthetic git repository in %.1fs' % durations['git'])
         # turbo's remote cache, served by this worker on the runs' bridge
@@ -419,7 +423,7 @@ def supervise(root, run_id, *, driver=None):
     result_json = write_result(paths, ledger, run_id, outcome=outcome, layer=layer,
                                exit_code=exit_code, peak_mib=peak_mib,
                                durations=durations, evidence=evidence, receipt=receipt_dict,
-                               extra=extra or None)
+                               extra=extra or None, tree=tree)
     # This run's cores are free now; spread any runs that share cores onto them.
     rebalance_cpus(paths, ledger, driver)
     ledger.close()
@@ -718,9 +722,16 @@ def queue_session(paths, ledger, run_id, plan, driver, instance, *, env, limits,
 
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
-                 durations, evidence, receipt, extra=None):
+                 durations, evidence, receipt, extra=None, tree=None):
+    # Signed before the row says `finished`, not after: a client reads the
+    # result as soon as the row is finished, and signing calls `ssh-keygen`.
+    finished = time.time()
+    signed = verdict.decide(paths.root, row_to_dict(ledger.get(run_id)) or {},
+                            outcome=outcome, tree=tree, finished=finished,
+                            golden=golden_of(paths, run_id))
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
-                        durations=durations, evidence=evidence, receipt=receipt)
+                        durations=durations, evidence=evidence, receipt=receipt,
+                        finished=finished)
     item = row_to_dict(row)
     result = {
         'version': RESULT_VERSION,
@@ -769,6 +780,11 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         # Which client daemon submitted it (`user@host` or `[client] name`);
         # None from a client that predates attribution.
         'client': item.get('client'),
+        # The git tree the run saw, and a signed statement that it passed over
+        # it, or why there is none (`verdict`).
+        'tree': signed['tree'],
+        'verdict': signed['verdict'],
+        'verdict_skipped': signed['verdict_skipped'],
     }
     result.update(extra or {})
     # Evidence of non-determinism, recorded where both attempts can be seen.
@@ -792,6 +808,15 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         # After the file, not before: a reader that sees `finished` looks for it.
         ledger.update(run_id, flaky_with=pair['with'])
     return result
+
+
+def golden_of(paths, run_id):
+    """The fingerprint that names this attempt's golden (`golden-<fp>`), or None."""
+    try:
+        return toolchain_of(json.loads(
+            (paths.attempt(run_id) / 'toolchain.json').read_text())).fingerprint()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def write_json(path, payload):

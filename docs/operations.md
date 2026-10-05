@@ -27,6 +27,7 @@ Pandora does. [worker.md](worker.md) covers the Linux worker.
   * [Unenrollment](#unenrollment)
   * [Old spellings](#old-spellings)
 * [Operating limits](#operating-limits)
+* [Run results](#run-results)
 * [Layout](#layout)
 
 ## Install on a Mac
@@ -840,6 +841,22 @@ Known caveats:
   and the canary derived from `[worker.canary]` (pass, 97 s; the 60 s bound on
   the OOM verdict is marginal on fast NVMe, #150).
 
+
+## Run results
+
+The worker writes each attempt's `result.json` under
+`<engine_root>/runs/<run_id>/`. The client copies it into the run directory
+unchanged and adds its own fields, such as `placement`, `outputs` and
+`attempts`. `pandora result <id> --json` prints it. Three fields concern
+signed verdicts ([docs/worker.md](worker.md#verdicts)):
+
+| Field | Value |
+|---|---|
+| `tree` | The 40-hex git tree of every file the run saw, untracked files included. Null for a job without `git = "synthetic"`. |
+| `verdict` | Null, or `{"payload", "signature", "signer"}`: the canonical payload JSON as a string, the armored SSHSIG block, and the worker's public key line. |
+| `verdict_skipped` | Null when `verdict` is set. Otherwise the first condition that failed: `not_passed`, `not_whole`, `worker_not_ready`, `no_synthetic_git`, or `sign_failed:<reason>`. |
+
+A verdict never changes the run's outcome or exit code.
 
 ## Layout
 

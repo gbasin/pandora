@@ -32,8 +32,9 @@ class Engine(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'engine'
-        self.source = Path(self.tmp.name) / 'src'
-        self.source.mkdir()
+        # Under <engine_root>/src: submit refuses a source anywhere else.
+        self.source = self.root / 'src' / 'demo' / 'input-a'
+        self.source.mkdir(parents=True)
         self.spawned, self.waiters = [], []
         for patch in (
                 mock.patch.dict(os.environ, {'PANDORA_BUDGET_MIB': self.BUDGET}),
