@@ -9,16 +9,24 @@ production worker; it runs only when PANDORA_SELFTEST_LIVE=1 is set, so CI and
 """
 import json
 import os
+import shutil
+import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pandora import cli
-from pandora.client import selftest, settings
+from pandora.client import selftest, settings, verdicts
 from pandora.config import loader
 from pandora.engine.runner import toolchain_of
 from pandora.exits import INFRA
 from pandora.tests.test_cli import capture, _exit_code
+from pandora.tests.test_fallback import DaemonCase, FakeWorker
+from pandora.tests.test_verdicts import make_repo, verdict_threads
+
+HAS_SSH_KEYGEN = shutil.which('ssh-keygen') is not None
 
 WORKER_SPEC = {'base_image': 'images:ubuntu/26.04',
                'packages': ['docker.io', 'ca-certificates'],
@@ -76,6 +84,14 @@ class RepoToml(Scratch):
         self.assertIn('selftest', config['jobs'])
         self.assertEqual(config['jobs']['selftest']['forms'][0]['prefix'], ['selftest'])
 
+    def test_the_job_asks_for_a_tree_and_publishes_to_origin(self):
+        config = self.load()
+        self.assertEqual(config['jobs']['selftest']['git'], 'synthetic')
+        self.assertEqual(config['verdicts'], {'publish': True, 'remote': 'origin'})
+        queued = loader.validate(tomllib.loads(selftest.repo_toml(selftest.MINIMAL_WORKER,
+                                                                  queue=True)))
+        self.assertEqual(queued['verdicts']['publish'], True)
+
     def test_the_claimed_forms_and_policies(self):
         from pandora.config import classify
         config = self.load()
@@ -117,6 +133,18 @@ class RepoFiles(Scratch):
         self.assertTrue((repo / 'pandora.toml').is_file())
         self.assertIn('pandora selftest ran on the worker',
                       (repo / 'selftest.sh').read_text())
+
+    def test_the_origin_is_a_bare_repository_in_the_scratch(self):
+        repo = self.root / 'repo'
+        selftest.write_repo(repo, selftest.MINIMAL_WORKER)
+        bare = selftest.write_origin(self.root, repo)
+        self.assertEqual(bare, self.root / 'origin.git')
+        self.assertEqual(subprocess.run(['git', '--git-dir', str(bare), 'rev-parse',
+                                         '--is-bare-repository'], capture_output=True,
+                                        text=True).stdout.strip(), 'true')
+        self.assertEqual(subprocess.run(['git', '-C', str(repo), 'remote', 'get-url',
+                                         'origin'], capture_output=True,
+                                        text=True).stdout.strip(), str(bare))
 
 
 class Isolation(Scratch):
@@ -228,6 +256,255 @@ class Receipts(Scratch):
             self.assertIn(needle, text)
 
 
+def new_key(path):
+    subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C',
+                    'pandora-verdict', '-f', str(path)], check=True, capture_output=True)
+    return Path(str(path) + '.pub').read_text().strip()
+
+
+def sign(key, body):
+    payload = json.dumps(body, sort_keys=True, separators=(',', ':'))
+    proc = subprocess.run(['ssh-keygen', '-Y', 'sign', '-f', str(key), '-n', 'pandora-verdict'],
+                          input=payload.encode(), check=True, capture_output=True)
+    return payload, proc.stdout.decode()
+
+
+@unittest.skipUnless(HAS_SSH_KEYGEN, 'ssh-keygen is not installed')
+class Verdicts(Scratch):
+    """The receipt's signed verdict, checked with a real key and `ssh-keygen -Y`."""
+
+    TREE = 'c' * 40
+
+    def setUp(self):
+        super().setUp()
+        key = self.root / 'verdict'
+        subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C',
+                        'pandora-verdict', '-f', str(key)], check=True, capture_output=True)
+        self.key = key
+        self.signer = (self.root / 'verdict.pub').read_text().strip()
+        self.said = []
+
+    def sign(self, body, key=None):
+        payload = json.dumps(body, sort_keys=True, separators=(',', ':'))
+        proc = subprocess.run(['ssh-keygen', '-Y', 'sign', '-f', str(key or self.key),
+                               '-n', 'pandora-verdict'],
+                              input=payload.encode(), check=True, capture_output=True)
+        return payload, proc.stdout.decode()
+
+    def body(self, **changes):
+        body = {'argv': ['sh', 'selftest.sh'], 'engine': 'e', 'finished': 1.0,
+                'golden': '0' * 16, 'input_id': 'f' * 64, 'job': 'selftest',
+                'kind': 'pandora-verdict', 'outcome': 'passed', 'repo': 'pandora-selftest',
+                'run_id': 'r1', 'tree': self.TREE, 'v': 1}
+        body.update(changes)
+        return body
+
+    def result(self, payload=None, signature=None, signer=None, **changes):
+        if payload is None:
+            payload, signature = self.sign(self.body(**changes))
+        return {'outcome': 'passed', 'tree': self.TREE, 'verdict_skipped': None,
+                'verdict': {'payload': payload, 'signature': signature,
+                            'signer': signer or self.signer}}
+
+    def check(self, result):
+        return selftest.check_verdict(result, 'selftest', say=self.said.append)
+
+    def refused(self, result, needle):
+        with self.assertRaises(selftest.SelftestError) as caught:
+            self.check(result)
+        self.assertEqual(caught.exception.exit, 1)
+        self.assertIn(needle, str(caught.exception))
+
+    def test_a_good_signature_verifies(self):
+        self.assertEqual(self.check(self.result()), 'signed, tree cccccccccccc')
+        self.assertEqual(self.said, [])
+
+    def test_a_tampered_payload_or_another_signer_fails(self):
+        good = self.result()
+        tampered = dict(good, verdict=dict(good['verdict'],
+                                           payload=good['verdict']['payload'].replace(
+                                               '"passed"', '"failed"')))
+        self.refused(tampered, 'does not verify')
+        other = self.root / 'other'
+        subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(other)],
+                       check=True, capture_output=True)
+        stranger = (self.root / 'other.pub').read_text().strip()
+        self.refused(dict(good, verdict=dict(good['verdict'], signer=stranger)),
+                     'does not verify')
+
+    def test_a_signed_payload_that_disagrees_with_the_run_fails(self):
+        self.refused(self.result(job='other'), 'disagrees with the run on job')
+        self.refused(self.result(tree='d' * 40), 'disagrees with the run on tree')
+
+    def test_an_unready_worker_is_the_one_allowed_skip(self):
+        result = {'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
+                  'verdict_skipped': 'worker_not_ready'}
+        self.assertEqual(self.check(result), 'none (worker_not_ready)')
+        self.assertTrue(self.said)
+        for reason in ('not_passed', 'not_whole', 'no_synthetic_git', None):
+            with self.subTest(reason=reason):
+                self.refused(dict(result, verdict_skipped=reason), repr(reason))
+
+    def test_a_tree_that_is_not_40_hex_fails(self):
+        self.refused({'outcome': 'passed', 'tree': None, 'verdict': None,
+                      'verdict_skipped': 'no_synthetic_git'}, 'not a 40-hex git tree id')
+
+    def test_an_engine_before_verdicts_is_noted_not_failed(self):
+        self.assertEqual(self.check({'outcome': 'passed'}),
+                         'not checked (engine predates verdicts)')
+        self.assertIn('predates signed verdicts', self.said[0])
+
+
+@unittest.skipUnless(HAS_SSH_KEYGEN, 'ssh-keygen is not installed')
+class Publication(DaemonCase):
+    """The daemon's real publication hook pushing to a bare origin, read back.
+
+    A real daemon with a fake worker whose result carries a verdict signed by a
+    throwaway key; the repository has a bare `origin` beside it and opts in to
+    `[verdicts] publish = true`. `check_publication` then asserts what the
+    selftest asserts after each live submission.
+    """
+
+    TREE = 'c' * 40
+
+    def setUp(self):
+        super().setUp()
+        self.key = self.root / 'verdict'
+        self.signer = new_key(self.key)
+        self.result = self.signed('r1')
+        follow = lambda worker, run_id, **kw: (json.loads(json.dumps(self.result)), 0)  # noqa: E731
+        patcher = mock.patch.object(FakeWorker, 'follow', follow)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(verdict_threads)
+        make_repo(self.root)
+        self.origin = self.root / 'origin.git'
+        toml = self.repo / 'pandora.toml'
+        toml.write_text(toml.read_text() + '[verdicts]\npublish = true\n')
+        self.seen = set()
+        self.said = []
+        self.ref = 'refs/pandora/verdicts/%s/unit' % self.TREE
+
+    def signed(self, run_id):
+        payload, signature = sign(self.key, {
+            'argv': ['sh'], 'engine': 'e', 'finished': 1.0, 'golden': '0' * 16,
+            'input_id': 'f' * 64, 'job': 'unit', 'kind': 'pandora-verdict',
+            'outcome': 'passed', 'repo': 'demo', 'run_id': run_id, 'tree': self.TREE,
+            'v': 1})
+        return {'outcome': 'passed', 'cli_exit': 0, 'tree': self.TREE,
+                'verdict_skipped': None,
+                'verdict': {'payload': payload, 'signature': signature,
+                            'signer': self.signer}}
+
+    def submit(self):
+        """One run through the daemon; (result.json, run directory)."""
+        before = set((self.state / 'runs').iterdir()) if (self.state / 'runs').is_dir() else set()
+        answer = self.call(['unit'])
+        self.assertEqual(answer.exit, 0)
+        [run_dir] = set((self.state / 'runs').iterdir()) - before
+        return json.loads((run_dir / 'result.json').read_text()), run_dir
+
+    def check(self, result, run_dir, wait=selftest.PUBLISH_WAIT):
+        return selftest.check_publication(result, run_dir, self.origin, seen=self.seen,
+                                          wait=wait, say=self.said.append)
+
+    def refused(self, needle, *args, **kw):
+        with self.assertRaises(selftest.SelftestError) as caught:
+            self.check(*args, **kw)
+        self.assertEqual(caught.exception.exit, 1)
+        self.assertIn(needle, str(caught.exception))
+
+    def test_signed_published_then_already_on_the_remote(self):
+        result, run_dir = self.submit()
+        self.assertEqual(self.check(result, run_dir), 'published ' + self.ref)
+        self.assertIn('pandora: verdict published %s\n' % self.ref,
+                      selftest.run_log_text(run_dir))
+        self.assertEqual(json.loads((run_dir / verdicts.RECORD).read_text())['state'],
+                         'published')
+        self.assertEqual(self.seen, {self.ref})
+        # The --update submission: another argv and run, the same tree and job.
+        self.result = self.signed('r2')
+        result, run_dir = self.submit()
+        self.assertEqual(self.check(result, run_dir),
+                         'already on the remote ' + self.ref)
+        self.assertIn('pandora: verdict published %s (already on the remote)\n' % self.ref,
+                      selftest.run_log_text(run_dir))
+        self.assertEqual(self.said, [])
+
+    def test_signed_but_the_ref_is_missing_fails(self):
+        result, run_dir = self.submit()
+        verdict_threads()
+        subprocess.run(['git', '--git-dir', str(self.origin), 'update-ref', '-d', self.ref],
+                       check=True, capture_output=True)
+        self.refused('the scratch origin has no ' + self.ref, result, run_dir)
+
+    def test_a_second_publish_that_pushes_again_fails(self):
+        result, run_dir = self.submit()
+        self.check(result, run_dir)
+        verdict_threads()
+        subprocess.run(['git', '--git-dir', str(self.origin), 'update-ref', '-d', self.ref],
+                       check=True, capture_output=True)
+        result, run_dir = self.submit()
+        self.refused('expected present ' + self.ref, result, run_dir, wait=1.0)
+
+    def test_a_tampered_published_signature_fails(self):
+        result, run_dir = self.submit()
+        verdict_threads()
+        other = self.root / 'other'
+        new_key(other)
+        payload, signature = sign(other, {'tree': self.TREE})
+        blobs = {}
+        for name, text in (('payload.json', result['verdict']['payload']),
+                           ('signer', self.signer + '\n'), ('verdict.sig', signature)):
+            blobs[name] = subprocess.run(
+                ['git', '--git-dir', str(self.origin), 'hash-object', '-w', '--stdin'],
+                input=text.encode(), check=True, capture_output=True).stdout.decode().strip()
+        listing = ''.join('100644 blob %s\t%s\n' % (blobs[n], n) for n in sorted(blobs))
+        tree = subprocess.run(['git', '--git-dir', str(self.origin), 'mktree'],
+                              input=listing.encode(), check=True,
+                              capture_output=True).stdout.decode().strip()
+        commit = subprocess.run(['git', '--git-dir', str(self.origin), 'commit-tree',
+                                 '--no-gpg-sign', '-m', 'x', tree],
+                                env=dict(os.environ, **verdicts.IDENTITY), check=True,
+                                capture_output=True).stdout.decode().strip()
+        subprocess.run(['git', '--git-dir', str(self.origin), 'update-ref', self.ref, commit],
+                       check=True, capture_output=True)
+        self.refused('not the pushed commit', result, run_dir)
+        self.seen.add(self.ref)
+        self.result = self.signed('r2')
+        result, run_dir = self.submit()
+        self.refused('does not verify against its signer', result, run_dir)
+
+    def test_no_record_from_the_daemon_fails(self):
+        toml = self.repo / 'pandora.toml'
+        toml.write_text(toml.read_text().replace('publish = true', 'publish = false'))
+        result, run_dir = self.submit()
+        self.refused('no verdict-publish.json beside result.json', result, run_dir, wait=0.5)
+
+    def test_an_unready_worker_publishes_nothing_and_says_so(self):
+        self.result = {'outcome': 'passed', 'cli_exit': 0, 'tree': self.TREE,
+                       'verdict': None, 'verdict_skipped': 'worker_not_ready'}
+        result, run_dir = self.submit()
+        verdict_threads()
+        self.assertEqual(self.check(result, run_dir), 'not exercised (worker_not_ready)')
+        self.assertEqual(self.said, ['verdict not signed (worker_not_ready); '
+                                     'publication not exercised'])
+        self.assertFalse((run_dir / verdicts.RECORD).exists())
+        self.assertEqual(selftest.published_refs(self.origin), [])
+
+    def test_an_unready_worker_with_a_ref_on_the_origin_fails(self):
+        result, run_dir = self.submit()
+        self.check(result, run_dir)
+        self.result = {'outcome': 'passed', 'cli_exit': 0, 'tree': self.TREE,
+                       'verdict': None, 'verdict_skipped': 'worker_not_ready'}
+        result, run_dir = self.submit()
+        self.refused('the scratch origin holds ' + self.ref, result, run_dir)
+
+    def test_an_engine_before_verdicts_checks_nothing(self):
+        self.assertIsNone(self.check({'outcome': 'passed'}, self.root))
+        self.assertEqual(self.said, [])
+
+
 class Help(Scratch):
     def test_help_names_selftest_honestly(self):
         code, out, _ = capture(lambda: _exit_code(cli.main, ['--help']))
@@ -235,7 +512,7 @@ class Help(Scratch):
         self.assertIn('selftest', out)
         code, out, _ = capture(lambda: _exit_code(cli.main, ['selftest', '--help']))
         self.assertEqual(code, 0)
-        for needle in ('worker', 'incus', 'e2e-', 'scratch'):
+        for needle in ('worker', 'incus', 'e2e-', 'scratch', 'origin'):
             self.assertIn(needle, out)
 
 
@@ -264,6 +541,8 @@ class LiveRun(unittest.TestCase):
             self.assertIn(phase, record['pre_accept'])
         for phase in ('clone', 'execute', 'destroy'):
             self.assertIn(phase, record['engine'])
+        # Signed, skipped for an unready worker, or not checked on an old engine.
+        self.assertIn('verdict', record)
 
 
 if __name__ == '__main__':

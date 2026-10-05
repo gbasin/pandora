@@ -48,6 +48,9 @@ TOKEN = re.compile(r'\{([^{}]+)\}')
 # 1-based, like the shell's $1.
 ARG_PATH = re.compile(r'\{arg([1-9][0-9]*)\}')
 VARIABLE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*\Z')
+# A git remote name as `git remote add` accepts it, minus a leading dash, so the
+# name can never be read as an option on the `git push` command line.
+REMOTE = re.compile(r'[A-Za-z0-9_.][A-Za-z0-9_.@/-]*\Z')
 # Every way a remote submission can fail to proceed, named once. The list is
 # closed because it is also the fallback policy's vocabulary: a cause nobody can
 # spell is a cause nobody can decide about.
@@ -689,12 +692,26 @@ def _canary_jobs(canary, jobs):
                               'nowhere to put %r' % (where, job_id, canary[kind]))
 
 
+# --- signed verdicts -------------------------------------------------------
+
+def _verdicts(value, where):
+    """Whether the daemon publishes a worker's signed verdict as a git ref.
+
+        publish   push `refs/pandora/verdicts/<tree>/<job>` after a run that
+                  carries a verdict (default false: nothing is pushed)
+        remote    the worktree's git remote to push it to (default origin)
+    """
+    _keys(value, where, (), {'publish', 'remote'})
+    return {'publish': _bool(value.get('publish', False), where + '.publish'),
+            'remote': _str(value.get('remote', 'origin'), where + '.remote', REMOTE)}
+
+
 # --- whole configuration ----------------------------------------------------
 
 def validate(value):
     """Return a normalized configuration, or raise ConfigError."""
     _keys(value, 'configuration', {'version', 'repo', 'worker', 'jobs'},
-          {'env', 'secrets', 'fallback', 'feedback', 'matching'})
+          {'env', 'secrets', 'fallback', 'feedback', 'matching', 'verdicts'})
     if type(value['version']) is not int or value['version'] != VERSION:
         raise UnknownSchema('this code reads another configuration version', key='version',
                             value=value['version'])
@@ -775,6 +792,7 @@ def validate(value):
         # overrides that for every job it does not override individually.
         'fallback': _fallback(value['fallback'], 'fallback') if 'fallback' in value else None,
         'jobs': jobs,
+        'verdicts': _verdicts(value.get('verdicts', {}), 'verdicts'),
         # Keys the file still loads with but should drop, one line each. The
         # daemon says them once, as notices; nothing here prints.
         'warnings': warnings,
