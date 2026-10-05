@@ -11,3 +11,6 @@
 # CI reads this file from the base branch, never from a pull request's head, so
 # a key takes effect only after it is merged. With no key line here, every
 # verification answers verified=false reason=no_signers and the suite runs.
+
+# pandora-ci test engine on the shared host, verdict e2e 2026-10-05. Replace with the live engine key at cut-over.
+pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIrV0XfYy0CywTzDWkHnKzAPCw5/Tw+GJG4EKDfFJO5H pandora-verdict
