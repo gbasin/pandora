@@ -13,3 +13,6 @@
 # revoking a key means removing its line on the default branch. With no key
 # line here, every verification answers verified=false reason=no_signers and
 # the suite runs.
+
+# The live worker engine, key created at cut-over on 2026-10-05.
+pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII9GTXJMwsbzXfXZUlC4h9aH0hnBOLg6MrclNABL9a/T pandora-verdict
