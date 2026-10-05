@@ -47,20 +47,37 @@ creates or adopts the pool, creates the bridge, its forwarding rules, the
 writes the manifest. Every step reports `present`, `created`, `changed` or
 `skipped`. Run it again. The second run must report `0 changed`.
 
+Every run's `eth0` is a port on the one bridge, `pandorabr0`. The profile's
+`eth0` carries `security.port_isolation=true`, and the executor sets the same
+key on every clone before it starts. An isolated port cannot reach another
+isolated port, so a service one run binds on `0.0.0.0` does not answer a
+concurrent run. Runs still reach the bridge address, where the turbo cache
+listens, and the internet through NAT. `harden` reads the bridge port flag on
+the host and records the answer in the run's evidence as
+`cgroup.eth0.port_isolation`. If the port is not isolated, the run does not
+execute. It fails as `clone-failed`, which is retryable. A worker provisioned
+before the profile carried the key is protected by the executor alone. It
+needs no re-provision.
+
 Use `--loop-file 18G` instead of `device` only when there is no spare device.
 
 ## Canary
 
-The canary is the worker's health check: about 26 checks per enrolled golden.
+The canary is the worker's health check: about 35 checks per enrolled golden.
 The older canary took about 100 s. The budget is 240 s per golden. It reads
 every enrolled repository's `pandora.toml` through the daemon's loader and
 proves each distinct `[worker]` golden: it builds or reuses the golden, runs a
 real journey with its compose stack in one clone, runs the surface job's
-`validate` step in another, then checks the disk quota and drives a memory hog
-until the watchdog kills it as `oom`. The hog writes its own 1.5 GiB of random
-files under `/work/.pandora-hog` in the first proven golden's clone, then reads
-them in a loop under a 512 MiB ceiling. It does not depend on what the
-repository put in `/work`, so any golden proves the watchdog.
+`validate` step in another, then proves two concurrent clones cannot reach each
+other on the bridge, checks the disk quota and drives a memory hog until the
+watchdog kills it as `oom`. The isolation check opens a listener on `0.0.0.0`
+in one clone and confirms the host reaches it. It then confirms the other
+clone reaches the bridge address: the turbo cache when it is serving,
+otherwise the bridge DNS on port 53. Only then does it expect a connect from
+the second clone to the first to fail. The hog writes its own 1.5 GiB of
+random files under `/work/.pandora-hog` in the first proven golden's clone,
+then reads them in a loop under a 512 MiB ceiling. It does not depend on what
+the repository put in `/work`, so any golden proves the watchdog.
 
 ```sh
 pandora worker canary --mark
@@ -261,6 +278,9 @@ prevent.
   the worker. The client treats it as `engine-error`, so the
   [Fallback](pandora-toml.md#fallback) table decides.
 * One memory budget covers every client's runs. Admission counts them all.
+* A run cannot reach another run's ports on the bridge, its own client's or
+  another's. Each instance's `eth0` is an isolated bridge port. The turbo cache
+  on the bridge address stays reachable and still requires its bearer token.
 * `cancel`, `lookup`, `wait`, the retry, and now the reads — `status`, `logs`,
   `result` — act only on the calling client's runs. Another client's run is
   refused as `not-yours`. A run submitted before attribution existed has no
