@@ -7,6 +7,7 @@ decided against a stub SSH link. `LiveRun` is the real submission against the
 production worker; it runs only when PANDORA_SELFTEST_LIVE=1 is set, so CI and
 `python3 -m unittest discover -s pandora` never pay an incus run by accident.
 """
+import base64
 import json
 import os
 import shutil
@@ -270,8 +271,8 @@ def sign(key, body):
 
 
 @unittest.skipUnless(HAS_SSH_KEYGEN, 'ssh-keygen is not installed')
-class Verdicts(Scratch):
-    """The receipt's signed verdict, checked with a real key and `ssh-keygen -Y`."""
+class VerdictKey(Scratch):
+    """A real key and receipts it signed, for the verdict checks below."""
 
     TREE = 'c' * 40
 
@@ -305,6 +306,10 @@ class Verdicts(Scratch):
         return {'outcome': 'passed', 'tree': self.TREE, 'verdict_skipped': None,
                 'verdict': {'payload': payload, 'signature': signature,
                             'signer': signer or self.signer}}
+
+
+class Verdicts(VerdictKey):
+    """The receipt's signed verdict, checked with a real key and `ssh-keygen -Y`."""
 
     def check(self, result):
         return selftest.check_verdict(result, 'selftest', say=self.said.append)
@@ -355,6 +360,78 @@ class Verdicts(Scratch):
         self.assertEqual(self.check({'outcome': 'passed'}),
                          'not checked (engine predates verdicts)')
         self.assertIn('predates signed verdicts', self.said[0])
+
+
+class ExpectSigned(VerdictKey):
+    """`--expect-signed`: the worker must sign, and every way it did not is exit 1."""
+
+    LINE = ('pandora: verdict not signed: worker_drifted: package incus: '
+            'want 6.0.5-8, have 6.0.6-1 (version differs)')
+
+    def run_dir(self, *lines):
+        folder = self.root / 'run'
+        folder.mkdir(exist_ok=True)
+        text = ''.join(line + '\n' for line in lines)
+        frames = [{'t': 'log', 's': 'err', 'b64': base64.b64encode(text.encode()).decode()}]
+        (folder / 'log').write_text(''.join(json.dumps(f) + '\n' for f in frames))
+        return folder
+
+    def strict(self, result, run_dir=None):
+        return selftest.check_verdict(result, 'selftest', expect_signed=True,
+                                      run_dir=run_dir, say=self.said.append)
+
+    def refused_strictly(self, needle, result, run_dir=None):
+        with self.assertRaises(selftest.SelftestError) as caught:
+            self.strict(result, run_dir)
+        self.assertEqual(caught.exception.exit, 1)
+        self.assertIn(needle, str(caught.exception))
+        return str(caught.exception)
+
+    def test_a_good_signature_still_passes(self):
+        self.assertEqual(self.strict(self.result()), 'signed, tree cccccccccccc')
+
+    def test_every_skip_reason_is_exit_1_and_names_it(self):
+        unsigned = {'outcome': 'passed', 'tree': self.TREE, 'verdict': None}
+        for reason in ('worker_not_ready', 'worker_drifted', 'not_passed', 'not_whole',
+                       'no_synthetic_git', 'sign_failed:ssh-keygen not found', None):
+            with self.subTest(reason=reason):
+                said = self.refused_strictly(repr(reason),
+                                             dict(unsigned, verdict_skipped=reason))
+                self.assertIn('--expect-signed', said)
+        self.assertEqual(self.said, [])
+
+    def test_the_run_logs_not_signed_line_is_quoted(self):
+        run_dir = self.run_dir('selftest ok', self.LINE)
+        said = self.refused_strictly('worker_drifted', {
+            'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
+            'verdict_skipped': 'worker_drifted'}, run_dir)
+        self.assertIn('the run log says: ' + self.LINE, said)
+        said = self.refused_strictly('worker_not_ready', {
+            'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
+            'verdict_skipped': 'worker_not_ready'}, self.run_dir('selftest ok'))
+        self.assertNotIn('run log says', said)
+
+    def test_an_engine_before_verdicts_is_exit_1(self):
+        self.refused_strictly('predates signed verdicts', {'outcome': 'passed'})
+        self.assertEqual(self.said, [])
+
+    def test_publication_not_exercised_is_exit_1(self):
+        origin = self.root / 'origin.git'
+        for result, needle in (
+                ({'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
+                  'verdict_skipped': 'worker_not_ready'},
+                 'not signed (worker_not_ready), so publication was not exercised'),
+                ({'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
+                  'verdict_skipped': 'worker_drifted'},
+                 'not signed (worker_drifted), so publication was not exercised'),
+                ({'outcome': 'passed'}, 'publication was not exercised')):
+            with self.subTest(needle=needle):
+                with self.assertRaises(selftest.SelftestError) as caught:
+                    selftest.check_publication(result, self.root, origin, seen=set(),
+                                               expect_signed=True, say=self.said.append)
+                self.assertEqual(caught.exception.exit, 1)
+                self.assertIn(needle, str(caught.exception))
+        self.assertEqual(self.said, [])
 
 
 @unittest.skipUnless(HAS_SSH_KEYGEN, 'ssh-keygen is not installed')
@@ -523,7 +600,7 @@ class Help(Scratch):
         self.assertIn('selftest', out)
         code, out, _ = capture(lambda: _exit_code(cli.main, ['selftest', '--help']))
         self.assertEqual(code, 0)
-        for needle in ('worker', 'incus', 'e2e-', 'scratch', 'origin'):
+        for needle in ('worker', 'incus', 'e2e-', 'scratch', 'origin', '--expect-signed'):
             self.assertIn(needle, out)
 
 

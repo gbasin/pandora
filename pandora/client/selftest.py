@@ -199,6 +199,8 @@ VERDICT_FILES = ('payload.json', 'signer', 'verdict.sig')
 # How long the daemon's background push may take to record itself after the
 # caller has its exit. A push to a local bare repository takes milliseconds.
 PUBLISH_WAIT = 10.0
+# What the engine writes to the run log when it declines to sign for drift.
+NOT_SIGNED_PREFIX = 'pandora: verdict not signed:'
 
 
 class SelftestError(Exception):
@@ -535,7 +537,17 @@ def verify_signature(payload, signature, signer):
     return None
 
 
-def check_verdict(result, job, *, say=notice):
+def not_signed_line(run_dir):
+    """The engine's `pandora: verdict not signed: ...` line from the run log, or ''."""
+    if run_dir is None:
+        return ''
+    for line in run_log_text(run_dir).splitlines():
+        if line.startswith(NOT_SIGNED_PREFIX):
+            return line
+    return ''
+
+
+def check_verdict(result, job, *, expect_signed=False, run_dir=None, say=notice):
     """What the run's signed verdict says, or SelftestError(exit=1) when it is wrong.
 
     The run declares `git = "synthetic"`, so the worker knows its tree. A
@@ -544,8 +556,16 @@ def check_verdict(result, job, *, say=notice):
     say so, and nothing else. A result with no `tree` key at all is from an engine that
     predates verdicts: noted, not failed, so the selftest still proves the
     rest of the path against it.
+
+    `expect_signed` is for a worker that must sign: then every skip, and an
+    engine that predates verdicts, is exit 1. The failure names the skip reason
+    and the engine's `pandora: verdict not signed: ...` line from the run log
+    in `run_dir`, when there is one.
     """
     if 'tree' not in result:
+        if expect_signed:
+            raise SelftestError('--expect-signed, but the engine wrote no tree to '
+                                'result.json: it predates signed verdicts', exit=1)
         say('the engine wrote no tree to result.json; it predates signed verdicts, '
             'so the verdict check is skipped')
         return 'not checked (engine predates verdicts)'
@@ -556,6 +576,12 @@ def check_verdict(result, job, *, say=notice):
     verdict = result.get('verdict')
     if not verdict:
         skipped = result.get('verdict_skipped')
+        if expect_signed:
+            line = not_signed_line(run_dir)
+            raise SelftestError('--expect-signed, but the run over tree %s was not '
+                                'signed: verdict_skipped is %r%s'
+                                % (tree, skipped, '; the run log says: ' + line if line
+                                   else ''), exit=1)
         if skipped in SKIP_ALLOWED:
             say('verdict skipped: %s, so it signs nothing' % SKIP_SAID[skipped])
             return 'none (%s)' % skipped
@@ -635,7 +661,8 @@ def published_refs(origin):
     return out.decode('utf-8', 'replace').split() if code == 0 else ['(unreadable)']
 
 
-def check_publication(result, run_dir, origin, *, seen, wait=PUBLISH_WAIT, say=notice):
+def check_publication(result, run_dir, origin, *, seen, wait=PUBLISH_WAIT,
+                      expect_signed=False, say=notice):
     """What the daemon's verdict publication did, or SelftestError(exit=1).
 
     Called after `check_verdict` accepted the receipt. A signed verdict must
@@ -646,12 +673,19 @@ def check_publication(result, run_dir, origin, *, seen, wait=PUBLISH_WAIT, say=n
     (`seen`) must take the "already on the remote" path instead. An unsigned
     run on a worker that is not ready must publish nothing. `seen` gains the
     ref. None when there is nothing to check (an engine before verdicts).
+    With `expect_signed`, publication that is not exercised is exit 1.
     """
     if 'tree' not in result:
+        if expect_signed:
+            raise SelftestError('--expect-signed, but the engine wrote no tree to '
+                                'result.json, so publication was not exercised', exit=1)
         return None
     verdict = result.get('verdict')
     if not verdict:
         skipped = result.get('verdict_skipped')
+        if expect_signed:
+            raise SelftestError('--expect-signed, but the run was not signed (%s), so '
+                                'publication was not exercised' % skipped, exit=1)
         if skipped not in SKIP_ALLOWED:
             return None
         refs = published_refs(origin)
@@ -773,7 +807,7 @@ def render(report):
 # -- the verb ------------------------------------------------------------------
 
 def run(*, state=None, config_path=None, host=None, update=False, queue=False,
-        keep=False, timeout=900.0, say=notice, environ=None):
+        expect_signed=False, keep=False, timeout=900.0, say=notice, environ=None):
     """Drive the whole path once. Returns (report, exit code)."""
     environ = os.environ if environ is None else environ
     real = read_real_config(config_path)
@@ -875,9 +909,12 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
                                     % (record['id'], code, (result or {}).get('outcome')),
                                     exit=code if code else 1)
             if argv[0] == 'selftest':
-                record['verdict'] = check_verdict(result or {}, 'selftest', say=say)
+                record['verdict'] = check_verdict(result or {}, 'selftest',
+                                                  expect_signed=expect_signed,
+                                                  run_dir=meta['_dir'], say=say)
                 publication = check_publication(result or {}, meta['_dir'], origin,
-                                                seen=seen_refs, say=say)
+                                                seen=seen_refs,
+                                                expect_signed=expect_signed, say=say)
                 if publication:
                     record['publication'] = publication
             if argv == ['qtest']:

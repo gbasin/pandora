@@ -28,6 +28,14 @@ def sh(command, timeout=60):
 
 # Package, architecture-qualified name, dpkg's three-letter status, version.
 DPKG_FORMAT = '${Package}\t${binary:Package}\t${db:Status-Abbrev}\t${Version}\n'
+# The quick survey runs before every signature, so each tool it calls gets a
+# short leash. A tool that runs out of it reads as unreadable, which is drift.
+QUICK_TIMEOUT = 5
+
+
+def installed(status):
+    """`ii`, or `hi` for a held package: wanted installed, installed, no error."""
+    return len(status) >= 2 and status[1] == 'i' and status[2:].strip() == ''
 
 
 def packages(names, timeout=10):
@@ -49,7 +57,7 @@ def packages(names, timeout=10):
         except FileNotFoundError:
             raise Unreadable('dpkg-query not found') from None
         except subprocess.TimeoutExpired:
-            raise Unreadable('dpkg-query timed out after %ds' % timeout) from None
+            raise Unreadable('dpkg-query timed out after %gs' % timeout) from None
         except OSError as error:
             raise Unreadable('dpkg-query: %s' % (error.strerror or error)) from None
         # 1 is "some name matched no package", which is an answer, not a failure.
@@ -61,12 +69,15 @@ def packages(names, timeout=10):
                 continue
             package, qualified, status, version = parts
             for key in (package, qualified):
-                found.setdefault(key, (status, version))
+                # Multi-arch: `foo:i386 rc` may precede `foo:amd64 ii`. For the
+                # bare name an installed copy wins over one that is not.
+                held = found.get(key)
+                if held is None or (installed(status) and not installed(held[0])):
+                    found[key] = (status, version)
     out = {}
     for name in names:
         status, version = found.get(name, ('', ''))
-        # `ii`, or `hi` for a held package: wanted installed, installed, no error.
-        if version and len(status) >= 2 and status[1] == 'i' and status[2:].strip() == '':
+        if version and installed(status):
             out[name] = version
         else:
             out[name] = None
@@ -79,10 +90,26 @@ def package_versions(names):
     return packages(names)[0]
 
 
-def settings():
-    """The manifest's `[worker]` settings that can be read off the host."""
-    return {'unattended_upgrades':
-            sh('systemctl is-enabled unattended-upgrades 2>/dev/null') == 'enabled'}
+def settings(timeout=60):
+    """The manifest's `[worker]` settings that can be read off the host.
+
+    A setting `systemctl` cannot answer (missing, timed out, no state printed)
+    is None, never False: None matches no manifest value, so it reads as
+    drift. A unit that is not installed is an answer: False. Older systemd
+    says so only on stderr.
+    """
+    try:
+        proc = subprocess.run(['systemctl', 'is-enabled', 'unattended-upgrades'],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return {'unattended_upgrades': None}
+    answer = (proc.stdout or b'').decode('utf-8', 'replace').strip()
+    if not answer:
+        err = (proc.stderr or b'').decode('utf-8', 'replace')
+        if 'No such file' in err or 'not found' in err or 'not-found' in err:
+            answer = 'not-found'
+    return {'unattended_upgrades': (answer == 'enabled') if answer else None}
 
 
 def kernel():
@@ -118,9 +145,11 @@ def drift(manifest, observed, state):
 def quick_survey(manifest):
     """The part of `survey` cheap enough to run before signing: packages,
     settings and the kernel, without the `sudo incus` object checks.
-    Raises Unreadable when dpkg cannot be asked."""
-    found, notes = packages(sorted(manifest['packages']))
-    return {'packages': found, 'package_notes': notes, 'worker': settings(),
+    Each tool gets QUICK_TIMEOUT seconds. Raises Unreadable when dpkg cannot
+    be asked."""
+    found, notes = packages(sorted(manifest['packages']), timeout=QUICK_TIMEOUT)
+    return {'packages': found, 'package_notes': notes,
+            'worker': settings(timeout=QUICK_TIMEOUT),
             'host': {'kernel': kernel()}}
 
 

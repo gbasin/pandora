@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import shutil
 import subprocess
 import tempfile
 import time
@@ -181,6 +182,16 @@ class DpkgFacts(unittest.TestCase):
         self.assertIn({'kind': 'package', 'name': 'incus', 'want': '6.0.6-1', 'have': None,
                        'detail': 'not installed (dpkg status iU)'}, items)
 
+    def test_multi_arch_an_installed_line_wins_over_an_earlier_one_that_is_not(self):
+        for stdout in ('foo\tfoo:i386\trc \t1.0-1\nfoo\tfoo:amd64\tii \t2.0-1\n',
+                       'foo\tfoo:amd64\tii \t2.0-1\nfoo\tfoo:i386\trc \t1.0-1\n'):
+            with self.subTest(stdout=stdout):
+                found, notes = self.query(stdout, returncode=0,
+                                          names=('foo', 'foo:i386', 'foo:amd64'))
+                self.assertEqual(found, {'foo': '2.0-1', 'foo:i386': None,
+                                         'foo:amd64': '2.0-1'})
+                self.assertEqual(notes, {'foo:i386': 'dpkg status rc'})
+
     def test_dpkg_that_cannot_answer_is_unreadable(self):
         for effect, said in ((FileNotFoundError('dpkg-query'), 'dpkg-query not found'),
                              (subprocess.TimeoutExpired('dpkg-query', 10), 'timed out'),
@@ -213,6 +224,61 @@ class DpkgFacts(unittest.TestCase):
         self.assertEqual([(item['kind'], item['name'], item['want'], item['have'])
                           for item in items],
                          [('host', 'kernel', '6.8.0-old', '6.8.0-new')])
+
+
+class FakeTools(unittest.TestCase):
+    """Real subprocesses against fake `dpkg-query` and `systemctl` on PATH."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.bin = Path(tmp.name) / 'bin'
+        self.bin.mkdir()
+        self.calls = Path(tmp.name) / 'calls'
+        # Only the fakes and `sleep` on PATH, so a host's real tools never answer.
+        (self.bin / 'sleep').symlink_to(shutil.which('sleep'))
+        path = mock.patch.dict('os.environ', {'PATH': str(self.bin)})
+        path.start()
+        self.addCleanup(path.stop)
+
+    def tool(self, name, body):
+        script = self.bin / name
+        script.write_text('#!/bin/sh\necho %s >> %s\n%s\n' % (name, self.calls, body))
+        script.chmod(0o755)
+
+    def test_a_systemctl_that_hangs_reads_as_unknown_within_the_timeout(self):
+        self.tool('systemctl', 'exec sleep 30')
+        started = time.monotonic()
+        self.assertEqual(facts.settings(timeout=0.5), {'unattended_upgrades': None})
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_systemctl_answers(self):
+        for body, want in (('echo enabled', True), ('echo disabled; exit 1', False),
+                           ('echo masked; exit 1', False), ('echo not-found; exit 4', False),
+                           ('echo "Failed to get unit file state for '
+                            'unattended-upgrades.service: No such file or directory" >&2; '
+                            'exit 1', False),
+                           ('echo "Failed to connect to bus" >&2; exit 1', None),
+                           ('exit 0', None)):
+            with self.subTest(body=body):
+                self.tool('systemctl', body)
+                self.assertEqual(facts.settings(timeout=5), {'unattended_upgrades': want})
+
+    def test_no_systemctl_reads_as_unknown_and_unknown_is_drift(self):
+        self.assertEqual(facts.settings(timeout=5), {'unattended_upgrades': None})
+        manifest = versions.normalize({})
+        items = versions.drift(manifest, {'packages': dict.fromkeys(manifest['packages'], '1'),
+                                          'worker': {'unattended_upgrades': None}})
+        self.assertEqual([(item['kind'], item['name']) for item in items],
+                         [('worker', 'unattended_upgrades')])
+
+    def test_the_quick_survey_holds_dpkg_to_its_short_timeout(self):
+        self.tool('dpkg-query', 'exec sleep 30')
+        started = time.monotonic()
+        with mock.patch.object(facts, 'QUICK_TIMEOUT', 0.5):
+            with self.assertRaisesRegex(facts.Unreadable, 'timed out after 0.5s'):
+                facts.quick_survey(versions.normalize({}))
+        self.assertLess(time.monotonic() - started, 10)
 
 
 class Pinning(unittest.TestCase):

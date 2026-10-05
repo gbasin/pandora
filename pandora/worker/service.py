@@ -98,6 +98,11 @@ def cmd_status(args):
     # last canary said: the canary was run against a different machine. The
     # same comparison gates verdict signing (`verdict.worker_drift`).
     items = facts.drift(manifest, observed, state)
+    if not facts.manifest_path(args.root).is_file():
+        # Signing reads the stored manifest and refuses without one; status
+        # says the same rather than comparing against the defaults.
+        items.append({'kind': 'object', 'name': 'manifest', 'want': 'present',
+                      'have': None, 'detail': 'not stored'})
     pool = driver.pool_usage()
     listed = goldens.index(Paths(engine_root), driver)
     running = [item for item in driver.instances() if item['name'].startswith('run-')]

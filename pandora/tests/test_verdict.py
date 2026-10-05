@@ -98,14 +98,14 @@ class ConditionsTest(unittest.TestCase):
         ('passed', 'parent', 'ready', TREE, 'not_whole'),
         ('passed', 'shard', 'failed', None, 'not_whole'),
         ('passed', 'single', 'unproven', TREE, 'worker_not_ready'),
-        ('passed', 'single', 'drifted', None, 'worker_not_ready'),
+        ('passed', 'single', 'unprovisioned', None, 'worker_not_ready'),
         ('passed', 'single', 'ready', None, 'no_synthetic_git'),
         ('passed', None, 'ready', TREE, None),
     ]
     # outcome, role, ready, tree, drift -> reason
     DRIFTED = [
         ('passed', 'single', 'ready', TREE, 'package incus', 'worker_drifted'),
-        ('passed', 'single', 'ready', None, 'package incus', 'worker_drifted'),
+        ('passed', 'single', 'ready', None, 'package incus', 'no_synthetic_git'),
         ('passed', 'single', 'unproven', TREE, 'package incus', 'worker_not_ready'),
         ('passed', 'shard', 'ready', TREE, 'package incus', 'not_whole'),
         ('command_failed', 'single', 'ready', TREE, 'package incus', 'not_passed'),
@@ -118,7 +118,7 @@ class ConditionsTest(unittest.TestCase):
                 self.assertEqual(verdict.skip_reason(outcome=outcome, role=role,
                                                      ready=ready, tree=tree), want)
 
-    def test_drift_comes_after_ready_and_before_the_tree(self):
+    def test_drift_comes_after_ready_and_the_tree(self):
         for outcome, role, ready, tree, drift, want in self.DRIFTED:
             with self.subTest(outcome=outcome, role=role, ready=ready, tree=tree, drift=drift):
                 self.assertEqual(verdict.skip_reason(outcome=outcome, role=role, ready=ready,
@@ -136,6 +136,15 @@ class ConditionsTest(unittest.TestCase):
                                   'verdict_skipped': 'worker_drifted'})
         self.assertEqual(lines, ['verdict not signed: worker_drifted: '
                                  'package incus: want 1, have 2 (version differs)'])
+
+    def test_a_job_without_synthetic_git_never_pays_for_the_survey(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(verdict, 'worker_drift',
+                                  side_effect=AssertionError('surveyed')) as drift:
+            answer = verdict.decide(tmp, {'role': 'single'}, outcome='passed', tree=None,
+                                    finished=1.0, golden='g', ready='ready')
+        self.assertEqual(answer['verdict_skipped'], 'no_synthetic_git')
+        drift.assert_not_called()
 
     def test_a_note_that_raises_does_not_reach_the_run(self):
         def note(text):
@@ -508,6 +517,63 @@ class DriftCacheTest(unittest.TestCase):
         manifest.write_text(manifest.read_text() + '\n')
         self.assertEqual(self.ask(), 'package incus: drifted 3')
 
+    def test_a_failed_survey_is_cached_too(self):
+        def boom(root):
+            self.calls.append(root)
+            raise RuntimeError('hung')
+        for _ in range(3):
+            self.assertEqual(verdict.worker_drift(self.engine, self.worker,
+                                                  clock=lambda: self.now, survey=boom),
+                             'drift check failed: RuntimeError')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_hung_dpkg_costs_one_run_not_every_run(self):
+        folder = Path(self.tmp.name) / 'bin'
+        folder.mkdir()
+        calls = Path(self.tmp.name) / 'calls'
+        fake = folder / 'dpkg-query'
+        fake.write_text('#!/bin/sh\necho call >> %s\nexec sleep 30\n' % calls)
+        fake.chmod(0o755)
+        (folder / 'sleep').symlink_to(shutil.which('sleep'))
+        started = time.monotonic()
+        with mock.patch.dict(os.environ, {'PATH': str(folder)}), \
+                mock.patch.object(facts, 'QUICK_TIMEOUT', 0.5):
+            for _ in range(3):
+                detail = verdict.worker_drift(self.engine, self.worker,
+                                              clock=lambda: self.now)
+                self.assertEqual(detail, 'dpkg unreadable: dpkg-query timed out after 0.5s')
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(calls.read_text().splitlines(), ['call'])
+
+    def test_each_worker_root_has_its_own_answer(self):
+        other = Path(self.tmp.name) / 'other'
+        (other / 'worker').mkdir(parents=True)
+        shutil.copy(self.worker / 'worker' / 'state.json', other / 'worker' / 'state.json')
+        shutil.copy(facts.manifest_path(self.worker), facts.manifest_path(other))
+        os.utime(other / 'worker' / 'state.json',
+                 ns=((self.worker / 'worker' / 'state.json').stat().st_mtime_ns,) * 2)
+        os.utime(facts.manifest_path(other),
+                 ns=(facts.manifest_path(self.worker).stat().st_mtime_ns,) * 2)
+        self.assertEqual(self.ask(), 'package incus: drifted 1')
+        self.assertEqual(verdict.worker_drift(self.engine, other, clock=lambda: self.now,
+                                              survey=self.survey),
+                         'package incus: drifted 2')
+        self.assertEqual(self.calls, [self.worker, other])
+
+    def test_writing_the_cache_sweeps_stale_temp_files(self):
+        keys = verdict.drift_cache_path(self.engine).parent
+        keys.mkdir(parents=True)
+        stale, young = keys / '.drift-stale', keys / '.drift-young'
+        stale.write_text('{')
+        young.write_text('{')
+        old = time.time() - 2 * verdict.DRIFT_TTL
+        os.utime(stale, (old, old))
+        (keys / 'verdict').write_text('not a drift file')
+        os.utime(keys / 'verdict', (old, old))
+        self.ask()
+        self.assertEqual(sorted(path.name for path in keys.iterdir()),
+                         ['.drift-young', 'drift.json', 'verdict'])
+
     def test_a_clock_that_went_backward_does_not_trust_the_cache(self):
         self.ask()
         self.now -= 5.0
@@ -575,6 +641,32 @@ class StatusAgreementTest(unittest.TestCase):
                 self.assertEqual(status['state'], 'drifted' if drifted else 'ready')
                 self.assertEqual(bool(detail), drifted, detail)
                 self.assertEqual(detail, verdict.describe_drift(status['drift']))
+
+
+class NoStoredManifestTest(StatusAgreementTest):
+    """No manifest at `<root>/worker/versions.toml`: signing refuses, so status
+    reads `drifted` and says why."""
+
+    CASES = []
+
+    def test_status_is_drifted_and_signing_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, engine = Path(tmp) / 'worker', Path(tmp) / 'engine'
+            (root / 'worker').mkdir(parents=True)
+            (root / 'worker' / 'state.json').write_text(json.dumps(
+                {'state': 'ready', 'kernel': KERNEL}))
+            defaults = versions.load(None)
+            observed = {'packages': dict(defaults['packages']), 'package_notes': {},
+                        'worker': dict(defaults['worker']), 'host': {'kernel': KERNEL}}
+            status = self.status(root, engine, observed)
+            detail = verdict.worker_drift(engine, root)
+        self.assertEqual(status['state'], 'drifted')
+        self.assertFalse(status['ok'])
+        self.assertEqual(status['drift'], [{'kind': 'object', 'name': 'manifest',
+                                            'want': 'present', 'have': None,
+                                            'detail': 'not stored'}])
+        self.assertTrue(detail.startswith('manifest unreadable: no versions manifest'),
+                        detail)
 
 
 class StatusLineTest(unittest.TestCase):

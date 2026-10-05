@@ -39,8 +39,8 @@ TIMEOUT = 30
 NOT_PASSED = 'not_passed'
 NOT_WHOLE = 'not_whole'
 WORKER_NOT_READY = 'worker_not_ready'
-WORKER_DRIFTED = 'worker_drifted'
 NO_SYNTHETIC_GIT = 'no_synthetic_git'
+WORKER_DRIFTED = 'worker_drifted'
 
 # How long one drift answer stands. Every supervisor is its own process, so the
 # answer is kept in a file under the engine root rather than in memory.
@@ -253,10 +253,13 @@ def survey_drift(root=None):
 
 
 def drift_key(root=None):
-    """What a cached answer depends on besides time: the manifest and the
-    state file. Re-provisioning or a new `canary --mark` starts afresh."""
-    folder = Path(root or worker_root()) / 'worker'
-    key = []
+    """What a cached answer depends on besides time: the worker root itself,
+    the manifest and the state file. Re-provisioning or a new `canary --mark`
+    starts afresh, and an engine root shared by two worker roots never reads
+    one root's answer for the other."""
+    top = Path(root or worker_root()).expanduser()
+    folder = top / 'worker'
+    key = [['root', str(top.resolve()), None]]
     for name in ('versions.toml', 'state.json'):
         try:
             info = (folder / name).stat()
@@ -271,8 +274,10 @@ def worker_drift(engine_root, root=None, *, clock=time.time, survey=None):
 
     The answer is cached for DRIFT_TTL seconds in `drift_cache_path`, shared by
     every supervisor on the engine root, so a burst of finishing runs pays for
-    one `dpkg-query`. A cache that cannot be read or written only costs a
-    fresh survey.
+    one `dpkg-query`. A failed survey is an answer too, and cached the same
+    way: caching "drifted" fails closed, and a hung tool costs one run its
+    timeout rather than every run for a minute. A cache that cannot be read or
+    written only costs a fresh survey.
     """
     try:
         now = clock()
@@ -286,10 +291,14 @@ def worker_drift(engine_root, root=None, *, clock=time.time, survey=None):
                 return held['detail']
         except (OSError, ValueError, TypeError):
             pass
-        detail = (survey or survey_drift)(root)
+        try:
+            detail = (survey or survey_drift)(root)
+        except Exception as error:                  # noqa: BLE001 - fail closed, and cache it
+            detail = 'drift check failed: %s' % type(error).__name__
         temp = None
         try:
             cache.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            sweep_temps(cache.parent)
             handle, temp = tempfile.mkstemp(dir=str(cache.parent), prefix='.drift-')
             with os.fdopen(handle, 'w') as out:
                 json.dump({'at': now, 'key': key, 'detail': detail}, out)
@@ -305,6 +314,26 @@ def worker_drift(engine_root, root=None, *, clock=time.time, survey=None):
         return 'drift check failed: %s' % type(error).__name__
 
 
+def sweep_temps(folder, *, age=DRIFT_TTL):
+    """Remove `.drift-*` files a killed writer left in `folder`. Only ones older
+    than `age` seconds: a younger one may be another supervisor's write in
+    flight."""
+    cutoff = time.time() - age
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith('.drift-'):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.lstat(path).st_mtime < cutoff:
+                os.unlink(path)
+        except OSError:
+            pass
+
+
 def skip_reason(*, outcome, role, ready, tree, drift=''):
     """The first signing condition that fails, or None when all hold.
     `drift` is `worker_drift`'s answer: '' for none."""
@@ -314,10 +343,10 @@ def skip_reason(*, outcome, role, ready, tree, drift=''):
         return NOT_WHOLE
     if ready != 'ready':
         return WORKER_NOT_READY
-    if drift:
-        return WORKER_DRIFTED
     if not tree:
         return NO_SYNTHETIC_GIT
+    if drift:
+        return WORKER_DRIFTED
     return None
 
 
@@ -327,7 +356,9 @@ def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, dri
 
     `row` is the attempt's ledger row as a dictionary. `ready` is the worker's
     ready state, read from the state file when not given; `drift` is
-    `worker_drift`'s answer, surveyed when not given. `note` takes one log
+    `worker_drift`'s answer, surveyed when not given and only when every
+    earlier condition holds, so a job without synthetic git never pays for
+    the survey. `note` takes one log
     line: a drift skip writes its detail there. Never raises.
     """
     answer = {'tree': tree, 'verdict': None, 'verdict_skipped': None}
@@ -335,7 +366,8 @@ def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, dri
         role = row.get('role') or 'single'
         if ready is None and outcome == 'passed' and role == 'single':
             ready = ready_state()
-        if drift is None and outcome == 'passed' and role == 'single' and ready == 'ready':
+        if (drift is None and outcome == 'passed' and role == 'single' and ready == 'ready'
+                and tree):
             drift = worker_drift(engine_root)
         reason = skip_reason(outcome=outcome, role=role, ready=ready, tree=tree,
                              drift=drift or '')
