@@ -113,9 +113,14 @@ CI job for the same tree can verify the signature and skip the work.
   or untracked. Secret-filtered files never reach the worker, so a tree with
   one of them never equals a commit's tree.
 * The payload is canonical JSON with `kind`, `v`, `run_id`, `repo`, `job`,
-  `argv`, `input_id`, `tree`, `golden`, `engine`, `outcome` and `finished`.
-  `engine` is the digest of the engine bundle that ran it. `golden` is the
-  toolchain fingerprint in `golden-<fingerprint>`.
+  `argv`, `cwd`, `env_digest`, `input_id`, `tree`, `golden`, `engine`,
+  `outcome` and `finished`. `engine` is the digest of the engine bundle that
+  ran it. `golden` is the toolchain fingerprint in `golden-<fingerprint>`.
+  `cwd` is the job's working directory as the plan carries it. `env_digest`
+  is the sha256 hex of the run's environment mapping as the plan carries it,
+  serialized as `json.dumps(env, sort_keys=True, separators=(',', ':'))`. The
+  payload binds the digest, not the values, so no environment value is
+  published.
 * The conditions, in order: the outcome is `passed`; the attempt is a whole
   run, not a shard or a fan-out parent; the worker's ready state is `ready`
   (a kernel other than the canary's reads as not ready); the run has a tree.
@@ -123,8 +128,14 @@ CI job for the same tree can verify the signature and skip the work.
   ([Run results](operations.md#run-results)).
 * The key is an Ed25519 OpenSSH key at `<engine_root>/keys/verdict` (0600) in
   a 0700 directory. The first run that signs creates it. It never leaves the
-  engine root and is never injected into an instance. The gateway refuses any
-  rsync path in `keys` or above it. A teammate who can ship a bundle can still
+  engine root and is never injected into an instance. `submit` refuses a
+  `source_path` that does not resolve, symlinks included, to a directory below
+  `<engine_root>/src`, as `source-outside`: the source is what the instance
+  mounts. The gateway refuses any rsync path in `keys` or above it, any
+  `--link-dest`, `--copy-dest` or `--compare-dest` that is relative or reaches
+  `keys`, and every option that makes the server follow a symlink: `-L`, `-k`,
+  `--copy-links`, `--copy-unsafe-links` and `--copy-dirlinks`, alone or in a
+  short-option cluster such as `-rlptgoDL`. A teammate who can ship a bundle can still
   run code as the worker user ([The gateway](#the-gateway)), so trust the
   signer only as far as every key that reaches the worker.
 * Signing runs `ssh-keygen -Y sign -n pandora-verdict`. A missing
@@ -138,6 +149,24 @@ first signed run)`. `pandora worker --json status` carries it as
 `verdict_signer`. Put that line in the verifying repository's allowed-signers
 file. Rebuilding a worker makes a new key, so update that file after a
 rebuild.
+
+What a verdict does not check:
+
+* Only the ready state and the kernel are checked per run. Package drift is
+  found only by `pandora worker status`, which surveys the host. A package
+  that changes after `canary --mark` does not stop signing until the next
+  canary records the change.
+* The engine reads the ready state from `PANDORA_WORKER_ROOT`, or `~/pandora`
+  when that is unset. A worker kept under a custom `pandora worker --root`
+  writes its state file there, so the engine finds none and nothing signs:
+  each result reads `verdict_skipped: worker_not_ready` while `status` reads
+  `ready`. That is fail-safe but silent. Set `PANDORA_WORKER_ROOT` for the
+  engine to the same root.
+* The tree is git's view of the bytes, not the bytes. A file that git
+  normalizes stores differently from what the run saw: a CRLF file under
+  `* text=auto` is stored with LF, and an LFS pointer is stored in place of
+  the content it names. A tree can therefore match a checkout whose bytes
+  differ. This is known and rare. `test_git` pins the normalization.
 
 ## Sharing a worker
 
@@ -182,7 +211,9 @@ refuses everything else with `pandora-gateway: refused as <name>: <reason>`:
   `reconcile`;
 * `pandora.worker.service` under an installed bundle, read-only: `status`,
   `capacity`, `goldens`, `pins`;
-* `rsync --server` with every path operand inside the engine root.
+* `rsync --server` with every path operand inside the engine root, never in
+  or above `<engine_root>/keys`, and no option that follows symlinks
+  ([Verdicts](#verdicts)).
 
 `gc`, `canary`, `ready`, `retain`, `cache-clear` and a bare shell are refused
 on a `user` key. An admitted command runs with `PANDORA_GATEWAY_CLIENT` set to

@@ -187,6 +187,50 @@ class ScriptTest(unittest.TestCase):
             # the commit is still the caller's tracked set.
             self.assertNotEqual(git('rev-parse', 'HEAD^{tree}').strip(), tree)
 
+    def test_the_tree_matches_a_local_write_tree_for_modes_links_and_crlf(self):
+        # Pins git's normalization as the verdict sees it: the tree is git's
+        # view of the bytes, not the bytes. Under `* text=auto` a CRLF file is
+        # stored with LF, so the tree equals a local `git add -A; git write-tree`
+        # over the same files but not a checkout whose bytes keep the CRLF. If
+        # this ever changes, the verdict's tree changes with it.
+        import os
+        import subprocess
+        from pandora.executor.incus import tree_of
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = root / 'work'
+            (work / 'bin').mkdir(parents=True)
+            (work / '.gitattributes').write_text('* text=auto\n')
+            (work / 'bin' / 'run').write_text('#!/bin/sh\necho hi\n')
+            os.chmod(work / 'bin' / 'run', 0o755)
+            (work / 'dos.txt').write_bytes(b'one\r\ntwo\r\n')
+            (work / 'link').symlink_to('bin/run')
+            env = dict(os.environ, GIT_CONFIG_SYSTEM=str(root / 'system.gitconfig'),
+                       GIT_CONFIG_GLOBAL=str(root / 'global.gitconfig'))
+            expect = root / 'expect'
+            subprocess.run(['cp', '-Rp', str(work), str(expect)], check=True)
+
+            def plain(*args):
+                return subprocess.run(['git', '-C', str(expect), *args], env=env, check=True,
+                                      capture_output=True, text=True).stdout
+            plain('init', '-q')
+            plain('add', '-A')
+            want = plain('write-tree').strip()
+            git = self.build(root, {})
+            tree = tree_of(self.printed)
+            self.assertEqual(tree, want)
+            entries = {line.split('\t')[1]: line.split()[0]
+                       for line in git('ls-tree', '-r', tree).splitlines()}
+            self.assertEqual(entries['bin/run'], '100755')
+            self.assertEqual(entries['link'], '120000')
+            self.assertEqual(entries['dos.txt'], '100644')
+            self.assertEqual(git('cat-file', 'blob', '%s:link' % tree), 'bin/run')
+            stored = subprocess.run(['git', '-C', str(work), 'cat-file', 'blob',
+                                     '%s:dos.txt' % tree], env=env, check=True,
+                                    capture_output=True).stdout
+            self.assertEqual(stored, b'one\ntwo\n')
+            self.assertEqual((work / 'dos.txt').read_bytes(), b'one\r\ntwo\r\n')
+
     def test_the_tree_is_taken_after_the_ignored_add_and_before_the_untracked_rm(self):
         from pandora.executor.incus import IncusDriver
         script = IncusDriver.GIT_SCRIPT
