@@ -1,15 +1,17 @@
 """A signed statement that a whole run passed over one exact git tree.
 
 A passing remote run on a ready worker produces a verdict: a canonical JSON
-payload naming the tree the run saw, the job, its argv and the golden it ran
-on, signed with an Ed25519 key that only this engine root holds. The client
+payload naming the tree the run saw, the job, its argv, environment and working
+directory, and the golden it ran on, signed with an Ed25519 key that only this engine root holds. The client
 publishes it as a git ref; a CI job for the same tree verifies the signature
 against an allowed-signers file and may skip the work.
 
 The key lives at `<engine_root>/keys/verdict` (0600, directory 0700) and is
 generated on the first run that needs it. It never leaves the engine root and
 is never injected into an instance: the instance sees `/work`, the attempt's
-plan output and nothing else of the engine root.
+plan output and nothing else of the engine root. `submit` refuses a source
+outside `<engine_root>/src`, and the gateway refuses rsync shapes that reach
+`keys`, so neither an instance nor a teammate's client can name the key.
 
 Signing is a courtesy, never a verdict. Every failure here, a missing
 `ssh-keygen` included, leaves `verdict` null with `verdict_skipped`
@@ -18,6 +20,7 @@ Signing is a courtesy, never a verdict. Every failure here, a missing
 Pure standard library plus the `ssh-keygen` binary.
 """
 import fcntl
+import hashlib
 import json
 import os
 import subprocess
@@ -108,12 +111,25 @@ def keygen(argv, *, stdin=b''):
     return proc.stdout
 
 
-def payload(*, argv, engine, finished, golden, input_id, job, outcome, repo, run_id, tree):
+def canonical(value):
+    """`json.dumps(value, sort_keys=True, separators=(',', ':'))` as UTF-8 bytes."""
+    return json.dumps(value, sort_keys=True, separators=(',', ':')).encode('utf-8')
+
+
+def env_digest(env):
+    """sha256 hex of the canonical JSON of the run's environment mapping, as the
+    plan carries it. The payload binds the digest, not the values, so a secret
+    in the environment is never published."""
+    return hashlib.sha256(canonical(dict(env or {}))).hexdigest()
+
+
+def payload(*, argv, cwd, engine, env_digest, finished, golden, input_id, job, outcome,
+            repo, run_id, tree):
     """The canonical payload bytes: sorted keys, no spaces, UTF-8, no newline."""
-    body = {'argv': list(argv), 'engine': engine, 'finished': finished, 'golden': golden,
-            'input_id': input_id, 'job': job, 'kind': KIND, 'outcome': outcome,
-            'repo': repo, 'run_id': run_id, 'tree': tree, 'v': VERSION}
-    return json.dumps(body, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    return canonical({'argv': list(argv), 'cwd': cwd, 'engine': engine,
+                      'env_digest': env_digest, 'finished': finished, 'golden': golden,
+                      'input_id': input_id, 'job': job, 'kind': KIND, 'outcome': outcome,
+                      'repo': repo, 'run_id': run_id, 'tree': tree, 'v': VERSION})
 
 
 def sign(engine_root, data):
@@ -178,7 +194,8 @@ def ready_state(root=None):
 
     The state file is the one `canary --mark` wrote. A kernel other than the one
     the canary passed on reads `drifted`, as `pandora worker status` says it.
-    Package drift needs a survey of the host and is left to `status`.
+    Package drift needs a survey of the host and is left to `status`: drift
+    after `canary --mark` does not stop signing until the next canary.
     """
     try:
         state = json.loads((Path(root or worker_root()) / 'worker' / 'state.json').read_text())
@@ -225,7 +242,8 @@ def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None):
             return answer
         if not golden:
             raise SignFailed('golden fingerprint unknown')
-        data = payload(argv=row['argv'], engine=engine_id(), finished=finished,
+        data = payload(argv=row['argv'], cwd=str(row.get('cwd') or ''), engine=engine_id(),
+                       env_digest=env_digest(row.get('env')), finished=finished,
                        golden=golden, input_id=row['input_id'], job=row['job'],
                        outcome=outcome, repo=row['repo'], run_id=row['run_id'], tree=tree)
         answer['verdict'] = sign(engine_root, data)

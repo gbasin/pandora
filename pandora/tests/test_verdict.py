@@ -3,7 +3,11 @@ import json
 import os
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -18,7 +22,9 @@ TREE = 'ab' * 20
 
 def fields(**over):
     base = {'argv': ['python3', '-m', 'unittest', 'discover', '-s', 'pandora'],
-            'engine': 'e' * 64, 'finished': 1791209006.46, 'golden': '0123456789abcdef',
+            'cwd': '.', 'engine': 'e' * 64,
+            'env_digest': verdict.env_digest({'NODE_ENV': 'test', 'CI': '1'}),
+            'finished': 1791209006.46, 'golden': '0123456789abcdef',
             'input_id': 'f' * 64, 'job': 'suite', 'outcome': 'passed', 'repo': 'pandora',
             'run_id': 'r1', 'tree': TREE}
     base.update(over)
@@ -29,11 +35,21 @@ class PayloadTest(unittest.TestCase):
     def test_the_payload_is_canonical_json_bytes(self):
         self.assertEqual(
             verdict.payload(**fields()),
-            ('{"argv":["python3","-m","unittest","discover","-s","pandora"],'
-             '"engine":"%s","finished":1791209006.46,"golden":"0123456789abcdef",'
+            ('{"argv":["python3","-m","unittest","discover","-s","pandora"],"cwd":".",'
+             '"engine":"%s",'
+             '"env_digest":"72fb0a5fd4a0f8aa51dbdb4267b749c588fb5d0047230d5dd5316201c1d0432c",'
+             '"finished":1791209006.46,"golden":"0123456789abcdef",'
              '"input_id":"%s","job":"suite","kind":"pandora-verdict","outcome":"passed",'
              '"repo":"pandora","run_id":"r1","tree":"%s","v":1}'
              % ('e' * 64, 'f' * 64, TREE)).encode())
+
+    def test_the_env_digest_is_sha256_of_the_canonical_mapping(self):
+        self.assertEqual(verdict.env_digest({}),
+                         '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a')
+        self.assertEqual(verdict.env_digest(None), verdict.env_digest({}))
+        self.assertEqual(verdict.env_digest({'B': '2', 'A': '1'}),
+                         verdict.env_digest({'A': '1', 'B': '2'}))
+        self.assertNotEqual(verdict.env_digest({'A': '1'}), verdict.env_digest({'A': '2'}))
 
     def test_equal_inputs_give_equal_bytes_whatever_the_argument_order(self):
         one = verdict.payload(**fields())
@@ -165,6 +181,44 @@ class KeyTest(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in (self.root / 'keys').iterdir()),
                          ['.lock', 'verdict', 'verdict.pub'])
 
+    def test_concurrent_generation_yields_one_key(self):
+        # Two supervisors finishing at once on a fresh engine root: one key,
+        # and both callers read the same public line. Threads and processes.
+        for round_ in range(3):
+            root = Path(self.tmp.name) / ('threads-%d' % round_)
+            barrier = threading.Barrier(2)
+            lines = []
+
+            def make():
+                barrier.wait()
+                lines.append(verdict.ensure_key(root)[1])
+            workers = [threading.Thread(target=make) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(lines[0], lines[1])
+            self.assertEqual(verdict.signer(root), lines[0])
+            self.assertEqual(sorted(path.name for path in (root / 'keys').iterdir()),
+                             ['.lock', 'verdict', 'verdict.pub'])
+        root = Path(self.tmp.name) / 'processes'
+        script = ('import sys, time; from pandora.engine import verdict; '
+                  'time.sleep(max(0, float(sys.argv[2]) - time.time())); '
+                  'print(verdict.ensure_key(sys.argv[1])[1])')
+        start = str(time.time() + 1.0)
+        top = str(Path(__file__).resolve().parents[2])
+        procs = [subprocess.Popen([sys.executable, '-c', script, str(root), start],
+                                  cwd=top, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for _ in range(2)]
+        outs = [proc.communicate(timeout=60) for proc in procs]
+        self.assertEqual([proc.returncode for proc in procs], [0, 0], outs)
+        lines = [out.decode().strip() for out, _ in outs]
+        self.assertEqual(lines[0], lines[1])
+        self.assertEqual(verdict.signer(root), lines[0])
+        self.assertEqual(sorted(path.name for path in (root / 'keys').iterdir()),
+                         ['.lock', 'verdict', 'verdict.pub'])
+
     def test_sign_and_verify_round_trip(self):
         data = verdict.payload(**fields())
         signed = verdict.sign(self.root, data)
@@ -231,7 +285,8 @@ class ResultFieldsTest(unittest.TestCase):
             'finished': result['finished'], 'golden': runner.toolchain_of(
                 PLAN['worker']).fingerprint(),
             'input_id': 'input-a', 'job': 'suite', 'kind': 'pandora-verdict',
-            'outcome': 'passed', 'repo': 'demo', 'run_id': 'r1', 'tree': TREE, 'v': 1})
+            'outcome': 'passed', 'repo': 'demo', 'run_id': 'r1', 'tree': TREE, 'v': 1,
+            'cwd': '.', 'env_digest': verdict.env_digest({})})
         self.assertEqual(signed['payload'].encode(), verdict.payload(**{
             key: body[key] for key in body if key not in ('kind', 'v')}))
         on_disk = json.loads(self.paths.result('r1').read_text())
