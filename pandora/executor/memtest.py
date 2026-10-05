@@ -48,8 +48,12 @@ WORKING_SET_MIB = 16
 WORKING_SET = (
     'mkdir -p {dir} && for i in $(seq 1 {files}); do '
     'dd if=/dev/urandom of={dir}/$i bs=1M count={mib} oflag=direct status=none 2>/dev/null '
-    '|| dd if=/dev/urandom of={dir}/$i bs=1M count={mib} conv=fsync status=none; done; '
+    '|| dd if=/dev/urandom of={dir}/$i bs=1M count={mib} conv=fsync status=none '
+    '|| {{ echo "pandora-hog: write $i failed" >&2; exit 97; }}; done; '
 ).format(dir=WORKING_SET_DIR, files=WORKING_SET_FILES, mib=WORKING_SET_MIB)
+# A write that fails (the run quota is full beside a very large golden) ends
+# the hog as `failed` within seconds, with the file number on stderr, instead
+# of thrashing a partial set until the 120 s wall reads as `timeout`.
 THRASH = 'while :; do cat %s/* > /dev/null 2>&1; done' % WORKING_SET_DIR
 
 HOGS = {
@@ -69,6 +73,7 @@ HOGS = {
     # kill the writer first.
     'mixed': ['bash', '-c',
               WORKING_SET +
+              'command -v node >/dev/null || { echo "pandora-hog: mixed needs node" >&2; exit 98; }; '
               'node -e "const a=[];for(;;){a.push(Buffer.alloc(16*1024*1024).fill(1));}" & '
               + THRASH],
 }
