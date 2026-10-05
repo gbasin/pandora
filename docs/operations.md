@@ -341,7 +341,13 @@ recorded as client `e2e-<host>`. It costs one small incus run because the
 scratch repository borrows an enrolled repository's `[worker]` toolchain, so
 the run clones a golden the worker already has. Everything the test owns lives
 under one temporary directory and is removed on exit (`--keep` keeps it);
-`--update` adds a second run whose write-back must land. The summary is the
+`--update` adds a second run whose write-back must land. The scratch job
+declares `git = "synthetic"` and `[verdicts] publish = false`, so each
+`selftest` receipt must carry a 40-hex `tree` and either a verdict that
+`ssh-keygen -Y verify` accepts against its own `signer`, or `verdict_skipped =
+"worker_not_ready"`. Any other skip reason fails the test with exit 1. A
+receipt with no `tree` key comes from an engine older than signed verdicts:
+the test says so and does not check it. The summary is the
 phase timings the caller paid and the engine measured. Exit 0 means the whole
 path worked; 70 means it could not be exercised, with the reason.
 

@@ -9,7 +9,9 @@ production worker; it runs only when PANDORA_SELFTEST_LIVE=1 is set, so CI and
 """
 import json
 import os
+import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -75,6 +77,14 @@ class RepoToml(Scratch):
         self.assertEqual(config['repo']['name'], 'pandora-selftest')
         self.assertIn('selftest', config['jobs'])
         self.assertEqual(config['jobs']['selftest']['forms'][0]['prefix'], ['selftest'])
+
+    def test_the_job_asks_for_a_tree_and_publishes_nothing(self):
+        config = self.load()
+        self.assertEqual(config['jobs']['selftest']['git'], 'synthetic')
+        self.assertEqual(config['verdicts'], {'publish': False, 'remote': 'origin'})
+        queued = loader.validate(tomllib.loads(selftest.repo_toml(selftest.MINIMAL_WORKER,
+                                                                  queue=True)))
+        self.assertEqual(queued['verdicts']['publish'], False)
 
     def test_the_claimed_forms_and_policies(self):
         from pandora.config import classify
@@ -228,6 +238,91 @@ class Receipts(Scratch):
             self.assertIn(needle, text)
 
 
+class Verdicts(Scratch):
+    """The receipt's signed verdict, checked with a real key and `ssh-keygen -Y`."""
+
+    TREE = 'c' * 40
+
+    def setUp(self):
+        super().setUp()
+        key = self.root / 'verdict'
+        subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C',
+                        'pandora-verdict', '-f', str(key)], check=True, capture_output=True)
+        self.key = key
+        self.signer = (self.root / 'verdict.pub').read_text().strip()
+        self.said = []
+
+    def sign(self, body, key=None):
+        payload = json.dumps(body, sort_keys=True, separators=(',', ':'))
+        proc = subprocess.run(['ssh-keygen', '-Y', 'sign', '-f', str(key or self.key),
+                               '-n', 'pandora-verdict'],
+                              input=payload.encode(), check=True, capture_output=True)
+        return payload, proc.stdout.decode()
+
+    def body(self, **changes):
+        body = {'argv': ['sh', 'selftest.sh'], 'engine': 'e', 'finished': 1.0,
+                'golden': '0' * 16, 'input_id': 'f' * 64, 'job': 'selftest',
+                'kind': 'pandora-verdict', 'outcome': 'passed', 'repo': 'pandora-selftest',
+                'run_id': 'r1', 'tree': self.TREE, 'v': 1}
+        body.update(changes)
+        return body
+
+    def result(self, payload=None, signature=None, signer=None, **changes):
+        if payload is None:
+            payload, signature = self.sign(self.body(**changes))
+        return {'outcome': 'passed', 'tree': self.TREE, 'verdict_skipped': None,
+                'verdict': {'payload': payload, 'signature': signature,
+                            'signer': signer or self.signer}}
+
+    def check(self, result):
+        return selftest.check_verdict(result, 'selftest', say=self.said.append)
+
+    def refused(self, result, needle):
+        with self.assertRaises(selftest.SelftestError) as caught:
+            self.check(result)
+        self.assertEqual(caught.exception.exit, 1)
+        self.assertIn(needle, str(caught.exception))
+
+    def test_a_good_signature_verifies(self):
+        self.assertEqual(self.check(self.result()), 'signed, tree cccccccccccc')
+        self.assertEqual(self.said, [])
+
+    def test_a_tampered_payload_or_another_signer_fails(self):
+        good = self.result()
+        tampered = dict(good, verdict=dict(good['verdict'],
+                                           payload=good['verdict']['payload'].replace(
+                                               '"passed"', '"failed"')))
+        self.refused(tampered, 'does not verify')
+        other = self.root / 'other'
+        subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(other)],
+                       check=True, capture_output=True)
+        stranger = (self.root / 'other.pub').read_text().strip()
+        self.refused(dict(good, verdict=dict(good['verdict'], signer=stranger)),
+                     'does not verify')
+
+    def test_a_signed_payload_that_disagrees_with_the_run_fails(self):
+        self.refused(self.result(job='other'), 'disagrees with the run on job')
+        self.refused(self.result(tree='d' * 40), 'disagrees with the run on tree')
+
+    def test_an_unready_worker_is_the_one_allowed_skip(self):
+        result = {'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
+                  'verdict_skipped': 'worker_not_ready'}
+        self.assertEqual(self.check(result), 'none (worker_not_ready)')
+        self.assertTrue(self.said)
+        for reason in ('not_passed', 'not_whole', 'no_synthetic_git', None):
+            with self.subTest(reason=reason):
+                self.refused(dict(result, verdict_skipped=reason), repr(reason))
+
+    def test_a_tree_that_is_not_40_hex_fails(self):
+        self.refused({'outcome': 'passed', 'tree': None, 'verdict': None,
+                      'verdict_skipped': 'no_synthetic_git'}, 'not a 40-hex git tree id')
+
+    def test_an_engine_before_verdicts_is_noted_not_failed(self):
+        self.assertEqual(self.check({'outcome': 'passed'}),
+                         'not checked (engine predates verdicts)')
+        self.assertIn('predates signed verdicts', self.said[0])
+
+
 class Help(Scratch):
     def test_help_names_selftest_honestly(self):
         code, out, _ = capture(lambda: _exit_code(cli.main, ['--help']))
@@ -264,6 +359,8 @@ class LiveRun(unittest.TestCase):
             self.assertIn(phase, record['pre_accept'])
         for phase in ('clone', 'execute', 'destroy'):
             self.assertIn(phase, record['engine'])
+        # Signed, skipped for an unready worker, or not checked on an old engine.
+        self.assertIn('verdict', record)
 
 
 if __name__ == '__main__':

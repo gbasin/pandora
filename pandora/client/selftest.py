@@ -12,9 +12,12 @@ Everything it owns lives under one `mkdtemp`: a scratch client configuration
 pointing at the real worker, a scratch state directory the test daemon alone
 holds, and a scratch git repository whose `pandora.toml` claims a `selftest`
 job that echoes a marker -- or, with `--update`, writes one file back through
-the write-back path. The live daemon, the live configuration and the live
-state directory are read, never written, and the test refuses to run with a
-state directory that resolves to either of them.
+the write-back path. The job declares `git = "synthetic"`, so the receipt
+carries the run's git tree and, from a ready worker, a verdict signed by the
+worker's key, which the test verifies with `ssh-keygen -Y verify`. The live
+daemon, the live configuration and the live state directory are read, never
+written, and the test refuses to run with a state directory that resolves to
+either of them.
 
 The scratch repository declares the `[worker]` toolchain of a repository the
 caller already enrolled -- minus `prepare_command`, which is not fingerprinted
@@ -75,11 +78,15 @@ entrypoints = ["pnpm"]
 
 {worker}
 
+[verdicts]
+publish = false
+
 [[jobs]]
 id = "selftest"
 summary = "The end-to-end smoke run"
 size = "small"
 args = "optional"
+git = "synthetic"
 timeout_minutes = 5
 forms = [{{ prefix = ["selftest"] }}]
 options = [{{ name = "--update", sets = "update", forward = true, writeback = true }}]
@@ -167,6 +174,13 @@ name = {name}
 [notify]
 enabled = false
 '''
+
+
+# The one key a selftest verdict may be skipped for: the e2e worker need not be
+# marked ready, and a worker that is not ready signs nothing.
+SKIP_ALLOWED = 'worker_not_ready'
+HEX40 = re.compile(r'[0-9a-f]{40}\Z')
+VERDICT_NAMESPACE = 'pandora-verdict'
 
 
 class SelftestError(Exception):
@@ -470,6 +484,77 @@ def receipt(state, argv, *, wait=10.0):
                         % (' '.join(want), len(metas)), exit=1)
 
 
+def verify_signature(payload, signature, signer):
+    """None when `ssh-keygen -Y verify` accepts the signature for `signer`, else why not."""
+    with tempfile.TemporaryDirectory(prefix='pandora-verdict-') as scratch:
+        signers = Path(scratch) / 'allowed_signers'
+        signers.write_text('%s namespaces="%s" %s\n'
+                           % (VERDICT_NAMESPACE, VERDICT_NAMESPACE, signer.strip()))
+        sig = Path(scratch) / 'verdict.sig'
+        sig.write_text(signature)
+        try:
+            proc = subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(signers),
+                                   '-I', VERDICT_NAMESPACE, '-n', VERDICT_NAMESPACE,
+                                   '-s', str(sig)],
+                                  input=payload.encode(), capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return 'ssh-keygen could not run: %s' % error
+    if proc.returncode != 0:
+        return ((proc.stderr or proc.stdout).decode('utf-8', 'replace').strip()[:300]
+                or 'ssh-keygen exited %d' % proc.returncode)
+    return None
+
+
+def check_verdict(result, job, *, say=notice):
+    """What the run's signed verdict says, or SelftestError(exit=1) when it is wrong.
+
+    The run declares `git = "synthetic"`, so the worker knows its tree. A
+    passing whole run on a ready worker must come home signed by the key the
+    result names; on a worker that is not marked ready it must say so, and
+    nothing else. A result with no `tree` key at all is from an engine that
+    predates verdicts: noted, not failed, so the selftest still proves the
+    rest of the path against it.
+    """
+    if 'tree' not in result:
+        say('the engine wrote no tree to result.json; it predates signed verdicts, '
+            'so the verdict check is skipped')
+        return 'not checked (engine predates verdicts)'
+    tree = result.get('tree')
+    if not isinstance(tree, str) or not HEX40.fullmatch(tree):
+        raise SelftestError('the run declares git = "synthetic" but its result names tree %r, '
+                            'not a 40-hex git tree id' % (tree,), exit=1)
+    verdict = result.get('verdict')
+    if not verdict:
+        skipped = result.get('verdict_skipped')
+        if skipped == SKIP_ALLOWED:
+            say('verdict skipped: the worker is not marked ready, so it signs nothing')
+            return 'none (%s)' % skipped
+        raise SelftestError('a passing whole run over tree %s was not signed: '
+                            'verdict_skipped is %r; only %r is expected here'
+                            % (tree, skipped, SKIP_ALLOWED), exit=1)
+    parts = [verdict.get(key) if isinstance(verdict, dict) else None
+             for key in ('payload', 'signature', 'signer')]
+    if not all(isinstance(item, str) and item for item in parts):
+        raise SelftestError('the verdict lacks a payload, signature or signer', exit=1)
+    payload, signature, signer = parts
+    why = verify_signature(payload, signature, signer)
+    if why is not None:
+        raise SelftestError('the verdict signature does not verify against its signer: %s'
+                            % why, exit=1)
+    try:
+        body = json.loads(payload)
+    except ValueError:
+        raise SelftestError('the signed verdict payload is not JSON', exit=1) from None
+    expected = {'kind': 'pandora-verdict', 'v': 1, 'tree': tree, 'job': job,
+                'outcome': 'passed'}
+    wrong = sorted(key for key, value in expected.items()
+                   if not isinstance(body, dict) or body.get(key) != value)
+    if wrong:
+        raise SelftestError('the signed verdict payload disagrees with the run on %s'
+                            % ', '.join(wrong), exit=1)
+    return 'signed, tree %s' % tree[:12]
+
+
 def run_report(meta, result, wall):
     """The timings one submission produced, for the summary and --json."""
     durations = (result or {}).get('durations') or {}
@@ -504,6 +589,8 @@ def render(report):
                      % (record['id'], ' '.join((record['argv'] or [])[1:]),
                         record['outcome'], record['exit'], record['wall_seconds']))
         lines.append('  ' + phases_line(record))
+        if record.get('verdict'):
+            lines.append('  verdict: ' + record['verdict'])
     if report.get('writeback'):
         lines.append('write-back: %s landed in the scratch worktree' % report['writeback'])
     lines.append('%s in %.1fs%s' % ('OK' if report['ok'] else 'FAILED', report['seconds'],
@@ -615,6 +702,8 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
                 raise SelftestError('run %s failed: exit %s, outcome %s'
                                     % (record['id'], code, (result or {}).get('outcome')),
                                     exit=code if code else 1)
+            if argv[0] == 'selftest':
+                record['verdict'] = check_verdict(result or {}, 'selftest', say=say)
             if argv == ['qtest']:
                 # The queue's receipt is its verification: every planned id
                 # observed exactly once, no batch left dead or dangling.

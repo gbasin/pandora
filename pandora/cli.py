@@ -1102,7 +1102,8 @@ def main(argv=None):
                          'touches the live daemon, config or state',
         description='Drive the production path once, end to end: enroll a scratch '
                     'repository for a test daemon on a scratch socket, type `pnpm '
-                    'selftest` through the real shim, and assert the receipt. It '
+                    'selftest` through the real shim, and assert the receipt, '
+                    'including its signed verdict when the engine signs. It '
                     'costs one small incus run on the real worker. The worker host '
                     'and the toolchain come from the client configuration '
                     '`--config` names (the enrolled repository\'s `[worker]` table '
