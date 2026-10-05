@@ -579,6 +579,10 @@ def cmd_health(args):
         reason.append('worker state is %s' % state['state'])
     if canary and not canary.get('ok'):
         reason.append('the last canary failed')
+    # The same kernel rule as `facts.drift`, which `pandora worker status` and
+    # verdict signing share. Kept separate on purpose: health tolerates an
+    # unreadable kernel ('' is not drift here), and it is polled every minute
+    # without the manifest. Change one, check the other.
     kernel = read_line('/proc/sys/kernel/osrelease')
     kernel_drift = bool(state.get('kernel') and kernel and state['kernel'] != kernel)
     if kernel_drift:

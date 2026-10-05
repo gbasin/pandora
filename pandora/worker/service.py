@@ -52,7 +52,7 @@ def manifest_of(root, path=None):
     declaration from the person asking would make it answer "does this machine
     match what you are holding" instead.
     """
-    target = Path(path) if path else worker_dir(root) / 'versions.toml'
+    target = Path(path) if path else facts.manifest_path(root)
     if target.is_file():
         return versions.load(target), str(target)
     return versions.load(None), None
@@ -93,20 +93,19 @@ def cmd_status(args):
     engine_root = engine_root_of(manifest, args.engine_root)
     driver = driver_for(manifest, engine_root)
     observed = facts.survey(manifest)
-    items = versions.drift(manifest, observed)
     state = read_state(args.root)
+    # A worker whose manifest and machine disagree is not `ready`, whatever its
+    # last canary said: the canary was run against a different machine. The
+    # same comparison gates verdict signing (`verdict.worker_drift`).
+    items = facts.drift(manifest, observed, state)
+    if not facts.manifest_path(args.root).is_file():
+        # Signing reads the stored manifest and refuses without one; status
+        # says the same rather than comparing against the defaults.
+        items.append({'kind': 'object', 'name': 'manifest', 'want': 'present',
+                      'have': None, 'detail': 'not stored'})
     pool = driver.pool_usage()
     listed = goldens.index(Paths(engine_root), driver)
     running = [item for item in driver.instances() if item['name'].startswith('run-')]
-    # A worker whose manifest and machine disagree is not `ready`, whatever its
-    # last canary said: the canary was run against a different machine.
-    # The kernel is not a package the manifest pins, and a reboot can land on a
-    # different one without anything in the declaration changing. It is still a
-    # different machine than the one the canary passed on, so it is drift.
-    kernel = observed['host']['kernel']
-    if state.get('kernel') and state['kernel'] != kernel:
-        items.append({'kind': 'host', 'name': 'kernel', 'want': state['kernel'],
-                      'have': kernel, 'detail': 'the canary passed on a different kernel'})
     reported = state.get('state', 'unprovisioned')
     if items and reported == 'ready':
         reported = 'drifted'
