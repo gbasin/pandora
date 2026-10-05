@@ -8,6 +8,8 @@
 # The key is the worker's verdict key: `pandora worker status` prints it under
 # `verdict signer:`. The private half never leaves the worker's engine root.
 #
-# CI reads this file from the base branch, never from a pull request's head, so
-# a key takes effect only after it is merged. With no key line here, every
-# verification answers verified=false reason=no_signers and the suite runs.
+# CI reads this file from the default branch only, never from a pull request's
+# head or base, so a key takes effect only after it is merged there, and
+# revoking a key means removing its line on the default branch. With no key
+# line here, every verification answers verified=false reason=no_signers and
+# the suite runs.

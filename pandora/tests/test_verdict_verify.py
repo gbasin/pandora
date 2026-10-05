@@ -12,7 +12,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[2] / 'scripts' / 'verdict-verify.sh'
+from pandora.config.loader import load
+from pandora.errors import UnknownSchema
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / 'scripts' / 'verdict-verify.sh'
 ARGV = ['python3', '-m', 'unittest', 'discover', '-s', 'pandora']
 SIGNERS = '.github/pandora/allowed_signers'
 HEADER = '# pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAA...\n'
@@ -29,8 +33,9 @@ def keypair(path):
     return path.with_suffix('.pub').read_text().strip()
 
 
-def signers_line(public):
-    return 'pandora-verdict namespaces="pandora-verdict" %s\n' % public
+def signers_line(public, principal='pandora-verdict', namespaces='pandora-verdict'):
+    option = '' if namespaces is None else 'namespaces="%s" ' % namespaces
+    return '%s %s%s\n' % (principal, option, public)
 
 
 @unittest.skipUnless(shutil.which('ssh-keygen') and shutil.which('bash'),
@@ -71,8 +76,13 @@ class VerdictVerifyTest(unittest.TestCase):
         return self.commit(dict({'feature.py': 'x = 1\n'}, **(head_files or {})),
                            'change', 'change')
 
-    def publish(self, tree, job='suite', key=None, fields=None):
-        """Push a verdict to refs/pandora/verdicts/<tree>/<job>; `fields` override the payload."""
+    def publish(self, tree, job='suite', key=None, fields=None, namespace='pandora-verdict',
+                omit=()):
+        """Push a verdict to refs/pandora/verdicts/<tree>/<job>; `fields` override the payload.
+
+        `namespace` is the ssh signing namespace; `omit` names files left out of
+        the verdict commit.
+        """
         payload = {'argv': ARGV, 'engine': 'e1', 'finished': 1791209006.46,
                    'golden': '0123456789abcdef', 'input_id': 'a' * 64, 'job': job,
                    'kind': 'pandora-verdict', 'outcome': 'passed', 'repo': 'pandora',
@@ -81,13 +91,14 @@ class VerdictVerifyTest(unittest.TestCase):
         data = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
         key = key or self.key
         signature = subprocess.run(['ssh-keygen', '-Y', 'sign', '-f', str(key),
-                                    '-n', 'pandora-verdict'], input=data, check=True,
+                                    '-n', namespace], input=data, check=True,
                                    capture_output=True).stdout
         signer = key.with_suffix('.pub').read_bytes()
         blobs = [(name, git(self.dev, 'hash-object', '-w', '--stdin', stdin=body)
                   .decode().strip())
                  for name, body in (('payload.json', data), ('signer', signer),
-                                    ('verdict.sig', signature))]
+                                    ('verdict.sig', signature))
+                 if name not in omit]
         listing = ''.join('100644 blob %s\t%s\n' % (oid, name) for name, oid in blobs)
         made = git(self.dev, 'mktree', stdin=listing.encode()).decode().strip()
         env = dict(os.environ, GIT_AUTHOR_NAME='pandora', GIT_AUTHOR_EMAIL='pandora@localhost',
@@ -97,21 +108,26 @@ class VerdictVerifyTest(unittest.TestCase):
                                  'pandora verdict %s %s' % (tree, job)], env=env,
                                 check=True, capture_output=True).stdout.decode().strip()
         git(self.dev, 'push', '-q', 'origin',
-            '%s:refs/pandora/verdicts/%s/%s' % (commit, tree, job))
+            '+%s:refs/pandora/verdicts/%s/%s' % (commit, tree, job))
 
     # --- verifying --------------------------------------------------------
 
-    def verify(self, *, job='suite', argv=ARGV, base='origin/main', branch='change',
-               env=None):
+    def verify(self, *, job='suite', argv=ARGV, base=None, branch='change', env=None,
+               default_branch=None):
+        """Run the script in a clone, as CI does. `base` is the tests-only override;
+        without it the script fetches the default branch. `argv` may be a raw string."""
         ci = self.root / 'ci'
         if not ci.exists():
             subprocess.run(['git', 'clone', '-q', str(self.origin), str(ci)],
                            check=True, capture_output=True)
         git(ci, 'checkout', '-q', branch)
         output = self.root / 'github_output'
-        command = ['bash', str(SCRIPT), '--job', job, '--argv', json.dumps(argv)]
+        argv = argv if isinstance(argv, str) else json.dumps(argv)
+        command = ['bash', str(SCRIPT), '--job', job, '--argv', argv]
         if base is not None:
             command += ['--base', base]
+        if default_branch is not None:
+            command += ['--default-branch', default_branch]
         environment = dict(os.environ, GITHUB_OUTPUT=str(output))
         environment.pop('GITHUB_BASE_REF', None)
         environment.update(env or {})
@@ -194,18 +210,108 @@ class VerdictVerifyTest(unittest.TestCase):
         # the base is the only thing refusing it.
         self.assertEqual(self.verify(base='HEAD')['reason'], 'match')
 
-    def test_a_pull_request_reads_signers_from_its_base_branch(self):
+    def test_signers_are_fetched_fresh_from_the_default_branch(self):
         tree = self.base_and_head(base_signers='')
         self.publish(tree)
-        # The clone's origin/main has no key; only the fetch of main brings one.
         self.assertEqual(self.verify()['reason'], 'no_signers')
+        # The clone's origin/main is now stale; only the fetch of main brings the key.
         self.commit({SIGNERS: HEADER + signers_line(self.public)}, 'add key', 'main')
-        fields = self.verify(base=None, env={'GITHUB_BASE_REF': 'main'})
+        fields = self.verify(default_branch='main')
         self.assertEqual((fields['verified'], fields['reason']), ('true', 'match'))
+        # Without --default-branch the script asks origin which branch HEAD names.
+        self.assertEqual(self.verify()['reason'], 'match')
+
+    def test_a_pull_request_base_other_than_the_default_is_ignored(self):
+        # main has no key; the PR targets `release`, which holds one.
+        tree = self.base_and_head(base_signers='')
+        self.commit({SIGNERS: HEADER + signers_line(self.public)}, 'release key', 'release')
+        self.publish(tree)
+        fields = self.verify(default_branch='main', env={'GITHUB_BASE_REF': 'release'})
+        self.assertEqual(fields['verified'], 'false')
+        self.assertIn(fields['reason'], ('no_signers', 'signers_missing'))
+        fields = self.verify(env={'GITHUB_BASE_REF': 'release'})
+        self.assertIn(fields['reason'], ('no_signers', 'signers_missing'))
+
+    def test_a_planted_tag_does_not_shadow_the_default_branch(self):
+        # A tag named origin/main whose signers file holds the intruder's key.
+        intruder = self.root / 'keys' / 'intruder'
+        public = keypair(intruder)
+        tree = self.base_and_head()
+        self.commit({SIGNERS: HEADER + signers_line(public)}, 'planted', 'planted')
+        git(self.dev, 'tag', 'origin/main', 'planted')
+        git(self.dev, 'push', '-q', 'origin', 'refs/tags/origin/main')
+        self.publish(tree, key=intruder)
+        self.verify()  # clones; the clone fetches the tag
+        ci = self.root / 'ci'
+        git(ci, 'fetch', '-q', '--tags', 'origin')
+        self.assertTrue(git(ci, 'tag', '--list', 'origin/main').strip())
+        # The short name resolves to the tag, which is exactly what must not be read.
+        self.assertEqual(self.verify(base='origin/main')['reason'], 'match')
+        fields = self.verify(default_branch='main')
+        self.assertEqual((fields['verified'], fields['reason']), ('false', 'bad_signature'))
+
+    def test_a_signature_in_another_namespace_is_refused(self):
+        tree = self.base_and_head()
+        self.publish(tree, namespace='git')
+        self.assertEqual(self.verify()['reason'], 'bad_signature')
+
+    def test_a_signers_line_without_namespaces_still_binds_the_namespace(self):
+        # No namespaces= trusts the key for any namespace, but ssh-keygen still
+        # checks the signature's own namespace against -n pandora-verdict.
+        tree = self.base_and_head(base_signers=signers_line(self.public, namespaces=None))
+        self.publish(tree, namespace='git')
+        self.assertEqual(self.verify()['reason'], 'bad_signature')
+        self.publish(tree)
+        self.assertEqual(self.verify()['reason'], 'match')
+
+    def test_a_signers_line_for_another_namespace_is_refused(self):
+        tree = self.base_and_head(base_signers=signers_line(self.public, namespaces='git'))
+        self.publish(tree)
+        self.assertEqual(self.verify()['reason'], 'bad_signature')
+
+    def test_a_signers_line_for_another_principal_is_refused(self):
+        tree = self.base_and_head(base_signers=signers_line(self.public, principal='someone'))
+        self.publish(tree)
+        self.assertEqual(self.verify()['reason'], 'bad_signature')
+
+    def test_another_kind_is_refused(self):
+        tree = self.base_and_head()
+        self.publish(tree, fields={'kind': 'pandora-receipt'})
+        self.assertEqual(self.verify()['reason'], 'kind_mismatch')
+
+    def test_a_version_must_be_the_integer_one(self):
+        tree = self.base_and_head()
+        for version in (True, 1.0, '1', 2):
+            with self.subTest(version=version):
+                self.publish(tree, fields={'v': version})
+                self.assertEqual(self.verify()['reason'], 'version_mismatch')
+
+    def test_a_verdict_without_a_signature_is_malformed(self):
+        tree = self.base_and_head()
+        self.publish(tree, omit=('verdict.sig',))
+        fields = self.verify()
+        self.assertEqual((fields['verified'], fields['reason']), ('false', 'malformed_verdict'))
+
+    def test_an_argv_that_is_not_json_is_refused(self):
+        tree = self.base_and_head()
+        self.publish(tree)
+        self.assertEqual(self.verify(argv='python3 -m unittest')['reason'], 'bad_argv')
 
     def test_a_job_that_cannot_name_a_ref_is_refused(self):
         self.base_and_head()
         self.assertEqual(self.verify(job='../x')['reason'], 'bad_job')
+
+
+class OwnConfigTest(unittest.TestCase):
+    def test_the_repository_toml_declares_the_suite_job_with_refuse(self):
+        try:
+            config = load(ROOT / 'pandora.toml')
+        except UnknownSchema as error:
+            if 'verdicts' in str(error):
+                self.skipTest('this loader does not know [verdicts] yet; PR #211 adds it')
+            raise
+        self.assertIn('suite', config['jobs'])
+        self.assertEqual(config['jobs']['suite']['fallback']['action'], 'refuse')
 
 
 if __name__ == '__main__':

@@ -106,10 +106,18 @@ workflow. Existing GitHub PR checks stay in place. One result may stand in for
 one of them: a signed verdict from a passing whole run on a ready worker, for
 the identical git tree, may satisfy the same job on CI. The verdict binds the
 tree, the job, the argv and the golden fingerprint, and is signed with a key
-that never leaves the worker. CI reads the allowed signers from the base
-branch, never from the change under review, so a change cannot add the key that
-vouches for it. Failures never transfer: a failed or missing verdict only means
-CI runs the job itself. No merge or deployment behavior changes.
+that never leaves the worker. CI reads the allowed signers from the
+repository's default branch only, never from the change under review and never
+from a base branch a pull request picks, so a change cannot add the key that
+vouches for it. That rule protects against key injection only. It does not
+protect against a pull request that edits the verifier itself (the action, the
+script, or the workflow step that calls them), because CI runs the head's copy
+of those files. The verifier files are therefore review-sensitive, and a
+CODEOWNERS-style rule requiring the owner's review for them is the natural
+guard. CI does not yet pin the golden fingerprint: it records the verdict's
+golden but does not check it against an expected value until golden pinning
+lands. Failures never transfer: a failed or missing verdict only means CI runs
+the job itself. No merge or deployment behavior changes.
 
 ## Queue, cancellation, and debugging
 

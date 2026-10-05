@@ -151,6 +151,9 @@ root with `pandora run -- python3 -m unittest discover -s pandora`. Plain
 run on a ready worker yields a signed verdict for the tree it ran, and the
 ubuntu leg of `tests.yml` skips its unittest step when a signed verdict for
 the same tree exists ([Verdicts in CI](docs/operations.md#verdicts-in-ci)).
+Under `pandora run`, a `python3 -m unittest ...` argv that does not match the
+declared form runs through the real `pnpm` passthrough on this Mac and never
+reaches the worker, so type the form exactly.
 
 The full contract: [docs/agents.md](docs/agents.md). Paragraphs to copy into a
 repository's own agent instructions: [docs/agents-paragraphs.md](docs/agents-paragraphs.md).

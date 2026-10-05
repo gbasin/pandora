@@ -3,8 +3,9 @@ description: >-
   Verify a signed Pandora run verdict for the checked-out tree. A verdict is
   the parentless commit at refs/pandora/verdicts/<tree>/<job> on origin,
   signed by a Pandora worker key. The allowed signers file is read from the
-  base ref, never from the checked-out head. This action never fails the job:
-  any problem is verified=false with a reason.
+  repository's default branch only, never from the checked-out head or a pull
+  request's base. This action never fails the job: any problem is
+  verified=false with a reason.
 
 inputs:
   job:
@@ -14,16 +15,12 @@ inputs:
     description: The job's run argv as a JSON array string, compared exactly.
     required: true
   signers:
-    description: Path of the allowed signers file, read from the base ref.
+    description: >-
+      Path of the allowed signers file. It is read from the repository's
+      default branch (github.event.repository.default_branch), fetched at
+      depth 1, so a shallow checkout is enough. No input picks another branch.
     required: false
     default: .github/pandora/allowed_signers
-  base:
-    description: >-
-      The ref to read the signers file from. Empty means origin/<base_ref> on
-      a pull_request run (that branch is fetched at depth 1 first, so a
-      shallow checkout is enough), else HEAD.
-    required: false
-    default: ''
 
 outputs:
   verified:
@@ -48,14 +45,15 @@ runs:
         VERDICT_JOB: ${{ inputs.job }}
         VERDICT_ARGV: ${{ inputs.argv }}
         VERDICT_SIGNERS: ${{ inputs.signers }}
-        VERDICT_BASE: ${{ inputs.base }}
+        VERDICT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         set -euo pipefail
         # One implementation: the script the unit tests drive. It exits 0
         # whatever it finds; this fallback covers a script that could not run.
         bash "$GITHUB_ACTION_PATH/../../../scripts/verdict-verify.sh" \
             --job "$VERDICT_JOB" --argv "$VERDICT_ARGV" \
-            --signers "$VERDICT_SIGNERS" --base "$VERDICT_BASE" || {
+            --signers "$VERDICT_SIGNERS" \
+            --default-branch "$VERDICT_DEFAULT_BRANCH" || {
           echo "::notice::pandora verdict: not verified: the verify script failed"
           printf 'verified=false\nreason=script_error\nrun_id=\ngolden=\n' >>"$GITHUB_OUTPUT"
         }

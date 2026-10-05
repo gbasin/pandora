@@ -695,18 +695,31 @@ The composite action
 [`.github/actions/pandora-verdict`](../.github/actions/pandora-verdict/action.yml)
 checks for that ref in CI. It runs
 [`scripts/verdict-verify.sh`](../scripts/verdict-verify.sh), which also runs by
-hand from a checkout. Inputs: `job`, `argv` (a JSON array, compared exactly),
-`signers` and `base`. Outputs: `verified`, `reason`, `run_id`, `golden`. It
+hand from a checkout. Inputs: `job`, `argv` (a JSON array, compared exactly)
+and `signers`. Outputs: `verified`, `reason`, `run_id`, `golden`. It
 never fails a job. A missing ref, a bad signature or any field that differs is
 `verified=false` with a reason, and the job runs as before. Pandora's own
 `tests.yml` runs it on the ubuntu leg and skips the unittest step only when
 `verified` is `true`.
 
-The trust rule: signers are read from the base branch. On a pull request the
-action fetches the base branch at depth 1 and reads
-`.github/pandora/allowed_signers` from it with `git show`, never from the
-checked-out head. A key added in a pull request takes effect only after it
-merges. On a push, the base is `HEAD`. One line per key:
+The trust rule: signers are read from the repository's default branch, and
+from nothing else. The action passes `github.event.repository.default_branch`
+to the script, which fetches that branch at depth 1 into
+`refs/remotes/origin/<branch>` and reads `.github/pandora/allowed_signers`
+from that full ref with `git show`. It never reads the checked-out head, and
+it never reads the base a pull request chose, so a pull request aimed at
+another branch cannot bring that branch's keys. The full ref means a tag or
+branch named `origin/<branch>` cannot stand in for it. A push event follows the
+same rule: the signers come from the fetched default branch, not from the
+pushed commit. Run by hand without `--default-branch`, the script uses the
+branch that `origin`'s `HEAD` names. Its `--base` option reads from a given
+revision instead and exists for the unit tests only.
+
+A key added in a pull request takes effect only after it merges into the
+default branch. To revoke a key, remove its line from the default branch. Only
+that branch is consulted, so deleting the key from any other branch changes
+nothing, and the removal takes effect for every check that starts after it
+lands. One line per key:
 
 ```
 pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAA... pandora-verdict
