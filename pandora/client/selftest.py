@@ -12,9 +12,17 @@ Everything it owns lives under one `mkdtemp`: a scratch client configuration
 pointing at the real worker, a scratch state directory the test daemon alone
 holds, and a scratch git repository whose `pandora.toml` claims a `selftest`
 job that echoes a marker -- or, with `--update`, writes one file back through
-the write-back path. The live daemon, the live configuration and the live
-state directory are read, never written, and the test refuses to run with a
-state directory that resolves to either of them.
+the write-back path. The job declares `git = "synthetic"`, so the receipt
+carries the run's git tree and, from a ready worker, a verdict signed by the
+worker's key, which the test verifies with `ssh-keygen -Y verify`. The scratch
+repository's `origin` is a bare repository in the same scratch directory and
+its `pandora.toml` opts in to `[verdicts] publish = true`, so a signed verdict
+also goes through the daemon's real publication (parentless commit,
+`ls-remote`, push), and the test reads the ref back from that bare origin and
+verifies it the way a CI job would. Nothing reaches GitHub. The live
+daemon, the live configuration and the live state directory are read, never
+written, and the test refuses to run with a state directory that resolves to
+either of them.
 
 The scratch repository declares the `[worker]` toolchain of a repository the
 caller already enrolled -- minus `prepare_command`, which is not fingerprinted
@@ -27,10 +35,12 @@ succeed, and the next real run would pay for the rebuild. With no warm
 candidate the test declares a minimal toolchain of its own and lets the run
 build it.
 
-Exit: 0 the path worked; 1 a run failed or its receipt did not arrive; 70 the
+Exit: 0 the path worked; 1 a run failed, its receipt did not arrive, or its
+signed verdict did not reach the scratch origin intact; 70 the
 path could not be exercised (no worker host configured, the worker
 unreachable, the test daemon never answered, a live state directory named).
 """
+import base64
 import json
 import os
 import re
@@ -48,7 +58,7 @@ from ..engine.runner import toolchain_of
 from ..errors import ConfigError, PandoraError, UnknownSchema
 from ..executor import incus
 from ..exits import INFRA
-from . import doctor, settings
+from . import doctor, settings, verdicts
 from .worker import Worker
 
 PACKAGE_HOME = str(Path(__file__).resolve().parents[2])
@@ -75,11 +85,15 @@ entrypoints = ["pnpm"]
 
 {worker}
 
+[verdicts]
+publish = true
+
 [[jobs]]
 id = "selftest"
 summary = "The end-to-end smoke run"
 size = "small"
 args = "optional"
+git = "synthetic"
 timeout_minutes = 5
 forms = [{{ prefix = ["selftest"] }}]
 options = [{{ name = "--update", sets = "update", forward = true, writeback = true }}]
@@ -167,6 +181,21 @@ name = {name}
 [notify]
 enabled = false
 '''
+
+
+# The one key a selftest verdict may be skipped for: the e2e worker need not be
+# marked ready, and a worker that is not ready signs nothing.
+SKIP_ALLOWED = 'worker_not_ready'
+HEX40 = re.compile(r'[0-9a-f]{40}\Z')
+VERDICT_NAMESPACE = 'pandora-verdict'
+# The scratch repository's `origin`: a bare repository beside it, inside the
+# scratch directory, so publication is real git and never leaves this machine.
+ORIGIN_DIR = 'origin.git'
+VERDICT_AUTHOR = 'pandora <pandora@localhost>'
+VERDICT_FILES = ('payload.json', 'signer', 'verdict.sig')
+# How long the daemon's background push may take to record itself after the
+# caller has its exit. A push to a local bare repository takes milliseconds.
+PUBLISH_WAIT = 10.0
 
 
 class SelftestError(Exception):
@@ -296,6 +325,18 @@ def write_repo(root, worker_spec, *, queue=False):
     toml = root / loader.FILENAME
     toml.write_text(repo_toml(worker_spec, queue=queue))
     return toml
+
+
+def write_origin(root, repo):
+    """A bare repository at `<root>/origin.git`, added as `repo`'s `origin`."""
+    bare = root / ORIGIN_DIR
+    for argv in (['git', 'init', '-q', '--bare', str(bare)],
+                 ['git', '-C', str(repo), 'remote', 'add', 'origin', str(bare)]):
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise SelftestError('the scratch origin could not be made (%s): %s'
+                                % (' '.join(argv[:3]), (proc.stderr or '').strip()[:200]))
+    return bare
 
 
 def write_client_config(path, *, host, engine_root, state, name):
@@ -470,6 +511,213 @@ def receipt(state, argv, *, wait=10.0):
                         % (' '.join(want), len(metas)), exit=1)
 
 
+def verify_signature(payload, signature, signer):
+    """None when `ssh-keygen -Y verify` accepts the signature for `signer`, else why not."""
+    with tempfile.TemporaryDirectory(prefix='pandora-verdict-') as scratch:
+        signers = Path(scratch) / 'allowed_signers'
+        signers.write_text('%s namespaces="%s" %s\n'
+                           % (VERDICT_NAMESPACE, VERDICT_NAMESPACE, signer.strip()))
+        sig = Path(scratch) / 'verdict.sig'
+        sig.write_text(signature)
+        try:
+            proc = subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(signers),
+                                   '-I', VERDICT_NAMESPACE, '-n', VERDICT_NAMESPACE,
+                                   '-s', str(sig)],
+                                  input=payload.encode(), capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return 'ssh-keygen could not run: %s' % error
+    if proc.returncode != 0:
+        return ((proc.stderr or proc.stdout).decode('utf-8', 'replace').strip()[:300]
+                or 'ssh-keygen exited %d' % proc.returncode)
+    return None
+
+
+def check_verdict(result, job, *, say=notice):
+    """What the run's signed verdict says, or SelftestError(exit=1) when it is wrong.
+
+    The run declares `git = "synthetic"`, so the worker knows its tree. A
+    passing whole run on a ready worker must come home signed by the key the
+    result names; on a worker that is not marked ready it must say so, and
+    nothing else. A result with no `tree` key at all is from an engine that
+    predates verdicts: noted, not failed, so the selftest still proves the
+    rest of the path against it.
+    """
+    if 'tree' not in result:
+        say('the engine wrote no tree to result.json; it predates signed verdicts, '
+            'so the verdict check is skipped')
+        return 'not checked (engine predates verdicts)'
+    tree = result.get('tree')
+    if not isinstance(tree, str) or not HEX40.fullmatch(tree):
+        raise SelftestError('the run declares git = "synthetic" but its result names tree %r, '
+                            'not a 40-hex git tree id' % (tree,), exit=1)
+    verdict = result.get('verdict')
+    if not verdict:
+        skipped = result.get('verdict_skipped')
+        if skipped == SKIP_ALLOWED:
+            say('verdict skipped: the worker is not marked ready, so it signs nothing')
+            return 'none (%s)' % skipped
+        raise SelftestError('a passing whole run over tree %s was not signed: '
+                            'verdict_skipped is %r; only %r is expected here'
+                            % (tree, skipped, SKIP_ALLOWED), exit=1)
+    parts = [verdict.get(key) if isinstance(verdict, dict) else None
+             for key in ('payload', 'signature', 'signer')]
+    if not all(isinstance(item, str) and item for item in parts):
+        raise SelftestError('the verdict lacks a payload, signature or signer', exit=1)
+    payload, signature, signer = parts
+    why = verify_signature(payload, signature, signer)
+    if why is not None:
+        raise SelftestError('the verdict signature does not verify against its signer: %s'
+                            % why, exit=1)
+    try:
+        body = json.loads(payload)
+    except ValueError:
+        raise SelftestError('the signed verdict payload is not JSON', exit=1) from None
+    expected = {'kind': 'pandora-verdict', 'v': 1, 'tree': tree, 'job': job,
+                'outcome': 'passed'}
+    wrong = sorted(key for key, value in expected.items()
+                   if not isinstance(body, dict) or body.get(key) != value)
+    if wrong:
+        raise SelftestError('the signed verdict payload disagrees with the run on %s'
+                            % ', '.join(wrong), exit=1)
+    return 'signed, tree %s' % tree[:12]
+
+
+def bare_git(origin, *args):
+    """(exit, stdout bytes) of one git command against the bare origin."""
+    try:
+        proc = subprocess.run(['git', '--git-dir', str(origin), *args],
+                              capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return 1, b''
+    return proc.returncode, proc.stdout
+
+
+def run_log_text(run_dir):
+    """The decoded text of every frame in a run's `log`, in order."""
+    try:
+        raw = (Path(run_dir) / 'log').read_bytes()
+    except OSError:
+        return ''
+    text = []
+    for line in raw.splitlines():
+        try:
+            frame = json.loads(line)
+            if isinstance(frame, dict) and frame.get('b64'):
+                text.append(base64.b64decode(frame['b64']).decode('utf-8', 'replace'))
+        except (ValueError, TypeError):
+            continue
+    return ''.join(text)
+
+
+def wait_publication(run_dir, line, *, wait=PUBLISH_WAIT):
+    """The daemon's publish record once it and its log line landed, else what did.
+
+    The daemon writes `verdict-publish.json` and then appends the line, from a
+    thread that starts after the exit frame, so both are polled for.
+    """
+    path = Path(run_dir) / verdicts.RECORD
+    deadline = time.monotonic() + wait
+    while True:
+        record = read_json(path)
+        if record is not None and (line is None or line in run_log_text(run_dir)):
+            return record
+        if time.monotonic() >= deadline:
+            return record
+        time.sleep(0.1)
+
+
+def published_refs(origin):
+    code, out = bare_git(origin, 'for-each-ref', '--format=%(refname)', 'refs/pandora/')
+    return out.decode('utf-8', 'replace').split() if code == 0 else ['(unreadable)']
+
+
+def check_publication(result, run_dir, origin, *, seen, wait=PUBLISH_WAIT, say=notice):
+    """What the daemon's verdict publication did, or SelftestError(exit=1).
+
+    Called after `check_verdict` accepted the receipt. A signed verdict must
+    reach the bare origin as `refs/pandora/verdicts/<tree>/<job>`: a parentless
+    commit by `pandora <pandora@localhost>` holding exactly payload.json,
+    verdict.sig and signer, whose signature `ssh-keygen -Y verify` accepts
+    against the signer it carries. A ref this selftest already published
+    (`seen`) must take the "already on the remote" path instead. An unsigned
+    run on a worker that is not ready must publish nothing. `seen` gains the
+    ref. None when there is nothing to check (an engine before verdicts).
+    """
+    if 'tree' not in result:
+        return None
+    verdict = result.get('verdict')
+    if not verdict:
+        if result.get('verdict_skipped') != SKIP_ALLOWED:
+            return None
+        refs = published_refs(origin)
+        if refs:
+            raise SelftestError('the run was not signed (%s) but the scratch origin holds %s'
+                                % (SKIP_ALLOWED, ', '.join(refs)), exit=1)
+        if 'verdict published' in run_log_text(run_dir):
+            raise SelftestError('the run was not signed (%s) but its log says a verdict '
+                                'was published' % SKIP_ALLOWED, exit=1)
+        say('verdict not signed (%s); publication not exercised' % SKIP_ALLOWED)
+        return 'not exercised (%s)' % SKIP_ALLOWED
+    try:
+        tree, job, payload, _, _ = verdicts.parts(result)
+    except verdicts.Failed as error:
+        raise SelftestError('the verdict cannot be published: %s' % error, exit=1) from None
+    ref = verdicts.ref_for(tree, job)
+    state = 'present' if ref in seen else 'published'
+    line = 'pandora: ' + verdicts.line({'state': state, 'ref': ref, 'reason': None})
+    record = wait_publication(run_dir, line, wait=wait)
+    if record is None:
+        raise SelftestError('no %s beside result.json within %gs: the daemon never '
+                            'recorded publishing the verdict for %s'
+                            % (verdicts.RECORD, wait, ref), exit=1)
+    if record.get('state') != state or record.get('ref') != ref:
+        raise SelftestError('the daemon recorded verdict publication %s %s (%s); expected '
+                            '%s %s' % (record.get('state'), record.get('ref'),
+                                       record.get('reason') or 'no reason', state, ref),
+                            exit=1)
+    if line not in run_log_text(run_dir):
+        raise SelftestError('the run log lacks the line `%s`' % line, exit=1)
+    code, out = bare_git(origin, 'rev-parse', '--verify', '--quiet', ref + '^{commit}')
+    if code != 0:
+        raise SelftestError('the scratch origin has no %s after the daemon said %s'
+                            % (ref, state), exit=1)
+    commit = out.decode().strip()
+    if state == 'published' and record.get('commit') != commit:
+        raise SelftestError('the scratch origin\'s %s is %s, not the pushed commit %s'
+                            % (ref, commit, record.get('commit')), exit=1)
+    _, raw = bare_git(origin, 'cat-file', 'commit', commit)
+    headers = raw.split(b'\n\n', 1)[0].decode('utf-8', 'replace').splitlines()
+    if any(header.startswith('parent ') for header in headers):
+        raise SelftestError('the verdict commit %s on %s has a parent' % (commit, ref), exit=1)
+    if not any(header.startswith('author %s ' % VERDICT_AUTHOR) for header in headers):
+        raise SelftestError('the verdict commit %s is not authored by %s'
+                            % (commit, VERDICT_AUTHOR), exit=1)
+    _, listing = bare_git(origin, 'ls-tree', '--name-only', commit)
+    names = tuple(sorted(listing.decode('utf-8', 'replace').split()))
+    if names != VERDICT_FILES:
+        raise SelftestError('the verdict commit %s holds %s, not exactly %s'
+                            % (commit, ', '.join(names) or 'nothing',
+                               ', '.join(VERDICT_FILES)), exit=1)
+    blobs = {}
+    for name in VERDICT_FILES:
+        code, blobs[name] = bare_git(origin, 'cat-file', 'blob', '%s:%s' % (commit, name))
+        if code != 0:
+            raise SelftestError('the verdict commit %s has no readable %s' % (commit, name),
+                                exit=1)
+    if state == 'published' and blobs['payload.json'] != payload.encode():
+        raise SelftestError('payload.json on %s is not the receipt\'s signed payload' % ref,
+                            exit=1)
+    why = verify_signature(blobs['payload.json'].decode('utf-8', 'replace'),
+                           blobs['verdict.sig'].decode('utf-8', 'replace'),
+                           blobs['signer'].decode('utf-8', 'replace'))
+    if why is not None:
+        raise SelftestError('the published verdict on %s does not verify against its '
+                            'signer: %s' % (ref, why), exit=1)
+    seen.add(ref)
+    return ('published %s' % ref if state == 'published'
+            else 'already on the remote %s' % ref)
+
+
 def run_report(meta, result, wall):
     """The timings one submission produced, for the summary and --json."""
     durations = (result or {}).get('durations') or {}
@@ -504,6 +752,10 @@ def render(report):
                      % (record['id'], ' '.join((record['argv'] or [])[1:]),
                         record['outcome'], record['exit'], record['wall_seconds']))
         lines.append('  ' + phases_line(record))
+        if record.get('verdict'):
+            lines.append('  verdict: ' + record['verdict'])
+        if record.get('publication'):
+            lines.append('  publication: ' + record['publication'])
     if report.get('writeback'):
         lines.append('write-back: %s landed in the scratch worktree' % report['writeback'])
     lines.append('%s in %.1fs%s' % ('OK' if report['ok'] else 'FAILED', report['seconds'],
@@ -554,6 +806,7 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
                 'is minutes, not seconds')
         repo = root / 'repo'
         write_repo(repo, spec, queue=queue)
+        origin = write_origin(root, repo)
         say('scratch %s: repo %s, state %s' % (root, repo, state))
 
         daemon_started = time.monotonic()
@@ -592,6 +845,7 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
             submissions.append(['selftest', '--update'])
         if queue:
             submissions.append(['qtest'])
+        seen_refs = set()
         for argv in submissions:
             code, out, err, wall = submit(repo, argv, shim_env, timeout=timeout)
             meta, result = receipt(state, argv)
@@ -615,6 +869,12 @@ def run(*, state=None, config_path=None, host=None, update=False, queue=False,
                 raise SelftestError('run %s failed: exit %s, outcome %s'
                                     % (record['id'], code, (result or {}).get('outcome')),
                                     exit=code if code else 1)
+            if argv[0] == 'selftest':
+                record['verdict'] = check_verdict(result or {}, 'selftest', say=say)
+                publication = check_publication(result or {}, meta['_dir'], origin,
+                                                seen=seen_refs, say=say)
+                if publication:
+                    record['publication'] = publication
             if argv == ['qtest']:
                 # The queue's receipt is its verification: every planned id
                 # observed exactly once, no batch left dead or dangling.
