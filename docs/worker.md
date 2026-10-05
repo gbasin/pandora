@@ -244,7 +244,10 @@ the manifest, pool use, the admission gate, the goldens, the last canary and the
 [verdict signer](#verdicts). The admission gate is `CLOSED` while the pool is
 below `disk_floor_gib`. Then new runs are refused, and queued runs and shards
 wait. A package or setting that differs from the manifest, or a kernel that
-differs from the one the canary passed on, reads `drifted`, not `ready`. Re-run
+differs from the one the canary passed on, reads `drifted`, not `ready`, and
+stops verdict signing ([Verdicts](#verdicts)). So does a worker with no stored
+manifest at `<root>/worker/versions.toml`: the drift list says
+`object manifest: ... (not stored)`. Re-run
 the canary with `--mark` after any change to the machine.
 
 ## Verdicts
@@ -273,11 +276,33 @@ CI job for the same tree can verify the signature and skip the work.
   serialized as `json.dumps(env, sort_keys=True, separators=(',', ':'))`. The
   payload binds the digest, not the values, so no environment value is
   published.
-* The conditions, in order: the outcome is `passed`; the attempt is a whole
-  run, not a shard or a fan-out parent; the worker's ready state is `ready`
-  (a kernel other than the canary's reads as not ready); the run has a tree.
+* The conditions, in order: the outcome is `passed` (`not_passed`); the
+  attempt is a whole run, not a shard or a fan-out parent (`not_whole`); the
+  worker's ready state is `ready` (`worker_not_ready`); the run has a tree
+  (`no_synthetic_git`); the worker has not drifted (`worker_drifted`).
   `result.json` names the first that failed in `verdict_skipped`
-  ([Run results](operations.md#run-results)).
+  ([Run results](operations.md#run-results)). The tree comes before drift so
+  a job without synthetic git never pays for the drift check.
+* Drift blocks signing. Before it signs, the engine compares the host with
+  the manifest stored at `<root>/worker/versions.toml`, using the same
+  comparison as `pandora worker status`: each manifest package's installed
+  version from one `dpkg-query`, the `[worker]` settings read off the host,
+  and the kernel against the one the last canary passed on. Any difference
+  skips the verdict as `worker_drifted`, and the run log gets one line that
+  names each difference:
+  `pandora: verdict not signed: worker_drifted: package incus: want 6.0.5-8, have 6.0.6-1 (version differs)`.
+  A missing or invalid manifest, or a `dpkg-query` that cannot run, is drift
+  too, with a detail that says which (`manifest unreadable: ...`,
+  `dpkg unreadable: ...`). `dpkg-query` and `systemctl` each get 5 seconds; one
+  that times out is unreadable, and a setting `systemctl` cannot read is
+  drift. The answer, a failed check included, is cached for 60 seconds in
+  `<engine_root>/keys/drift.json`, shared by every run's supervisor, so a hung
+  tool costs one run its timeout, not every run. A new `canary --mark`, a
+  changed manifest or another worker root starts a fresh check. A package that
+  dpkg holds in any state but installed counts as not installed, so a host in
+  the middle of an `apt` run reads as drifted, and can stay drifted for up to
+  a minute after `apt` finishes. That is expected: the next check clears it.
+  After a deliberate package change, re-run the canary with `--mark`.
 * The key is an Ed25519 OpenSSH key at `<engine_root>/keys/verdict` (0600) in
   a 0700 directory. The first run that signs creates it. It never leaves the
   engine root and is never injected into an instance. `submit` refuses a
@@ -304,10 +329,12 @@ rebuild.
 
 What a verdict does not check:
 
-* Only the ready state and the kernel are checked per run. Package drift is
-  found only by `pandora worker status`, which surveys the host. A package
-  that changes after `canary --mark` does not stop signing until the next
-  canary records the change.
+* The drift check before signing skips the objects `status` checks with
+  `sudo incus` and `systemctl`: the storage pool, project and bridge, the
+  pool, network and engine units, linger and the forward rules. `status`
+  reports one of those as `drifted` while runs still sign. A run could not
+  have started without most of them.
+* A change within the 60-second cache is not seen until the cache expires.
 * The engine reads the ready state from `PANDORA_WORKER_ROOT`, or `~/pandora`
   when that is unset. A worker kept under a custom `pandora worker --root`
   writes its state file there, so the engine finds none and nothing signs:

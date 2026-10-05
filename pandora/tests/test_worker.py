@@ -3,6 +3,8 @@ import contextlib
 import hashlib
 import io
 import json
+import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -11,7 +13,7 @@ from unittest import mock
 
 from pandora.errors import ConfigError
 from pandora.executor.interface import Receipt, Toolchain
-from pandora.worker import gc, goldens, pins, provision, versions
+from pandora.worker import facts, gc, goldens, pins, provision, versions
 
 
 class Versions(unittest.TestCase):
@@ -148,6 +150,140 @@ class Drift(unittest.TestCase):
                                {'packages': have, 'missing': {'pool pandorapool': 'gone'}})
         self.assertEqual([(item['kind'], item['name']) for item in items],
                          [('object', 'pool pandorapool')])
+
+
+class DpkgFacts(unittest.TestCase):
+    """`facts.packages`: one `dpkg-query` for every name, read the same way by
+    `status` and by the engine's signing check."""
+
+    def query(self, stdout, returncode=1, names=('incus', 'git', 'libc6:amd64', 'rsync')):
+        proc = subprocess.CompletedProcess([], returncode, stdout=stdout.encode())
+        with mock.patch.object(facts.subprocess, 'run', return_value=proc) as run:
+            answer = facts.packages(names)
+        argv = run.call_args[0][0]
+        self.assertEqual(argv[:2], ['dpkg-query', '-W'])
+        self.assertEqual(argv[3:], list(names))
+        self.assertEqual(run.call_count, 1)
+        return answer
+
+    def test_installed_held_qualified_and_absent(self):
+        found, notes = self.query('incus\tincus\tii \t6.0.5-8\n'
+                                  'git\tgit\thi \t1:2.43.0-1\n'
+                                  'libc6\tlibc6:amd64\tii \t2.39-0\n')
+        self.assertEqual(found, {'incus': '6.0.5-8', 'git': '1:2.43.0-1',
+                                 'libc6:amd64': '2.39-0', 'rsync': None})
+        self.assertEqual(notes, {})
+
+    def test_a_package_mid_apt_is_not_installed_and_says_why(self):
+        found, notes = self.query('incus\tincus\tiU \t6.0.6-1\n'
+                                  'git\tgit\trc \t1:2.43.0-1\n'
+                                  'rsync\trsync\tiiR\t3.2.7-1\n')
+        self.assertEqual(found, {'incus': None, 'git': None, 'libc6:amd64': None,
+                                 'rsync': None})
+        self.assertEqual(notes, {'incus': 'dpkg status iU', 'git': 'dpkg status rc',
+                                 'rsync': 'dpkg status iiR'})
+        manifest = versions.normalize({'packages': {'incus': '6.0.6-1'}})
+        items = versions.drift(manifest, {'packages': found, 'package_notes': notes})
+        self.assertIn({'kind': 'package', 'name': 'incus', 'want': '6.0.6-1', 'have': None,
+                       'detail': 'not installed (dpkg status iU)'}, items)
+
+    def test_multi_arch_an_installed_line_wins_over_an_earlier_one_that_is_not(self):
+        for stdout in ('foo\tfoo:i386\trc \t1.0-1\nfoo\tfoo:amd64\tii \t2.0-1\n',
+                       'foo\tfoo:amd64\tii \t2.0-1\nfoo\tfoo:i386\trc \t1.0-1\n'):
+            with self.subTest(stdout=stdout):
+                found, notes = self.query(stdout, returncode=0,
+                                          names=('foo', 'foo:i386', 'foo:amd64'))
+                self.assertEqual(found, {'foo': '2.0-1', 'foo:i386': None,
+                                         'foo:amd64': '2.0-1'})
+                self.assertEqual(notes, {'foo:i386': 'dpkg status rc'})
+
+    def test_dpkg_that_cannot_answer_is_unreadable(self):
+        for effect, said in ((FileNotFoundError('dpkg-query'), 'dpkg-query not found'),
+                             (subprocess.TimeoutExpired('dpkg-query', 10), 'timed out'),
+                             (PermissionError(13, 'Permission denied'), 'Permission denied')):
+            with self.subTest(said), \
+                    mock.patch.object(facts.subprocess, 'run', side_effect=effect):
+                with self.assertRaisesRegex(facts.Unreadable, said):
+                    facts.packages(['incus'])
+        with self.assertRaisesRegex(facts.Unreadable, 'exit 2'):
+            self.query('', returncode=2)
+
+    def test_status_still_answers_when_dpkg_cannot(self):
+        manifest = versions.normalize({})
+        with mock.patch.object(facts, 'packages',
+                               side_effect=facts.Unreadable('dpkg-query not found')), \
+                mock.patch.object(facts, 'sh', return_value=''):
+            observed = facts.survey(manifest)
+        self.assertEqual(set(observed['packages'].values()), {None})
+        items = versions.drift(manifest, observed)
+        self.assertIn('not installed (dpkg-query not found)',
+                      {item['detail'] for item in items})
+
+    def test_the_kernel_is_part_of_the_shared_comparison(self):
+        manifest = versions.normalize({})
+        observed = {'packages': dict.fromkeys(manifest['packages'], '1'),
+                    'host': {'kernel': '6.8.0-new'}}
+        self.assertEqual(facts.drift(manifest, observed, {'kernel': '6.8.0-new'}), [])
+        self.assertEqual(facts.drift(manifest, observed, {}), [])
+        items = facts.drift(manifest, observed, {'kernel': '6.8.0-old'})
+        self.assertEqual([(item['kind'], item['name'], item['want'], item['have'])
+                          for item in items],
+                         [('host', 'kernel', '6.8.0-old', '6.8.0-new')])
+
+
+class FakeTools(unittest.TestCase):
+    """Real subprocesses against fake `dpkg-query` and `systemctl` on PATH."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.bin = Path(tmp.name) / 'bin'
+        self.bin.mkdir()
+        self.calls = Path(tmp.name) / 'calls'
+        # Only the fakes and `sleep` on PATH, so a host's real tools never answer.
+        (self.bin / 'sleep').symlink_to(shutil.which('sleep'))
+        path = mock.patch.dict('os.environ', {'PATH': str(self.bin)})
+        path.start()
+        self.addCleanup(path.stop)
+
+    def tool(self, name, body):
+        script = self.bin / name
+        script.write_text('#!/bin/sh\necho %s >> %s\n%s\n' % (name, self.calls, body))
+        script.chmod(0o755)
+
+    def test_a_systemctl_that_hangs_reads_as_unknown_within_the_timeout(self):
+        self.tool('systemctl', 'exec sleep 30')
+        started = time.monotonic()
+        self.assertEqual(facts.settings(timeout=0.5), {'unattended_upgrades': None})
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_systemctl_answers(self):
+        for body, want in (('echo enabled', True), ('echo disabled; exit 1', False),
+                           ('echo masked; exit 1', False), ('echo not-found; exit 4', False),
+                           ('echo "Failed to get unit file state for '
+                            'unattended-upgrades.service: No such file or directory" >&2; '
+                            'exit 1', False),
+                           ('echo "Failed to connect to bus" >&2; exit 1', None),
+                           ('exit 0', None)):
+            with self.subTest(body=body):
+                self.tool('systemctl', body)
+                self.assertEqual(facts.settings(timeout=5), {'unattended_upgrades': want})
+
+    def test_no_systemctl_reads_as_unknown_and_unknown_is_drift(self):
+        self.assertEqual(facts.settings(timeout=5), {'unattended_upgrades': None})
+        manifest = versions.normalize({})
+        items = versions.drift(manifest, {'packages': dict.fromkeys(manifest['packages'], '1'),
+                                          'worker': {'unattended_upgrades': None}})
+        self.assertEqual([(item['kind'], item['name']) for item in items],
+                         [('worker', 'unattended_upgrades')])
+
+    def test_the_quick_survey_holds_dpkg_to_its_short_timeout(self):
+        self.tool('dpkg-query', 'exec sleep 30')
+        started = time.monotonic()
+        with mock.patch.object(facts, 'QUICK_TIMEOUT', 0.5):
+            with self.assertRaisesRegex(facts.Unreadable, 'timed out after 0.5s'):
+                facts.quick_survey(versions.normalize({}))
+        self.assertLess(time.monotonic() - started, 10)
 
 
 class Pinning(unittest.TestCase):

@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 KIND = 'pandora-verdict'
@@ -40,6 +41,12 @@ NOT_PASSED = 'not_passed'
 NOT_WHOLE = 'not_whole'
 WORKER_NOT_READY = 'worker_not_ready'
 NO_SYNTHETIC_GIT = 'no_synthetic_git'
+WORKER_DRIFTED = 'worker_drifted'
+
+# How long one drift answer stands. Every supervisor is its own process, so the
+# answer is kept in a file under the engine root rather than in memory.
+DRIFT_TTL = 60.0
+DRIFT_DETAIL_MAX = 600
 
 
 class SignFailed(Exception):
@@ -197,30 +204,146 @@ def worker_root():
 
 
 def ready_state(root=None):
-    """`ready`, or what the ready state is instead.
-
-    The state file is the one `canary --mark` wrote. A kernel other than the one
-    the canary passed on reads `drifted`, as `pandora worker status` says it.
-    Package drift needs a survey of the host and is left to `status`: drift
-    after `canary --mark` does not stop signing until the next canary.
-    """
+    """`ready`, or what the ready state is instead: the state file that
+    `canary --mark` wrote. Drift is a separate condition (`worker_drift`)."""
     try:
         state = json.loads((Path(root or worker_root()) / 'worker' / 'state.json').read_text())
     except (OSError, ValueError):
         return 'unprovisioned'
-    current = state.get('state') or 'unprovisioned'
-    if current == 'ready' and state.get('kernel'):
+    return state.get('state') or 'unprovisioned'
+
+
+def drift_cache_path(engine_root):
+    """Beside the key, where the gateway lets no client write."""
+    return Path(engine_root).expanduser() / 'keys' / 'drift.json'
+
+
+def describe_drift(items):
+    """One line naming each difference, short enough for a log."""
+    parts = []
+    for item in items:
+        parts.append('%s %s: want %s, have %s (%s)' % (
+            item.get('kind'), item.get('name'), item.get('want'),
+            item.get('have'), item.get('detail')))
+    text = '; '.join(parts)
+    return text if len(text) <= DRIFT_DETAIL_MAX else text[:DRIFT_DETAIL_MAX - 3] + '...'
+
+
+def survey_drift(root=None):
+    """'' when the host matches its stored manifest, else what differs.
+
+    The comparison is `facts.drift`, the one `pandora worker status` uses, over
+    `facts.quick_survey`: the manifest's packages, its settings and the kernel.
+    A manifest or dpkg that cannot be read is drift: nothing proves the host is
+    what the canary passed on.
+    """
+    from pandora.errors import ConfigError
+    from pandora.worker import facts, versions
+    folder = Path(root or worker_root())
+    path = facts.manifest_path(folder)
+    if not path.is_file():
+        return 'manifest unreadable: no versions manifest at %s' % path
+    try:
+        manifest = versions.load(path)
+    except (ConfigError, OSError, ValueError) as error:
+        return 'manifest unreadable: %s' % error
+    try:
+        state = json.loads((folder / 'worker' / 'state.json').read_text())
+    except (OSError, ValueError):
+        state = {}
+    try:
+        observed = facts.quick_survey(manifest)
+    except facts.Unreadable as error:
+        return 'dpkg unreadable: %s' % error
+    items = facts.drift(manifest, observed, state if isinstance(state, dict) else {})
+    return describe_drift(items) if items else ''
+
+
+def drift_key(root=None):
+    """What a cached answer depends on besides time: the worker root itself,
+    the manifest and the state file. Re-provisioning or a new `canary --mark`
+    starts afresh, and an engine root shared by two worker roots never reads
+    one root's answer for the other."""
+    top = Path(root or worker_root()).expanduser()
+    folder = top / 'worker'
+    key = [['root', str(top.resolve()), None]]
+    for name in ('versions.toml', 'state.json'):
         try:
-            kernel = Path('/proc/sys/kernel/osrelease').read_text().strip()
+            info = (folder / name).stat()
+            key.append([name, info.st_mtime_ns, info.st_size])
         except OSError:
-            kernel = ''
-        if kernel and kernel != state['kernel']:
-            return 'drifted'
-    return current
+            key.append([name, None, None])
+    return key
 
 
-def skip_reason(*, outcome, role, ready, tree):
-    """The first signing condition that fails, or None when all hold."""
+def worker_drift(engine_root, root=None, *, clock=time.time, survey=None):
+    """'' when the worker has not drifted, else the detail. Never raises.
+
+    The answer is cached for DRIFT_TTL seconds in `drift_cache_path`, shared by
+    every supervisor on the engine root, so a burst of finishing runs pays for
+    one `dpkg-query`. A failed survey is an answer too, and cached the same
+    way: caching "drifted" fails closed, and a hung tool costs one run its
+    timeout rather than every run for a minute. A cache that cannot be read or
+    written only costs a fresh survey.
+    """
+    try:
+        now = clock()
+        key = drift_key(root)
+        cache = drift_cache_path(engine_root)
+        try:
+            held = json.loads(cache.read_text())
+            if (isinstance(held, dict) and held.get('key') == key
+                    and isinstance(held.get('detail'), str)
+                    and 0 <= now - float(held.get('at')) < DRIFT_TTL):
+                return held['detail']
+        except (OSError, ValueError, TypeError):
+            pass
+        try:
+            detail = (survey or survey_drift)(root)
+        except Exception as error:                  # noqa: BLE001 - fail closed, and cache it
+            detail = 'drift check failed: %s' % type(error).__name__
+        temp = None
+        try:
+            cache.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            sweep_temps(cache.parent)
+            handle, temp = tempfile.mkstemp(dir=str(cache.parent), prefix='.drift-')
+            with os.fdopen(handle, 'w') as out:
+                json.dump({'at': now, 'key': key, 'detail': detail}, out)
+            os.replace(temp, cache)
+        except OSError:
+            if temp is not None:
+                try:
+                    os.unlink(temp)
+                except OSError:
+                    pass
+        return detail
+    except Exception as error:                      # noqa: BLE001 - fail closed, never fatal
+        return 'drift check failed: %s' % type(error).__name__
+
+
+def sweep_temps(folder, *, age=DRIFT_TTL):
+    """Remove `.drift-*` files a killed writer left in `folder`. Only ones older
+    than `age` seconds: a younger one may be another supervisor's write in
+    flight."""
+    cutoff = time.time() - age
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith('.drift-'):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.lstat(path).st_mtime < cutoff:
+                os.unlink(path)
+        except OSError:
+            pass
+
+
+def skip_reason(*, outcome, role, ready, tree, drift=''):
+    """The first signing condition that fails, or None when all hold.
+    `drift` is `worker_drift`'s answer: '' for none."""
     if outcome != 'passed':
         return NOT_PASSED
     if (role or 'single') != 'single':
@@ -229,24 +352,39 @@ def skip_reason(*, outcome, role, ready, tree):
         return WORKER_NOT_READY
     if not tree:
         return NO_SYNTHETIC_GIT
+    if drift:
+        return WORKER_DRIFTED
     return None
 
 
-def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None,
-           golden_pins=None):
+def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, drift=None,
+           note=None, golden_pins=None):
     """The three result fields: `tree`, `verdict`, `verdict_skipped`.
 
     `row` is the attempt's ledger row as a dictionary. `ready` is the worker's
-    ready state, read from the state file when not given. Never raises.
+    ready state, read from the state file when not given; `drift` is
+    `worker_drift`'s answer, surveyed when not given and only when every
+    earlier condition holds, so a job without synthetic git never pays for
+    the survey. `note` takes one log
+    line: a drift skip writes its detail there. Never raises.
     """
     answer = {'tree': tree, 'verdict': None, 'verdict_skipped': None}
     try:
         role = row.get('role') or 'single'
         if ready is None and outcome == 'passed' and role == 'single':
             ready = ready_state()
-        reason = skip_reason(outcome=outcome, role=role, ready=ready, tree=tree)
+        if (drift is None and outcome == 'passed' and role == 'single' and ready == 'ready'
+                and tree):
+            drift = worker_drift(engine_root)
+        reason = skip_reason(outcome=outcome, role=role, ready=ready, tree=tree,
+                             drift=drift or '')
         if reason:
             answer['verdict_skipped'] = reason
+            if reason == WORKER_DRIFTED and note is not None:
+                try:
+                    note('verdict not signed: %s: %s' % (reason, drift))
+                except Exception:                   # noqa: BLE001 - a log line, never fatal
+                    pass
             return answer
         if not golden:
             raise SignFailed('golden fingerprint unknown')

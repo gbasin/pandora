@@ -40,7 +40,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
-  pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update] [--queue]
+  pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update] [--queue] [--expect-signed]
 """
 import argparse
 import json
@@ -894,7 +894,8 @@ def cmd_selftest(args):
     try:
         report, code = selftest.run(state=args.state, config_path=args.config,
                                     host=args.host, update=args.update,
-                                    queue=args.queue, keep=args.keep,
+                                    queue=args.queue, expect_signed=args.expect_signed,
+                                    keep=args.keep,
                                     timeout=args.timeout)
     except selftest.SelftestError as error:
         if args.json and error.report is not None:
@@ -1120,6 +1121,12 @@ def main(argv=None):
                           help='a second submission, `pnpm selftest --update`, whose '
                                'declared write-back file must land in the scratch '
                                'worktree')
+    selftest.add_argument('--expect-signed', action='store_true',
+                          help='the worker must sign: any verdict_skipped (named with '
+                               'the run log\'s `pandora: verdict not signed:` line), a '
+                               'result with no `tree` from an engine that predates '
+                               'verdicts, or publication not exercised is exit 1. '
+                               'For CI against a worker marked ready')
     selftest.add_argument('--queue', action='store_true',
                           help='a submission through a `strategy = "queue"` job: '
                                'the plan, the batch claims, the per-batch reports '

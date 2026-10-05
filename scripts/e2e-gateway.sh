@@ -150,7 +150,7 @@ case "$out" in
 esac
 
 # --- a full submit, attributed to the pin ------------------------------------
-"$PANDORA" --config "$USER_CONFIG" selftest --timeout 1800 >/dev/null \
+"$PANDORA" --config "$USER_CONFIG" selftest --expect-signed --timeout 1800 >/dev/null \
     || fail "selftest through the gateway failed"
 
 digest=$(cd "$ROOT" && python3 -c \
