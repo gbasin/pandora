@@ -61,7 +61,7 @@ done
 # 0 would delete every verdict, so the floor is 1.
 [[ $max_age_days =~ ^[1-9][0-9]*$ ]] || die 2 "--max-age-days must be a whole number of at least 1: $max_age_days"
 [[ $batch =~ ^[1-9][0-9]*$ ]] || die 2 "--batch must be a positive whole number: $batch"
-[ -n "$remote" ] && [ "${remote#-}" = "$remote" ] || die 2 "bad remote: $remote"
+if [ -z "$remote" ] || [ "${remote#-}" != "$remote" ]; then die 2 "bad remote: $remote"; fi
 [ -n "$now" ] || now=$(date +%s)
 [[ $now =~ ^[0-9]+$ ]] || die 2 "--now must be epoch seconds: $now"
 command -v python3 >/dev/null 2>&1 || die 1 'python3 not found'
