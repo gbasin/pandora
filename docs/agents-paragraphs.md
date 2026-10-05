@@ -136,3 +136,16 @@ and points to the README and `pandora --help` for the rest.
 > queue and no memory gate. Use it only when a refusal names it as the last
 > resort, or to debug a routed failure. Never use it to skip the queue, and
 > never after a refusal that says this machine is under memory pressure.
+
+## Paragraph for a repository with signed verdicts
+
+For a repository whose CI skips a job on a signed verdict
+([docs/verdicts.md](verdicts.md)). Replace `pnpm check` with the claimed
+command the verdict covers, and `origin/main` with the default branch.
+
+> Before you push, rebase onto `origin/main`, commit every change, and leave
+> no untracked files. Then run `pnpm check` through Pandora as the last thing
+> you do. Push right after it passes, with no further edits. The run's tree
+> includes untracked files, and CI checks the tree of the merge commit it
+> builds. So the verdict counts only when your branch already contains
+> `origin/main` and the pushed commit holds exactly the files the run saw.

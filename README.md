@@ -150,7 +150,7 @@ root with `pandora run -- python3 -m unittest discover -s pandora`. Plain
 `python3 -m unittest ...` is not routed: the shim claims only `pnpm`. A passing
 run on a ready worker yields a signed verdict for the tree it ran, and the
 ubuntu leg of `tests.yml` skips its unittest step when a signed verdict for
-the same tree exists ([Verdicts in CI](docs/operations.md#verdicts-in-ci)).
+the same tree exists ([docs/verdicts.md](docs/verdicts.md)).
 Under `pandora run`, a `python3 -m unittest ...` argv that does not match the
 declared form runs through the real `pnpm` passthrough on this Mac and never
 reaches the worker, so type the form exactly.
@@ -164,6 +164,8 @@ repository's own agent instructions: [docs/agents-paragraphs.md](docs/agents-par
   enrollment and claim caches, operating limits and the source layout.
 * [docs/worker.md](docs/worker.md): the worker's requirements, provisioning,
   canary, sharing and maintenance.
+* [docs/verdicts.md](docs/verdicts.md): signed verdicts in a consuming
+  repository's CI: setup, rollout, key rotation, triage and ref pruning.
 * [docs/pandora-toml.md](docs/pandora-toml.md): what a repository declares, and
   the fallback, queueing, write-back, retry and placement rules.
 * [docs/agents.md](docs/agents.md): what agents type, with invariants, exit

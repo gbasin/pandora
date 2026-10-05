@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # A signed Pandora verdict for this exact tree stands in for the unittest
-      # step on ubuntu (docs/operations.md, Verdicts in CI). The action fetches
+      # step on ubuntu (docs/verdicts.md). The action fetches
       # what it needs at depth 1, so the checkout stays shallow. It never fails.
       - name: pandora verdict
         id: verdict
@@ -39,7 +39,7 @@ jobs:
             else brew install shellcheck; fi
           }
           # SC3013: -nt is deliberate; dash and bash have had it for decades.
-          shellcheck -e SC3013 bin/pnpm bin/pandora
+          shellcheck -e SC3013 bin/pnpm bin/pandora scripts/verdict-verify.sh scripts/verdict-prune.sh
       - name: unittest
         if: runner.os != 'Linux' || steps.verdict.outputs.verified != 'true'
         run: python3 -m unittest discover -s pandora
