@@ -188,6 +188,9 @@ test this, because it runs on a machine that is already up.
 5. Restart the client daemon. Run `pandora daemon --restart` if launchd runs it
    (`pandora daemon --install`). Otherwise stop it and run `pandora daemon`.
 6. Run one real command end to end. Confirm it lands on the new worker.
+   In a repository that uses signed verdicts, its first signed run creates
+   the new worker's key. Put that key in the repository's signers file
+   ([docs/verdicts.md](verdicts.md#rotate-the-key-after-a-worker-rebuild)).
 7. Keep the old worker for one working day. To reverse the cut-over,
    restore the previous `[worker] host` value and restart the client daemon.
 8. Retire the old worker. Run `pandora worker --host <old> reconcile` to close

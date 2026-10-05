@@ -169,7 +169,7 @@ Read the public key with `pandora worker status`. It prints
 first signed run)`. `pandora worker --json status` carries it as
 `verdict_signer`. Put that line in the verifying repository's allowed-signers
 file. Rebuilding a worker makes a new key, so update that file after a
-rebuild.
+rebuild ([docs/verdicts.md](verdicts.md#rotate-the-key-after-a-worker-rebuild)).
 
 What a verdict does not check:
 

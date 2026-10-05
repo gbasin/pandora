@@ -1,0 +1,20 @@
+name: prune
+
+# Pandora calls its own reusable verdict-prune workflow, as a consuming
+# repository does (docs/verdicts.md, Pruning).
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verdicts:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/verdict-prune.yml
+    with:
+      max_age_days: 30

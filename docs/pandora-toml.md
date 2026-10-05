@@ -204,7 +204,9 @@ run's log, which `pandora logs <id>` shows and a live caller does not see:
 * `pandora: verdict not published: <reason>`
 
 A daemon older than this table refuses the file, as for any key it does not
-understand.
+understand. The table needs v0.3.12 or newer on every client Mac. The setup in
+a consuming repository, its CI step and its rollout are in
+[docs/verdicts.md](verdicts.md).
 
 
 ## Behavior tables
