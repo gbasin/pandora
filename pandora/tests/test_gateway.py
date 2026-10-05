@@ -176,6 +176,14 @@ class RefusedShapes(unittest.TestCase):
             'rsync --server -a --link-dest=/etc . %s/src/demo/x/' % ER))
         self.assertIsNotNone(check('rsync -a . %s/src/demo/x/' % ER))
 
+    def test_rsync_never_reaches_the_verdict_key(self):
+        self.assertIsNotNone(check('rsync --server --sender -a . %s/keys/verdict' % ER))
+        self.assertIsNotNone(check('rsync --server --sender -a . %s/keys/' % ER))
+        self.assertIsNotNone(check('rsync --server -a . %s/keys/' % ER))
+        # The root holds the keys: a recursive pull of it would carry them out.
+        self.assertIsNotNone(check('rsync --server --sender -a . %s/' % ER))
+        self.assertIsNotNone(check('rsync --server -a --delete . %s' % ER))
+
     def test_garbage_and_misquoting(self):
         self.assertIsNotNone(check('python3 -c "unterminated'))
         self.assertIsNotNone(check('cd %s && PYTHONPATH=%s' % (BUNDLE, BUNDLE)))
