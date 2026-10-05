@@ -20,11 +20,13 @@ Pandora does. [worker.md](worker.md) covers the Linux worker.
   * [Restart and drain](#restart-and-drain)
   * [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
   * [Removal and manual start](#removal-and-manual-start)
+  * [Signed verdict publication](#signed-verdict-publication)
 * [Enrollment and claim caches](#enrollment-and-claim-caches)
   * [Claim caches](#claim-caches)
   * [Migration from the old marker](#migration-from-the-old-marker)
   * [Unenrollment](#unenrollment)
   * [Old spellings](#old-spellings)
+* [Verdicts in CI](#verdicts-in-ci)
 * [Operating limits](#operating-limits)
 * [Run results](#run-results)
 * [Layout](#layout)
@@ -341,7 +343,28 @@ recorded as client `e2e-<host>`. It costs one small incus run because the
 scratch repository borrows an enrolled repository's `[worker]` toolchain, so
 the run clones a golden the worker already has. Everything the test owns lives
 under one temporary directory and is removed on exit (`--keep` keeps it);
-`--update` adds a second run whose write-back must land. The summary is the
+`--update` adds a second run whose write-back must land. The scratch job
+declares `git = "synthetic"` and `[verdicts] publish = true`, so each
+`selftest` receipt must carry a 40-hex `tree` and either a verdict that
+`ssh-keygen -Y verify` accepts against its own `signer`, or `verdict_skipped =
+"worker_not_ready"`. Any other skip reason fails the test with exit 1. A
+receipt with no `tree` key comes from an engine older than signed verdicts:
+the test says so and does not check it.
+
+When the worker signs, the selftest also proves verdict publication. The
+scratch repository's `origin` is a bare repository in the same scratch
+directory, so nothing reaches GitHub. After each `selftest` run the test
+waits for `verdict-publish.json` beside `result.json`, then requires
+`refs/pandora/verdicts/<tree>/selftest` on that origin: a parentless commit by
+`pandora <pandora@localhost>` that holds exactly `payload.json` (the receipt's
+payload bytes), `verdict.sig` and `signer`, and whose signature `ssh-keygen -Y
+verify` accepts against that `signer`. The run log must say `pandora: verdict
+published <ref>`. The `--update` run has the same tree and job, so its
+publication must take the other path and log `(already on the remote)`. When
+the verdict was skipped for `worker_not_ready`, the origin must hold no
+`refs/pandora/` ref, and the test prints `verdict not signed
+(worker_not_ready); publication not exercised`. A publication that is missing
+or wrong is exit 1. The summary is the
 phase timings the caller paid and the engine measured. Exit 0 means the whole
 path worked; 70 means it could not be exercised, with the reason.
 
@@ -594,6 +617,55 @@ wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
 foreground or under `nohup`. `pandora doctor` then warns that nothing restarts
 it.
 
+### Signed verdict publication
+
+A remote run's `result.json` in `<state>/runs/<id>/` carries three fields from
+an engine that signs verdicts. The client copies them home unchanged.
+
+| Field | Value |
+|---|---|
+| `tree` | The 40-hex git tree the run saw, for a job with `git = "synthetic"`. `null` otherwise. |
+| `verdict` | `{payload, signature, signer}`: the canonical JSON payload, the armored SSHSIG block, and the worker's public key line. `null` when the worker did not sign. |
+| `verdict_skipped` | Why there is no verdict: `not_passed`, `not_whole`, `worker_not_ready` or `no_synthetic_git`. `null` when signed. |
+
+A result from an older engine has none of the three keys.
+
+When the worktree's `pandora.toml` sets `[verdicts] publish = true`
+([pandora-toml.md](pandora-toml.md#signed-verdicts)), the daemon pushes a
+signed verdict to `refs/pandora/verdicts/<tree>/<job>` on the declared remote.
+The push starts after the exit frame, on a background thread. The caller's
+exit and exit code do not wait for it or depend on it. The thread loads the
+worktree's `pandora.toml`, and does nothing when the opt-in is absent, the
+worktree has no such remote, or the result has no verdict. Otherwise it runs
+`git ls-remote` for the ref, skips the push when the ref exists, and else runs
+`git push --quiet <remote> <commit>:<ref>`. When the push fails, it runs
+`git ls-remote` once more: a ref that is now there means another publisher
+pushed a verdict for the same tree and job first, and the record says
+`present`. One 60 s deadline covers every git command in the sequence, from
+`git remote get-url` on. A timeout kills git's whole process group, ssh
+included, and the reason names the seconds the step took and how much of the
+deadline was used.
+
+Git cannot prompt. It starts in a session of its own, with no controlling
+terminal and no stdin, and with `GIT_TERMINAL_PROMPT=0` and
+`SSH_ASKPASS_REQUIRE=never`. Unless `GIT_SSH_COMMAND`, `GIT_SSH` or
+`core.sshCommand` is already set, `GIT_SSH_COMMAND` is `ssh -o BatchMode=yes`.
+A remote that asks for a password, a passphrase or a host key confirmation
+fails instead of waiting.
+
+The thread then appends one line to the run's log, after the exit frame:
+
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job>`
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job> (already on the remote)`
+* `pandora: verdict not published: <reason>`
+
+`pandora logs <id>` prints it. A live caller and `pandora wait` stop at the
+exit frame, so they never see it, and it never replaces the `pandora: hint:`
+line. The record lands beside `result.json` as `verdict-publish.json`
+(`state` is `published`, `present` or `failed`, with `ref` and `reason`).
+`pandora result <id>` reads it and prints `verdict: published <ref>`, or
+`verdict: signed, tree <12 hex>` with the reason when the push failed.
+
 
 ## Enrollment and claim caches
 
@@ -681,6 +753,56 @@ still routes while it is there.
 aliases for one release. Each prints a one-line deprecation notice on stderr and then runs
 `enroll` or `unenroll`. Change scripts to the new spelling.
 
+
+## Verdicts in CI
+
+A passing whole run of a `git = "synthetic"` job on a ready worker produces a
+verdict: the git tree the run saw, the job, the argv and the golden
+fingerprint, signed with the worker's verdict key. The key lives in the
+worker's engine root and never leaves it. `pandora worker status` prints its
+public half under `verdict signer:`. A client that opts in publishes the verdict
+as the ref `refs/pandora/verdicts/<tree>/<job>` on `origin`.
+
+The composite action
+[`.github/actions/pandora-verdict`](../.github/actions/pandora-verdict/action.yml)
+checks for that ref in CI. It runs
+[`scripts/verdict-verify.sh`](../scripts/verdict-verify.sh), which also runs by
+hand from a checkout. Inputs: `job`, `argv` (a JSON array, compared exactly)
+and `signers`. Outputs: `verified`, `reason`, `run_id`, `golden`. It
+never fails a job. A missing ref, a bad signature or any field that differs is
+`verified=false` with a reason, and the job runs as before. Pandora's own
+`tests.yml` runs it on the ubuntu leg and skips the unittest step only when
+`verified` is `true`.
+
+The trust rule: signers are read from the repository's default branch, and
+from nothing else. The action passes `github.event.repository.default_branch`
+to the script, which fetches that branch at depth 1 into
+`refs/remotes/origin/<branch>` and reads `.github/pandora/allowed_signers`
+from that full ref with `git show`. It never reads the checked-out head, and
+it never reads the base a pull request chose, so a pull request aimed at
+another branch cannot bring that branch's keys. The full ref means a tag or
+branch named `origin/<branch>` cannot stand in for it. A push event follows the
+same rule: the signers come from the fetched default branch, not from the
+pushed commit. Run by hand without `--default-branch`, the script uses the
+branch that `origin`'s `HEAD` names. Its `--base` option reads from a given
+revision instead and exists for the unit tests only.
+
+A key added in a pull request takes effect only after it merges into the
+default branch. To revoke a key, remove its line from the default branch. Only
+that branch is consulted, so deleting the key from any other branch changes
+nothing, and the removal takes effect for every check that starts after it
+lands. One line per key:
+
+```
+pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAA... pandora-verdict
+```
+
+With no key line in the file, every check answers `reason=no_signers`.
+
+The tree is `HEAD^{tree}` of the CI checkout. On a pull request that is the
+merge commit GitHub builds, which has the branch's own tree only when the
+branch already contains its base. A branch behind its base gets no match and
+runs the suite.
 
 ## Operating limits
 

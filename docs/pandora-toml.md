@@ -11,6 +11,7 @@ fallback, queueing, write-back, retry and placement overrides.
   * [Top-level tables](#top-level-tables)
   * [Source preparation](#source-preparation)
   * [Job keys](#job-keys)
+  * [Signed verdicts](#signed-verdicts)
 * [Behavior tables](#behavior-tables)
   * [Fallback](#fallback)
   * [Queueing](#queueing)
@@ -83,13 +84,14 @@ is the worked version of the same job written two ways.
 | Table | What it holds |
 |---|---|
 | `version` | `1`. |
-| `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. |
+| `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. A command that is not `pnpm` is claimed through `pandora run`, which sends it as `pnpm <argv>`: keep `entrypoints = ["pnpm"]` and put the program in the form, as Pandora's own [`pandora.toml`](../pandora.toml) does with `prefix = ["python3", "-m", "unittest", "discover", "-s", "pandora"]`. |
 | `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`). `subdirectory = "reroot"`, `"reject"` or `"passthrough"`: what a claimed command typed below the worktree root does. `reroot` runs it from the root unless an argument names a path, then exits 64. `reject` refuses it with exit 1. `local` is an old name for `reroot`. `passthrough` claims it only at the root, so below it the command runs unchanged, like an unclaimed one, decided in the shim with no fork. Use it when bare root forms (`test`, `build`) mean a package's own script in a subdirectory. |
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
 | `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`. `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
 | `[worker]` | Required. Golden toolchain, with `base_image` required: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `workdir` sets only the canary's working directory. Routed runs ignore it. `prepare_command` is an optional per-run hook described below. It does not change the golden fingerprint. |
 | `[fallback]` | Optional repository-wide fallback. Acme declares none on purpose. |
+| `[verdicts]` | Optional. `publish` (`false` by default) and `remote` (`"origin"` by default): whether the daemon pushes a worker's signed verdict to that remote as a git ref. Described below. |
 | `[[jobs]]` | One entry per routed job. |
 
 The invoking worktree's `pandora.toml` owns its routing. An enrollment config
@@ -145,6 +147,64 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 
 A write-back path may glob only its last component, below a directory:
 `fixtures/*.ledger.jsonl` loads. `*.json` and `fixtures/**/x.json` are refused.
+
+### Signed verdicts
+
+A worker signs a run's verdict when the run passed, ran whole (not a shard),
+ran on a worker whose ready state is `ready`, and declared `git =
+"synthetic"`, so the worker knows the git tree it ran over. The signed payload
+names that tree, the job, the argv and the golden. `result.json` carries
+`tree`, `verdict` (`payload`, `signature`, `signer`) and `verdict_skipped`,
+the first condition that failed: `not_passed`, `not_whole`,
+`worker_not_ready` or `no_synthetic_git`.
+
+```toml
+[verdicts]
+publish = true          # default false
+remote = "origin"       # default
+```
+
+| Key | Meaning |
+|---|---|
+| `publish` | `true` pushes each signed verdict to `remote` after the run exits. Default `false`: the verdict stays in `result.json` and nothing is pushed. |
+| `remote` | The worktree's git remote. Default `origin`. A name that starts with `-` is refused. |
+
+The ref is `refs/pandora/verdicts/<tree>/<job>`. It points at a parentless
+commit with a fixed author (`pandora <pandora@localhost>`), a fixed date
+(`1 +0000`) and the message `pandora verdict <tree> <job>`. Its tree holds
+exactly `payload.json`, `verdict.sig` and `signer`. The same verdict always
+makes the same commit. The daemon builds it in the worktree's object store with
+`git hash-object`, `git mktree` and `git commit-tree`. It does not check out,
+touch the index or change a file. When the remote already has the ref, nothing
+is pushed. A CI job for the same tree reads the ref, verifies the signature
+against signers it trusts, and may skip the work.
+
+The ref names the tree and the job, and nothing else. The first verdict
+published for a tree stays until someone deletes the ref. For a job that takes
+arguments (`args = "optional"` or `"required"`), a later run of the same tree
+with other arguments finds the ref present and pushes nothing, and a CI job
+that compares the signed argv with its own then refuses the verdict and runs
+the work. Publication is therefore most useful for jobs with `args = "none"`.
+
+Publication ignores the client's final exit code and the write-back state on
+purpose. The signed claim is about the tree the worker ran over, and a
+write-back that fails at home, or an exit code it changes, does not make that
+claim false.
+
+The push runs on a thread of its own after the command has exited. It never
+delays the exit and never changes the exit code. It has 60 s for every git
+command it runs, and git cannot prompt for credentials
+([operations.md](operations.md#signed-verdict-publication)). Without
+`publish = true`, without that remote in the worktree, or without a verdict,
+nothing happens and nothing is logged. Otherwise one line is appended to the
+run's log, which `pandora logs <id>` shows and a live caller does not see:
+
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job>`
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job> (already on the remote)`
+* `pandora: verdict not published: <reason>`
+
+A daemon older than this table refuses the file, as for any key it does not
+understand.
 
 
 ## Behavior tables
