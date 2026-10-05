@@ -96,10 +96,48 @@ pandora worker status
 ```
 
 `status` prints the ready state, the host and kernel, installed versions against
-the manifest, pool use, the admission gate, the goldens and the last canary. A
+the manifest, pool use, the admission gate, the goldens, the last canary and the
+[verdict signer](#verdicts). A
 package or setting that differs from the manifest, or a kernel that differs from
 the one the canary passed on, reads `drifted`, not `ready`. Re-run the canary
 with `--mark` after any change to the machine.
+
+## Verdicts
+
+A whole run that passes on a `ready` worker signs a verdict: a statement that
+this job, with this argv, passed over this exact git tree on this golden. A
+CI job for the same tree can verify the signature and skip the work.
+
+* The tree comes from the synthetic repository. Only a job with
+  `git = "synthetic"` has one. The tree covers every file the run saw, tracked
+  or untracked. Secret-filtered files never reach the worker, so a tree with
+  one of them never equals a commit's tree.
+* The payload is canonical JSON with `kind`, `v`, `run_id`, `repo`, `job`,
+  `argv`, `input_id`, `tree`, `golden`, `engine`, `outcome` and `finished`.
+  `engine` is the digest of the engine bundle that ran it. `golden` is the
+  toolchain fingerprint in `golden-<fingerprint>`.
+* The conditions, in order: the outcome is `passed`; the attempt is a whole
+  run, not a shard or a fan-out parent; the worker's ready state is `ready`
+  (a kernel other than the canary's reads as not ready); the run has a tree.
+  `result.json` names the first that failed in `verdict_skipped`
+  ([Run results](operations.md#run-results)).
+* The key is an Ed25519 OpenSSH key at `<engine_root>/keys/verdict` (0600) in
+  a 0700 directory. The first run that signs creates it. It never leaves the
+  engine root and is never injected into an instance. The gateway refuses any
+  rsync path in `keys` or above it. A teammate who can ship a bundle can still
+  run code as the worker user ([The gateway](#the-gateway)), so trust the
+  signer only as far as every key that reaches the worker.
+* Signing runs `ssh-keygen -Y sign -n pandora-verdict`. A missing
+  `ssh-keygen` or a failed signature leaves `verdict` null with
+  `verdict_skipped` set to `sign_failed:<reason>`. The run's outcome and exit
+  code do not change.
+
+Read the public key with `pandora worker status`. It prints
+`verdict signer: <key line>`, or `verdict signer: none yet (created on the
+first signed run)`. `pandora worker --json status` carries it as
+`verdict_signer`. Put that line in the verifying repository's allowed-signers
+file. Rebuilding a worker makes a new key, so update that file after a
+rebuild.
 
 ## Sharing a worker
 
