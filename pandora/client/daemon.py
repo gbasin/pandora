@@ -45,6 +45,7 @@ from . import drain as draining
 from . import enrollment, envfilter, fallback as policy, hints, placement, progress, settings
 from . import stats as statistics
 from . import trace
+from . import verdicts
 from . import writeback as writebacks
 from .health import Monitor
 from . import local as local_module
@@ -246,6 +247,8 @@ class Run:
         # Where a remote run stands in the worker's queue before `accepted`
         # ({position, ahead, running, eta_seconds, bound_seconds}), for `ps`.
         self.queue = None
+        # The background push of a signed verdict, once `deliver` started one.
+        self.verdict_thread = None
 
     def save(self):
         with self.close_lock:
@@ -2492,6 +2495,47 @@ class Daemon:
         if named:
             run.suggest(named[1], rule=named[0])
         run.finish(code, state=result['outcome'], result=result)
+        self.publish_verdict(run, repo, result)
+
+    def publish_verdict(self, run, repo, result):
+        """Push a signed verdict as a git ref, after the caller has its exit.
+
+        Started only once `finish` has written result.json and sent the exit
+        frame, on a thread of its own: a slow or unreachable remote must never
+        delay the command or change its code. The repository opts in with
+        `[verdicts] publish = true`; without that, without the remote, or
+        without a verdict, nothing happens and nothing is said. Otherwise one
+        `pandora:` line lands in the run log after the exit frame, where
+        `pandora logs` shows it and no live caller reads it, and the record
+        lands beside result.json for `pandora result`.
+        """
+        if not isinstance(result, dict) or not result.get('verdict'):
+            return None
+        thread = threading.Thread(target=self.publish_verdict_now, args=(run, repo, result),
+                                  name='verdict-' + run.id, daemon=True)
+        run.verdict_thread = thread
+        thread.start()
+        return thread
+
+    def publish_verdict_now(self, run, repo, result):
+        worktree = run.worktree()
+        try:
+            wanted = self.repo_config(repo, Path(worktree)).get('verdicts') or {}
+        except Exception:                        # noqa: BLE001 - no readable opt-in is none
+            return
+        if not wanted.get('publish'):
+            return
+        try:
+            record = verdicts.publish(worktree, wanted.get('remote') or 'origin', result)
+            if record is None:
+                return
+            (run.dir / verdicts.RECORD).write_text(json.dumps(record) + '\n')
+            run.note(verdicts.line(record))
+        except Exception as error:               # noqa: BLE001 - never a verdict on the run
+            try:
+                run.note('verdict not published: %s: %s' % (type(error).__name__, error))
+            except OSError:
+                pass
 
     def write_back(self, run, worker, result):
         """Publish a `--update` run's proposal, or say why not. None for other runs.

@@ -20,6 +20,7 @@ Pandora does. [worker.md](worker.md) covers the Linux worker.
   * [Restart and drain](#restart-and-drain)
   * [When the daemon is installed but does not answer](#when-the-daemon-is-installed-but-does-not-answer)
   * [Removal and manual start](#removal-and-manual-start)
+  * [Signed verdict publication](#signed-verdict-publication)
 * [Enrollment and claim caches](#enrollment-and-claim-caches)
   * [Claim caches](#claim-caches)
   * [Migration from the old marker](#migration-from-the-old-marker)
@@ -592,6 +593,44 @@ To run the daemon by hand instead, for example on a machine where launchd is not
 wanted, start `pandora --config ~/.config/pandora/config.toml daemon` in the
 foreground or under `nohup`. `pandora doctor` then warns that nothing restarts
 it.
+
+### Signed verdict publication
+
+A remote run's `result.json` in `<state>/runs/<id>/` carries three fields from
+an engine that signs verdicts. The client copies them home unchanged.
+
+| Field | Value |
+|---|---|
+| `tree` | The 40-hex git tree the run saw, for a job with `git = "synthetic"`. `null` otherwise. |
+| `verdict` | `{payload, signature, signer}`: the canonical JSON payload, the armored SSHSIG block, and the worker's public key line. `null` when the worker did not sign. |
+| `verdict_skipped` | Why there is no verdict: `not_passed`, `not_whole`, `worker_not_ready` or `no_synthetic_git`. `null` when signed. |
+
+A result from an older engine has none of the three keys.
+
+When the worktree's `pandora.toml` sets `[verdicts] publish = true`
+([pandora-toml.md](pandora-toml.md#signed-verdicts)), the daemon pushes a
+signed verdict to `refs/pandora/verdicts/<tree>/<job>` on the declared remote.
+The push starts after the exit frame, on a background thread. The caller's
+exit and exit code do not wait for it or depend on it. The thread loads the
+worktree's `pandora.toml`, and does nothing when the opt-in is absent, the
+worktree has no such remote, or the result has no verdict. Otherwise it runs
+`git ls-remote` for the ref, skips the push when the ref exists, and else runs
+`git push --quiet <remote> <commit>:<ref>`, with 60 s for the whole sequence.
+Git runs with `GIT_TERMINAL_PROMPT=0` and no stdin, so a remote that asks for
+credentials fails instead of waiting.
+
+The thread then appends one line to the run's log, after the exit frame:
+
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job>`
+* `pandora: verdict published refs/pandora/verdicts/<tree>/<job> (already on the remote)`
+* `pandora: verdict not published: <reason>`
+
+`pandora logs <id>` prints it. A live caller and `pandora wait` stop at the
+exit frame, so they never see it, and it never replaces the `pandora: hint:`
+line. The record lands beside `result.json` as `verdict-publish.json`
+(`state` is `published`, `present` or `failed`, with `ref` and `reason`).
+`pandora result <id>` reads it and prints `verdict: published <ref>`, or
+`verdict: signed, tree <12 hex>` with the reason when the push failed.
 
 
 ## Enrollment and claim caches
