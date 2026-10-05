@@ -21,7 +21,36 @@ pages because anonymous pages have no swap to go to, and it thrashes the same
 way. Measured on an eichler `check` (gbasin/pandora#193): anon 8450 MiB, file
 1492 MiB. Which one filled the cgroup is in the verdict's `memory_stat`
 breakdown, not in the fact that the watchdog fired.
+
+`file` brings its own working set rather than reading the repository's. It
+once read `/work/node_modules`, so a golden from a repository without one (any
+non-Node toolchain) gave it nothing to read: it spun for the whole wall
+without pressure and the canary failed its three oom checks. It now writes
+`WORKING_SET_FILES` files of `WORKING_SET_MIB` MiB under `WORKING_SET_DIR`,
+three times the canary's 512 MiB ceiling, then reads them round and round.
+The files come from `/dev/urandom` so no compression or dedup shrinks them,
+and are written with `O_DIRECT` (or `fsync` per file where that is refused)
+so writing them does not itself fill the cgroup with dirty pages: buffered
+writes under a hard cap with no swap were OOM-killed by the kernel in a
+512 MiB test container, which would pass the check without proving the
+watchdog. They live under `/work`, not `/tmp`: Ubuntu mounts `/tmp` as tmpfs,
+whose pages are shared memory that no reclaim can evict without swap, so a
+working set there is an `anon` hog. Nothing cleans it up; the instance is
+destroyed.
 """
+
+WORKING_SET_DIR = '/work/.pandora-hog'
+WORKING_SET_FILES = 96
+WORKING_SET_MIB = 16
+
+# Generate first, then thrash: the clock the canary holds against 60 s starts
+# before this runs, and writing 1.5 GiB of urandom takes seconds, not tens.
+WORKING_SET = (
+    'mkdir -p {dir} && for i in $(seq 1 {files}); do '
+    'dd if=/dev/urandom of={dir}/$i bs=1M count={mib} oflag=direct status=none 2>/dev/null '
+    '|| dd if=/dev/urandom of={dir}/$i bs=1M count={mib} conv=fsync status=none; done; '
+).format(dir=WORKING_SET_DIR, files=WORKING_SET_FILES, mib=WORKING_SET_MIB)
+THRASH = 'while :; do cat %s/* > /dev/null 2>&1; done' % WORKING_SET_DIR
 
 HOGS = {
     # `Buffer.alloc(n)` for a large n is a calloc of fresh mmap: the pages are
@@ -34,13 +63,14 @@ HOGS = {
     # A working set of file pages several times the cap, read round and round.
     # Reclaim always succeeds, so the charge never fails, so nothing dies. This
     # is the one the watchdog exists for.
-    'file': ['bash', '-c', 'while :; do cat $(find /work/node_modules -type f -size +8k '
-                           '| head -20000) > /dev/null 2>&1; done'],
-    # Both at once: anonymous growth that squeezes a file working set.
+    'file': ['bash', '-c', WORKING_SET + THRASH],
+    # Both at once: anonymous growth that squeezes a file working set. The
+    # working set is written before the growth starts, so the kernel does not
+    # kill the writer first.
     'mixed': ['bash', '-c',
+              WORKING_SET +
               'node -e "const a=[];for(;;){a.push(Buffer.alloc(16*1024*1024).fill(1));}" & '
-              'while :; do cat $(find /work/node_modules -type f -size +8k '
-              '| head -20000) > /dev/null 2>&1; done'],
+              + THRASH],
 }
 
 DEFAULT = 'file'
