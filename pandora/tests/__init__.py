@@ -17,6 +17,10 @@ for _name in [key for key in os.environ if key.startswith('GIT_')
 for _name in ('PANDORA_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CODEX_COMPANION_SESSION_ID'):
     os.environ.pop(_name, None)
 
+# The worker's ready state is read from PANDORA_WORKER_ROOT or ~/pandora; a
+# test that wants one sets it to a directory it wrote.
+os.environ.pop('PANDORA_WORKER_ROOT', None)
+
 # Nothing in the suite reads the person's own client configuration: a test that
 # wants one passes `--config` or sets this to a file it wrote.
 os.environ['PANDORA_CONFIG'] = os.path.join(os.sep, 'nonexistent', 'pandora-test-config.toml')

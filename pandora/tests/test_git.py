@@ -116,10 +116,11 @@ class ScriptTest(unittest.TestCase):
             (lists / flag).write_bytes(b''.join(p.encode() + b'\0' for p in marks.get(flag, [])))
         env = dict(os.environ, GIT_CONFIG_SYSTEM=str(root / 'system.gitconfig'),
                    GIT_CONFIG_GLOBAL=str(root / 'global.gitconfig'))
-        subprocess.run(['sh', '-c', IncusDriver.GIT_SCRIPT, 'git', str(root / 'work'),
-                        str(lists), 'pandora abc'], check=True, env=env,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        proc = subprocess.run(['sh', '-c', IncusDriver.GIT_SCRIPT, 'git', str(root / 'work'),
+                               str(lists), 'pandora abc'], check=True, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.assertFalse(lists.exists(), 'the lists are removed once used')
+        self.printed = proc.stdout
 
         def git(*args):
             return subprocess.run(['git', '-C', str(root / 'work'), *args], env=env,
@@ -150,3 +151,55 @@ class ScriptTest(unittest.TestCase):
                 self.assertEqual(git('diff', 'HEAD', '--stat'), '')
                 heads.append(git('rev-parse', 'HEAD'))
         self.assertEqual(heads[0], heads[1])
+
+    def test_the_tree_is_every_file_the_run_sees_untracked_included(self):
+        import os
+        import subprocess
+        from pandora.executor.incus import tree_of
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.tree(root)
+            # The same files, staged by hand the way a person would before
+            # `git commit`: everything `git add -A` takes, plus the tracked
+            # ignored file. That index's tree is what the verdict must name.
+            expect = root / 'expect'
+            env = dict(os.environ, GIT_CONFIG_SYSTEM=str(root / 'system.gitconfig'),
+                       GIT_CONFIG_GLOBAL=str(root / 'global.gitconfig'))
+            subprocess.run(['cp', '-R', str(root / 'work'), str(expect)], check=True)
+
+            def plain(*args):
+                return subprocess.run(['git', '-C', str(expect), *args], env=env, check=True,
+                                      capture_output=True, text=True).stdout
+            plain('init', '-q')
+            plain('add', '-A')
+            plain('add', '-f', 'forced.log')
+            want = plain('write-tree').strip()
+            git = self.build(root, {'untracked': ['scratch [1].md'],
+                                    'ignored': ['forced.log']})
+            tree = tree_of(self.printed)
+            self.assertRegex(tree or '', r'^[0-9a-f]{40}$')
+            self.assertEqual(tree, want)
+            listed = git('ls-tree', '-r', '--name-only', tree).split('\n')[:-1]
+            self.assertIn('scratch [1].md', listed)
+            self.assertIn('forced.log', listed)
+            self.assertNotIn('noise.log', listed)
+            # The untracked file left the index after the tree was taken, so
+            # the commit is still the caller's tracked set.
+            self.assertNotEqual(git('rev-parse', 'HEAD^{tree}').strip(), tree)
+
+    def test_the_tree_is_taken_after_the_ignored_add_and_before_the_untracked_rm(self):
+        from pandora.executor.incus import IncusDriver
+        script = IncusDriver.GIT_SCRIPT
+        added = script.index('add -f --pathspec-from-file="$2/ignored"')
+        taken = script.index('git write-tree')
+        removed = script.index('rm -q --cached')
+        self.assertLess(script.index('git add -A'), added)
+        self.assertLess(added, taken)
+        self.assertLess(taken, removed)
+        self.assertLess(removed, script.index('git commit'))
+
+    def test_a_missing_tree_line_is_none(self):
+        from pandora.executor.incus import tree_of
+        self.assertIsNone(tree_of(''))
+        self.assertIsNone(tree_of('pandora-tree xyz\n'))
+        self.assertEqual(tree_of('noise\npandora-tree %s\n' % ('a' * 40)), 'a' * 40)

@@ -180,10 +180,11 @@ class FakeDriver:
     """An executor that does what it is told, so the engine's logic is what fails."""
 
     def __init__(self, *, outcome='ok', exit_code=0, peak=1000 * 1048576,
-                 destroy_clean=True, explode=None, log='hello\n'):
+                 destroy_clean=True, explode=None, log='hello\n', tree='ab' * 20):
         self.outcome, self.exit_code, self.peak = outcome, exit_code, peak
         self.destroy_clean, self.explode, self.log = destroy_clean, explode, log
         self.destroyed = []
+        self.tree = tree
 
     def prepare(self, toolchain, source=None, log=print):
         if self.explode == 'prepare':
@@ -206,7 +207,7 @@ class FakeDriver:
             from pandora.executor.interface import ExecutionFailed
             raise ExecutionFailed('git add failed')
         self.git = (name, dest, marks, message)
-        return 2.9
+        return 2.9, self.tree
 
     def harden(self, instance, limits):
         return {'memory.high': '1'}
