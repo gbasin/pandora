@@ -30,6 +30,8 @@ summary = "Pandora's unittest suite"
 where = "remote"
 git = "synthetic"
 args = "none"
+# Never run the whole suite on this Mac as a fallback: two suites at once hang it.
+fallback = "refuse"
 timeout_minutes = 30
 forms = [{ prefix = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }]
 run = { argv = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }
