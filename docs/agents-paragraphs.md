@@ -102,7 +102,9 @@ and points to the README and `pandora --help` for the rest.
 > The worker has one queue for everybody, first come, first served. The wait has a
 > limit that comes from how long the job usually takes, between 2 and 30
 > minutes. At the limit the command exits 70 with `queue-timeout`, and nothing
-> ran. Retry later. `pandora cancel <id>` takes a queued command out of the
+> ran. Retry later. If the message says the worker's disk is below its floor,
+> do not retry at once: wait for the worker to collect space, or tell the owner
+> to free disk. `pandora cancel <id>` takes a queued command out of the
 > queue. `pandora ps` shows a queued command as `queued #P`.
 >
 > Each job starts with the `size` in `pandora.toml`. After a few runs, the

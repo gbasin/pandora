@@ -185,6 +185,28 @@ class TheWaitEndsWithoutRunning(QueueCase):
         self.assertEqual(report['worker_queue']['wait_seconds']['n'], 1)
         self.assertEqual(report['fallbacks'], [])
 
+    def test_a_queue_timeout_on_disk_names_the_floor_and_says_wait_for_disk(self):
+        QueueWorker.rows = [queued(2), {'state': 'finished'}]
+        QueueWorker.final = {'outcome': 'infra_failed', 'cli_exit': 70,
+                             'durations': {'queue': 600.0},
+                             'evidence': {'cause': 'queue-timeout',
+                                          'queue': dict(PLACE, waited_seconds=600, running=0),
+                                          'capacity': {'ok': False, 'reason': '2.0 GiB free '
+                                                       'of a 4 GiB floor'}}}
+        error = self.frames(['pnpm', 'unit'])[-1]
+        self.assertEqual((error['code'], error['exit']), ('queue-timeout', 70))
+        self.assertIn("the worker's disk is below its floor (2.0 GiB free of a 4 GiB floor)",
+                      error['msg'])
+        self.assertIn('free disk', error['msg'])
+        self.assertEqual(self.meta()[0]['refusal']['cause'], 'queue-timeout')
+
+    def test_a_memory_queue_timeout_says_nothing_about_disk(self):
+        QueueWorker.rows = [queued(2), {'state': 'finished'}]
+        QueueWorker.final = {'outcome': 'infra_failed', 'cli_exit': 70,
+                             'evidence': {'cause': 'queue-timeout',
+                                          'queue': dict(PLACE, waited_seconds=600)}}
+        self.assertNotIn('disk', self.frames(['pnpm', 'unit'])[-1]['msg'])
+
     def test_a_cancel_while_queued_withdraws_it_on_the_worker(self):
         QueueWorker.rows = [queued(2)]
 

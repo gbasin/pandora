@@ -2007,6 +2007,14 @@ class Daemon:
                   "this job's recent runs set" % (
                       engine_history.fmt_seconds(place.get('waited_seconds') or 0),
                       place.get('position', '?'), place.get('running', '?')))
+        # A row the disk floor held back (`waitlist`) records the pool's last
+        # reading: say so, since "0 running" alone reads as a worker gone idle.
+        capacity = (((waited.get('result') or {}).get('evidence') or {}).get('capacity')
+                    or None)
+        if capacity:
+            detail += ("; the worker's disk is below its floor (%s); wait for its "
+                       'collection or the owner to free disk, then retry'
+                       % (capacity.get('reason') or 'no reason given'))
         message = ('queue-timeout (%s); nothing ran, and a full worker is never a reason '
                    'to run it on this Mac. %s' % (
                        detail, policy.WORKER_STEP if placement.writes_back(plan)

@@ -40,7 +40,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import admission, batches, history, retry, runner, writeback
+from . import admission, batches, history, retry, runner, waitlist, writeback
 from . import shards as sharding
 from .ledger import Ledger, row_to_dict
 from .scheduler import Scheduler, gate
@@ -323,14 +323,9 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
                 # the floor waits exactly as one refused on memory does -- the
                 # same queue, the same deadline -- rather than starting a run
                 # that could not fit.
-                room = runner.disk_headroom(paths)
-                if not room.get('ok'):
-                    verdict = {'admitted': False, 'reason': 'disk-floor',
-                               'capacity': room}
-                else:
-                    verdict = scheduler.admit(run_id, plan['repo'], plan['job'],
-                                              plan.get('size_declared')
-                                              or plan['size_class'])
+                verdict = waitlist.admit(paths, scheduler, run_id, plan['repo'],
+                                         plan['job'],
+                                         plan.get('size_declared') or plan['size_class'])
                 if verdict['admitted']:
                     pid = runner.spawn(paths.root, run_id)
                     ledger.update(run_id, supervisor_pid=pid)
@@ -351,9 +346,7 @@ def admit_and_spawn(paths, ledger, run_id, plan, *, note, deadline=None, label=N
         now = time.monotonic()
         if said is None or now - said >= STILL_EVERY:
             if verdict['reason'] == 'disk-floor':
-                note('%s waits on disk: %s' % (label or run_id,
-                                               (verdict['capacity'] or {}).get('reason')
-                                               or 'the pool is below its floor'))
+                note('%s waits on disk: %s' % (label or run_id, waitlist.disk_reason(verdict)))
             else:
                 note(queue_line(ledger, label or run_id, ahead, first=said is None))
             said = now
