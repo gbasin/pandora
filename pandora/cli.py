@@ -702,7 +702,8 @@ def cmd_result(args):
             result['same_tree_as'] = result['same_input_as']
         print(json.dumps(result, indent=1, sort_keys=True))
         return 0
-    print(render_result(args.run, result))
+    print(render_result(args.run, result,
+                        published=read_json(path.parent / 'verdict-publish.json')))
     if (path.parent / 'trace.json').exists():
         print('  trace: %s' % (path.parent / 'trace.json'))
     return 0
@@ -749,7 +750,26 @@ def result_without_one(args, meta):
     return code if isinstance(code, int) and code else 1
 
 
-def render_result(run_id, result):
+def verdict_line(result, published=None):
+    """`verdict: ...` for a result from an engine that signs, else None.
+
+    `published` is the daemon's record of the background push, when it made
+    one: reading it is a file, not a question to the remote.
+    """
+    if not any(key in result for key in ('tree', 'verdict', 'verdict_skipped')):
+        return None
+    if result.get('verdict'):
+        record = published if isinstance(published, dict) else {}
+        if record.get('state') in ('published', 'present') and record.get('ref'):
+            return 'verdict: published ' + record['ref']
+        line = 'verdict: signed, tree %s' % str(result.get('tree') or '?')[:12]
+        if record.get('state') == 'failed':
+            line += ' (not published: %s)' % record.get('reason')
+        return line
+    return 'verdict: none (%s)' % (result.get('verdict_skipped') or 'unknown')
+
+
+def render_result(run_id, result, published=None):
     """A few lines: the verdict, where it ran, the shards, the hint."""
     lines = ['%s: %s, exit %s, %.1fs, %s lane%s' % (
         run_id, result.get('outcome'), result.get('cli_exit'),
@@ -807,6 +827,9 @@ def render_result(run_id, result):
         for item in record.get('conflicts') or []:
             lines.append('    %s: yours kept; proposed %s/%s'
                          % (item['path'], record.get('proposed'), item['path']))
+    signed = verdict_line(result, published)
+    if signed:
+        lines.append('  ' + signed)
     if result.get('hint'):
         lines.append('  hint: ' + result['hint'])
     return '\n'.join(lines)
@@ -1079,7 +1102,8 @@ def main(argv=None):
                          'touches the live daemon, config or state',
         description='Drive the production path once, end to end: enroll a scratch '
                     'repository for a test daemon on a scratch socket, type `pnpm '
-                    'selftest` through the real shim, and assert the receipt. It '
+                    'selftest` through the real shim, and assert the receipt, '
+                    'including its signed verdict when the engine signs. It '
                     'costs one small incus run on the real worker. The worker host '
                     'and the toolchain come from the client configuration '
                     '`--config` names (the enrolled repository\'s `[worker]` table '
