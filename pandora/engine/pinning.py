@@ -32,13 +32,18 @@ image means a cold golden build, so the cache is what bounds that churn to one
 rebuild per recipe per week. The cache is keyed by alias and shared by every
 recipe that names that alias, so only the ordinary expired-entry lookup moves
 it. A golden that has to be built anyway takes the newest image (`settle`),
-but that answer is used for that attempt only: writing it back would move the
-alias under every other recipe and cold-build each of them. Read-only callers
-(`golden`, `pandora worker pins`) never write the cache. A failed lookup is
-remembered for `FAILED_TTL` seconds, so an image-server outage costs one
-lookup timeout per alias per window rather than one per run. Pure standard
-library.
+but that answer does not move the shared entry: writing it back would move the
+alias under every other recipe and cold-build each of them. It is remembered
+instead as a redirect on that alias's entry, keyed by the golden the shared
+image names, so the next run of that recipe finds the golden it built with no
+lookup. A redirect lives only as long as its shared entry: when the entry
+expires and is replaced, every recipe moves to the new image together.
+Read-only callers (`golden`, `pandora worker pins`) follow redirects and never
+write the cache. A failed lookup is remembered for `FAILED_TTL` seconds, so an
+image-server outage costs one lookup timeout per alias per window rather than
+one per run. Pure standard library.
 """
+import fcntl
 import hashlib
 import json
 import os
@@ -57,6 +62,8 @@ IMAGE_TTL = 7 * 86400
 FAILED_TTL = 5 * 60
 # Distinct aliases the cache holds; the least recently answered is dropped.
 MAX_ALIASES = 32
+# Redirects one alias's entry holds; the oldest is dropped.
+MAX_REDIRECTS = 64
 LOCKFILE_PREFIX = 'lockfile:'
 CHUNK = 1 << 20
 # `share` modes for the image cache: write every answer, write only when the
@@ -126,28 +133,82 @@ def entry_age(entry):
         return 0.0
 
 
-def write_entry(root, alias, entry):
-    """Store one alias's entry, dropping the oldest past `MAX_ALIASES`.
-    Atomic, so a reader never sees half a file."""
+def update_cache(root, change):
+    """Apply `change(data)` to the cache under a lock, then replace the file
+    atomically, so a reader never sees half a file and two supervisors never
+    drop each other's writes."""
     path = cache_file(root)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = read_cache(root)
-        data[alias] = entry
-        while len(data) > MAX_ALIASES:
-            del data[min((key for key in data if key != alias),
-                         key=lambda key: entry_age(data[key]))]
-        handle, tmp = tempfile.mkstemp(dir=str(path.parent), prefix='.images.')
-        with os.fdopen(handle, 'w') as out:
-            json.dump(data, out, indent=1, sort_keys=True)
-        os.replace(tmp, path)
+        with open(path.parent / '.images.lock', 'a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            data = read_cache(root)
+            change(data)
+            handle, tmp = tempfile.mkstemp(dir=str(path.parent), prefix='.images.')
+            with os.fdopen(handle, 'w') as out:
+                json.dump(data, out, indent=1, sort_keys=True)
+            os.replace(tmp, path)
     except OSError:
         pass                    # a cache that cannot be written only costs a lookup
 
 
+def write_entry(root, alias, entry):
+    """Store one alias's entry, dropping the oldest past `MAX_ALIASES`."""
+    def change(data):
+        data[alias] = entry
+        while len(data) > MAX_ALIASES:
+            del data[min((key for key in data if key != alias),
+                         key=lambda key: entry_age(data[key]))]
+    update_cache(root, change)
+
+
 def remember(root, alias, fingerprint, now):
-    """Record one alias resolution."""
+    """Record one alias resolution. The new entry carries no redirects: they
+    named goldens of the image it replaces."""
     write_entry(root, alias, {'fingerprint': fingerprint, 'at': now})
+
+
+def mark_failed(data, alias, now, why):
+    """Mark the alias's current entry as failed, keeping its answer and its
+    redirects."""
+    entry = data.get(alias)
+    data[alias] = dict(entry if isinstance(entry, dict) else {}, failed_at=now, failed=why)
+    while len(data) > MAX_ALIASES:
+        del data[min((key for key in data if key != alias),
+                     key=lambda key: entry_age(data[key]))]
+
+
+def redirect(root, alias, golden):
+    """The image the golden `golden` (named by the shared image) was last
+    rebuilt from, or None. A redirect older than the shared entry is void."""
+    entry = read_cache(root).get(alias)
+    if not isinstance(entry, dict):
+        return None
+    table = entry.get('redirect')
+    found = table.get(golden) if isinstance(table, dict) else None
+    if not isinstance(found, dict) or not isinstance(found.get('image'), str):
+        return None
+    if entry_age(found) < entry_age({'at': entry.get('at')}) or not found['image']:
+        return None
+    return found['image']
+
+
+def remember_redirect(root, alias, golden, image_fp, now):
+    """Record that the golden the shared image names was built from `image_fp`
+    instead. Stored on the alias's entry, so replacing the entry drops it."""
+    def change(data):
+        entry = data.get(alias)
+        if not isinstance(entry, dict) or not entry.get('fingerprint'):
+            return
+        at = entry_age({'at': entry.get('at')})
+        old = entry.get('redirect')
+        table = {key: value for key, value in (old if isinstance(old, dict) else {}).items()
+                 if isinstance(value, dict) and entry_age(value) >= at}
+        table[golden] = {'image': image_fp, 'at': now}
+        while len(table) > MAX_REDIRECTS:
+            del table[min(table, key=lambda key: entry_age(table[key]))]
+        data[alias] = dict(entry, redirect=table)
+    update_cache(root, change)
 
 
 def image(root, alias, lookup, *, fresh=False, now=None, ttl=IMAGE_TTL, share=SHARE):
@@ -186,7 +247,7 @@ def image(root, alias, lookup, *, fresh=False, now=None, ttl=IMAGE_TTL, share=SH
     except Exception as error:                      # noqa: BLE001 - never fatal to a run
         why = str(error)[:200] or type(error).__name__
         if share != SHARE_NEVER and lookup is not None:
-            write_entry(root, alias, dict(entry, failed_at=now, failed=why))
+            update_cache(root, lambda data: mark_failed(data, alias, now, why))
         if known:
             return known, 'stale: %s' % why
         return None, 'unresolved: %s' % why
@@ -220,16 +281,24 @@ def settle(spec, root, driver, name_of, *, source=None, digests=None, now=None,
            write=True):
     """The recipe with `pins` resolved, plus `pin_notes`. Idempotent.
 
-    A spec that already has `pins` is returned unchanged. When the image came
-    from the cache and the golden it names is not warm, the build is cold
-    anyway, so the alias is looked up again and the build takes the newest
-    image rather than one up to `IMAGE_TTL` old. That fresh answer names this
-    attempt's golden only: the shared cache entry is left alone unless it has
-    expired, because other recipes name the same alias and moving it would
-    cold-build every one of them. `write=False` never writes the cache.
+    A spec that already has `pins` is returned unchanged. When the shared
+    image names a golden that is not warm, the build is cold anyway, so:
+
+    1. A redirect for that golden whose golden is warm is used, with no
+       lookup. A redirect is what step 2 left behind on an earlier run.
+    2. Otherwise, when the image came from the cache, the alias is looked up
+       again and the build takes the newest image rather than one up to
+       `IMAGE_TTL` old. The shared entry is left alone (other recipes name the
+       same alias, and moving it would cold-build every one of them); the
+       answer is recorded as a redirect from the shared image's golden.
+    3. When that lookup fails, a redirect is still used, warm or not: it is
+       a newer image than the shared one, and the build is cold either way.
+
+    `write=False` follows redirects but never writes the cache.
     """
     if 'pins' in spec:
         return dict(spec)
+    now = time.time() if now is None else now
     lookup = getattr(driver, 'image_fingerprint', None)
     share = SHARE if write else SHARE_NEVER
     pins, notes, how = resolve(spec, root, lookup, source=source, digests=digests, now=now,
@@ -239,25 +308,58 @@ def settle(spec, root, driver, name_of, *, source=None, digests=None, now=None,
     probe = getattr(driver, 'warm', None)
     if not callable(probe):
         probe = getattr(driver, 'exists', None)
-    if how == 'cached' and callable(probe) and not probe(name_of(dict(spec, pins=pins))):
-        pins, notes, how = resolve(spec, root, lookup, source=source, digests=digests,
-                                   fresh=True, now=now,
-                                   share=SHARE_EXPIRED if write else SHARE_NEVER)
-        notes.append('the cached image named an unbuilt golden, so the alias was '
-                     'looked up again for this attempt only')
-    return dict(spec, pins=pins, pin_notes=notes)
+    if not callable(probe) or not pins.get('base_image') or how == 'resolved':
+        return dict(spec, pins=pins, pin_notes=notes)
+    shared = name_of(dict(spec, pins=pins))
+    if probe(shared):
+        return dict(spec, pins=pins, pin_notes=notes)
+    alias = spec['base_image']
+    moved = redirect(root, alias, shared)
+    if moved and moved != pins['base_image']:
+        redirected = dict(pins, base_image=moved)
+        if probe(name_of(dict(spec, pins=redirected))):
+            notes.append('the shared image names an unbuilt golden; redirected to image '
+                         '%s, which this golden was last built from' % moved[:12])
+            return dict(spec, pins=redirected, pin_notes=notes)
+    if how != 'cached':
+        if moved and moved != pins['base_image']:
+            notes.append('redirected to image %s, newer than the stale shared image'
+                         % moved[:12])
+            return dict(spec, pins=dict(pins, base_image=moved), pin_notes=notes)
+        return dict(spec, pins=pins, pin_notes=notes)
+    fresh, fresh_notes, fresh_how = resolve(
+        spec, root, lookup, source=source, digests=digests, fresh=True, now=now,
+        share=SHARE_EXPIRED if write else SHARE_NEVER)
+    found = fresh.get('base_image')
+    if fresh_how == 'resolved' and found:
+        if write and found != pins['base_image']:
+            remember_redirect(root, alias, shared, found, now)
+        fresh_notes.append('the cached image named an unbuilt golden, so the alias was '
+                           'looked up again; the shared entry is unchanged')
+        return dict(spec, pins=fresh, pin_notes=fresh_notes)
+    if moved and moved != pins['base_image']:
+        fresh_notes.append('the lookup failed; redirected to image %s, newer than the '
+                           'shared image' % moved[:12])
+        return dict(spec, pins=dict(pins, base_image=moved), pin_notes=fresh_notes)
+    return dict(spec, pins=fresh, pin_notes=fresh_notes)
 
 
 def golden_pins(spec):
     """`{image, lockfiles}` for the verdict payload, or None for a toolchain
-    that was never resolved (an attempt written before pinning)."""
+    that was never resolved (an attempt written before pinning). `built_from`
+    is added when the golden was launched from another image than `image`
+    (the alias fallback in `prepare`; the runner writes it)."""
     if not isinstance(spec, dict) or 'pins' not in spec:
         return None
     pins = spec.get('pins') or {}
-    return {'image': pins.get('base_image'),
-            'lockfiles': {key[len(LOCKFILE_PREFIX):]: value
-                          for key, value in sorted(pins.items())
-                          if key.startswith(LOCKFILE_PREFIX)}}
+    found = {'image': pins.get('base_image'),
+             'lockfiles': {key[len(LOCKFILE_PREFIX):]: value
+                           for key, value in sorted(pins.items())
+                           if key.startswith(LOCKFILE_PREFIX)}}
+    built_from = spec.get('built_from')
+    if isinstance(built_from, str) and built_from and built_from != found['image']:
+        found['built_from'] = built_from
+    return found
 
 
 def describe(spec):

@@ -82,30 +82,51 @@ def recipe_of(spec):
                          if key != 'pins'}).fingerprint()
 
 
-def attempts(paths):
-    """{run_id: {repo, job, at, state, toolchain}} for every attempt on disk."""
+def toolchains(paths):
+    """{run_id: (toolchain, mtime)} for every attempt directory with one."""
+    found = {}
+    for path in sorted(Path(paths.runs).glob('*/toolchain.json')):
+        try:
+            found[path.parent.name] = (json.loads(path.read_text()), path.stat().st_mtime)
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def ledger_rows(paths):
+    """{run_id: ledger row} from a read-only connection, {} without a ledger."""
     rows = {}
-    ledger = {}
     if Path(paths.ledger).is_file():
         connection = sqlite3.connect('file:%s?mode=ro' % paths.ledger, uri=True)
         connection.row_factory = sqlite3.Row
         try:
             for row in connection.execute(
                     'select run_id, repo, job, state, created, instance from attempts'):
-                ledger[row['run_id']] = dict(row)
+                rows[row['run_id']] = dict(row)
         except sqlite3.Error:
             pass
         connection.close()
-    for path in sorted(Path(paths.runs).glob('*/toolchain.json')):
-        run_id = path.parent.name
-        try:
-            spec = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
+    return rows
+
+
+def attempts(paths):
+    """{run_id: {repo, job, at, state, toolchain}} for every attempt on disk.
+
+    The toolchain files are read before the ledger, deliberately. A submit
+    claims the ledger row before it writes `toolchain.json`, so every
+    toolchain read here has its row in the later ledger read, and a live
+    attempt is never mistaken for one with no state. A submit that lands
+    after the toolchain read is not seen at all, like one after the sweep,
+    and gc's pre-delete re-check reads again.
+    """
+    files = toolchains(paths)
+    ledger = ledger_rows(paths)
+    rows = {}
+    for run_id, (spec, mtime) in files.items():
         row = ledger.get(run_id, {})
         rows[run_id] = {'repo': row.get('repo'), 'job': row.get('job'),
                         'state': row.get('state'), 'instance': row.get('instance'),
-                        'at': row.get('created') or path.stat().st_mtime,
+                        'at': row.get('created') or mtime,
                         'toolchain': spec}
     return rows
 

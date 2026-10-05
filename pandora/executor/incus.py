@@ -31,6 +31,9 @@ NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
 # Seconds one base-image alias lookup may take (`image_fingerprint`).
 LOOKUP_TIMEOUT = 30
+# The instance config key a golden launched from its alias records its real
+# base image under (`prepare`).
+BUILT_FROM = 'user.pandora.built_from'
 # The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
 # `file` is what says whether the run's own processes filled the cgroup or its
 # file pages did (`file` includes `shmem`, which cannot be reclaimed without
@@ -197,6 +200,11 @@ class IncusDriver(Executor):
                     return item.get('address') or ''
         return ''
 
+    def config_value(self, name, key):
+        """One instance config value, or '' when it is unset or unreadable."""
+        rc, out, _ = self.incus('config', 'get', name, key, check=False)
+        return out.strip() if rc == 0 else ''
+
     def veth(self, name):
         rc, out, _ = self.incus('config', 'get', name, 'volatile.eth0.host_name', check=False)
         return out.strip() if rc == 0 else ''
@@ -219,7 +227,8 @@ class IncusDriver(Executor):
         if self.exists(name):
             if self.warm(name):
                 return Golden(name=name, fingerprint=toolchain.fingerprint(),
-                              snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name))
+                              snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name),
+                              built_from=self.config_value(name, BUILT_FROM))
             self.incus('delete', '-f', name, check=False)
 
         marks, t0 = {}, time.monotonic()
@@ -229,6 +238,7 @@ class IncusDriver(Executor):
         # machine even though the description that built them is identical.
         pins = dict(toolchain.pins)
         base = toolchain.base_image
+        built_from = ''
         if pins.get('base_image'):
             # `images:ubuntu/26.04` launches as `images:<fingerprint>`; a local
             # alias launches as the bare fingerprint of the local image.
@@ -246,6 +256,11 @@ class IncusDriver(Executor):
                     % (name, pinned, err.strip()[:200] or 'exit %d' % rc, base))
                 self.incus('delete', '-f', name, check=False)
                 self.incus('launch', base, name, '-p', self.profile, timeout=900)
+                # Recorded on the instance, so a run that reuses this golden
+                # later can say what it was really built from (the verdict's
+                # `golden_pins.built_from`).
+                built_from = self.config_value(name, 'volatile.base_image') or 'unknown'
+                self.incus('config', 'set', name, BUILT_FROM, built_from, check=False)
         else:
             self.incus('launch', base, name, '-p', self.profile, timeout=900)
         self.wait_ready(name)
@@ -301,7 +316,8 @@ class IncusDriver(Executor):
         total = time.monotonic() - t0
         log('golden %s built in %.1fs %s' % (name, total, json.dumps({k: round(v, 2) for k, v in marks.items()})))
         return Golden(name=name, fingerprint=toolchain.fingerprint(), snapshot='warm',
-                      built_seconds=total, disk_bytes=self.volume_bytes(name))
+                      built_seconds=total, disk_bytes=self.volume_bytes(name),
+                      built_from=built_from)
 
     def qgroup(self, name):
         """(referenced, exclusive) bytes of an instance's btrfs subvolume.

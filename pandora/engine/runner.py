@@ -190,6 +190,7 @@ def supervise(root, run_id, *, driver=None):
         # `source` is used only on a cold build, to bake the toolchain's install
         # command and service images into the golden. A warm golden ignores it.
         golden = driver.prepare(toolchain, source=row['source_path'], log=note)
+        record_built_from(paths, run_id, worker, golden, note)
         mark('prepare')
         ledger.update(run_id, state='running')
         limits = pin_cpus(paths, ledger, run_id, driver, limits)
@@ -856,6 +857,25 @@ def settle_toolchain(paths, run_id, source, driver, note=lambda text: None):
     staged.write_text(json.dumps(settled))
     os.replace(staged, path)
     return settled
+
+
+def record_built_from(paths, run_id, spec, golden, note=lambda text: None):
+    """Write `built_from` into the attempt's `toolchain.json` when the golden
+    was not launched from its pinned image (the alias fallback in `prepare`),
+    so the verdict's `golden_pins` says what the machine really is. It never
+    changes the golden's name: `toolchain_of` does not read it."""
+    built_from = getattr(golden, 'built_from', '') or ''
+    pinned = (spec.get('pins') or {}).get('base_image')
+    if not built_from or built_from == pinned:
+        return spec
+    note('golden %s was built from image %s, not its pinned image %s'
+         % (golden.name, built_from[:12], (pinned or 'unresolved')[:12]))
+    path = paths.attempt(run_id) / 'toolchain.json'
+    updated = dict(spec, built_from=built_from)
+    staged = path.with_name('.toolchain.json.tmp')
+    staged.write_text(json.dumps(updated))
+    os.replace(staged, path)
+    return updated
 
 
 def write_json(path, payload):

@@ -647,6 +647,13 @@ def _worker(value, where):
     }
 
 
+def worker_table(value, where='worker'):
+    """A `[worker]` table checked and normalized by the schema `pandora.toml`
+    is loaded with, for a caller that has the table without the file (the
+    engine's `golden` verb). Raises `ConfigError`."""
+    return _worker(_table(value, where), where)
+
+
 def _canary(value, where):
     """What `pandora worker canary` runs in a clone of this repository's golden.
 

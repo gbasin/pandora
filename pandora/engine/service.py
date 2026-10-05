@@ -61,6 +61,8 @@ from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 # A v5 bundle still runs beside it (its runs use the unpinned recipe golden),
 # so provision keeps the floor at 5 for now (`provision.MIN_ENGINE_FLOOR`).
 ENGINE_VERSION = 6
+# `toolchain.json` keys only the worker writes; a client's are dropped.
+WORKER_ONLY = ('pins', 'pin_notes', 'built_from')
 CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 
 
@@ -205,11 +207,12 @@ def submit(args, paths, ledger, request):
             return emit(answer)
         run_id = row['run_id']
         (paths.attempt(run_id)).mkdir(parents=True, exist_ok=True)
-        # `pins` and `pin_notes` are the worker's to write (`pinning`): a
-        # client that sent them would choose the golden and the `golden_pins`
-        # its verdict is signed over, so they are dropped here.
+        # `pins`, `pin_notes` and `built_from` are the worker's to write
+        # (`pinning`, `runner.record_built_from`): a client that sent them
+        # would choose the golden and the `golden_pins` its verdict is signed
+        # over, so they are dropped here.
         recipe = {key: value for key, value in plan['worker'].items()
-                  if key not in ('pins', 'pin_notes')}
+                  if key not in WORKER_ONLY}
         (paths.attempt(run_id) / 'toolchain.json').write_text(json.dumps(recipe))
         (paths.attempt(run_id) / 'request.json').write_text(json.dumps(request, indent=1))
         paths.log(run_id).touch()
@@ -671,7 +674,8 @@ def golden_request(text):
     """(recipe, lockfiles) from a `golden` request, or raises ValueError.
 
     The `[worker]` table is checked against the same schema `pandora.toml` is
-    loaded with, minus `pins` and `pin_notes`, which only the worker writes.
+    loaded with, minus `pins`, `pin_notes` and `built_from`, which only the
+    worker writes.
     """
     from pandora.config import loader
     from pandora.errors import PandoraError
@@ -683,9 +687,9 @@ def golden_request(text):
         raise ValueError('unknown request key%s: %s' % ('' if len(unknown) == 1 else 's',
                                                          ', '.join(unknown)))
     worker = {key: value for key, value in request['worker'].items()
-              if key not in ('pins', 'pin_notes')}
+              if key not in WORKER_ONLY}
     try:
-        recipe = loader._worker(worker, 'worker')
+        recipe = loader.worker_table(worker)
     except PandoraError as error:
         raise ValueError(str(error)) from None
     if recipe['base_image'].startswith('-'):

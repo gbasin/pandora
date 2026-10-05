@@ -94,6 +94,9 @@ class Golden:
     built_seconds: float = 0.0
     disk_bytes: int = 0
     reused: bool = False
+    # The image fingerprint the golden was launched from when that is not its
+    # pinned one (the alias fallback in `prepare`); empty when it is.
+    built_from: str = ''
 
 
 @dataclass(frozen=True)

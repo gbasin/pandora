@@ -212,6 +212,22 @@ between the manifest and the machine makes `status` report `drifted` rather
 than `ready`, whatever the last canary said, because that canary ran against a
 different machine.
 
+## Upgrading to pinned goldens
+
+Engine 6 names each golden by its base image and root lockfiles, and the image
+cache starts empty. Each enrolled repository's first routed run after the
+upgrade builds its golden cold.
+
+1. Run `pandora worker goldens` and `pandora worker status`. Confirm the pool
+   has room for one new golden per enrolled repository above
+   `disk_floor_gib`.
+2. Upgrade the Macs.
+3. Run one claimed command in each enrolled repository. Do this before agents
+   start work.
+
+The old recipe-only golden stays for engine 5 clients until `gc` removes it.
+See [Upgrading to pinned goldens](worker.md#upgrading-to-pinned-goldens).
+
 ## Upgrade cadence
 
 Unattended upgrades are off. A worker's package set changes only when a

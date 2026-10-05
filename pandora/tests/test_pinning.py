@@ -439,6 +439,112 @@ class SharedAlias(Scratch):
         self.assertEqual(len(driver.lookups), 2)
 
 
+class Redirects(Scratch):
+    """A recipe that rebuilt from a newer image than the shared entry finds
+    that golden again with no lookup, until the shared entry expires."""
+
+    DAY = 86400.0
+
+    def setUp(self):
+        super().setUp()
+        self.trees = {}
+        for label in 'ab':
+            tree = self.root / 'src' / label
+            tree.mkdir(parents=True)
+            (tree / 'pnpm-lock.yaml').write_text('v1\n')
+            self.trees[label] = tree
+        self.driver = Images('0' * 64)
+        self.cold = []
+
+    def run_one(self, label, day):
+        """One routed run: settle, then build the golden when it is not warm."""
+        spec = pinning.settle(dict(RECIPE, source_id=label), self.root, self.driver, name_of,
+                              source=str(self.trees[label]), now=1000.0 + day * self.DAY)
+        name = name_of(spec)
+        if name not in self.driver.built:
+            self.cold.append((label, day))
+            self.driver.built.add(name)
+        return spec
+
+    def upstream(self, day):
+        self.driver.image = '%064x' % (day + 1)
+
+    def test_one_cold_build_until_the_shared_entry_expires(self):
+        self.run_one('a', 0)
+        self.run_one('b', 0)
+        self.assertEqual(self.cold, [('a', 0), ('b', 0)])
+        shared = pinning.read_cache(self.root)['images:ubuntu/26.04']['fingerprint']
+        # Day 1: B bumps its lockfile and upstream has moved.
+        (self.trees['b'] / 'pnpm-lock.yaml').write_text('v2\n')
+        self.upstream(1)
+        rebuilt = self.run_one('b', 1)
+        self.assertEqual(rebuilt['pins']['base_image'], '%064x' % 2)
+        self.assertEqual(self.cold[-1], ('b', 1))
+        entry = pinning.read_cache(self.root)['images:ubuntu/26.04']
+        self.assertEqual(entry['fingerprint'], shared)
+        self.assertEqual(len(entry['redirect']), 1)
+        # Days 2 to 6: upstream moves daily, and day 4 is an outage.
+        for day in range(2, 7):
+            self.upstream(day)
+            if day == 4:
+                self.driver.image = RuntimeError('image server down')
+            lookups = len(self.driver.lookups)
+            spec_b = self.run_one('b', day)
+            spec_a = self.run_one('a', day)
+            self.assertEqual(name_of(spec_b), name_of(rebuilt), day)
+            self.assertEqual(len(self.driver.lookups), lookups, day)
+            self.assertTrue(any('redirected' in line for line in spec_b['pin_notes']))
+            self.assertEqual(spec_a['pins']['base_image'], shared)
+        self.assertEqual(len(self.cold), 3, self.cold)
+        # Day 8: the shared entry has expired. Both recipes move, once each.
+        self.upstream(8)
+        self.run_one('a', 8)
+        self.run_one('b', 8)
+        self.upstream(9)
+        self.run_one('a', 9)
+        self.run_one('b', 9)
+        self.assertEqual(self.cold[3:], [('a', 8), ('b', 8)])
+        entry = pinning.read_cache(self.root)['images:ubuntu/26.04']
+        self.assertEqual(entry['fingerprint'], '%064x' % 9)
+        self.assertNotIn('redirect', entry)
+
+    def test_a_redirect_older_than_the_shared_entry_is_void(self):
+        self.driver.image = 'a' * 64
+        pinning.image(self.root, 'images:x', self.driver.image_fingerprint, now=1000.0)
+        pinning.remember_redirect(self.root, 'images:x', 'golden-1', 'b' * 64, 2000.0)
+        self.assertEqual(pinning.redirect(self.root, 'images:x', 'golden-1'), 'b' * 64)
+        cache = pinning.read_cache(self.root)
+        cache['images:x']['at'] = 3000.0
+        pinning.cache_file(self.root).write_text(json.dumps(cache))
+        self.assertIsNone(pinning.redirect(self.root, 'images:x', 'golden-1'))
+        pinning.remember_redirect(self.root, 'images:x', 'golden-2', 'c' * 64, 4000.0)
+        self.assertEqual(set(pinning.read_cache(self.root)['images:x']['redirect']),
+                         {'golden-2'})
+
+    def test_a_failed_refresh_uses_the_redirect_rather_than_the_shared_image(self):
+        self.run_one('b', 0)
+        (self.trees['b'] / 'pnpm-lock.yaml').write_text('v2\n')
+        self.upstream(1)
+        rebuilt = self.run_one('b', 1)
+        self.driver.built.discard(name_of(rebuilt))       # gc took it
+        self.driver.image = RuntimeError('image server down')
+        again = self.run_one('b', 2)
+        self.assertEqual(again['pins']['base_image'], rebuilt['pins']['base_image'])
+
+    def test_read_only_callers_follow_the_redirect(self):
+        self.run_one('b', 0)
+        (self.trees['b'] / 'pnpm-lock.yaml').write_text('v2\n')
+        self.upstream(1)
+        rebuilt = self.run_one('b', 1)
+        self.upstream(2)
+        before = json.dumps(pinning.read_cache(self.root), sort_keys=True)
+        asked = pinning.settle(dict(RECIPE, source_id='b'), self.root, self.driver, name_of,
+                               source=str(self.trees['b']), now=1000.0 + 2 * self.DAY,
+                               write=False)
+        self.assertEqual(name_of(asked), name_of(rebuilt))
+        self.assertEqual(json.dumps(pinning.read_cache(self.root), sort_keys=True), before)
+
+
 class NegativeCache(Scratch):
     def test_a_failed_lookup_is_not_repeated_for_five_minutes(self):
         driver = Images(RuntimeError('image server down'))
@@ -526,6 +632,75 @@ class LaunchFallback(unittest.TestCase):
         self.assertTrue(any('launching the alias' in line for line in lines), lines)
 
 
+class BuiltFrom(Scratch):
+    """A golden launched from its alias says which image it really is."""
+
+    def test_the_alias_fallback_records_the_launched_image(self):
+        from pandora.executor.interface import Toolchain
+        driver = IncusDriver(root=tempfile.gettempdir())
+        calls = []
+
+        def incus(*args, **kw):
+            calls.append(args)
+            if args[:2] == ('launch', 'images:gone'):
+                return 1, '', 'Error: Image not found'
+            if args[:4] == ('config', 'get', args[2], 'volatile.base_image'):
+                return 0, 'f' * 64 + '\n', ''
+            return 0, '', ''
+        driver.exists = lambda name: False
+        driver.incus = incus
+
+        def stop(name, timeout=120):
+            raise RuntimeError('stop after the launch')
+        driver.wait_ready = stop
+        with self.assertRaises(RuntimeError):
+            driver.prepare(Toolchain(base_image='images:ubuntu/26.04',
+                                     pins=(('base_image', 'gone'),)), log=lambda text: None)
+        sets = [args for args in calls if args[:2] == ('config', 'set')]
+        self.assertEqual(len(sets), 1)
+        self.assertEqual(sets[0][3:], ('user.pandora.built_from', 'f' * 64))
+
+    def test_a_reused_golden_reports_what_it_was_built_from(self):
+        from pandora.executor.interface import Toolchain
+        driver = IncusDriver(root=tempfile.gettempdir())
+
+        def incus(*args, **kw):
+            if args[:2] == ('config', 'get') and args[3] == 'user.pandora.built_from':
+                return 0, 'f' * 64 + '\n', ''
+            return 0, '', ''
+        driver.exists = lambda name: True
+        driver.warm = lambda name: True
+        driver.volume_bytes = lambda name: 0
+        driver.incus = incus
+        golden = driver.prepare(Toolchain(base_image='images:x', pins=(('base_image', 'a'),)))
+        self.assertTrue(golden.reused)
+        self.assertEqual(golden.built_from, 'f' * 64)
+
+    def test_the_verdict_pins_carry_built_from_when_it_differs(self):
+        from pandora.executor.interface import Golden
+        attempt = self.paths.attempt('r1')
+        attempt.mkdir(parents=True)
+        spec = dict(RECIPE, pins={'base_image': 'a' * 64})
+        (attempt / 'toolchain.json').write_text(json.dumps(spec))
+        golden = Golden(name=name_of(spec), fingerprint='x', snapshot='warm')
+        runner.record_built_from(self.paths, 'r1', spec, golden)
+        fingerprint, found = runner.golden_and_pins(self.paths, 'r1')
+        self.assertNotIn('built_from', found)
+        runner.record_built_from(self.paths, 'r1', spec,
+                                 Golden(name=golden.name, fingerprint='x', snapshot='warm',
+                                        built_from='a' * 64))
+        self.assertNotIn('built_from', runner.golden_and_pins(self.paths, 'r1')[1])
+        lines = []
+        runner.record_built_from(self.paths, 'r1', spec,
+                                 Golden(name=golden.name, fingerprint='x', snapshot='warm',
+                                        built_from='f' * 64), lines.append)
+        again, found = runner.golden_and_pins(self.paths, 'r1')
+        self.assertEqual(found['built_from'], 'f' * 64)
+        self.assertEqual(found['image'], 'a' * 64)
+        self.assertEqual(again, fingerprint)            # the name does not move
+        self.assertIn('not its pinned image', lines[0])
+
+
 class Lockfiles(Scratch):
     def test_a_symlink_outside_the_tree_is_refused(self):
         outside = Path(self.tmp.name) / 'host.lock'
@@ -602,7 +777,7 @@ class SubmitStripsPins(unittest.TestCase):
         source = self.root / 'src' / 'demo' / 'input-a'
         source.mkdir(parents=True)
         forged = dict(engine_tests.PLAN['worker'], pins={'base_image': 'f' * 64},
-                      pin_notes=['chosen by the client'])
+                      pin_notes=['chosen by the client'], built_from='e' * 64)
         with mock.patch.dict(engine_tests.PLAN, worker=forged):
             answer = self.submit_one(str(source))
         self.assertTrue(answer['ok'], answer)
@@ -610,6 +785,7 @@ class SubmitStripsPins(unittest.TestCase):
                               / 'toolchain.json').read_text())
         self.assertNotIn('pins', written)
         self.assertNotIn('pin_notes', written)
+        self.assertNotIn('built_from', written)
         self.assertEqual(written['base_image'], forged['base_image'])
 
 
@@ -637,6 +813,19 @@ class GcOnePass(SweepScratch):
             receipt = gc.sweep(self.root, driver, keep=0, dry_run=True)
         self.assertEqual(receipt['removed'], [], receipt)
         self.assertIn('not been pinned', receipt['kept'][0]['why'])
+
+    def test_a_run_submitted_between_the_two_reads_is_protected(self):
+        """A submit claims the row, then writes `toolchain.json`. Read in the
+        other order, a submit between the reads looked like a dead attempt."""
+        unpinned = dict(RECIPE, source_id='')
+        real = goldens.toolchains
+
+        def submit_then_read(paths):
+            self.attempt('rq', unpinned, 300.0, state='queued')
+            return real(paths)
+        with mock.patch.object(goldens, 'toolchains', submit_then_read):
+            names, recipes = goldens.live_state(self.paths)
+        self.assertEqual(recipes, {goldens.recipe_of(unpinned)})
 
     def test_live_state_reads_the_attempts_once(self):
         self.attempt('rq', dict(RECIPE, source_id=''), 300.0, state='queued')

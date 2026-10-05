@@ -102,18 +102,24 @@ bound the churn:
   warm golden stays warm.
 * When the cached image names a golden that is not warm, the build is cold
   anyway. The worker looks the alias up again and builds that golden from the
-  newest image. The answer names that attempt's golden only and does not
-  replace the shared entry, so one repository's lockfile bump cold-builds
-  that repository's golden and no other. Until the entry expires, each run of
-  that recipe repeats the lookup to find its golden.
-* Only an expired entry is replaced. Then every recipe on that alias takes the
-  new image, and the next run of each builds cold: at most once per alias per
-  7 days.
-* The `golden` verb and `pandora worker pins` read the cache and never write
-  it, so asking cannot move an alias.
+  newest image. That answer does not replace the shared entry, so one
+  repository's lockfile bump cold-builds that repository's golden and no
+  other. The worker records it as a redirect on the alias's entry instead:
+  from the golden the shared image names to the image it was built from.
+* The next run of that recipe follows the redirect. If the redirected golden
+  is warm, the run uses it with no lookup, however often upstream moves and
+  even during an image-server outage. If it is not warm, the worker looks the
+  alias up again. If that lookup fails, it builds from the redirected image,
+  which is newer than the shared one.
+* Only an expired entry is replaced, and the new entry drops the alias's
+  redirects. Then every recipe on that alias takes the new image, and the next
+  run of each builds cold: at most once per recipe per 7 days.
+* The `golden` verb and `pandora worker pins` read the cache and follow
+  redirects, but never write it, so asking cannot move an alias.
 * A failed lookup is remembered for 5 minutes. During an image-server outage,
   runs wait out at most one 30 s lookup per alias per 5 minutes.
-* The cache holds 32 aliases and drops the one answered least recently.
+* The cache holds 32 aliases and drops the one answered least recently, and
+  64 redirects per alias, dropping the oldest.
 
 If the lookup fails, the worker uses the last cached answer. With no cached
 answer, the name carries no image pin, the log says `unresolved`, and the
@@ -122,7 +128,11 @@ verdict's `golden_pins.image` is null.
 The image server keeps old images for a limited time. If a cold build cannot
 launch the pinned fingerprint, it launches the alias instead, and the run log
 says `launching the alias`. That golden's name then claims an image it was not
-built from, until the next expired lookup renames it.
+built from. The worker records the image it did launch on the golden as
+`user.pandora.built_from`, every run that uses the golden says so in its log
+(`was built from image <fp>, not its pinned image <fp>`), and the verdict's
+`golden_pins` carries it as `built_from`. The next expired lookup renames the
+golden.
 
 A root lockfile that is a symlink resolving outside the source tree is not
 pinned, and the run log says `refused`.
@@ -151,6 +161,26 @@ It prints the golden name a routed run from that recipe and that source would
 use, through the same image cache, plus the recipe fingerprint, the pins and
 the service image digests. Without `--source` no lockfile is pinned, so the
 name differs from a routed run's whenever the repository has a lockfile.
+
+### Upgrading to pinned goldens
+
+Engine 6 names goldens by their pins, and the image cache starts empty. The
+first routed run of each enrolled repository after the upgrade builds its
+golden cold, which takes minutes. Absorb those builds before agents start
+work:
+
+1. Run `pandora worker goldens` to see the goldens and their sizes, and
+   `pandora worker status` to see the pool's free space. Confirm the pool has
+   room for one new golden of 4 to 5 GiB per enrolled repository above
+   `disk_floor_gib`. If it does not, run `pandora worker gc` first.
+2. Upgrade the Macs (`pandora upgrade`).
+3. In each enrolled repository, run one command the shim claims, for example
+   `pnpm typecheck`. Wait for it to finish.
+4. Let agents start work.
+
+The old recipe-only golden of each repository stays. Engine 5 clients still
+use it, and `gc` ranks it in the same family as the pinned ones, so it goes
+when the keep count pushes it out.
 
 ## Canary
 
@@ -234,8 +264,10 @@ CI job for the same tree can verify the signature and skip the work.
   `golden-<fingerprint>`, the golden the run cloned ([Goldens](#goldens)).
   `golden_pins` is what that fingerprint was pinned to:
   `{"image": "<incus image fingerprint>", "lockfiles": {"<name>": "<sha256>"}}`.
-  `image` is null when the lookup never succeeded. `golden_pins` is null for
-  an attempt resolved by an engine older than pinning.
+  `image` is null when the lookup never succeeded. A `built_from` key is
+  added when the golden was launched from another image than `image` (the
+  alias fallback). `golden_pins` is null for an attempt resolved by an
+  engine older than pinning.
   `cwd` is the job's working directory as the plan carries it. `env_digest`
   is the sha256 hex of the run's environment mapping as the plan carries it,
   serialized as `json.dumps(env, sort_keys=True, separators=(',', ':'))`. The
