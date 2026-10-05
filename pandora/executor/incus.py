@@ -57,6 +57,15 @@ def untagged(image):
     return '%s/%s' % (host, last.split(':')[0]) if host else last.split(':')[0]
 
 
+TREE_LINE = re.compile(r'^pandora-tree ([0-9a-f]{40})$', re.M)
+
+
+def tree_of(out):
+    """The 40-hex tree id `GIT_SCRIPT` printed, or None."""
+    found = TREE_LINE.findall(out or '')
+    return found[-1] if found else None
+
+
 def run(argv, *, timeout=600, check=True, stdin=None, capture=True):
     """One subprocess. Never a shell unless the caller wrote the shell line."""
     proc = subprocess.run(argv, input=stdin, timeout=timeout,
@@ -430,11 +439,13 @@ git init -q -b main
 git config core.looseCompression 0
 git config gc.auto 0
 git add -A
-if [ -s "$2/untracked" ]; then
-  git --literal-pathspecs rm -q --cached --ignore-unmatch --pathspec-from-file="$2/untracked" --pathspec-file-nul
-fi
 if [ -s "$2/ignored" ]; then
   git --literal-pathspecs add -f --pathspec-from-file="$2/ignored" --pathspec-file-nul
+fi
+tree=$(git write-tree)
+printf 'pandora-tree %s\n' "$tree"
+if [ -s "$2/untracked" ]; then
+  git --literal-pathspecs rm -q --cached --ignore-unmatch --pathspec-from-file="$2/untracked" --pathspec-file-nul
 fi
 git commit -q --no-verify --allow-empty -m "$3"
 rm -rf "$2"
@@ -452,7 +463,15 @@ rm -rf "$2"
         is 9.1 s with git's default loose-object compression and 2.9-3.0 s with
         it off; the commit is 0.1 s and acme's whole fingerprint afterward is
         25 ms. The objects are uncompressed on purpose: they live exactly as long
-        as the instance. Returns seconds.
+        as the instance.
+
+        Between the two lists the script prints `pandora-tree <id>`: the tree of
+        every file the run sees, tracked or untracked, taken after the ignored
+        additions and before the untracked removals. It is the tree a
+        `git add -A && git commit` of the caller's worktree would record if
+        nothing changed, and it is what a signed verdict names
+        (`pandora.engine.verdict`). Returns (seconds, tree), with tree None
+        when the line is missing.
         """
         t0 = time.monotonic()
         lists = GUEST + '/git-marks'
@@ -461,12 +480,12 @@ rm -rf "$2"
             run(self.base + ['exec', name, '--', 'sh', '-c',
                              'mkdir -p %s && cat > %s/%s' % (lists, lists, flag)],
                 stdin=data, timeout=120)
-        rc, _, err = run(self.base + ['exec', name, '--', 'sh', '-c', self.GIT_SCRIPT,
-                                      'git', dest, lists, message],
-                         check=False, timeout=900)
+        rc, out, err = run(self.base + ['exec', name, '--', 'sh', '-c', self.GIT_SCRIPT,
+                                        'git', dest, lists, message],
+                           check=False, timeout=900)
         if rc != 0:
             raise ExecutionFailed('synthetic git in %s failed: %s' % (name, err.strip()[:400]))
-        return time.monotonic() - t0
+        return time.monotonic() - t0, tree_of(out)
 
     # --- clone -------------------------------------------------------------
 

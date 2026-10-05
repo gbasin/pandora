@@ -68,8 +68,9 @@ class LostReply(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'engine'
-        self.worktree = Path(self.tmp.name) / 'tree'
-        self.worktree.mkdir()
+        # Under <engine_root>/src: submit refuses a source anywhere else.
+        self.worktree = self.root / 'src' / 'demo' / 'tree'
+        self.worktree.mkdir(parents=True)
         self.spawned, self.waiting = [], []
         for patch in (
                 mock.patch.dict(os.environ, {'PANDORA_BUDGET_MIB': '8192'}),

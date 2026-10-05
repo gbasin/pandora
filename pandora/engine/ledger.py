@@ -220,11 +220,11 @@ class Ledger:
         return self.get(run_id)
 
     def finish(self, run_id, *, outcome, exit_code, peak_mib=None, durations=None,
-               evidence=None, receipt=None):
+               evidence=None, receipt=None, finished=None):
         if outcome not in OUTCOMES:
             raise StaleRun('unknown outcome %r' % outcome)
         return self.update(run_id, state='finished', outcome=outcome, exit_code=exit_code,
-                           peak_mib=peak_mib, finished=now(),
+                           peak_mib=peak_mib, finished=finished or now(),
                            durations=durations if durations is not None else {},
                            evidence=evidence if evidence is not None else {},
                            receipt=receipt)
