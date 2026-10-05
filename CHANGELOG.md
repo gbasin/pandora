@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.12](https://github.com/gbasin/pandora/compare/v0.3.11...v0.3.12) (2026-10-05)
+
+
+### Features
+
+* publish signed run verdicts as git refs (client side) ([#211](https://github.com/gbasin/pandora/issues/211)) ([8ad5376](https://github.com/gbasin/pandora/commit/8ad5376a4f30f0fb0748123dc8c6f6f2078ebea1))
+* signed run verdicts, engine and worker side ([#212](https://github.com/gbasin/pandora/issues/212)) ([bc03d01](https://github.com/gbasin/pandora/commit/bc03d01e4a4ab4ed503863026d255dde06bbbdca))
+* signed verdicts in CI for Pandora's own suite ([#210](https://github.com/gbasin/pandora/issues/210)) ([6fa275e](https://github.com/gbasin/pandora/commit/6fa275e652c53de4ffda56652be7e6201e25f64b))
+
+
+### Bug Fixes
+
+* queued runs wait for the disk floor instead of skipping it ([#209](https://github.com/gbasin/pandora/issues/209)) ([01fcf11](https://github.com/gbasin/pandora/commit/01fcf11c92f151bae27cd224bb18531eca789afa)), closes [#142](https://github.com/gbasin/pandora/issues/142)
+* the canary's file hog writes its own working set ([#214](https://github.com/gbasin/pandora/issues/214)) ([3ac4c2f](https://github.com/gbasin/pandora/commit/3ac4c2f73bfea0aaa25278b773be2677afa8c1c2))
+
+
+### Documentation
+
+* note on the signed verdicts cut-over ([#218](https://github.com/gbasin/pandora/issues/218)) ([d454607](https://github.com/gbasin/pandora/commit/d45460715e8bbc55db3345ee0dc412ce279eb965))
+
 ## [0.3.11](https://github.com/gbasin/pandora/compare/v0.3.10...v0.3.11) (2026-10-03)
 
 
