@@ -7,6 +7,7 @@ real daemon with a fake worker whose result carries a verdict.
 """
 import base64
 import json
+import os
 import subprocess
 import tempfile
 import threading
@@ -32,16 +33,16 @@ def canonical(obj):
     return json.dumps(obj, sort_keys=True, separators=(',', ':'))
 
 
-def payload(tree=TREE, job='unit'):
+def payload(tree=TREE, job='unit', run_id='r1'):
     return canonical({'argv': ['sh'], 'engine': 'e1', 'finished': 1.5, 'golden': '0' * 16,
                       'input_id': 'f' * 64, 'job': job, 'kind': 'pandora-verdict',
-                      'outcome': 'passed', 'repo': 'demo', 'run_id': 'r1', 'tree': tree,
+                      'outcome': 'passed', 'repo': 'demo', 'run_id': run_id, 'tree': tree,
                       'v': 1})
 
 
-def signed(tree=TREE, job='unit'):
+def signed(tree=TREE, job='unit', run_id='r1'):
     return {'tree': tree, 'verdict_skipped': None,
-            'verdict': {'payload': payload(tree, job), 'signature': SIGNATURE,
+            'verdict': {'payload': payload(tree, job, run_id), 'signature': SIGNATURE,
                         'signer': SIGNER}}
 
 
@@ -64,6 +65,32 @@ def make_repo(root, *, origin=True):
         sh('git', 'init', '-q', '--bare', str(bare))
         sh('git', '-C', str(repo), 'remote', 'add', 'origin', str(bare))
     return repo
+
+
+def fake_remote(root, repo, body):
+    """Point the repo's origin at `fake::x`, served by a shell script.
+
+    Git runs `git-remote-fake` from PATH for that URL. The script runs `body`
+    with `$dir` set to its scratch directory. Answers the PATH to patch in.
+    """
+    bin_dir = root / 'fake-bin'
+    bin_dir.mkdir(exist_ok=True)
+    helper = bin_dir / 'git-remote-fake'
+    helper.write_text('#!/bin/sh\ndir=%s\n%s\n' % (bin_dir, body))
+    helper.chmod(0o755)
+    sh('git', '-C', str(repo), 'remote', 'set-url', 'origin', 'fake::x')
+    return '%s%s%s' % (bin_dir, os.pathsep, os.environ.get('PATH', ''))
+
+
+def gone(pid, wait=10):
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
 
 
 class Loader(unittest.TestCase):
@@ -130,6 +157,15 @@ class Commit(unittest.TestCase):
         self.assertEqual(self.build(second), commit)
         self.assertNotEqual(self.build(first, tree=OTHER_TREE), commit)
         self.assertNotEqual(self.build(first, job='other'), commit)
+
+    def test_a_configured_commit_encoding_does_not_change_the_id(self):
+        plain = make_repo(self.root / 'a', origin=False)
+        latin = make_repo(self.root / 'b', origin=False)
+        sh('git', '-C', str(latin), 'config', 'i18n.commitEncoding', 'ISO-8859-1')
+        commit = self.build(latin)
+        self.assertEqual(commit, self.build(plain))
+        body = sh('git', '-C', str(latin), 'cat-file', '-p', commit)
+        self.assertNotIn('\nencoding ', body)
 
     def test_the_commit_is_parentless_fixed_and_holds_three_files(self):
         repo = make_repo(self.root, origin=False)
@@ -227,20 +263,95 @@ class Publish(unittest.TestCase):
         self.assertTrue(verdicts.line(record).startswith('verdict not published: git ls-remote'),
                         record)
 
-    def test_a_hung_remote_times_out(self):
-        real = subprocess.run
-
-        def hang(argv, **kw):
-            if 'ls-remote' in argv:
-                self.assertLessEqual(kw['timeout'], verdicts.TIMEOUT)
-                raise subprocess.TimeoutExpired(argv, kw['timeout'])
-            return real(argv, **kw)
-        with mock.patch.object(verdicts.subprocess, 'run', hang):
+    def test_a_hung_remote_times_out_and_its_whole_group_dies(self):
+        path = fake_remote(self.root, self.repo,
+                           'sleep 60 &\necho $! > "$dir/child"\nwait')
+        with mock.patch.dict(os.environ, PATH=path), \
+                mock.patch.object(verdicts, 'TIMEOUT', 2):
+            started = time.monotonic()
             record = verdicts.publish(self.repo, 'origin', signed())
+        self.assertLess(time.monotonic() - started, 10)
         self.assertEqual(record['state'], 'failed')
-        self.assertEqual(record['reason'], 'git ls-remote timed out after 60s')
-        with self.assertRaises(verdicts.Failed):
+        self.assertRegex(record['reason'],
+                         r'^git ls-remote timed out after [0-9]+s \(2s of the 2s deadline used\)$')
+        child = int((self.root / 'fake-bin' / 'child').read_text())
+        self.assertTrue(gone(child), 'the remote helper\'s child outlived the timeout')
+        with self.assertRaises(verdicts.Failed) as caught:
             verdicts.git(self.repo, 'status', deadline=time.monotonic() - 1)
+        self.assertEqual(str(caught.exception),
+                         'git status not started: the 60s deadline is used up')
+
+    def test_one_deadline_covers_every_subprocess(self):
+        seen = []
+        real = verdicts.git
+
+        def spy(worktree, *args, **kw):
+            seen.append((args[0], kw.get('deadline')))
+            return real(worktree, *args, **kw)
+        with mock.patch.object(verdicts, 'git', spy):
+            record = verdicts.publish(self.repo, 'origin', signed())
+        self.assertEqual(record['state'], 'published', record)
+        self.assertEqual(seen[0][0], 'remote')
+        self.assertIn('ls-remote', [name for name, _ in seen])
+        self.assertEqual(len({deadline for _, deadline in seen}), 1, seen)
+        self.assertIsNotNone(seen[0][1])
+
+    def test_git_never_prompts_and_has_no_terminal(self):
+        path = fake_remote(self.root, self.repo,
+                           'env > "$dir/env"\n'
+                           'python3 -c "import os; print(os.getsid(0))" > "$dir/sid"\n'
+                           'exit 1')
+
+        def seen():
+            text = (self.root / 'fake-bin' / 'env').read_text().splitlines()
+            return dict(line.split('=', 1) for line in text if '=' in line)
+        with mock.patch.dict(os.environ, PATH=path):
+            os.environ.pop('GIT_SSH_COMMAND', None)
+            os.environ.pop('GIT_SSH', None)
+            self.assertEqual(verdicts.publish(self.repo, 'origin', signed())['state'], 'failed')
+            env = seen()
+            self.assertEqual(env['GIT_TERMINAL_PROMPT'], '0')
+            self.assertEqual(env['SSH_ASKPASS_REQUIRE'], 'never')
+            self.assertEqual(env['GIT_SSH_COMMAND'], 'ssh -o BatchMode=yes')
+            sid = int((self.root / 'fake-bin' / 'sid').read_text())
+            self.assertNotEqual(sid, os.getsid(0))
+            # The user's own ssh command stands, from the environment or config.
+            os.environ['GIT_SSH_COMMAND'] = 'ssh -i mine'
+            verdicts.publish(self.repo, 'origin', signed())
+            self.assertEqual(seen()['GIT_SSH_COMMAND'], 'ssh -i mine')
+            del os.environ['GIT_SSH_COMMAND']
+            sh('git', '-C', str(self.repo), 'config', 'core.sshCommand', 'ssh -i mine')
+            verdicts.publish(self.repo, 'origin', signed())
+            self.assertNotIn('GIT_SSH_COMMAND', seen())
+
+    def test_a_push_that_loses_a_race_finds_the_other_verdict(self):
+        other = make_repo(self.root / 'b', origin=False)
+        sh('git', '-C', str(other), 'remote', 'add', 'origin', str(self.root / 'origin.git'))
+        real = verdicts.git
+        first = {}
+
+        def racing(worktree, *args, **kw):
+            if args[0] == 'push' and worktree == other and not first:
+                # The other publisher lands between our ls-remote and our push.
+                first.update(verdicts.publish(self.repo, 'origin', signed(run_id='r0')))
+            return real(worktree, *args, **kw)
+        with mock.patch.object(verdicts, 'git', racing):
+            record = verdicts.publish(other, 'origin', signed(run_id='r1'))
+        self.assertEqual(first['state'], 'published', first)
+        self.assertEqual(record['state'], 'present', record)
+        self.assertEqual(record['commit'], first['commit'])
+        self.assertEqual(self.remote_ref(), first['commit'])
+        self.assertEqual(verdicts.line(record),
+                         'verdict published %s (already on the remote)' % self.ref)
+
+    def test_a_refused_push_with_no_ref_is_a_failure(self):
+        hook = self.root / 'origin.git' / 'hooks' / 'pre-receive'
+        hook.write_text('#!/bin/sh\necho refused by policy >&2\nexit 1\n')
+        hook.chmod(0o755)
+        record = verdicts.publish(self.repo, 'origin', signed())
+        self.assertEqual(record['state'], 'failed', record)
+        self.assertTrue(record['reason'].startswith('git push exited 1'), record)
+        self.assertEqual(self.remote_ref(), '')
 
 
 def verdict_threads():
@@ -363,15 +474,23 @@ class DaemonHook(DaemonCase):
 
     def test_the_push_does_not_delay_the_exit(self):
         self.opt_in()
-        gate = threading.Event()
-        self.addCleanup(gate.set)
-        with mock.patch.object(verdicts, 'publish', lambda *a: gate.wait(30) and None):
+        gate = self.root / 'fake-bin' / 'gate'
+        path = fake_remote(self.root, self.repo,
+                           'while [ ! -e "$dir/gate" ]; do sleep 0.05; done\nexit 1')
+        self.addCleanup(lambda: gate.touch())
+        with mock.patch.dict(os.environ, PATH=path):
             started = time.monotonic()
             answer = self.call(['unit'])
             self.assertEqual(answer.exit, 0)
             self.assertLess(time.monotonic() - started, 20)
-            gate.set()
+            alive = [thread for thread in threading.enumerate()
+                     if thread.name.startswith('verdict-') and thread.is_alive()]
+            self.assertTrue(alive, 'the publish finished before the exit returned')
+            gate.touch()
             verdict_threads()
+        [run_dir] = list((self.state / 'runs').iterdir())
+        record = json.loads((run_dir / verdicts.RECORD).read_text())
+        self.assertEqual(record['state'], 'failed', record)
 
 
 class ResultVerb(DaemonCase):

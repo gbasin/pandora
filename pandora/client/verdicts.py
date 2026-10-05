@@ -21,6 +21,7 @@ on the run.
 import json
 import os
 import re
+import signal
 import subprocess
 import time
 
@@ -75,33 +76,86 @@ def parts(result):
     return tree, job, payload, signature, signer
 
 
-def git(worktree, *args, data=None, env=None, deadline=None):
-    """stdout of one git command in the worktree, or raise Failed."""
-    timeout = TIMEOUT if deadline is None else deadline - time.monotonic()
+def environment(extra=None):
+    """The environment for one git command: never a prompt, never a terminal.
+
+    `GIT_TERMINAL_PROMPT=0` stops git's own credential prompt and
+    `SSH_ASKPASS_REQUIRE=never` stops ssh from asking a helper program. Unless
+    the user already chose an ssh command (`GIT_SSH_COMMAND` or `GIT_SSH`;
+    `publish` also checks `core.sshCommand`), ssh runs with `BatchMode=yes`, so
+    a key that needs a passphrase or a host that needs a password fails at once.
+    """
+    full = dict(os.environ, GIT_TERMINAL_PROMPT='0', SSH_ASKPASS_REQUIRE='never')
+    full.update(extra or {})
+    return full
+
+
+def git(worktree, *args, data=None, env=None, deadline=None, config=()):
+    """stdout of one git command in the worktree, or raise Failed.
+
+    Git starts in a session of its own, so neither it nor ssh has a controlling
+    terminal to prompt on, and a timeout kills the whole process group, ssh
+    included, not only git.
+    """
+    if deadline is None:
+        deadline = time.monotonic() + TIMEOUT
+    timeout = deadline - time.monotonic()
+    name = args[0]
     if timeout <= 0:
-        raise Failed('timed out after %ds' % TIMEOUT)
-    full = dict(os.environ, GIT_TERMINAL_PROMPT='0', **(env or {}))
+        raise Failed('git %s not started: the %ds deadline is used up' % (name, TIMEOUT))
+    argv = ['git', '-C', str(worktree)]
+    for item in config:
+        argv += ['-c', item]
     try:
-        proc = subprocess.run(['git', '-C', str(worktree), *args], input=data,
-                              capture_output=True, env=full, timeout=timeout,
-                              stdin=None if data is not None else subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        raise Failed('git %s timed out after %ds' % (args[0], TIMEOUT)) from None
+        proc = subprocess.Popen(argv + list(args), env=environment(env),
+                                stdin=subprocess.PIPE if data is not None else subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                start_new_session=True)
     except OSError as error:
         raise Failed('git could not start: %s' % error) from None
-    if proc.returncode != 0:
-        why = proc.stderr.decode('utf-8', 'replace').strip().splitlines()
-        raise Failed('git %s exited %d%s' % (args[0], proc.returncode,
-                                             ': ' + why[-1][:300] if why else ''))
-    return proc.stdout.decode('utf-8', 'replace').strip()
-
-
-def has_remote(worktree, remote):
+    started = time.monotonic()
     try:
-        git(worktree, 'remote', 'get-url', '--', remote)
+        out, err = proc.communicate(data, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        for kill in (lambda: os.killpg(proc.pid, signal.SIGKILL), proc.kill):
+            try:
+                kill()
+            except OSError:
+                pass
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            # A child that left the group still holds the pipes; git itself is gone.
+            proc.wait()
+        now = time.monotonic()
+        used = min(max(TIMEOUT - (deadline - now), 0), TIMEOUT)
+        raise Failed('git %s timed out after %.0fs (%.0fs of the %ds deadline used)'
+                     % (name, now - started, used, TIMEOUT)) from None
+    if proc.returncode != 0:
+        why = err.decode('utf-8', 'replace').strip().splitlines()
+        raise Failed('git %s exited %d%s' % (name, proc.returncode,
+                                             ': ' + why[-1][:300] if why else ''))
+    return out.decode('utf-8', 'replace').strip()
+
+
+def has_remote(worktree, remote, *, deadline=None):
+    try:
+        git(worktree, 'remote', 'get-url', '--', remote, deadline=deadline)
     except Failed:
         return False
     return True
+
+
+def ssh_environment(worktree, *, deadline=None):
+    """`GIT_SSH_COMMAND` for ls-remote and push, unless the user chose an ssh command."""
+    if os.environ.get('GIT_SSH_COMMAND') or os.environ.get('GIT_SSH'):
+        return {}
+    try:
+        if git(worktree, 'config', '--get', 'core.sshCommand', deadline=deadline):
+            return {}
+    except Failed:
+        pass                                    # unset: `git config --get` exits 1
+    return {'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes'}
 
 
 def build(worktree, tree, job, payload, signature, signer, *, deadline=None):
@@ -113,8 +167,16 @@ def build(worktree, tree, job, payload, signature, signer, *, deadline=None):
                           deadline=deadline)
     listing = ''.join('100644 blob %s\t%s\n' % (blobs[name], name) for name in sorted(blobs))
     root = git(worktree, 'mktree', data=listing.encode(), deadline=deadline)
+    # A configured i18n.commitEncoding other than UTF-8 would add an
+    # `encoding` header and change the id.
     return git(worktree, 'commit-tree', '--no-gpg-sign', '-m',
-               'pandora verdict %s %s' % (tree, job), root, env=IDENTITY, deadline=deadline)
+               'pandora verdict %s %s' % (tree, job), root, env=IDENTITY, deadline=deadline,
+               config=('i18n.commitEncoding=UTF-8',))
+
+
+def present(ref, listed):
+    """The record for a ref the remote already has; `commit` is the remote's."""
+    return {'state': 'present', 'ref': ref, 'commit': listed.split()[0], 'reason': None}
 
 
 def publish(worktree, remote, result):
@@ -126,18 +188,33 @@ def publish(worktree, remote, result):
     """
     if not isinstance(result, dict) or not result.get('verdict'):
         return None
-    if not has_remote(worktree, remote):
+    # One deadline for every subprocess, from the first `remote get-url` on.
+    deadline = time.monotonic() + TIMEOUT
+    if not has_remote(worktree, remote, deadline=deadline):
         return None
     ref = None
     try:
         tree, job, payload, signature, signer = parts(result)
         ref = ref_for(tree, job)
-        deadline = time.monotonic() + TIMEOUT
         commit = build(worktree, tree, job, payload, signature, signer, deadline=deadline)
-        if git(worktree, 'ls-remote', '--', remote, ref, deadline=deadline):
-            return {'state': 'present', 'ref': ref, 'commit': commit, 'reason': None}
-        git(worktree, 'push', '--quiet', '--', remote, '%s:%s' % (commit, ref),
-            deadline=deadline)
+        ssh = ssh_environment(worktree, deadline=deadline)
+        listed = git(worktree, 'ls-remote', '--', remote, ref, env=ssh, deadline=deadline)
+        if listed:
+            return present(ref, listed)
+        try:
+            git(worktree, 'push', '--quiet', '--', remote, '%s:%s' % (commit, ref),
+                env=ssh, deadline=deadline)
+        except Failed as pushed:
+            # Another publisher may have pushed a verdict for the same tree and
+            # job between our ls-remote and our push. It serves as well as ours.
+            try:
+                listed = git(worktree, 'ls-remote', '--', remote, ref, env=ssh,
+                             deadline=deadline)
+            except Failed:
+                listed = ''
+            if listed:
+                return present(ref, listed)
+            raise pushed from None
         return {'state': 'published', 'ref': ref, 'commit': commit, 'reason': None}
     except Failed as error:
         return {'state': 'failed', 'ref': ref, 'reason': str(error)}
