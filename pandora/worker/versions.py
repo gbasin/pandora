@@ -181,11 +181,13 @@ def drift(manifest, installed):
     """
     items = []
     have = installed.get('packages') or {}
+    notes = installed.get('package_notes') or {}
     for name, want in sorted(manifest['packages'].items()):
         got = have.get(name)
         if got is None:
             items.append({'kind': 'package', 'name': name, 'want': want, 'have': None,
-                          'detail': 'not installed'})
+                          'detail': ('not installed (%s)' % notes[name]
+                                     if notes.get(name) else 'not installed')})
         elif want != '*' and got != want:
             items.append({'kind': 'package', 'name': name, 'want': want, 'have': got,
                           'detail': 'version differs'})

@@ -183,9 +183,12 @@ enabled = false
 '''
 
 
-# The one key a selftest verdict may be skipped for: the e2e worker need not be
-# marked ready, and a worker that is not ready signs nothing.
-SKIP_ALLOWED = 'worker_not_ready'
+# The keys a selftest verdict may be skipped for: the e2e worker need not be
+# marked ready, and a worker that is not ready, or has drifted from its
+# manifest since its canary, signs nothing.
+SKIP_ALLOWED = ('worker_not_ready', 'worker_drifted')
+SKIP_SAID = {'worker_not_ready': 'the worker is not marked ready',
+             'worker_drifted': 'the worker has drifted from its manifest'}
 HEX40 = re.compile(r'[0-9a-f]{40}\Z')
 VERDICT_NAMESPACE = 'pandora-verdict'
 # The scratch repository's `origin`: a bare repository beside it, inside the
@@ -537,8 +540,8 @@ def check_verdict(result, job, *, say=notice):
 
     The run declares `git = "synthetic"`, so the worker knows its tree. A
     passing whole run on a ready worker must come home signed by the key the
-    result names; on a worker that is not marked ready it must say so, and
-    nothing else. A result with no `tree` key at all is from an engine that
+    result names; on a worker that is not marked ready, or has drifted, it must
+    say so, and nothing else. A result with no `tree` key at all is from an engine that
     predates verdicts: noted, not failed, so the selftest still proves the
     rest of the path against it.
     """
@@ -553,12 +556,13 @@ def check_verdict(result, job, *, say=notice):
     verdict = result.get('verdict')
     if not verdict:
         skipped = result.get('verdict_skipped')
-        if skipped == SKIP_ALLOWED:
-            say('verdict skipped: the worker is not marked ready, so it signs nothing')
+        if skipped in SKIP_ALLOWED:
+            say('verdict skipped: %s, so it signs nothing' % SKIP_SAID[skipped])
             return 'none (%s)' % skipped
         raise SelftestError('a passing whole run over tree %s was not signed: '
-                            'verdict_skipped is %r; only %r is expected here'
-                            % (tree, skipped, SKIP_ALLOWED), exit=1)
+                            'verdict_skipped is %r; only %s is expected here'
+                            % (tree, skipped, ' or '.join(map(repr, SKIP_ALLOWED))),
+                            exit=1)
     parts = [verdict.get(key) if isinstance(verdict, dict) else None
              for key in ('payload', 'signature', 'signer')]
     if not all(isinstance(item, str) and item for item in parts):
@@ -647,17 +651,18 @@ def check_publication(result, run_dir, origin, *, seen, wait=PUBLISH_WAIT, say=n
         return None
     verdict = result.get('verdict')
     if not verdict:
-        if result.get('verdict_skipped') != SKIP_ALLOWED:
+        skipped = result.get('verdict_skipped')
+        if skipped not in SKIP_ALLOWED:
             return None
         refs = published_refs(origin)
         if refs:
             raise SelftestError('the run was not signed (%s) but the scratch origin holds %s'
-                                % (SKIP_ALLOWED, ', '.join(refs)), exit=1)
+                                % (skipped, ', '.join(refs)), exit=1)
         if 'verdict published' in run_log_text(run_dir):
             raise SelftestError('the run was not signed (%s) but its log says a verdict '
-                                'was published' % SKIP_ALLOWED, exit=1)
-        say('verdict not signed (%s); publication not exercised' % SKIP_ALLOWED)
-        return 'not exercised (%s)' % SKIP_ALLOWED
+                                'was published' % skipped, exit=1)
+        say('verdict not signed (%s); publication not exercised' % skipped)
+        return 'not exercised (%s)' % skipped
     try:
         tree, job, payload, _, _ = verdicts.parts(result)
     except verdicts.Failed as error:

@@ -3,10 +3,21 @@
 `provision.sh` prints the same survey at the end of a provisioning run; this is
 the one `pandora worker status` uses afterward, so drift is answered from the
 live machine rather than from a file written when it was last touched.
+
+Two surveys share one comparison (`drift`). `survey` is the whole one `status`
+prints, `sudo incus` calls included. `quick_survey` is the part the engine can
+afford before signing each verdict: the manifest's packages in one
+`dpkg-query`, the settings the manifest pins, and the kernel.
 """
 import os
 import subprocess
 from pathlib import Path
+
+from . import versions
+
+
+class Unreadable(Exception):
+    """A fact the drift check needs could not be read. The message says which."""
 
 
 def sh(command, timeout=60):
@@ -15,12 +26,102 @@ def sh(command, timeout=60):
     return (proc.stdout or b'').decode('utf-8', 'replace').strip()
 
 
-def package_versions(names):
+# Package, architecture-qualified name, dpkg's three-letter status, version.
+DPKG_FORMAT = '${Package}\t${binary:Package}\t${db:Status-Abbrev}\t${Version}\n'
+
+
+def packages(names, timeout=10):
+    """`(versions, notes)` for `names`, from one `dpkg-query` call.
+
+    `versions` maps every name to its installed version, or None when dpkg
+    knows no installed copy. A package dpkg holds in any state other than
+    installed (half-installed, unpacked, config files only) is None too, and
+    `notes` says which state, so a package mid-`apt` reads as drift rather
+    than as present. Raises Unreadable when dpkg cannot be asked at all.
+    """
+    names = list(names)
+    found, notes = {}, {}
+    if names:
+        try:
+            proc = subprocess.run(['dpkg-query', '-W', '-f=' + DPKG_FORMAT, *names],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  timeout=timeout)
+        except FileNotFoundError:
+            raise Unreadable('dpkg-query not found') from None
+        except subprocess.TimeoutExpired:
+            raise Unreadable('dpkg-query timed out after %ds' % timeout) from None
+        except OSError as error:
+            raise Unreadable('dpkg-query: %s' % (error.strerror or error)) from None
+        # 1 is "some name matched no package", which is an answer, not a failure.
+        if proc.returncode not in (0, 1):
+            raise Unreadable('dpkg-query exit %d' % proc.returncode)
+        for line in proc.stdout.decode('utf-8', 'replace').splitlines():
+            parts = line.split('\t')
+            if len(parts) != 4:
+                continue
+            package, qualified, status, version = parts
+            for key in (package, qualified):
+                found.setdefault(key, (status, version))
     out = {}
     for name in names:
-        version = sh("dpkg-query -W -f='${Version}' %s 2>/dev/null" % name)
-        out[name] = version or None
-    return out
+        status, version = found.get(name, ('', ''))
+        # `ii`, or `hi` for a held package: wanted installed, installed, no error.
+        if version and len(status) >= 2 and status[1] == 'i' and status[2:].strip() == '':
+            out[name] = version
+        else:
+            out[name] = None
+            if status:
+                notes[name] = 'dpkg status %s' % status.strip()
+    return out, notes
+
+
+def package_versions(names):
+    return packages(names)[0]
+
+
+def settings():
+    """The manifest's `[worker]` settings that can be read off the host."""
+    return {'unattended_upgrades':
+            sh('systemctl is-enabled unattended-upgrades 2>/dev/null') == 'enabled'}
+
+
+def kernel():
+    """The running kernel release, as `uname -r` prints it; '' when unreadable."""
+    try:
+        return Path('/proc/sys/kernel/osrelease').read_text().strip()
+    except OSError:
+        return sh('uname -r')
+
+
+def manifest_path(root):
+    """Where provisioning stored the worker's manifest."""
+    return Path(root).expanduser() / 'worker' / 'versions.toml'
+
+
+def drift(manifest, observed, state):
+    """Every way the host differs from what it was made to be.
+
+    The one comparison: `pandora worker status` and the engine's signing check
+    both call it. `versions.drift` covers packages, settings and missing
+    objects; the kernel is not something the manifest pins, but a kernel other
+    than the one the last canary passed on is a different machine, so it is
+    drift too.
+    """
+    items = versions.drift(manifest, observed)
+    current = (observed.get('host') or {}).get('kernel', '')
+    if (state or {}).get('kernel') and state['kernel'] != current:
+        items.append({'kind': 'host', 'name': 'kernel', 'want': state['kernel'],
+                      'have': current, 'detail': 'the canary passed on a different kernel'})
+    return items
+
+
+def quick_survey(manifest):
+    """The part of `survey` cheap enough to run before signing: packages,
+    settings and the kernel, without the `sudo incus` object checks.
+    Raises Unreadable when dpkg cannot be asked."""
+    found, notes = packages(sorted(manifest['packages']))
+    return {'packages': found, 'package_notes': notes, 'worker': settings(),
+            'host': {'kernel': kernel()}}
 
 
 def survey(manifest):
@@ -52,13 +153,18 @@ def survey(manifest):
     forward = sh('sudo iptables -S FORWARD | grep -c -- %s || true' % bridge)
     if forward.isdigit() and int(forward) < 2:
         missing['forward rules'] = 'only %s ACCEPT rule(s) for %s' % (forward, bridge)
-    observed = {'unattended_upgrades':
-                sh('systemctl is-enabled unattended-upgrades 2>/dev/null') == 'enabled'}
+    try:
+        found, notes = packages(sorted(manifest['packages']))
+    except Unreadable as error:
+        # `status` still answers: every package reads as unknown, and why.
+        found = {name: None for name in manifest['packages']}
+        notes = {name: str(error) for name in manifest['packages']}
     return {
-        'packages': package_versions(sorted(manifest['packages'])),
-        'worker': observed,
+        'packages': found,
+        'package_notes': notes,
+        'worker': settings(),
         'missing': missing,
-        'host': {'hostname': sh('hostname'), 'kernel': sh('uname -r'),
+        'host': {'hostname': sh('hostname'), 'kernel': kernel(),
                  'cores': os.cpu_count() or 0,
                  'incus': sh('incus --version 2>/dev/null'),
                  'memory_mib': memory_mib(),

@@ -346,8 +346,9 @@ under one temporary directory and is removed on exit (`--keep` keeps it);
 `--update` adds a second run whose write-back must land. The scratch job
 declares `git = "synthetic"` and `[verdicts] publish = true`, so each
 `selftest` receipt must carry a 40-hex `tree` and either a verdict that
-`ssh-keygen -Y verify` accepts against its own `signer`, or `verdict_skipped =
-"worker_not_ready"`. Any other skip reason fails the test with exit 1. A
+`ssh-keygen -Y verify` accepts against its own `signer`, or `verdict_skipped`
+of `"worker_not_ready"` or `"worker_drifted"`. Any other skip reason fails the
+test with exit 1. A
 receipt with no `tree` key comes from an engine older than signed verdicts:
 the test says so and does not check it.
 
@@ -361,9 +362,9 @@ payload bytes), `verdict.sig` and `signer`, and whose signature `ssh-keygen -Y
 verify` accepts against that `signer`. The run log must say `pandora: verdict
 published <ref>`. The `--update` run has the same tree and job, so its
 publication must take the other path and log `(already on the remote)`. When
-the verdict was skipped for `worker_not_ready`, the origin must hold no
-`refs/pandora/` ref, and the test prints `verdict not signed
-(worker_not_ready); publication not exercised`. A publication that is missing
+the verdict was skipped for `worker_not_ready` or `worker_drifted`, the origin
+must hold no `refs/pandora/` ref, and the test prints `verdict not signed
+(<reason>); publication not exercised`. A publication that is missing
 or wrong is exit 1. The summary is the
 phase timings the caller paid and the engine measured. Exit 0 means the whole
 path worked; 70 means it could not be exercised, with the reason.
@@ -626,7 +627,7 @@ an engine that signs verdicts. The client copies them home unchanged.
 |---|---|
 | `tree` | The 40-hex git tree the run saw, for a job with `git = "synthetic"`. `null` otherwise. |
 | `verdict` | `{payload, signature, signer}`: the canonical JSON payload, the armored SSHSIG block, and the worker's public key line. `null` when the worker did not sign. |
-| `verdict_skipped` | Why there is no verdict: `not_passed`, `not_whole`, `worker_not_ready` or `no_synthetic_git`. `null` when signed. |
+| `verdict_skipped` | Why there is no verdict: `not_passed`, `not_whole`, `worker_not_ready`, `worker_drifted` or `no_synthetic_git`. `null` when signed. |
 
 A result from an older engine has none of the three keys.
 
@@ -907,7 +908,7 @@ signed verdicts ([docs/worker.md](worker.md#verdicts)):
 |---|---|
 | `tree` | The 40-hex git tree of every file the run saw, untracked files included. Null for a job without `git = "synthetic"`. |
 | `verdict` | Null, or `{"payload", "signature", "signer"}`: the canonical payload JSON as a string, the armored SSHSIG block, and the worker's public key line. |
-| `verdict_skipped` | Null when `verdict` is set. Otherwise the first condition that failed: `not_passed`, `not_whole`, `worker_not_ready`, `no_synthetic_git`, or `sign_failed:<reason>`. |
+| `verdict_skipped` | Null when `verdict` is set. Otherwise the first condition that failed: `not_passed`, `not_whole`, `worker_not_ready`, `worker_drifted`, `no_synthetic_git`, or `sign_failed:<reason>`. `worker_drifted` writes its detail to the run log ([docs/worker.md](worker.md#verdicts)). |
 
 A verdict never changes the run's outcome or exit code.
 

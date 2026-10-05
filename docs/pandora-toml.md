@@ -151,12 +151,12 @@ A write-back path may glob only its last component, below a directory:
 ### Signed verdicts
 
 A worker signs a run's verdict when the run passed, ran whole (not a shard),
-ran on a worker whose ready state is `ready`, and declared `git =
-"synthetic"`, so the worker knows the git tree it ran over. The signed payload
-names that tree, the job, the argv and the golden. `result.json` carries
-`tree`, `verdict` (`payload`, `signature`, `signer`) and `verdict_skipped`,
-the first condition that failed: `not_passed`, `not_whole`,
-`worker_not_ready` or `no_synthetic_git`.
+ran on a worker whose ready state is `ready` and that has not drifted from its
+manifest, and declared `git = "synthetic"`, so the worker knows the git tree it
+ran over. The signed payload names that tree, the job, the argv and the golden.
+`result.json` carries `tree`, `verdict` (`payload`, `signature`, `signer`) and
+`verdict_skipped`, the first condition that failed: `not_passed`, `not_whole`,
+`worker_not_ready`, `worker_drifted` or `no_synthetic_git`.
 
 ```toml
 [verdicts]

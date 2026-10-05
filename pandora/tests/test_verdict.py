@@ -1,4 +1,5 @@
 """Signed run verdicts: the payload, the key, the conditions, the result fields."""
+import io
 import json
 import os
 import shutil
@@ -14,10 +15,30 @@ from unittest import mock
 
 from pandora.engine import runner, verdict
 from pandora.engine.ledger import Ledger
+from pandora.worker import facts, versions
 from pandora.tests.test_engine import PLAN, FakeDriver, claim
 
 HAVE_KEYGEN = shutil.which('ssh-keygen') is not None
 TREE = 'ab' * 20
+KERNEL = '6.8.0-test'
+MANIFEST = versions.normalize({'packages': {'incus': '6.0.5-8'}})
+
+
+def versions_file(root):
+    """Store MANIFEST where provisioning would, under worker root `root`."""
+    path = facts.manifest_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(versions.render(MANIFEST))
+    return path
+
+
+def matching(kernel=KERNEL, unattended=False, **packages):
+    """A quick survey of a host that matches MANIFEST, but for the overrides."""
+    have = dict.fromkeys(MANIFEST['packages'], '1.0')
+    have['incus'] = '6.0.5-8'
+    have.update(packages)
+    return {'packages': have, 'package_notes': {},
+            'worker': {'unattended_upgrades': unattended}, 'host': {'kernel': kernel}}
 
 
 def fields(**over):
@@ -81,6 +102,15 @@ class ConditionsTest(unittest.TestCase):
         ('passed', 'single', 'ready', None, 'no_synthetic_git'),
         ('passed', None, 'ready', TREE, None),
     ]
+    # outcome, role, ready, tree, drift -> reason
+    DRIFTED = [
+        ('passed', 'single', 'ready', TREE, 'package incus', 'worker_drifted'),
+        ('passed', 'single', 'ready', None, 'package incus', 'worker_drifted'),
+        ('passed', 'single', 'unproven', TREE, 'package incus', 'worker_not_ready'),
+        ('passed', 'shard', 'ready', TREE, 'package incus', 'not_whole'),
+        ('command_failed', 'single', 'ready', TREE, 'package incus', 'not_passed'),
+        ('passed', 'single', 'ready', TREE, '', None),
+    ]
 
     def test_the_first_failing_condition_names_the_skip(self):
         for outcome, role, ready, tree, want in self.MATRIX:
@@ -88,12 +118,40 @@ class ConditionsTest(unittest.TestCase):
                 self.assertEqual(verdict.skip_reason(outcome=outcome, role=role,
                                                      ready=ready, tree=tree), want)
 
+    def test_drift_comes_after_ready_and_before_the_tree(self):
+        for outcome, role, ready, tree, drift, want in self.DRIFTED:
+            with self.subTest(outcome=outcome, role=role, ready=ready, tree=tree, drift=drift):
+                self.assertEqual(verdict.skip_reason(outcome=outcome, role=role, ready=ready,
+                                                     tree=tree, drift=drift), want)
+
+    def test_a_drift_skip_logs_the_detail_and_never_touches_the_key(self):
+        lines = []
+        with tempfile.TemporaryDirectory() as tmp:
+            answer = verdict.decide(tmp, {'role': 'single'}, outcome='passed', tree=TREE,
+                                    finished=1.0, golden='g', ready='ready',
+                                    drift='package incus: want 1, have 2 (version differs)',
+                                    note=lines.append)
+            self.assertFalse((Path(tmp) / 'keys').exists())
+        self.assertEqual(answer, {'tree': TREE, 'verdict': None,
+                                  'verdict_skipped': 'worker_drifted'})
+        self.assertEqual(lines, ['verdict not signed: worker_drifted: '
+                                 'package incus: want 1, have 2 (version differs)'])
+
+    def test_a_note_that_raises_does_not_reach_the_run(self):
+        def note(text):
+            raise OSError('disk full')
+        with tempfile.TemporaryDirectory() as tmp:
+            answer = verdict.decide(tmp, {'role': 'single'}, outcome='passed', tree=TREE,
+                                    finished=1.0, golden='g', ready='ready', drift='x',
+                                    note=note)
+        self.assertEqual(answer['verdict_skipped'], 'worker_drifted')
+
     def test_a_skipped_verdict_never_touches_the_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             row = {'role': 'single', 'argv': ['x'], 'input_id': 'i', 'job': 'j',
                    'repo': 'r', 'run_id': 'r1'}
             answer = verdict.decide(tmp, row, outcome='passed', tree=None, finished=1.0,
-                                    golden='g', ready='ready')
+                                    golden='g', ready='ready', drift='')
             self.assertEqual(answer, {'tree': None, 'verdict': None,
                                       'verdict_skipped': 'no_synthetic_git'})
             self.assertFalse((Path(tmp) / 'keys').exists())
@@ -105,7 +163,7 @@ class ConditionsTest(unittest.TestCase):
             with mock.patch.object(verdict.subprocess, 'run',
                                    side_effect=FileNotFoundError('ssh-keygen')):
                 answer = verdict.decide(tmp, row, outcome='passed', tree=TREE,
-                                        finished=1.0, golden='g', ready='ready')
+                                        finished=1.0, golden='g', ready='ready', drift='')
         self.assertIsNone(answer['verdict'])
         self.assertEqual(answer['verdict_skipped'], 'sign_failed:ssh-keygen not found')
         self.assertEqual(answer['tree'], TREE)
@@ -113,7 +171,7 @@ class ConditionsTest(unittest.TestCase):
     def test_an_unknown_golden_is_a_sign_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             answer = verdict.decide(tmp, {'role': 'single'}, outcome='passed', tree=TREE,
-                                    finished=1.0, golden=None, ready='ready')
+                                    finished=1.0, golden=None, ready='ready', drift='')
         self.assertEqual(answer['verdict_skipped'], 'sign_failed:golden fingerprint unknown')
 
 
@@ -130,17 +188,17 @@ class ReadyStateTest(unittest.TestCase):
             self.write(tmp, state='ready')
             self.assertEqual(verdict.ready_state(tmp), 'ready')
 
-    def test_a_different_kernel_is_drift(self):
+    def test_a_different_kernel_is_drift_not_unreadiness(self):
+        # The kernel moved to the drift check with the rest of what `status`
+        # compares; the ready state is the marker alone.
         with tempfile.TemporaryDirectory() as tmp:
             self.write(tmp, state='ready', kernel='0.0.0-canary')
-            real = Path.read_text
-
-            def read(path, *args, **kwargs):
-                if str(path) == '/proc/sys/kernel/osrelease':
-                    return '7.0.0-now\n'
-                return real(path, *args, **kwargs)
-            with mock.patch.object(Path, 'read_text', read):
-                self.assertEqual(verdict.ready_state(tmp), 'drifted')
+            self.assertEqual(verdict.ready_state(tmp), 'ready')
+            versions_file(tmp)
+            with mock.patch.object(facts, 'quick_survey',
+                                   return_value=matching(kernel='7.0.0-now')):
+                detail = verdict.survey_drift(tmp)
+        self.assertIn('host kernel: want 0.0.0-canary, have 7.0.0-now', detail)
 
     def test_the_worker_root_comes_from_the_environment_or_home(self):
         with mock.patch.dict(os.environ, {'PANDORA_WORKER_ROOT': '/srv/w'}):
@@ -258,9 +316,16 @@ class ResultFieldsTest(unittest.TestCase):
         self.ledger.close()
         self.tmp.cleanup()
 
-    def ready(self, state='ready'):
+    def ready(self, state='ready', observed=None, manifest=True):
         (self.worker / 'worker').mkdir(parents=True, exist_ok=True)
-        (self.worker / 'worker' / 'state.json').write_text(json.dumps({'state': state}))
+        (self.worker / 'worker' / 'state.json').write_text(json.dumps(
+            {'state': state, 'kernel': KERNEL}))
+        if manifest:
+            versions_file(self.worker)
+        survey = mock.patch.object(facts, 'quick_survey',
+                                   return_value=observed or matching())
+        survey.start()
+        self.addCleanup(survey.stop)
 
     def request(self, git):
         (self.paths.attempt('r1') / 'request.json').write_text(json.dumps(
@@ -308,6 +373,49 @@ class ResultFieldsTest(unittest.TestCase):
                          (TREE, None, 'worker_not_ready'))
         self.assertFalse((self.root / 'keys').exists())
 
+    def test_a_drifted_worker_signs_nothing_and_logs_why(self):
+        self.ready(observed=matching(incus='6.0.6-1'))
+        self.request('synthetic')
+        result = self.supervise()
+        self.assertEqual((result['outcome'], result['cli_exit']), ('passed', 0))
+        self.assertEqual((result['tree'], result['verdict'], result['verdict_skipped']),
+                         (TREE, None, 'worker_drifted'))
+        self.assertIn('pandora: verdict not signed: worker_drifted: package incus: '
+                      'want 6.0.5-8, have 6.0.6-1 (version differs)\n',
+                      self.paths.log('r1').read_text())
+        self.assertFalse((self.root / 'keys' / 'verdict').exists())
+
+    def test_an_unreadable_manifest_fails_closed(self):
+        self.ready(manifest=False)
+        self.request('synthetic')
+        result = self.supervise()
+        self.assertEqual(result['verdict_skipped'], 'worker_drifted')
+        self.assertIn('worker_drifted: manifest unreadable: no versions manifest at ',
+                      self.paths.log('r1').read_text())
+        (self.worker / 'worker' / 'versions.toml').write_text('[packages\n')
+        self.assertTrue(verdict.survey_drift(self.worker).startswith(
+            'manifest unreadable: '))
+
+    def test_an_unreadable_dpkg_fails_closed(self):
+        self.ready()
+        self.request('synthetic')
+        with mock.patch.object(facts, 'quick_survey',
+                               side_effect=facts.Unreadable('dpkg-query not found')):
+            result = self.supervise()
+        self.assertEqual(result['verdict_skipped'], 'worker_drifted')
+        self.assertIn('worker_drifted: dpkg unreadable: dpkg-query not found',
+                      self.paths.log('r1').read_text())
+
+    def test_a_drift_check_that_throws_fails_closed_without_reaching_the_run(self):
+        self.ready()
+        self.request('synthetic')
+        with mock.patch.object(facts, 'quick_survey', side_effect=RuntimeError('boom')):
+            result = self.supervise()
+        self.assertEqual((result['outcome'], result['verdict_skipped']),
+                         ('passed', 'worker_drifted'))
+        self.assertIn('worker_drifted: drift check failed: RuntimeError',
+                      self.paths.log('r1').read_text())
+
     def test_a_failing_run_signs_nothing(self):
         self.ready()
         self.request('synthetic')
@@ -330,6 +438,155 @@ class ResultFieldsTest(unittest.TestCase):
         self.assertEqual((result['outcome'], result['cli_exit']), ('passed', 0))
         self.assertEqual((result['verdict'], result['verdict_skipped']),
                          (None, 'sign_failed:boom'))
+
+
+class DriftCacheTest(unittest.TestCase):
+    """One survey per minute per engine root, whichever supervisor asks."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.engine = Path(self.tmp.name) / 'engine'
+        self.worker = Path(self.tmp.name) / 'worker'
+        (self.worker / 'worker').mkdir(parents=True)
+        (self.worker / 'worker' / 'state.json').write_text(json.dumps(
+            {'state': 'ready', 'kernel': KERNEL}))
+        versions_file(self.worker)
+        self.now = 1000.0
+        self.calls = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def survey(self, root):
+        self.calls.append(root)
+        return 'package incus: drifted %d' % len(self.calls)
+
+    def ask(self):
+        return verdict.worker_drift(self.engine, self.worker, clock=lambda: self.now,
+                                    survey=self.survey)
+
+    def test_the_cache_dedupes_within_the_ttl_and_expires_after(self):
+        self.assertEqual(self.ask(), 'package incus: drifted 1')
+        self.now += 59.0
+        self.assertEqual(self.ask(), 'package incus: drifted 1')
+        self.assertEqual(len(self.calls), 1)
+        self.now += 2.0
+        self.assertEqual(self.ask(), 'package incus: drifted 2')
+        self.assertEqual(len(self.calls), 2)
+        cache = verdict.drift_cache_path(self.engine)
+        self.assertEqual(cache.parent, self.engine / 'keys')
+        self.assertEqual(stat.S_IMODE(cache.parent.stat().st_mode), 0o700)
+        self.assertEqual(sorted(path.name for path in cache.parent.iterdir()),
+                         ['drift.json'])
+
+    def test_a_clean_answer_is_cached_too(self):
+        with mock.patch.object(facts, 'quick_survey', return_value=matching()) as survey:
+            for _ in range(3):
+                self.assertEqual(verdict.worker_drift(self.engine, self.worker,
+                                                      clock=lambda: self.now), '')
+        self.assertEqual(survey.call_count, 1)
+
+    def test_the_cache_is_shared_across_processes(self):
+        # Every supervisor is its own process; the file is what they share.
+        self.ask()
+        script = ('import sys, json; from pandora.engine import verdict; '
+                  'print(json.dumps(verdict.worker_drift(sys.argv[1], sys.argv[2], '
+                  'clock=lambda: %r, survey=lambda root: "fresh")))' % (self.now + 30))
+        top = str(Path(__file__).resolve().parents[2])
+        out = subprocess.run([sys.executable, '-c', script, str(self.engine),
+                              str(self.worker)], cwd=top, stdout=subprocess.PIPE,
+                             timeout=60, check=True).stdout
+        self.assertEqual(json.loads(out), 'package incus: drifted 1')
+
+    def test_a_new_canary_or_manifest_starts_afresh(self):
+        self.ask()
+        state = self.worker / 'worker' / 'state.json'
+        state.write_text(json.dumps({'state': 'ready', 'kernel': KERNEL, 'at': 2}))
+        os.utime(state, ns=(1, 1))
+        self.assertEqual(self.ask(), 'package incus: drifted 2')
+        manifest = facts.manifest_path(self.worker)
+        manifest.write_text(manifest.read_text() + '\n')
+        self.assertEqual(self.ask(), 'package incus: drifted 3')
+
+    def test_a_clock_that_went_backward_does_not_trust_the_cache(self):
+        self.ask()
+        self.now -= 5.0
+        self.ask()
+        self.assertEqual(len(self.calls), 2)
+
+    def test_a_corrupt_or_unwritable_cache_only_costs_a_survey(self):
+        cache = verdict.drift_cache_path(self.engine)
+        cache.parent.mkdir(parents=True)
+        cache.write_text('{not json')
+        self.assertEqual(self.ask(), 'package incus: drifted 1')
+        with mock.patch.object(verdict.tempfile, 'mkstemp', side_effect=OSError('ro')):
+            self.now += 120
+            self.assertEqual(self.ask(), 'package incus: drifted 2')
+
+    def test_the_check_is_cheap_against_a_stubbed_host(self):
+        # The engine's own cost, survey aside: tens of milliseconds at most.
+        with mock.patch.object(facts, 'quick_survey', return_value=matching()):
+            start = time.monotonic()
+            verdict.worker_drift(self.engine, self.worker, clock=lambda: self.now)
+            first = time.monotonic() - start
+            start = time.monotonic()
+            verdict.worker_drift(self.engine, self.worker, clock=lambda: self.now)
+            cached = time.monotonic() - start
+        self.assertLess(first, 0.05)
+        self.assertLess(cached, 0.01)
+
+
+class StatusAgreementTest(unittest.TestCase):
+    """`pandora worker status` and the signing check read the same fake facts
+    the same way: `drifted` exactly when signing refuses."""
+
+    CASES = [
+        ('clean', {}, False),
+        ('pinned version differs', {'incus': '6.0.6-1'}, True),
+        ('star package missing', {'git': None}, True),
+        ('kernel differs', {'kernel': '7.0.0-other'}, True),
+        ('setting differs', {'unattended': True}, True),
+    ]
+
+    def status(self, root, engine, observed):
+        from pandora.worker import service
+
+        class Driver:
+            def pool_usage(self):
+                return {}
+
+            def capacity(self, floor_gib):
+                return {'ok': True}
+
+            def instances(self):
+                return []
+        full = dict(observed, missing={},
+                    host=dict(observed['host'], hostname='w', cores=1))
+        out = io.StringIO()
+        with mock.patch.object(facts, 'survey', return_value=full), \
+                mock.patch.object(service, 'driver_for', return_value=Driver()), \
+                mock.patch.object(service.goldens, 'index', return_value=[]), \
+                mock.patch.object(sys, 'stdout', out):
+            service.main(['--root', str(root), '--engine-root', str(engine), 'status'])
+        return json.loads(out.getvalue())
+
+    def test_status_and_signing_agree(self):
+        for name, over, drifted in self.CASES:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                root, engine = Path(tmp) / 'worker', Path(tmp) / 'engine'
+                (root / 'worker').mkdir(parents=True)
+                (root / 'worker' / 'state.json').write_text(json.dumps(
+                    {'state': 'ready', 'kernel': KERNEL}))
+                versions_file(root)
+                kwargs = {key: over[key] for key in ('kernel', 'unattended') if key in over}
+                observed = matching(**kwargs, **{key: value for key, value in over.items()
+                                                 if key not in kwargs})
+                status = self.status(root, engine, observed)
+                with mock.patch.object(facts, 'quick_survey', return_value=observed):
+                    detail = verdict.worker_drift(engine, root)
+                self.assertEqual(status['state'], 'drifted' if drifted else 'ready')
+                self.assertEqual(bool(detail), drifted, detail)
+                self.assertEqual(detail, verdict.describe_drift(status['drift']))
 
 
 class StatusLineTest(unittest.TestCase):

@@ -336,11 +336,13 @@ class Verdicts(Scratch):
         self.refused(self.result(job='other'), 'disagrees with the run on job')
         self.refused(self.result(tree='d' * 40), 'disagrees with the run on tree')
 
-    def test_an_unready_worker_is_the_one_allowed_skip(self):
+    def test_an_unready_or_drifted_worker_are_the_allowed_skips(self):
         result = {'outcome': 'passed', 'tree': self.TREE, 'verdict': None,
                   'verdict_skipped': 'worker_not_ready'}
         self.assertEqual(self.check(result), 'none (worker_not_ready)')
         self.assertTrue(self.said)
+        self.assertEqual(self.check(dict(result, verdict_skipped='worker_drifted')),
+                         'none (worker_drifted)')
         for reason in ('not_passed', 'not_whole', 'no_synthetic_git', None):
             with self.subTest(reason=reason):
                 self.refused(dict(result, verdict_skipped=reason), repr(reason))
@@ -491,6 +493,15 @@ class Publication(DaemonCase):
                                      'publication not exercised'])
         self.assertFalse((run_dir / verdicts.RECORD).exists())
         self.assertEqual(selftest.published_refs(self.origin), [])
+
+    def test_a_drifted_worker_publishes_nothing_and_says_so(self):
+        self.result = {'outcome': 'passed', 'cli_exit': 0, 'tree': self.TREE,
+                       'verdict': None, 'verdict_skipped': 'worker_drifted'}
+        result, run_dir = self.submit()
+        verdict_threads()
+        self.assertEqual(self.check(result, run_dir), 'not exercised (worker_drifted)')
+        self.assertEqual(self.said, ['verdict not signed (worker_drifted); '
+                                     'publication not exercised'])
 
     def test_an_unready_worker_with_a_ref_on_the_origin_fails(self):
         result, run_dir = self.submit()
