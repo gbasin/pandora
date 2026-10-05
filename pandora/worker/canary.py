@@ -215,6 +215,9 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
             checks.add('disk quota enforced', False, '%s: %s' % (type(error).__name__, error))
 
     # --- the memory watchdog ------------------------------------------------
+    # The first proven golden, in enrollment order, as for the quota. Either
+    # golden would do: the hog writes its own working set (see `memtest`), so
+    # the verdict does not depend on what the repository put in /work.
     if proven:
         toolchain = proven[0]
         limits = Limits(memory_mib=512, ceiling_mib=512, cpus_hint=1, wall_seconds=120)
