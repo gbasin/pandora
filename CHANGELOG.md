@@ -12,6 +12,7 @@
 
 ### Bug Fixes
 
+* isolate run instances from each other on the Incus bridge ([#208](https://github.com/gbasin/pandora/issues/208)) ([b34de27](https://github.com/gbasin/pandora/commit/b34de2773bc2ea78812ea8b55a4fc2049b3fcd8b)), closes [#172](https://github.com/gbasin/pandora/issues/172)
 * queued runs wait for the disk floor instead of skipping it ([#209](https://github.com/gbasin/pandora/issues/209)) ([01fcf11](https://github.com/gbasin/pandora/commit/01fcf11c92f151bae27cd224bb18531eca789afa)), closes [#142](https://github.com/gbasin/pandora/issues/142)
 * the canary's file hog writes its own working set ([#214](https://github.com/gbasin/pandora/issues/214)) ([3ac4c2f](https://github.com/gbasin/pandora/commit/3ac4c2f73bfea0aaa25278b773be2677afa8c1c2))
 
