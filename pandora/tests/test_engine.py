@@ -180,10 +180,11 @@ class FakeDriver:
     """An executor that does what it is told, so the engine's logic is what fails."""
 
     def __init__(self, *, outcome='ok', exit_code=0, peak=1000 * 1048576,
-                 destroy_clean=True, explode=None, log='hello\n'):
+                 destroy_clean=True, explode=None, log='hello\n', tree='ab' * 20):
         self.outcome, self.exit_code, self.peak = outcome, exit_code, peak
         self.destroy_clean, self.explode, self.log = destroy_clean, explode, log
         self.destroyed = []
+        self.tree = tree
 
     def prepare(self, toolchain, source=None, log=print):
         if self.explode == 'prepare':
@@ -206,7 +207,7 @@ class FakeDriver:
             from pandora.executor.interface import ExecutionFailed
             raise ExecutionFailed('git add failed')
         self.git = (name, dest, marks, message)
-        return 2.9
+        return 2.9, self.tree
 
     def harden(self, instance, limits):
         return {'memory.high': '1'}
@@ -514,6 +515,75 @@ class RetentionTest(unittest.TestCase):
             ledger.close()
             self.assertEqual(first, ['victim-4'])
             self.assertIsNone(second)
+
+
+class SourceConfinementTest(unittest.TestCase):
+    """`submit` mounts `source_path` into the run's instance, so a source outside
+    `<engine_root>/src` would hand the instance the engine root, keys included."""
+
+    def setUp(self):
+        import os
+        from unittest import mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / 'engine'
+        self.paths = runner.Paths(self.root).ensure()
+        (self.root / 'keys').mkdir()
+        (self.root / 'keys' / 'verdict').write_text('secret')
+        self.spawned = []
+        for patch in (
+                mock.patch.dict(os.environ, {'PANDORA_BUDGET_MIB': '8192'}),
+                mock.patch.object(runner, 'spawn', lambda root, run_id, python=None:
+                                  self.spawned.append(run_id) or 4242),
+                mock.patch.object(runner, 'spawn_waiter',
+                                  lambda root, run_id, python=None: 4343),
+                mock.patch.object(runner, 'disk_headroom',
+                                  lambda paths, driver=None: {'ok': True})):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def submit(self, source, request_id='req'):
+        import contextlib
+        import io
+        from unittest import mock
+        from pandora.engine import service
+        request = {'request_id': request_id, 'input_id': 'input-a',
+                   'source_path': source, 'plan': dict(PLAN, shards=None)}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), \
+                mock.patch('sys.stdin', io.StringIO(json.dumps(request))):
+            service.main(['--root', str(self.root), 'submit'])
+        return json.loads(out.getvalue())
+
+    def assertRefused(self, source):
+        answer = self.submit(source)
+        self.assertEqual((answer['ok'], answer['code']), (False, 'source-outside'), answer)
+        self.assertEqual(self.spawned, [])
+
+    def test_a_source_under_src_is_admitted(self):
+        source = self.root / 'src' / 'demo' / 'input-a'
+        source.mkdir(parents=True)
+        answer = self.submit(str(source))
+        self.assertTrue(answer['ok'], answer)
+
+    def test_the_engine_root_and_its_keys_are_refused(self):
+        self.assertRefused(str(self.root))
+        self.assertRefused(str(self.root / 'keys'))
+        self.assertRefused(str(self.root / 'src'))
+        self.assertRefused(str(self.root / 'src' / '..'))
+        self.assertRefused(str(self.root / 'src' / '..' / 'keys'))
+        self.assertRefused('/etc')
+        self.assertRefused('')
+        self.assertRefused(None)
+
+    def test_a_symlink_under_src_is_resolved_before_comparing(self):
+        (self.root / 'src' / 'demo').mkdir(parents=True)
+        link = self.root / 'src' / 'demo' / 'escape'
+        link.symlink_to(self.root)
+        self.assertRefused(str(link))
+        keys = self.root / 'src' / 'demo' / 'keys'
+        keys.symlink_to(self.root / 'keys')
+        self.assertRefused(str(keys))
 
 
 if __name__ == '__main__':

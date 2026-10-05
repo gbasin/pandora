@@ -5,7 +5,7 @@ what it is made of, whether it is fit to take work, what is baked into it, and
 what can be thrown away. Same contract as the engine's: one JSON object on
 stdout, exit 0 when it answered, `ok: false` when the answer is no.
 
-    status     manifest, drift, pool, goldens, ready state
+    status     manifest, drift, pool, goldens, ready state, verdict signer
     capacity   may another run be admitted (the engine's disk hook)
     canary     the health gate
     gc         sweep leaked instances, volumes and old goldens
@@ -26,6 +26,7 @@ if __package__ in (None, ''):                # invoked as a file by the bootstra
 from pandora.engine.runner import Paths, cpus_per_run_of, max_running_of  # noqa: E402
 from pandora.executor import cpuset                                  # noqa: E402
 from pandora.executor.incus import IncusDriver                       # noqa: E402
+from pandora.engine import verdict                                    # noqa: E402
 from pandora.worker import facts, gc, goldens, versions              # noqa: E402
 
 STATES = ('unprovisioned', 'unproven', 'ready', 'failed')
@@ -121,7 +122,9 @@ def cmd_status(args):
                                      max_running_of(Paths(engine_root)))),
                  'cpu_pin': cpu_pin_of(Paths(engine_root), driver),
                  'goldens': listed, 'run_instances': running,
-                 'canary': state.get('canary'), 'reason': state.get('reason')})
+                 'canary': state.get('canary'), 'reason': state.get('reason'),
+                 # Read, never created: the first signed run makes the key.
+                 'verdict_signer': verdict.signer(engine_root)})
 
 
 def cpu_pin_of(paths, driver):

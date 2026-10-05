@@ -198,7 +198,8 @@ class Executor:
     def synthetic_git(self, instance, dest, marks, message):
         """Make `dest` a one-commit repository whose index is the caller's
         tracked set: `marks` names the untracked and the tracked-but-ignored
-        paths. Returns seconds; raises ExecutionFailed.
+        paths. Returns (seconds, tree): tree is the 40-hex id of every file
+        the run sees, untracked included, or None. Raises ExecutionFailed.
         """
         raise NotImplementedError
 

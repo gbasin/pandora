@@ -188,6 +188,9 @@ def render_status(answer):
         lines.append('last canary: %s, %d failure(s) in %.1fs'
                      % ('pass' if canary.get('ok') else 'FAIL', canary.get('failures', 0),
                         canary.get('seconds', 0)))
+    if 'verdict_signer' in answer:
+        lines.append('verdict signer: ' + (answer['verdict_signer']
+                                           or 'none yet (created on the first signed run)'))
     if answer.get('reason'):
         lines.append('reason: ' + str(answer['reason']))
     return '\n'.join(lines)
@@ -370,7 +373,8 @@ def add_parser(sub):
     node.add_argument('--timeout', type=int, default=1800)
     node.set_defaults(func=cmd_provision)
 
-    node = actions.add_parser('status', help='versions, drift, pool, goldens, ready state')
+    node = actions.add_parser('status',
+                              help='versions, drift, pool, goldens, ready state, verdict signer')
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_status)
 
