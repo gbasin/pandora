@@ -1,0 +1,35 @@
+# Pandora routes its own test suite. Agents run it as
+#
+#   pandora run -- python3 -m unittest discover -s pandora
+#
+# `repo.entrypoints` is the shim's tool, and the shim ships only for `pnpm`.
+# `pandora run` sends the request as `pnpm <argv>`, so the daemon strips the
+# `pnpm` entrypoint and matches the rest against the form below. Typing the
+# command without `pandora run` is not routed: no `python3` shim exists.
+version = 1
+
+[repo]
+name = "pandora"
+entrypoints = ["pnpm"]
+
+# The golden for the suite: an interpreter, git for the tests that build
+# repositories, rsync for the transfer tests, and ssh-keygen for the verdict
+# tests. docker.io is not for the suite: every golden build starts dockerd and
+# fails without it. No Node and no pnpm: node_version and pnpm_version are
+# optional, and leaving them out installs neither.
+[worker]
+base_image = "images:ubuntu/26.04"
+packages = ["docker.io", "git", "python3", "rsync", "openssh-client"]
+
+# A signed verdict for this job lets the ubuntu leg of tests.yml skip the
+# suite for the same tree (.github/actions/pandora-verdict). It needs the
+# worker's tree, so the job runs with a synthetic git repository.
+[[jobs]]
+id = "suite"
+summary = "Pandora's unittest suite"
+where = "remote"
+git = "synthetic"
+args = "none"
+timeout_minutes = 30
+forms = [{ prefix = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }]
+run = { argv = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }

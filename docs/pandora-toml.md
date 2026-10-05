@@ -83,7 +83,7 @@ is the worked version of the same job written two ways.
 | Table | What it holds |
 |---|---|
 | `version` | `1`. |
-| `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. |
+| `[repo]` | `name`, `entrypoints` (today `["pnpm"]`), `root_markers`. A command that is not `pnpm` is claimed through `pandora run`, which sends it as `pnpm <argv>`: keep `entrypoints = ["pnpm"]` and put the program in the form, as Pandora's own [`pandora.toml`](../pandora.toml) does with `prefix = ["python3", "-m", "unittest", "discover", "-s", "pandora"]`. |
 | `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`). `subdirectory = "reroot"`, `"reject"` or `"passthrough"`: what a claimed command typed below the worktree root does. `reroot` runs it from the root unless an argument names a path, then exits 64. `reject` refuses it with exit 1. `local` is an old name for `reroot`. `passthrough` claims it only at the root, so below it the command runs unchanged, like an unclaimed one, decided in the shim with no fork. Use it when bare root forms (`test`, `build`) mean a package's own script in a subdirectory. |
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
 | `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`. `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
