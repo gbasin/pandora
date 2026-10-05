@@ -344,12 +344,27 @@ scratch repository borrows an enrolled repository's `[worker]` toolchain, so
 the run clones a golden the worker already has. Everything the test owns lives
 under one temporary directory and is removed on exit (`--keep` keeps it);
 `--update` adds a second run whose write-back must land. The scratch job
-declares `git = "synthetic"` and `[verdicts] publish = false`, so each
+declares `git = "synthetic"` and `[verdicts] publish = true`, so each
 `selftest` receipt must carry a 40-hex `tree` and either a verdict that
 `ssh-keygen -Y verify` accepts against its own `signer`, or `verdict_skipped =
 "worker_not_ready"`. Any other skip reason fails the test with exit 1. A
 receipt with no `tree` key comes from an engine older than signed verdicts:
-the test says so and does not check it. The summary is the
+the test says so and does not check it.
+
+When the worker signs, the selftest also proves verdict publication. The
+scratch repository's `origin` is a bare repository in the same scratch
+directory, so nothing reaches GitHub. After each `selftest` run the test
+waits for `verdict-publish.json` beside `result.json`, then requires
+`refs/pandora/verdicts/<tree>/selftest` on that origin: a parentless commit by
+`pandora <pandora@localhost>` that holds exactly `payload.json` (the receipt's
+payload bytes), `verdict.sig` and `signer`, and whose signature `ssh-keygen -Y
+verify` accepts against that `signer`. The run log must say `pandora: verdict
+published <ref>`. The `--update` run has the same tree and job, so its
+publication must take the other path and log `(already on the remote)`. When
+the verdict was skipped for `worker_not_ready`, the origin must hold no
+`refs/pandora/` ref, and the test prints `verdict not signed
+(worker_not_ready); publication not exercised`. A publication that is missing
+or wrong is exit 1. The summary is the
 phase timings the caller paid and the engine measured. Exit 0 means the whole
 path worked; 70 means it could not be exercised, with the reason.
 
