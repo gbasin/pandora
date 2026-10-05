@@ -24,11 +24,14 @@
 # payload is missing, unreadable, or has no numeric `finished` is kept and
 # counted as unreadable: the script deletes only what it can show is old.
 # Deletes go out in batches of --batch refs, each with --force-with-lease on
-# the value listed, so a ref that changed after the listing stays.
+# the value listed, so a ref that changed after the listing stays and is
+# counted as changed. Each ref's result is read from `git push --porcelain`,
+# because a push deletes what it can even when it rejects another ref.
 #
 # --now fixes the clock, for the unit tests. --dry-run prints what it would
-# delete and deletes nothing. Exit 0 on success, 1 when listing, fetching or a
-# delete batch failed, 2 on a bad argument.
+# delete and deletes nothing. Exit 0 on success, 1 when listing or fetching
+# failed or a delete was rejected for any reason but a stale lease, 2 on a bad
+# argument. --max-age-days is at least 1.
 
 set -euo pipefail
 
@@ -55,7 +58,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[[ $max_age_days =~ ^[0-9]+$ ]] || die 2 "--max-age-days must be a whole number: $max_age_days"
+# 0 would delete every verdict, so the floor is 1.
+[[ $max_age_days =~ ^[1-9][0-9]*$ ]] || die 2 "--max-age-days must be a whole number of at least 1: $max_age_days"
 [[ $batch =~ ^[1-9][0-9]*$ ]] || die 2 "--batch must be a positive whole number: $batch"
 [ -n "$remote" ] && [ "${remote#-}" = "$remote" ] || die 2 "bad remote: $remote"
 [ -n "$now" ] || now=$(date +%s)
@@ -81,54 +85,96 @@ git fetch --quiet --no-tags --no-write-fetch-head "$remote" \
     "+refs/pandora/verdicts/*:${scratch}*" || die 1 "git fetch $remote failed"
 
 # Lines out: "delete <oid> <ref>", "keep <oid> <ref>" or "unreadable <oid> <ref>".
-decisions=$(PRUNE_LISTING=$listing python3 - "$now" "$max_age_days" <<'PY'
-import json, math, os, re, subprocess, sys
+# The listing goes in on stdin: one environment string is capped at 128 KiB on
+# Linux, about 1,200 refs.
+prog='
+import json, math, re, subprocess, sys
 
 now, days = int(sys.argv[1]), int(sys.argv[2])
 limit = days * 86400
 refs = []
-for line in os.environ['PRUNE_LISTING'].splitlines():
-    oid, _, ref = line.partition('\t')
-    if re.fullmatch(r'[0-9a-f]{40}([0-9a-f]{24})?', oid) and \
-            re.fullmatch(r'refs/pandora/verdicts/[0-9a-f]{40,64}/[a-z][a-z0-9-]*', ref):
+for line in sys.stdin.read().splitlines():
+    oid, _, ref = line.partition("\t")
+    if re.fullmatch(r"[0-9a-f]{40}([0-9a-f]{24})?", oid) and \
+            re.fullmatch(r"refs/pandora/verdicts/[0-9a-f]{40,64}/[a-z][a-z0-9-]*", ref):
         refs.append((oid, ref))
-query = ''.join('%s:payload.json\n' % oid for oid, _ in refs).encode()
-out = subprocess.run(['git', 'cat-file', '--batch'], input=query,
+query = "".join("%s:payload.json\n" % oid for oid, _ in refs).encode()
+out = subprocess.run(["git", "cat-file", "--batch"], input=query,
                      stdout=subprocess.PIPE, check=True).stdout
 pos = 0
 for oid, ref in refs:
-    end = out.index(b'\n', pos)
+    end = out.index(b"\n", pos)
     header = out[pos:end].split()
     pos = end + 1
     finished = None
-    if len(header) == 3 and header[1] == b'blob':
+    # "<oid> <type> <size>" is followed by <size> bytes and a newline whatever
+    # the type, so consume them for every object. Anything but a blob is kept.
+    # Other headers ("<name> missing", "<name> ambiguous") carry no body.
+    if len(header) == 3:
         size = int(header[2])
         body = out[pos:pos + size]
+        if len(body) != size or out[pos + size:pos + size + 1] != b"\n":
+            sys.exit("git cat-file --batch output ended early")
         pos += size + 1
-        try:
-            finished = json.loads(body.decode('utf-8')).get('finished')
-        except (ValueError, AttributeError):
-            finished = None
+        if header[1] == b"blob":
+            try:
+                finished = json.loads(body.decode("utf-8")).get("finished")
+            except (ValueError, AttributeError):
+                finished = None
+    elif len(header) != 2:
+        sys.exit("git cat-file --batch printed an unexpected header")
     if type(finished) not in (int, float) or not math.isfinite(finished):
-        print('unreadable', oid, ref)
+        print("unreadable", oid, ref)
     elif now - finished > limit:
-        print('delete', oid, ref)
+        print("delete", oid, ref)
     else:
-        print('keep', oid, ref)
-PY
-) || die 1 'reading the payloads failed'
+        print("keep", oid, ref)
+if pos != len(out):
+    sys.exit("git cat-file --batch printed more than was asked")
+'
+decisions=$(printf '%s\n' "$listing" | python3 -c "$prog" "$now" "$max_age_days") \
+    || die 1 'reading the payloads failed'
 
-total=0 kept=0 unreadable=0 old=0 deleted=0 failed=0
+total=0 kept=0 unreadable=0 old=0 deleted=0 changed=0 failed=0
 leases=()
 specs=()
 
+# A push is not atomic: git deletes what it can and exits 1 if any ref was
+# rejected. So read the result of each ref from --porcelain, never the exit
+# code. A stale lease means the ref changed after the listing: it is kept, as
+# intended. Any other rejection, or a ref the push never reported, fails.
 flush() {
     [ ${#specs[@]} -gt 0 ] || return 0
-    if git push --quiet --no-verify "${leases[@]}" "$remote" "${specs[@]}"; then
-        deleted=$((deleted + ${#specs[@]}))
-    else
-        echo "pandora verdict prune: a delete batch of ${#specs[@]} refs failed" >&2
+    local out flag spec summary ref reported=0
+    out=$(git push --porcelain --no-verify "${leases[@]}" "$remote" "${specs[@]}" 2>&1) || true
+    while IFS=$'\t' read -r flag spec summary; do
+        # ":<ref>" for a delete sent, "(delete):<ref>" for one rejected here.
+        case $spec in
+            :refs/pandora/verdicts/* | '(delete):refs/pandora/verdicts/'*) ref=${spec#*:} ;;
+            *) continue ;;
+        esac
+        reported=$((reported + 1))
+        case $flag in
+            -) deleted=$((deleted + 1)) ;;
+            '!')
+                if [ "$summary" = '[rejected] (stale info)' ]; then
+                    changed=$((changed + 1))
+                    echo "pandora verdict prune: kept $ref: it changed after the listing"
+                else
+                    failed=1
+                    echo "pandora verdict prune: delete $ref failed: $summary" >&2
+                fi
+                ;;
+            *)
+                failed=1
+                echo "pandora verdict prune: delete $ref: unexpected result $flag $summary" >&2
+                ;;
+        esac
+    done <<<"$out"
+    if [ "$reported" -ne ${#specs[@]} ]; then
         failed=1
+        echo "pandora verdict prune: git push reported $reported of ${#specs[@]} refs:" >&2
+        printf '%s\n' "$out" >&2
     fi
     leases=()
     specs=()
@@ -158,7 +204,7 @@ while read -r action oid ref; do
 done <<<"$decisions"
 flush
 
-summary="$total refs, $old older than $max_age_days days, $deleted deleted, $kept kept, $unreadable unreadable"
+summary="$total refs, $old older than $max_age_days days, $deleted deleted, $kept kept, $changed changed, $unreadable unreadable"
 [ "$dry_run" = false ] || summary="$summary (dry run)"
 echo "pandora verdict prune: $summary"
 if [ -n "${GITHUB_ACTIONS:-}" ]; then

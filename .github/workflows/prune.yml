@@ -1,12 +1,18 @@
 name: prune
 
 # Pandora calls its own reusable verdict-prune workflow, as a consuming
-# repository does (docs/verdicts.md, Pruning).
+# repository does (docs/verdicts.md, Pruning). The weekly run deletes. A run
+# started by hand is a dry run unless dry_run is unchecked.
 
 on:
   schedule:
     - cron: '17 6 * * 1'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print what would be deleted and delete nothing.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -18,3 +24,4 @@ jobs:
     uses: ./.github/workflows/verdict-prune.yml
     with:
       max_age_days: 30
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

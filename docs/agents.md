@@ -8,6 +8,11 @@ An agent keeps typing the commands it types today, from the
 repository root. [`docs/agents-paragraphs.md`](agents-paragraphs.md) holds
 the paragraphs a repository may copy into its own agent instructions.
 
+In a repository whose CI skips a job on a signed verdict
+([docs/verdicts.md](verdicts.md)), the run's tree includes untracked files.
+Commit everything, leave no untracked files, run the claimed command through
+Pandora last, and push with no further edits.
+
 ## Invariants
 
 The invariants, as `pandora --help` states them, with their exceptions spelled

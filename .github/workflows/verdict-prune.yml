@@ -13,7 +13,7 @@ on:
   workflow_call:
     inputs:
       max_age_days:
-        description: Delete verdict refs whose run finished more than this many days ago.
+        description: Delete verdict refs whose run finished more than this many days ago. At least 1.
         type: number
         required: false
         default: 30
@@ -66,6 +66,11 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          # 0 would delete every verdict. The script refuses it too.
+          if ! [[ $MAX_AGE_DAYS =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::max_age_days must be a whole number of at least 1: $MAX_AGE_DAYS"
+            exit 1
+          fi
           args=(--remote origin --max-age-days "$MAX_AGE_DAYS")
           if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
           bash "$GITHUB_WORKSPACE/pandora-tools/scripts/verdict-prune.sh" "${args[@]}"
