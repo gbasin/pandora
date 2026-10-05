@@ -439,7 +439,8 @@ def add_parser(sub):
     node = actions.add_parser(
         'pins', help='the golden a routed run of a toolchain would use, and its pins',
         description='Resolve a [worker] toolchain the way a routed run does: the base '
-                    "image's Incus fingerprint (through the worker's image cache) and the "
+                    "image's Incus fingerprint (through the worker's image cache, which it reads "
+                    "but never writes) and the "
                     "sha256 of each lockfile at --source's root, folded into the golden's "
                     'fingerprint. Prints that golden name, the recipe fingerprint, and the '
                     'registry digest of each service image, which is reported but not '

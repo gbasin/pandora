@@ -212,6 +212,36 @@ class ToolchainChoice(Scratch):
         self.assertEqual(spec['source_id'], 'pandora-selftest')
         self.assertIsNone(lockroot)
 
+    def test_a_refused_golden_verb_falls_to_the_minimal_toolchain(self):
+        from pandora.errors import EngineError
+
+        def refused(spec, lockfiles):
+            raise EngineError('engine golden failed (2): invalid choice')
+        notes = []
+        spec, label, reused, lockroot = selftest.choose_toolchain(
+            [('acme', dict(WORKER_SPEC), str(self.root))], refused, say=notes.append)
+        self.assertFalse(reused)
+        self.assertEqual(spec['source_id'], 'pandora-selftest')
+        self.assertIsNone(lockroot)
+        self.assertTrue(any('not warm' in line for line in notes), notes)
+
+    def test_an_ok_false_golden_answer_is_not_warm(self):
+        def refuses(spec, lockfiles):
+            return {'ok': False, 'code': 'bad-request', 'detail': 'no', 'warm': True}
+        _, label, reused, _ = selftest.choose_toolchain(
+            [('acme', dict(WORKER_SPEC), str(self.root))], refuses, say=lambda text: None)
+        self.assertFalse(reused)
+        self.assertIn('minimal', label)
+
+    def test_an_unreachable_worker_still_raises(self):
+        from pandora.errors import WorkerUnreachable
+
+        def gone(spec, lockfiles):
+            raise WorkerUnreachable('ssh: no route')
+        with self.assertRaises(WorkerUnreachable):
+            selftest.choose_toolchain([('acme', dict(WORKER_SPEC), str(self.root))], gone,
+                                      say=lambda text: None)
+
     def test_borrowed_toolchains_skip_an_unreadable_repo(self):
         repo = self.root / 'repo'
         repo.mkdir()

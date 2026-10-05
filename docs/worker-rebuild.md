@@ -49,6 +49,10 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
    threads with two threads per core.
    `pandora worker status` prints the effective pin, where it came from, the
    host's topology and the resulting `PANDORA_CPUS`.
+11. Leave `min_engine_version` unset. `provision` then writes the floor 5,
+   which admits every client from v0.3.12 on. A higher floor refuses older
+   clients with `engine-version`, and they cannot fall back. Raise it only as
+   a coordinated upgrade: see "The engine floor" in `docs/worker.md`.
 
 ### Example
 

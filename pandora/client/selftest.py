@@ -55,7 +55,7 @@ from pathlib import Path
 
 from ..config import loader
 from ..engine import pinning
-from ..errors import ConfigError, PandoraError, UnknownSchema
+from ..errors import ConfigError, PandoraError, UnknownSchema, WorkerUnreachable
 from ..exits import INFRA
 from . import doctor, settings, verdicts
 from .worker import Worker
@@ -384,6 +384,31 @@ def golden_asker(worker):
     return ask
 
 
+def asked(ask, spec, lockfiles, say):
+    """The `golden` answer, or {} when the worker cannot give one.
+
+    A gateway or engine older than the `golden` verb refuses it, and so does a
+    request the worker finds malformed. Either way the selftest cannot know
+    which golden is warm, so it is treated as not warm: the minimal toolchain
+    builds, which is slow but never wrong. An unreachable worker still raises.
+    """
+    try:
+        answer = ask(spec, lockfiles)
+    except WorkerUnreachable:
+        raise
+    except PandoraError as error:
+        say('the worker did not answer `golden` (%s); treating it as not warm'
+            % str(error)[:200])
+        return {}
+    if not isinstance(answer, dict):
+        answer = {'ok': False}
+    if not answer.get('ok', True):
+        say('the worker refused `golden` (%s); treating it as not warm'
+            % (answer.get('detail') or answer.get('code') or 'no answer'))
+        return {}
+    return answer
+
+
 def choose_toolchain(candidates, ask, *, say=notice):
     """(spec, label, warm, lockfile root or None) for the scratch repository.
 
@@ -394,15 +419,23 @@ def choose_toolchain(candidates, ask, *, say=notice):
     `install_command` is the enrolled repository's own and cannot run against
     this source. `ask` is `golden_asker`'s: the golden name the worker would
     pin for a recipe and lockfile digests, and whether it is warm.
+
+    The lockfiles are read from the enrolled repository's checkout on this
+    Mac, which may be behind or ahead of `<engine_root>/src/<repo>/latest`,
+    the tree its routed runs last shipped. When they differ, the name asked
+    about is not the warm golden, and the selftest falls through to the next
+    candidate rather than borrowing the wrong one.
     """
     for label, spec, root in candidates:
-        answer = ask(spec, pinning.lockfiles(root))
+        answer = asked(ask, spec, pinning.lockfiles(root), say)
         golden = answer.get('golden') or '?'
         if answer.get('warm'):
             return spec, 'borrowed from %s (%s)' % (label, golden[:19]), True, root
-        say('%s for %s is not on the worker; trying the next' % (golden[:19], label))
+        say('%s for %s is not warm on the worker (lockfiles from %s, which may be '
+            'stale against the worker\'s src/<repo>/latest); trying the next'
+            % (golden[:19], label, root))
     spec = dict(MINIMAL_WORKER)
-    answer = ask(spec, {})
+    answer = asked(ask, spec, {}, say)
     return (spec, 'minimal (%s)' % (answer.get('golden') or '?')[:19],
             bool(answer.get('warm')), None)
 

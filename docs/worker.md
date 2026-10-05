@@ -94,17 +94,38 @@ resolves once in the parent, and every shard copies the parent's file. The run
 log says `pandora: golden golden-<fingerprint>: image <fp>, <lockfile> <digest>`.
 
 The alias lookup (`incus image info`) is cached in
-`<engine_root>/pins/images.json` for 7 days. Two rules bound the churn:
+`<engine_root>/pins/images.json` for 7 days. The cache is keyed by alias, so
+every recipe that names `images:ubuntu/26.04` shares one entry. These rules
+bound the churn:
 
 * Inside those 7 days, a new upstream image does not change the name, so a
   warm golden stays warm.
-* When the cached image names a golden that is not built, the build is cold
-  anyway. The worker looks the alias up again and builds from the newest
-  image.
+* When the cached image names a golden that is not warm, the build is cold
+  anyway. The worker looks the alias up again and builds that golden from the
+  newest image. The answer names that attempt's golden only and does not
+  replace the shared entry, so one repository's lockfile bump cold-builds
+  that repository's golden and no other. Until the entry expires, each run of
+  that recipe repeats the lookup to find its golden.
+* Only an expired entry is replaced. Then every recipe on that alias takes the
+  new image, and the next run of each builds cold: at most once per alias per
+  7 days.
+* The `golden` verb and `pandora worker pins` read the cache and never write
+  it, so asking cannot move an alias.
+* A failed lookup is remembered for 5 minutes. During an image-server outage,
+  runs wait out at most one 30 s lookup per alias per 5 minutes.
+* The cache holds 32 aliases and drops the one answered least recently.
 
 If the lookup fails, the worker uses the last cached answer. With no cached
 answer, the name carries no image pin, the log says `unresolved`, and the
 verdict's `golden_pins.image` is null.
+
+The image server keeps old images for a limited time. If a cold build cannot
+launch the pinned fingerprint, it launches the alias instead, and the run log
+says `launching the alias`. That golden's name then claims an image it was not
+built from, until the next expired lookup renames it.
+
+A root lockfile that is a symlink resolving outside the source tree is not
+pinned, and the run log says `refused`.
 
 A golden is rebuilt when the recipe changes, when a root lockfile changes, or
 when the cached image expires and the alias has moved. Agents see this as one
@@ -335,13 +356,29 @@ the block to prove revocation.
 
 ### The engine floor
 
-`provision` writes `<engine_root>/min_engine_version`, defaulting to the
-provisioner's own engine version (`[worker] min_engine_version` overrides it).
-`submit`, `resubmit` and a `lookup --fence` refuse a bundle older than the
-floor as `engine-version`, which never falls back: the caller is told to run
-`pandora upgrade`. One ledger, one budget and one scheduler are shared by
-every bundle, so an old engine writing new rows is the failure this exists to
-prevent.
+`provision` writes `<engine_root>/min_engine_version`. The default is
+`MIN_ENGINE_FLOOR` in `pandora/worker/provision.py`, which is 5, not the
+provisioner's own engine version. `[worker] min_engine_version` in the
+manifest overrides it. `submit`, `resubmit` and a `lookup --fence` refuse a
+bundle older than the floor as `engine-version`, which never falls back: the
+caller is told to run `pandora upgrade`. One ledger, one budget and one
+scheduler are shared by every bundle, so an old engine writing new rows is the
+failure this exists to prevent.
+
+The floor trails the newest engine on purpose. Engine 6 (golden pinning) and
+engine 5 bundles share one worker: a v5 run names the unpinned recipe golden,
+and `gc` ranks that golden in the same recipe family as the pinned ones. A
+provision that raised the floor to 6 as a side effect would lock out every
+v0.3.12 client on the next manifest change.
+
+Raise the floor as a coordinated upgrade:
+
+1. Upgrade every Mac that submits to the worker. Each runs `pandora upgrade`.
+2. Confirm each one with `pandora --version`.
+3. Set `min_engine_version` in the manifest's `[worker]` table.
+4. Run `provision`, then the canary.
+
+v0.3.14 is the earliest release that may raise `MIN_ENGINE_FLOOR` to 6.
 
 ### What holds between clients
 
@@ -404,9 +441,16 @@ Every routed golden is pinned ([Goldens](#goldens)), so pinned goldens are
 ranked like any other. A new base image or a lockfile change adds a golden to
 its family, and the keep count pushes out the oldest. With `golden_keep = 2`, a
 family holds the current golden and the one before it, plus a golden per
-lockfile that a live branch still uses until it ranks out. Between weekly
-sweeps a family can grow by one golden per image refresh (at most one per 7
-days) and one per lockfile change. Each is 4 to 5 GiB.
+lockfile that a live branch still uses until it ranks out.
+
+Nothing removes a golden until `gc` runs. Between sweeps, each lockfile change
+in any enrolled repository adds a golden of 4 to 5 GiB, and an expired image
+entry adds one for every recipe on that alias the next time each runs (at most
+once per alias per 7 days, but for all of those recipes at once). A 40 GB pool
+holds about three goldens plus concurrent runs, so two or three lockfile bumps
+between weekly sweeps can bring free space down to `disk_floor_gib`, and new
+runs are refused until a sweep. Run `pandora worker gc` after a burst of
+lockfile changes or an image refresh, or sweep more often than weekly.
 
 `gc` never removes these goldens, whatever `--keep` says:
 

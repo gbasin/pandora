@@ -58,6 +58,8 @@ from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 # 6: the supervisor names the golden: it folds the base image's fingerprint and
 # the source's root lockfile digests into the toolchain (`pinning`), a verdict
 # payload carries `golden_pins`, and `golden` answers what a recipe resolves to.
+# A v5 bundle still runs beside it (its runs use the unpinned recipe golden),
+# so provision keeps the floor at 5 for now (`provision.MIN_ENGINE_FLOOR`).
 ENGINE_VERSION = 6
 CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 
@@ -203,7 +205,12 @@ def submit(args, paths, ledger, request):
             return emit(answer)
         run_id = row['run_id']
         (paths.attempt(run_id)).mkdir(parents=True, exist_ok=True)
-        (paths.attempt(run_id) / 'toolchain.json').write_text(json.dumps(plan['worker']))
+        # `pins` and `pin_notes` are the worker's to write (`pinning`): a
+        # client that sent them would choose the golden and the `golden_pins`
+        # its verdict is signed over, so they are dropped here.
+        recipe = {key: value for key, value in plan['worker'].items()
+                  if key not in ('pins', 'pin_notes')}
+        (paths.attempt(run_id) / 'toolchain.json').write_text(json.dumps(recipe))
         (paths.attempt(run_id) / 'request.json').write_text(json.dumps(request, indent=1))
         paths.log(run_id).touch()
         # Disk is admitted before memory and by a floor rather than a
@@ -656,25 +663,66 @@ def cmd_cache_clear(args):
     return emit({'ok': True, 'repo': args.repo, **store.clear(args.repo)})
 
 
+LOCKFILE_DIGEST = re.compile(r'[0-9a-f]{64}')
+LOCKFILE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}')
+
+
+def golden_request(text):
+    """(recipe, lockfiles) from a `golden` request, or raises ValueError.
+
+    The `[worker]` table is checked against the same schema `pandora.toml` is
+    loaded with, minus `pins` and `pin_notes`, which only the worker writes.
+    """
+    from pandora.config import loader
+    from pandora.errors import PandoraError
+    request = json.loads(text)
+    if not isinstance(request, dict) or not isinstance(request.get('worker'), dict):
+        raise ValueError('stdin must be {"worker": {...}, "lockfiles": {name: sha256}}')
+    unknown = sorted(set(request) - {'worker', 'lockfiles'})
+    if unknown:
+        raise ValueError('unknown request key%s: %s' % ('' if len(unknown) == 1 else 's',
+                                                         ', '.join(unknown)))
+    worker = {key: value for key, value in request['worker'].items()
+              if key not in ('pins', 'pin_notes')}
+    try:
+        recipe = loader._worker(worker, 'worker')
+    except PandoraError as error:
+        raise ValueError(str(error)) from None
+    if recipe['base_image'].startswith('-'):
+        raise ValueError('worker.base_image may not start with "-"')
+    lockfiles = request.get('lockfiles') or {}
+    if not isinstance(lockfiles, dict) or len(lockfiles) > 64:
+        raise ValueError('lockfiles must be a table of at most 64 {name: sha256 hex}')
+    for name, digest in lockfiles.items():
+        if not LOCKFILE_NAME.fullmatch(str(name)) or not isinstance(digest, str) \
+                or not LOCKFILE_DIGEST.fullmatch(digest):
+            raise ValueError('lockfiles entry %r is not a file name and a sha256 hex digest'
+                             % (name,))
+    return recipe, lockfiles
+
+
 def cmd_golden(args):
     """The golden a routed run from this recipe would use, without running one.
 
     stdin is `{"worker": <[worker] table>, "lockfiles": {name: sha256}}`: the
     caller hashed the lockfiles its source will carry, because that source is
     not on the worker yet. The answer comes from the same `pinning.settle` a
-    supervisor runs, over the same image cache. Read-only apart from that
-    cache. The selftest asks this before it borrows an enrolled golden.
+    supervisor runs, over the same image cache, which this verb only reads:
+    asking about a recipe must never move an alias under the routed runs. The
+    selftest asks this before it borrows an enrolled golden.
     """
     from pandora.engine import pinning
     from pandora.executor.incus import IncusDriver
-    request = json.loads(sys.stdin.read())
+    try:
+        recipe, lockfiles = golden_request(sys.stdin.read())
+    except ValueError as error:
+        return emit({'ok': False, 'code': 'bad-request', 'detail': str(error)[:400],
+                     'engine': ENGINE_VERSION})
     paths = runner.Paths(args.root).ensure()
     driver = IncusDriver(root=paths.root)
-    recipe = {key: value for key, value in request['worker'].items()
-              if key not in ('pins', 'pin_notes')}
     spec = pinning.settle(recipe, paths.root, driver,
                           lambda item: 'golden-' + runner.toolchain_of(item).fingerprint(),
-                          digests=request.get('lockfiles') or {})
+                          digests=lockfiles, write=False)
     fingerprint = runner.toolchain_of(spec).fingerprint()
     return emit({'ok': True, 'golden': 'golden-' + fingerprint, 'fingerprint': fingerprint,
                  'recipe': runner.toolchain_of(recipe).fingerprint(),

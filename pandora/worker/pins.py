@@ -107,16 +107,18 @@ def resolve(spec, root, driver, *, source=None):
     """The diagnostic answer for one recipe: the routed name and its inputs.
 
     `root` is the engine root, whose image cache the routed path reads; the
-    same `settle` call a supervisor makes, so the two cannot disagree.
+    same `settle` call a supervisor makes, so the two cannot disagree. Read
+    only: a diagnostic never writes that cache, so asking cannot move an
+    alias under the routed runs.
     """
     from ..engine.runner import toolchain_of
     recipe = {key: value for key, value in spec.items()
               if key not in ('pins', 'pin_notes')}
     settled = pinning.settle(recipe, root, driver,
                              lambda item: 'golden-' + toolchain_of(item).fingerprint(),
-                             source=source)
+                             source=source, write=False)
     problems = [line for line in settled['pin_notes']
-                if ': unresolved' in line or ': stale' in line]
+                if ': unresolved' in line or ': stale' in line or ' refused: ' in line]
     services, failed = {}, []
     for image in spec.get('service_images') or ():
         try:

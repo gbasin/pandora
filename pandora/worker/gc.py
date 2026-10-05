@@ -198,8 +198,8 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
     drop = set(drop or ())
     started = time.monotonic()
     live = live_run_instances(paths)
-    protected = golden_index.live_goldens(paths)
-    unsettled = golden_index.live_recipes(paths)
+    # One read of the attempts for both: see `goldens.live_state`.
+    protected, unsettled = golden_index.live_state(paths)
     removed, kept, failed = [], [], []
     try:
         instances = driver.instances(check=True)
@@ -346,9 +346,9 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
                 # the delete, the same pattern as the volume re-check, and
                 # keep the golden when the answer cannot be had.
                 try:
-                    claimed = (item['name'] in golden_index.live_goldens(paths)
-                               or (item.get('recipe') or '') in
-                               golden_index.live_recipes(paths))
+                    names, recipes = golden_index.live_state(paths)
+                    claimed = (item['name'] in names
+                               or (item.get('recipe') or '') in recipes)
                 except Exception as error:                        # noqa: BLE001
                     entry['removed'] = False
                     entry['why'] = ('kept: the live-attempt re-check failed: %s'

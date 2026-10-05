@@ -257,8 +257,8 @@ class Launch(unittest.TestCase):
                 driver.image_fingerprint('images:x')
 
 
-class Sweeps(Scratch):
-    """gc with every golden pinned: recipes, not fingerprints, are what clients name."""
+class SweepScratch(Scratch):
+    """Attempts in a ledger and a fake pool, for the gc tests."""
 
     def setUp(self):
         super().setUp()
@@ -283,6 +283,10 @@ class Sweeps(Scratch):
 
     def pinned(self, image):
         return dict(RECIPE, source_id='', pins={'base_image': image})
+
+
+class Sweeps(SweepScratch):
+    """gc with every golden pinned: recipes, not fingerprints, are what clients name."""
 
     def test_a_named_recipe_protects_its_newest_golden_only(self):
         specs = [self.pinned(c * 64) for c in 'abc']
@@ -367,6 +371,279 @@ class Canary(Scratch):
     def test_without_a_source_or_a_pinned_golden_the_recipe_name_stands(self):
         spec, src = canary.pinned_target(self.paths, Images(), RECIPE, None)
         self.assertEqual(name_of(spec), name_of(RECIPE))
+
+
+
+class SharedAlias(Scratch):
+    """The image cache is keyed by alias: one recipe's cold build must not move
+    it under another recipe."""
+
+    def recipe(self, label):
+        return dict(RECIPE, source_id=label)
+
+    def settle_one(self, spec, driver, source, **kw):
+        return pinning.settle(spec, self.root, driver, name_of, source=str(source), **kw)
+
+    def test_a_cold_build_of_one_recipe_leaves_another_warm(self):
+        a_src, b_src = self.root / 'src' / 'a', self.root / 'src' / 'b'
+        for tree in (a_src, b_src):
+            tree.mkdir(parents=True)
+            (tree / 'pnpm-lock.yaml').write_text('v1\n')
+        driver = Images('a' * 64)
+        first_a = self.settle_one(self.recipe('a'), driver, a_src, now=1000.0)
+        first_b = self.settle_one(self.recipe('b'), driver, b_src, now=1000.0)
+        driver.built.update({name_of(first_a), name_of(first_b)})
+        # Upstream publishes a new image, and recipe B bumps its lockfile.
+        driver.image = 'b' * 64
+        (b_src / 'pnpm-lock.yaml').write_text('v2\n')
+        cold_b = self.settle_one(self.recipe('b'), driver, b_src, now=2000.0)
+        self.assertEqual(cold_b['pins']['base_image'], 'b' * 64)
+        self.assertEqual(pinning.read_cache(self.root)['images:ubuntu/26.04']['fingerprint'],
+                         'a' * 64)
+        lookups = len(driver.lookups)
+        again_a = self.settle_one(self.recipe('a'), driver, a_src, now=3000.0)
+        self.assertEqual(name_of(again_a), name_of(first_a))
+        self.assertEqual(len(driver.lookups), lookups)
+
+    def test_an_expired_entry_is_replaced_by_the_refresh(self):
+        driver = Images('a' * 64)
+        pinning.image(self.root, 'images:x', driver.image_fingerprint, now=1000.0)
+        driver.image = 'b' * 64
+        later = 1000.0 + pinning.IMAGE_TTL + 1
+        pinning.image(self.root, 'images:x', driver.image_fingerprint, fresh=True,
+                      now=later, share=pinning.SHARE_EXPIRED)
+        self.assertEqual(pinning.read_cache(self.root)['images:x']['fingerprint'], 'b' * 64)
+
+    def test_a_fresh_entry_is_kept_by_the_refresh(self):
+        driver = Images('a' * 64)
+        pinning.image(self.root, 'images:x', driver.image_fingerprint, now=1000.0)
+        driver.image = 'b' * 64
+        found, _ = pinning.image(self.root, 'images:x', driver.image_fingerprint,
+                                 fresh=True, now=1001.0, share=pinning.SHARE_EXPIRED)
+        self.assertEqual(found, 'b' * 64)
+        self.assertEqual(pinning.read_cache(self.root)['images:x']['fingerprint'], 'a' * 64)
+
+    def test_the_diagnostics_never_write_the_cache(self):
+        from pandora.engine import service
+        driver = Images('d' * 64)
+        driver.warm = lambda name: False
+        pins.resolve(dict(RECIPE), self.root, driver, source=str(self.source))
+        self.assertEqual(pinning.read_cache(self.root), {})
+        out = io.StringIO()
+        with mock.patch('pandora.executor.incus.IncusDriver', return_value=driver), \
+                mock.patch('sys.stdin', io.StringIO(json.dumps({'worker': RECIPE}))), \
+                contextlib.redirect_stdout(out):
+            service.main(['--root', str(self.root), 'golden'])
+        self.assertTrue(json.loads(out.getvalue())['ok'])
+        self.assertEqual(pinning.read_cache(self.root), {})
+        self.assertEqual(len(driver.lookups), 2)
+
+
+class NegativeCache(Scratch):
+    def test_a_failed_lookup_is_not_repeated_for_five_minutes(self):
+        driver = Images(RuntimeError('image server down'))
+        found, how = pinning.image(self.root, 'images:x', driver.image_fingerprint,
+                                   now=1000.0)
+        self.assertIsNone(found)
+        found, how = pinning.image(self.root, 'images:x', driver.image_fingerprint,
+                                   now=1000.0 + pinning.FAILED_TTL - 1)
+        self.assertIsNone(found)
+        self.assertIn('failed', how)
+        self.assertIn('image server down', how)
+        self.assertEqual(len(driver.lookups), 1)
+        driver.image = 'a' * 64
+        found, how = pinning.image(self.root, 'images:x', driver.image_fingerprint,
+                                   now=1000.0 + pinning.FAILED_TTL + 1)
+        self.assertEqual((found, how), ('a' * 64, 'resolved'))
+        self.assertNotIn('failed_at', pinning.read_cache(self.root)['images:x'])
+
+    def test_a_failure_keeps_the_last_answer_for_the_window(self):
+        driver = Images('a' * 64)
+        pinning.image(self.root, 'images:x', driver.image_fingerprint, now=1000.0)
+        driver.image = RuntimeError('down')
+        expired = 1000.0 + pinning.IMAGE_TTL + 1
+        pinning.image(self.root, 'images:x', driver.image_fingerprint, now=expired)
+        found, how = pinning.image(self.root, 'images:x', driver.image_fingerprint,
+                                   now=expired + 60)
+        self.assertEqual(found, 'a' * 64)
+        self.assertTrue(how.startswith('stale: the lookup failed'), how)
+        self.assertEqual(len(driver.lookups), 2)
+
+    def test_a_read_only_failure_is_not_recorded(self):
+        driver = Images(RuntimeError('down'))
+        pinning.image(self.root, 'images:x', driver.image_fingerprint, now=1000.0,
+                      share=pinning.SHARE_NEVER)
+        self.assertEqual(pinning.read_cache(self.root), {})
+
+    def test_the_cache_holds_a_bounded_number_of_aliases(self):
+        driver = Images('a' * 64)
+        for index in range(pinning.MAX_ALIASES + 8):
+            pinning.image(self.root, 'images:x%d' % index, driver.image_fingerprint,
+                          now=1000.0 + index)
+        cache = pinning.read_cache(self.root)
+        self.assertEqual(len(cache), pinning.MAX_ALIASES)
+        self.assertNotIn('images:x0', cache)
+        self.assertIn('images:x%d' % (pinning.MAX_ALIASES + 7), cache)
+
+    def test_an_alias_that_looks_like_a_flag_is_never_looked_up(self):
+        driver = Images('a' * 64)
+        found, how = pinning.image(self.root, '--help', driver.image_fingerprint, now=1.0)
+        self.assertIsNone(found)
+        self.assertTrue(how.startswith('unresolved'), how)
+        self.assertEqual(driver.lookups, [])
+
+
+class WarmNotExists(Scratch):
+    def test_a_golden_without_its_warm_snapshot_counts_as_unbuilt(self):
+        first = self.settle(Images('a' * 64))
+        driver = Images('b' * 64, built={name_of(first)})
+        driver.warm = lambda name: False
+        second = self.settle(driver)
+        self.assertEqual(second['pins']['base_image'], 'b' * 64)
+
+
+class LaunchFallback(unittest.TestCase):
+    def test_an_unlaunchable_pinned_image_falls_back_to_the_alias(self):
+        from pandora.executor.interface import Toolchain
+        driver = IncusDriver(root=tempfile.gettempdir())
+        calls, lines = [], []
+
+        def incus(*args, **kw):
+            calls.append(args)
+            if args[0] == 'launch' and args[1] == 'images:gone':
+                return 1, '', 'Error: Image not found'
+            if args[0] == 'launch':
+                raise RuntimeError('stop after the alias launch')
+            return 0, '', ''
+        driver.exists = lambda name: False
+        driver.incus = incus
+        with self.assertRaises(RuntimeError):
+            driver.prepare(Toolchain(base_image='images:ubuntu/26.04',
+                                     pins=(('base_image', 'gone'),)), log=lines.append)
+        launches = [args[1] for args in calls if args[0] == 'launch']
+        self.assertEqual(launches, ['images:gone', 'images:ubuntu/26.04'])
+        self.assertIn(('delete', '-f'), [args[:2] for args in calls])
+        self.assertTrue(any('launching the alias' in line for line in lines), lines)
+
+
+class Lockfiles(Scratch):
+    def test_a_symlink_outside_the_tree_is_refused(self):
+        outside = Path(self.tmp.name) / 'host.lock'
+        outside.write_text('host secret\n')
+        (self.source / 'uv.lock').symlink_to(outside)
+        notes = []
+        self.assertEqual(pinning.lockfiles(self.source, notes), {})
+        self.assertIn('refused', notes[0])
+        spec = self.settle(Images())
+        self.assertNotIn('lockfile:uv.lock', spec['pins'])
+        self.assertTrue(any('refused' in line for line in spec['pin_notes']))
+
+    def test_a_symlink_inside_the_tree_is_hashed(self):
+        (self.source / 'locks').mkdir()
+        (self.source / 'locks' / 'uv.lock').write_text('inside\n')
+        (self.source / 'uv.lock').symlink_to(self.source / 'locks' / 'uv.lock')
+        self.assertEqual(pinning.lockfiles(self.source),
+                         {'uv.lock': hashlib.sha256(b'inside\n').hexdigest()})
+
+    def test_a_large_lockfile_hashes_in_chunks_to_the_same_digest(self):
+        data = b'x' * (pinning.CHUNK * 2 + 17)
+        (self.source / 'yarn.lock').write_bytes(data)
+        self.assertEqual(pinning.lockfiles(self.source)['yarn.lock'],
+                         hashlib.sha256(data).hexdigest())
+
+
+class GoldenVerb(Scratch):
+    def ask(self, text):
+        from pandora.engine import service
+        driver = Images('d' * 64)
+        driver.warm = lambda name: False
+        out = io.StringIO()
+        with mock.patch('pandora.executor.incus.IncusDriver', return_value=driver), \
+                mock.patch('sys.stdin', io.StringIO(text)), \
+                contextlib.redirect_stdout(out):
+            service.main(['--root', str(self.root), 'golden'])
+        return json.loads(out.getvalue()), driver
+
+    def assertBad(self, text, words):
+        answer, driver = self.ask(text)
+        self.assertEqual((answer['ok'], answer['code']), (False, 'bad-request'), answer)
+        self.assertIn(words, answer['detail'])
+        self.assertEqual(driver.lookups, [])
+
+    def test_malformed_requests_get_a_clear_error(self):
+        self.assertBad('not json', '')
+        self.assertBad(json.dumps([1]), 'stdin must be')
+        self.assertBad(json.dumps({'worker': RECIPE, 'extra': 1}), 'extra')
+        self.assertBad(json.dumps({'worker': dict(RECIPE, surprise=1)}), 'surprise')
+        self.assertBad(json.dumps({'worker': dict(RECIPE, packages='git')}), 'packages')
+        self.assertBad(json.dumps({'worker': dict(RECIPE, base_image='--help')}), '"-"')
+        self.assertBad(json.dumps({'worker': RECIPE, 'lockfiles': {'uv.lock': 'nothex'}}),
+                       'uv.lock')
+        self.assertBad(json.dumps({'worker': RECIPE, 'lockfiles': {'../x': 'a' * 64}}),
+                       '../x')
+
+    def test_pins_in_the_request_are_ignored(self):
+        answer, _ = self.ask(json.dumps({'worker': dict(RECIPE, pins={'base_image': 'e' * 64},
+                                                        pin_notes=['x'])}))
+        self.assertTrue(answer['ok'], answer)
+        self.assertEqual(answer['golden_pins']['image'], 'd' * 64)
+
+
+class SubmitStripsPins(unittest.TestCase):
+    """A client cannot choose the golden, or the `golden_pins` a verdict signs."""
+
+    def setUp(self):
+        from pandora.tests.test_engine import SourceConfinementTest
+        SourceConfinementTest.setUp(self)
+        self.submit_one = lambda source: SourceConfinementTest.submit(self, source)
+
+    def test_pins_and_pin_notes_are_dropped_at_submit(self):
+        import pandora.tests.test_engine as engine_tests
+        source = self.root / 'src' / 'demo' / 'input-a'
+        source.mkdir(parents=True)
+        forged = dict(engine_tests.PLAN['worker'], pins={'base_image': 'f' * 64},
+                      pin_notes=['chosen by the client'])
+        with mock.patch.dict(engine_tests.PLAN, worker=forged):
+            answer = self.submit_one(str(source))
+        self.assertTrue(answer['ok'], answer)
+        written = json.loads((runner.Paths(self.root).attempt(answer['run_id'])
+                              / 'toolchain.json').read_text())
+        self.assertNotIn('pins', written)
+        self.assertNotIn('pin_notes', written)
+        self.assertEqual(written['base_image'], forged['base_image'])
+
+
+class GcOnePass(SweepScratch):
+    def test_an_attempt_pinned_between_the_old_two_walks_keeps_its_golden(self):
+        """The old sweep read names, then recipes. An attempt unpinned in the
+        first read and pinned in the second held neither."""
+        pinned = self.pinned('a' * 64)
+        unpinned = dict(RECIPE, source_id='')
+        self.attempt('r0', pinned, 100.0)
+        self.attempt('rq', unpinned, 300.0, state='running')
+        driver = self.driver([name_of(pinned)])
+        real = goldens.attempts
+        reads = []
+
+        def racing(paths):
+            # The supervisor settles `rq` right after the sweep's first read.
+            rows = real(paths)
+            reads.append(1)
+            if len(reads) > 1:
+                rows['rq']['toolchain'] = pinned
+            return rows
+        with mock.patch.object(goldens, 'attempts', racing):
+            # A dry run has no pre-delete re-check to hide the race behind.
+            receipt = gc.sweep(self.root, driver, keep=0, dry_run=True)
+        self.assertEqual(receipt['removed'], [], receipt)
+        self.assertIn('not been pinned', receipt['kept'][0]['why'])
+
+    def test_live_state_reads_the_attempts_once(self):
+        self.attempt('rq', dict(RECIPE, source_id=''), 300.0, state='queued')
+        with mock.patch.object(goldens, 'attempts', wraps=goldens.attempts) as spy:
+            names, recipes = goldens.live_state(self.paths)
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(recipes, {goldens.recipe_of(dict(RECIPE, source_id=''))})
 
 
 if __name__ == '__main__':

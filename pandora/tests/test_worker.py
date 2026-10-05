@@ -112,7 +112,11 @@ class AuthorizedKeys(unittest.TestCase):
         # Only single-line assignments match; MANIFEST's value is multi-line TOML.
         values = dict(re.findall(r'(?m)^(\w+)=(\'[^\']*\'|\S+)$', text))
         unquote = lambda v: v[1:-1] if v.startswith("'") else v   # noqa: E731
-        self.assertEqual(unquote(values['MIN_ENGINE']), str(service.ENGINE_VERSION))
+        self.assertEqual(unquote(values['MIN_ENGINE']),
+                         str(min(provision.MIN_ENGINE_FLOOR, service.ENGINE_VERSION)))
+        # Engine 6 still admits engine 5 bundles: the floor must not lock out a
+        # v0.3.12 client on the next provision.
+        self.assertEqual(provision.MIN_ENGINE_FLOOR, 5)
         decoded = base64.b64decode(unquote(values['GATEWAY_B64'])).decode()
         self.assertIn('SSH_ORIGINAL_COMMAND', decoded)
         self.assertEqual(base64.b64decode(unquote(values['USERS_B64'])), b'')
@@ -670,9 +674,9 @@ class Sweeps(unittest.TestCase):
             calls.append(1)
             # The second read -- the re-check -- sees the attempt that
             # submitted while the sweep ran.
-            return set() if len(calls) == 1 else {name}
+            return (set(), set()) if len(calls) == 1 else ({name}, set())
 
-        with mock.patch.object(gc.golden_index, 'live_goldens', live_later):
+        with mock.patch.object(gc.golden_index, 'live_state', live_later):
             receipt = gc.sweep(self.root, driver, keep=0, enrolled=set())
         self.assertEqual(driver.destroyed, [])
         self.assertIn('mid-sweep', receipt['kept'][0]['why'])
@@ -689,9 +693,9 @@ class Sweeps(unittest.TestCase):
             calls.append(1)
             if len(calls) > 1:
                 raise RuntimeError('ledger went away')
-            return set()
+            return set(), set()
 
-        with mock.patch.object(gc.golden_index, 'live_goldens', live_broken):
+        with mock.patch.object(gc.golden_index, 'live_state', live_broken):
             receipt = gc.sweep(self.root, driver, keep=0, enrolled=set())
         self.assertEqual(driver.destroyed, [])
         self.assertIn('re-check failed', receipt['kept'][0]['why'])

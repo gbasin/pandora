@@ -110,21 +110,35 @@ def attempts(paths):
     return rows
 
 
-def live_goldens(paths):
-    """Golden names a live attempt is still using, which GC may never remove.
+def live_state(paths):
+    """(golden names, recipes) the live attempts hold, from one read of each.
 
     The ledger's own `LIVE`, `queued` included: a queued attempt has not cloned
-    yet, which is exactly when removing its golden hurts.
+    yet, which is exactly when removing its golden hurts. A live attempt whose
+    `toolchain.json` has `pins` holds its own golden; one without holds every
+    golden of its recipe, because its supervisor has not named one yet.
+
+    One pass, deliberately. Two walks, one for names and one for recipes,
+    could read an attempt unpinned in the first and pinned in the second, and
+    then hold neither its recipe nor the golden it just named.
     """
-    names = set()
+    names, recipes = set(), set()
     for run_id, row in attempts(paths).items():
         if row['state'] not in LIVE:
             continue
+        spec = row['toolchain']
         try:
-            names.add('golden-' + toolchain_of(row['toolchain']).fingerprint())
-        except (KeyError, TypeError):
+            names.add('golden-' + toolchain_of(spec).fingerprint())
+            if 'pins' not in spec:
+                recipes.add(recipe_of(spec))
+        except (KeyError, TypeError, AttributeError):
             continue
-    return names
+    return names, recipes
+
+
+def live_goldens(paths):
+    """Golden names a live attempt is still using, which GC may never remove."""
+    return live_state(paths)[0]
 
 
 def newest_pinned(paths, recipe_spec, exists):
@@ -149,20 +163,8 @@ def newest_pinned(paths, recipe_spec, exists):
 
 
 def live_recipes(paths):
-    """Recipes a live attempt has not resolved to a golden name yet.
-
-    A queued attempt is pinned when its supervisor starts, so until then the
-    golden it will use is any of its recipe's; gc keeps them all.
-    """
-    recipes = set()
-    for run_id, row in attempts(paths).items():
-        if row['state'] not in LIVE or 'pins' in row['toolchain']:
-            continue
-        try:
-            recipes.add(recipe_of(row['toolchain']))
-        except (KeyError, TypeError):
-            continue
-    return recipes
+    """Recipes a live attempt has not resolved to a golden name yet."""
+    return live_state(paths)[1]
 
 
 def listing(root, driver):

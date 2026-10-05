@@ -233,8 +233,21 @@ class IncusDriver(Executor):
             # `images:ubuntu/26.04` launches as `images:<fingerprint>`; a local
             # alias launches as the bare fingerprint of the local image.
             remote = base.split(':', 1)[0] + ':' if ':' in base else ''
-            base = remote + pins['base_image']
-        self.incus('launch', base, name, '-p', self.profile, timeout=900)
+            pinned = remote + pins['base_image']
+            rc, _, err = self.incus('launch', pinned, name, '-p', self.profile,
+                                    timeout=900, check=False)
+            if rc != 0:
+                # The image server drops old images, and a cached pin can be up
+                # to a week old. Building from the alias beats failing every
+                # cold build of this name until the cache expires; the name
+                # then claims an image it was not built from, so say so.
+                log('golden %s: the pinned image %s did not launch (%s); launching the '
+                    'alias %s instead, so this golden is not built from its pinned image'
+                    % (name, pinned, err.strip()[:200] or 'exit %d' % rc, base))
+                self.incus('delete', '-f', name, check=False)
+                self.incus('launch', base, name, '-p', self.profile, timeout=900)
+        else:
+            self.incus('launch', base, name, '-p', self.profile, timeout=900)
         self.wait_ready(name)
         marks['launch'] = time.monotonic() - t0
 
