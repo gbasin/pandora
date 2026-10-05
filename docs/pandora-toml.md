@@ -11,6 +11,7 @@ fallback, queueing, write-back, retry and placement overrides.
   * [Top-level tables](#top-level-tables)
   * [Source preparation](#source-preparation)
   * [Job keys](#job-keys)
+  * [Signed verdicts](#signed-verdicts)
 * [Behavior tables](#behavior-tables)
   * [Fallback](#fallback)
   * [Queueing](#queueing)
@@ -90,6 +91,7 @@ is the worked version of the same job written two ways.
 | `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
 | `[worker]` | Required. Golden toolchain, with `base_image` required: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `workdir` sets only the canary's working directory. Routed runs ignore it. `prepare_command` is an optional per-run hook described below. It does not change the golden fingerprint. |
 | `[fallback]` | Optional repository-wide fallback. Acme declares none on purpose. |
+| `[verdicts]` | Optional. `publish` (`false` by default) and `remote` (`"origin"` by default): whether the daemon pushes a worker's signed verdict to that remote as a git ref. Described below. |
 | `[[jobs]]` | One entry per routed job. |
 
 The invoking worktree's `pandora.toml` owns its routing. An enrollment config
@@ -145,6 +147,46 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 
 A write-back path may glob only its last component, below a directory:
 `fixtures/*.ledger.jsonl` loads. `*.json` and `fixtures/**/x.json` are refused.
+
+### Signed verdicts
+
+A worker signs a run's verdict when the run passed, ran whole (not a shard),
+ran on a worker whose ready state is `ready`, and declared `git =
+"synthetic"`, so the worker knows the git tree it ran over. The signed payload
+names that tree, the job, the argv and the golden. `result.json` carries
+`tree`, `verdict` (`payload`, `signature`, `signer`) and `verdict_skipped`,
+the first condition that failed: `not_passed`, `not_whole`,
+`worker_not_ready` or `no_synthetic_git`.
+
+```toml
+[verdicts]
+publish = true          # default false
+remote = "origin"       # default
+```
+
+| Key | Meaning |
+|---|---|
+| `publish` | `true` pushes each signed verdict to `remote` after the run exits. Default `false`: the verdict stays in `result.json` and nothing is pushed. |
+| `remote` | The worktree's git remote. Default `origin`. A name that starts with `-` is refused. |
+
+The ref is `refs/pandora/verdicts/<tree>/<job>`. It points at a parentless
+commit with a fixed author (`pandora <pandora@localhost>`), a fixed date
+(`1 +0000`) and the message `pandora verdict <tree> <job>`. Its tree holds
+exactly `payload.json`, `verdict.sig` and `signer`. The same verdict always
+makes the same commit. The daemon builds it in the worktree's object store with
+`git hash-object`, `git mktree` and `git commit-tree`. It does not check out,
+touch the index or change a file. When the remote already has the ref, nothing
+is pushed. A CI job for the same tree reads the ref, verifies the signature
+against signers it trusts, and may skip the work.
+
+The push runs on a thread of its own after the command has exited. It never
+delays the exit and never changes the exit code. It has 60 s. Without
+`publish = true`, without that remote in the worktree, or without a verdict,
+nothing happens and nothing is logged. Otherwise one line is appended to the
+run's log, which `pandora logs <id>` shows and a live caller does not see:
+`pandora: verdict published refs/pandora/verdicts/<tree>/<job>` or
+`pandora: verdict not published: <reason>`. A daemon older than this table
+refuses the file, as for any key it does not understand.
 
 
 ## Behavior tables
