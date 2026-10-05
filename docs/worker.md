@@ -57,7 +57,10 @@ every enrolled repository's `pandora.toml` through the daemon's loader and
 proves each distinct `[worker]` golden: it builds or reuses the golden, runs a
 real journey with its compose stack in one clone, runs the surface job's
 `validate` step in another, then checks the disk quota and drives a memory hog
-until the watchdog kills it as `oom`.
+until the watchdog kills it as `oom`. The hog writes its own 1.5 GiB of random
+files under `/work/.pandora-hog` in the first proven golden's clone, then reads
+them in a loop under a 512 MiB ceiling. It does not depend on what the
+repository put in `/work`, so any golden proves the watchdog.
 
 ```sh
 pandora worker canary --mark
