@@ -17,7 +17,12 @@ the wire shapes a Pandora client sends:
   bundle's `pandora/.feeds`;
 * `cd <bundle> && PYTHONPATH=<bundle> python3 -m pandora.engine.service ...`
   for the lifecycle verbs, and `pandora.worker.service` for read-only verbs;
-* `rsync --server ...`, with every path argument inside the engine root.
+* `rsync --server ...`, with every path argument inside the engine root and
+  no option that makes the server follow a symlink (`-L`, `-k`,
+  `--copy-links`, `--copy-unsafe-links`, `--copy-dirlinks`).
+
+No admitted shape may name a path in `<engine_root>/keys`, where the verdict
+signing key lives.
 
 On an admitted command the caller's name is set as PANDORA_GATEWAY_CLIENT and
 the command runs unchanged, so the engine trusts the pin over whatever the
@@ -68,6 +73,15 @@ def inside(path, root):
     return real == base or real.startswith(base + os.sep)
 
 
+def keys(path, engine_root):
+    """True for a path in `<engine_root>/keys`, where the verdict signing key
+    lives, or one that holds it, such as the engine root itself: a recursive
+    rsync of either would copy or delete the key. No client wire shape names
+    either."""
+    folder = os.path.join(engine_root, 'keys')
+    return inside(path, folder) or inside(folder, path)
+
+
 def feed_hashes(engine_root):
     """Every allowlisted feed-script digest: provision's file plus each bundle's."""
     hashes = set()
@@ -97,24 +111,75 @@ def check_feed(argv, engine_root):
         if arg.startswith('/'):
             if not inside(arg, engine_root):
                 return 'feed argument %s is outside the engine root' % arg
+            # The root itself is a fixed feed's argument; what it does there is
+            # fixed by the allowlist. Only a path into the keys is refused.
+            if inside(arg, os.path.join(engine_root, 'keys')):
+                return 'feed argument %s is in the engine keys' % arg
         elif not TOKEN.fullmatch(arg):
             return 'feed argument %r is neither a token nor a confined path' % arg
     return None
 
 
+# rsync options that make the server follow a symlink and send or write what it
+# points to. A teammate could ship a source holding a symlink into
+# `<engine_root>/keys` and pull it back with any of these; no client sends one.
+FOLLOWS_LINKS = frozenset(('--copy-links', '--copy-unsafe-links', '--copy-dirlinks'))
+# Their short forms: -L is --copy-links, -k is --copy-dirlinks.
+FOLLOWS_LINKS_SHORT = frozenset('Lk')
+# Short options whose value is the rest of the cluster. The server's own
+# `-logDtpre.iLsfxC` carries `-e.iLsfxC`, whose `L` is a capability flag, not
+# --copy-links, so a cluster is read only up to the first of these.
+SHORT_WITH_VALUE = frozenset('eBTfM@')
+# Options naming a directory rsync reads files from, or hard-links them from.
+BASIS_DIRS = ('--link-dest=', '--copy-dest=', '--compare-dest=')
+
+
+def short_flags(cluster):
+    """The option letters of one `-abc` cluster, up to the first that takes a value."""
+    letters = []
+    for letter in cluster[1:]:
+        letters.append(letter)
+        if letter in SHORT_WITH_VALUE:
+            break
+    return letters
+
+
 def check_rsync(argv, engine_root):
-    """`rsync --server ...`: every path operand must stay in the engine root."""
+    """`rsync --server ...`: every path operand must stay in the engine root,
+    none may reach the keys, and no option may make the server follow links."""
     if '--server' not in argv[1:]:
         return 'rsync without --server is a local-side command'
     for arg in argv[1:]:
-        if arg.startswith('--link-dest='):
-            if not inside(arg[len('--link-dest='):], engine_root):
-                return 'link-dest %s is outside the engine root' % arg
-        elif arg.startswith('-') or arg in ('.', ''):
+        if arg in FOLLOWS_LINKS:
+            return 'rsync option %s follows symlinks' % arg
+        if arg.startswith('--'):
+            name, equals, value = arg.partition('=')
+            if not equals:
+                continue
+            basis = arg.startswith(BASIS_DIRS)
+            if basis and not value.startswith('/'):
+                return '%s %s is not an absolute path' % (name, value)
+            # Any option value that is a path: absolute, confined, never the
+            # keys. A relative one would resolve against the destination.
+            if value.startswith('/'):
+                if not inside(value, engine_root):
+                    return '%s %s is outside the engine root' % (name, value)
+                if keys(value, engine_root):
+                    return '%s %s is in the engine keys or holds them' % (name, value)
+            elif '/' in value or value == '..':
+                return '%s %s is a relative path' % (name, value)
             continue
-        elif arg.startswith('/'):
+        if arg.startswith('-'):
+            if FOLLOWS_LINKS_SHORT.intersection(short_flags(arg)):
+                return 'rsync option cluster %s follows symlinks' % arg
+            continue
+        if arg in ('.', ''):
+            continue
+        if arg.startswith('/'):
             if not inside(arg, engine_root):
                 return 'rsync path %s is outside the engine root' % arg
+            if keys(arg, engine_root):
+                return 'rsync path %s is in the engine keys' % arg
         else:
             return 'rsync argument %r is not a flag or a confined path' % arg
     return None

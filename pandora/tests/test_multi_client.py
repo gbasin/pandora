@@ -92,8 +92,9 @@ class TwoClientsOneEngine(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'engine'
-        self.tree = Path(self.tmp.name) / 'tree'
-        self.tree.mkdir()
+        # Under <engine_root>/src: submit refuses a source anywhere else.
+        self.tree = self.root / 'src' / 'demo' / 'tree'
+        self.tree.mkdir(parents=True)
         self.spawned, self.waiters = [], []
         lock = threading.Lock()
 
