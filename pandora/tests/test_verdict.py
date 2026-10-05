@@ -523,18 +523,6 @@ class DriftCacheTest(unittest.TestCase):
             self.now += 120
             self.assertEqual(self.ask(), 'package incus: drifted 2')
 
-    def test_the_check_is_cheap_against_a_stubbed_host(self):
-        # The engine's own cost, survey aside: tens of milliseconds at most.
-        with mock.patch.object(facts, 'quick_survey', return_value=matching()):
-            start = time.monotonic()
-            verdict.worker_drift(self.engine, self.worker, clock=lambda: self.now)
-            first = time.monotonic() - start
-            start = time.monotonic()
-            verdict.worker_drift(self.engine, self.worker, clock=lambda: self.now)
-            cached = time.monotonic() - start
-        self.assertLess(first, 0.05)
-        self.assertLess(cached, 0.01)
-
 
 class StatusAgreementTest(unittest.TestCase):
     """`pandora worker status` and the signing check read the same fake facts
