@@ -26,6 +26,7 @@ Pandora does. [worker.md](worker.md) covers the Linux worker.
   * [Migration from the old marker](#migration-from-the-old-marker)
   * [Unenrollment](#unenrollment)
   * [Old spellings](#old-spellings)
+* [Verdicts in CI](#verdicts-in-ci)
 * [Operating limits](#operating-limits)
 * [Run results](#run-results)
 * [Layout](#layout)
@@ -752,6 +753,56 @@ still routes while it is there.
 aliases for one release. Each prints a one-line deprecation notice on stderr and then runs
 `enroll` or `unenroll`. Change scripts to the new spelling.
 
+
+## Verdicts in CI
+
+A passing whole run of a `git = "synthetic"` job on a ready worker produces a
+verdict: the git tree the run saw, the job, the argv and the golden
+fingerprint, signed with the worker's verdict key. The key lives in the
+worker's engine root and never leaves it. `pandora worker status` prints its
+public half under `verdict signer:`. A client that opts in publishes the verdict
+as the ref `refs/pandora/verdicts/<tree>/<job>` on `origin`.
+
+The composite action
+[`.github/actions/pandora-verdict`](../.github/actions/pandora-verdict/action.yml)
+checks for that ref in CI. It runs
+[`scripts/verdict-verify.sh`](../scripts/verdict-verify.sh), which also runs by
+hand from a checkout. Inputs: `job`, `argv` (a JSON array, compared exactly)
+and `signers`. Outputs: `verified`, `reason`, `run_id`, `golden`. It
+never fails a job. A missing ref, a bad signature or any field that differs is
+`verified=false` with a reason, and the job runs as before. Pandora's own
+`tests.yml` runs it on the ubuntu leg and skips the unittest step only when
+`verified` is `true`.
+
+The trust rule: signers are read from the repository's default branch, and
+from nothing else. The action passes `github.event.repository.default_branch`
+to the script, which fetches that branch at depth 1 into
+`refs/remotes/origin/<branch>` and reads `.github/pandora/allowed_signers`
+from that full ref with `git show`. It never reads the checked-out head, and
+it never reads the base a pull request chose, so a pull request aimed at
+another branch cannot bring that branch's keys. The full ref means a tag or
+branch named `origin/<branch>` cannot stand in for it. A push event follows the
+same rule: the signers come from the fetched default branch, not from the
+pushed commit. Run by hand without `--default-branch`, the script uses the
+branch that `origin`'s `HEAD` names. Its `--base` option reads from a given
+revision instead and exists for the unit tests only.
+
+A key added in a pull request takes effect only after it merges into the
+default branch. To revoke a key, remove its line from the default branch. Only
+that branch is consulted, so deleting the key from any other branch changes
+nothing, and the removal takes effect for every check that starts after it
+lands. One line per key:
+
+```
+pandora-verdict namespaces="pandora-verdict" ssh-ed25519 AAAA... pandora-verdict
+```
+
+With no key line in the file, every check answers `reason=no_signers`.
+
+The tree is `HEAD^{tree}` of the CI checkout. On a pull request that is the
+merge commit GitHub builds, which has the branch's own tree only when the
+branch already contains its base. A branch behind its base gets no match and
+runs the suite.
 
 ## Operating limits
 

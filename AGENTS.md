@@ -7,7 +7,11 @@ Read `README.md` first. It says what Pandora does and how.
 * Do not run `pandora daemon`, `pandora upgrade`, or `pandora enroll`, and do
   not touch `~/.config/pandora` or `~/.local/state/pandora`. Those change the
   live daemon. The owner runs them.
-* Tests: `python3 -m unittest discover -s pandora`. Lint:
+* Tests: `python3 -m unittest discover -s pandora`. Through Pandora, from the
+  worktree root: `pandora run -- python3 -m unittest discover -s pandora`. A
+  passing run there signs a verdict for the tree, and the ubuntu leg of
+  `tests.yml` skips its unittest step when a signed verdict for the same tree
+  exists. Lint:
   `ruff check --select F,E9 . --exclude experiments`, the same check CI runs.
   Shims: `shellcheck bin/pnpm bin/pandora`. Run the suite once per change.
 * `pandora --help` is the contract. When docs and help disagree, fix both in the
