@@ -61,11 +61,13 @@ class Toolchain:
     source_id: str = ''          # identity of the source tree baked in
     env: tuple = ()              # (key, value) pairs, sorted by the caller
     # The *resolved* inputs, as (key, value) pairs sorted by the caller:
-    # `base_image` as an image fingerprint, `lockfile:<name>` as a content
-    # digest, `service:<image>` as a registry manifest digest. The fields above
-    # describe what to build; these say what the description resolved to on the
-    # day it was resolved, which is the difference between two goldens with one
-    # fingerprint and two goldens that are the same machine.
+    # `base_image` as an Incus image fingerprint and `lockfile:<name>` as sha256
+    # hex, which the worker resolves for every routed run (`engine.pinning`).
+    # `prepare` also honors `service:<image>` as a registry manifest digest,
+    # which no routed run sets. The fields above describe what to build; these
+    # say what the description resolved to on the day it was resolved, which is
+    # the difference between two goldens with one fingerprint and two goldens
+    # that are the same machine.
     pins: tuple = ()
 
     def fingerprint(self):
@@ -92,6 +94,9 @@ class Golden:
     built_seconds: float = 0.0
     disk_bytes: int = 0
     reused: bool = False
+    # The image fingerprint the golden was launched from when that is not its
+    # pinned one (the alias fallback in `prepare`); empty when it is.
+    built_from: str = ''
 
 
 @dataclass(frozen=True)

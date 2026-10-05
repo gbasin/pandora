@@ -9,7 +9,10 @@ and the headroom.
 
 Which golden, and which journey, come from the client: `pandora worker canary`
 reads the enrolled repositories' `[worker]` tables and ships one target per
-distinct fingerprint (`targets` below). Before that, it proved whatever two
+distinct recipe (`targets` below). The worker then pins each recipe as a routed
+run would (`pinned_target`): against the target's source when it is on the
+worker, so the canary proves the golden the next routed run clones, and
+otherwise the newest golden routed runs pinned from that recipe. Before that, it proved whatever two
 toolchain files it was handed, and on 2026-09-23 those were not the toolchain
 the enrolled configuration ran on. The files survive as an override for a
 worker nobody has enrolled against yet.
@@ -30,8 +33,9 @@ import socket
 import time
 from pathlib import Path
 
-from ..engine import turbocache
+from ..engine import pinning, turbocache
 from ..engine.runner import Paths, toolchain_of
+from . import goldens as golden_index
 from ..executor.incus import IncusDriver
 from ..executor.interface import DestroyIncomplete, Limits
 from ..executor.memtest import hog
@@ -97,6 +101,23 @@ def legacy_targets(journey=None, surfaces=None, source=None, journey_argv=None,
         targets.append({'label': 'surfaces', 'toolchain': json.loads(Path(surfaces).read_text()),
                         'source': source, 'journey': None, 'surface': check})
     return targets
+
+
+def pinned_target(paths, driver, recipe, source):
+    """(spec, source-or-None) naming the golden a routed run would use now.
+
+    With the source on the worker, the canary pins exactly as a supervisor
+    does (`pinning.settle`), so it proves the golden the next routed run
+    clones. Without it, the newest golden routed runs pinned from this recipe
+    and that still exists; failing that, the recipe unpinned, which names a
+    golden built before pinning existed.
+    """
+    if source and Path(source).exists():
+        return pinning.settle(recipe, paths.root, driver,
+                              lambda item: driver.golden_name(toolchain_of(item)),
+                              source=source), source
+    spec = golden_index.newest_pinned(paths, recipe, driver.exists)
+    return (spec if spec is not None else dict(recipe)), None
 
 
 def usable_source(driver, toolchain, source):
@@ -166,10 +187,16 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
         label = target.get('label') or 'target %d' % (position + 1)
         suffix = '' if position == 0 else '-%d' % (position + 1)
         try:
-            toolchain = toolchain_of(target['toolchain'])
+            toolchain_of(target['toolchain'])
+            spec, pinned_from = pinned_target(paths, driver, target['toolchain'],
+                                              target.get('source'))
+            toolchain = toolchain_of(spec)
         except (KeyError, TypeError) as error:
             checks.add('%s toolchain readable' % label, False, 'missing %s' % error)
             continue
+        checks.add('%s golden %s pinned' % (label, driver.golden_name(toolchain)), True,
+                   '%s, from %s' % (pinning.describe(spec),
+                                    pinned_from or 'the newest golden routed runs used'))
         src, problem = usable_source(driver, toolchain, target.get('source'))
         if problem:
             checks.add('%s source for %s' % (label, driver.golden_name(toolchain)), False, problem)

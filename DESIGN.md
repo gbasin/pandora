@@ -114,10 +114,15 @@ protect against a pull request that edits the verifier itself (the action, the
 script, or the workflow step that calls them), because CI runs the head's copy
 of those files. The verifier files are therefore review-sensitive, and a
 CODEOWNERS-style rule requiring the owner's review for them is the natural
-guard. CI does not yet pin the golden fingerprint: it records the verdict's
-golden but does not check it against an expected value until golden pinning
-lands. Failures never transfer: a failed or missing verdict only means CI runs
-the job itself. No merge or deployment behavior changes.
+guard. The golden fingerprint names a toolchain, not only a recipe: the
+worker folds the base image's Incus fingerprint and the sha256 of every
+lockfile at the source's root into it before the golden is built or reused,
+and the payload carries both as `golden_pins`. Apt package versions inside the
+image and service images pulled at run time are not pinned. CI still trusts
+whichever golden the worker signed from: it logs the fingerprint and does not
+check it against an expected value. Failures never transfer: a failed or
+missing verdict only means CI runs the job itself. No merge or deployment
+behavior changes.
 
 ## Queue, cancellation, and debugging
 

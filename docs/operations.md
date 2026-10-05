@@ -340,8 +340,15 @@ test daemon on a scratch socket, `pnpm selftest` goes through the real shim,
 the daemon freezes and ships the worktree, and the engine runs it in a fresh
 incus instance on the real worker -- the same worker `[worker] host` names,
 recorded as client `e2e-<host>`. It costs one small incus run because the
-scratch repository borrows an enrolled repository's `[worker]` toolchain, so
-the run clones a golden the worker already has. Everything the test owns lives
+scratch repository borrows an enrolled repository's `[worker]` toolchain and
+copies its root lockfiles, so the run clones a golden the worker already has.
+The worker names goldens by base image and lockfiles, so the selftest asks it
+(`golden`, an engine verb) which golden the borrowed recipe resolves to, and
+borrows only a warm one. The copied lockfiles come from the enrolled
+repository's checkout on the Mac, which can be behind or ahead of
+`<engine_root>/src/<repo>/latest`; then the name differs from the warm golden
+and the selftest tries the next candidate. A gateway or engine that refuses
+`golden` counts as no warm golden, and the minimal toolchain builds. Everything the test owns lives
 under one temporary directory and is removed on exit (`--keep` keeps it);
 `--update` adds a second run whose write-back must land. The scratch job
 declares `git = "synthetic"` and `[verdicts] publish = true`, so each
@@ -773,7 +780,9 @@ verifier reads the signers file.
 
 A passing whole run of a `git = "synthetic"` job on a ready worker produces a
 verdict, signed with the worker's verdict key ([docs/worker.md](worker.md#verdicts)).
-A client that opts in publishes it as the ref
+The verdict names the git tree the run saw, the job, the argv and the golden
+fingerprint, which is pinned to the base image and the root lockfiles
+([Goldens](worker.md#goldens)). A client that opts in publishes it as the ref
 `refs/pandora/verdicts/<tree>/<job>` on `origin`
 ([Signed verdict publication](#signed-verdict-publication)).
 
@@ -873,9 +882,11 @@ Known caveats:
   write-back re-freezes. Do not edit a worktree while a remote validation runs.
 * One remote run per worktree is not enforced. Only the local lane holds a
   worktree lock.
-* Neither golden is pinned. `pandora worker pins` resolves the inputs. The live
-  goldens have not been rebuilt with them. `pandora.toml` has no pins key yet,
-  so a routed run always builds the unpinned golden.
+* Every routed golden is pinned by the worker: its name folds in the base
+  image's fingerprint and the source's root lockfile digests (see "Goldens" in
+  `docs/worker.md`). `pandora.toml` has no pins key; the worker resolves them.
+  Goldens built before pinning keep their unpinned names until `gc` ranks them
+  out, and an engine 5 bundle still runs on them.
 * The `--update` proposal for `S0-01` rewrote all 295 lines of its fixture
   although the plain run passed. Review `git diff` before you commit a worker
   update.

@@ -15,6 +15,7 @@ from unittest import mock
 
 from pandora.engine import runner, verdict
 from pandora.engine.ledger import Ledger
+from pandora.executor.interface import Golden
 from pandora.worker import facts, versions
 from pandora.tests.test_engine import PLAN, FakeDriver, claim
 
@@ -46,6 +47,7 @@ def fields(**over):
             'cwd': '.', 'engine': 'e' * 64,
             'env_digest': verdict.env_digest({'NODE_ENV': 'test', 'CI': '1'}),
             'finished': 1791209006.46, 'golden': '0123456789abcdef',
+            'golden_pins': {'image': 'a' * 64, 'lockfiles': {'uv.lock': 'b' * 64}},
             'input_id': 'f' * 64, 'job': 'suite', 'outcome': 'passed', 'repo': 'pandora',
             'run_id': 'r1', 'tree': TREE}
     base.update(over)
@@ -60,9 +62,10 @@ class PayloadTest(unittest.TestCase):
              '"engine":"%s",'
              '"env_digest":"72fb0a5fd4a0f8aa51dbdb4267b749c588fb5d0047230d5dd5316201c1d0432c",'
              '"finished":1791209006.46,"golden":"0123456789abcdef",'
+             '"golden_pins":{"image":"%s","lockfiles":{"uv.lock":"%s"}},'
              '"input_id":"%s","job":"suite","kind":"pandora-verdict","outcome":"passed",'
              '"repo":"pandora","run_id":"r1","tree":"%s","v":1}'
-             % ('e' * 64, 'f' * 64, TREE)).encode())
+             % ('e' * 64, 'a' * 64, 'b' * 64, 'f' * 64, TREE)).encode())
 
     def test_the_env_digest_is_sha256_of_the_canonical_mapping(self):
         self.assertEqual(verdict.env_digest({}),
@@ -301,6 +304,94 @@ class KeyTest(unittest.TestCase):
         self.assertFalse(verdict.verify(data, signed['signature'], stranger))
 
 
+class PinningDriver(FakeDriver):
+    """A driver that resolves the base image and records the golden it launched."""
+
+    def __init__(self, image='f00d' * 16, built=(), **kw):
+        super().__init__(**kw)
+        self.image, self.built, self.lookups, self.launched = image, set(built), [], []
+
+    def image_fingerprint(self, alias):
+        self.lookups.append(alias)
+        return self.image
+
+    def exists(self, name):
+        return name in self.built
+
+    def prepare(self, toolchain, source=None, log=print):
+        name = 'golden-' + toolchain.fingerprint()
+        self.launched.append((name, dict(toolchain.pins)))
+        self.built.add(name)
+        return Golden(name=name, fingerprint=toolchain.fingerprint(), snapshot='warm')
+
+
+class PinnedVerdictTest(unittest.TestCase):
+    """The golden `prepare` launched is the golden the verdict names."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / 'engine'
+        self.worker = Path(self.tmp.name) / 'worker-root'
+        self.paths = runner.Paths(self.root).ensure()
+        self.source = self.root / 'src' / 'demo' / 'input-a'
+        self.source.mkdir(parents=True)
+        (self.source / 'uv.lock').write_text('locked\n')
+        (self.source / 'requirements-dev.txt').write_text('pytest\n')
+        self.ledger = Ledger(self.paths.ledger)
+        claim(self.ledger, source_path=str(self.source))
+        attempt = self.paths.attempt('r1')
+        attempt.mkdir(parents=True, exist_ok=True)
+        (attempt / 'toolchain.json').write_text(json.dumps(PLAN['worker']))
+        (attempt / 'request.json').write_text(json.dumps(
+            {'plan': dict(PLAN, git='synthetic'), 'git_marks': {'untracked': [], 'ignored': []}}))
+        self.ledger.update('r1', state='admitted', reservation_mib=2048, ceiling_mib=4096,
+                           cpus_hint=2)
+        # A ready, undrifted worker, so the run is signed.
+        (self.worker / 'worker').mkdir(parents=True)
+        (self.worker / 'worker' / 'state.json').write_text(json.dumps(
+            {'state': 'ready', 'kernel': KERNEL}))
+        versions_file(self.worker)
+        survey = mock.patch.object(facts, 'quick_survey', return_value=matching())
+        survey.start()
+        self.addCleanup(survey.stop)
+        self.env = mock.patch.dict(os.environ, {'PANDORA_WORKER_ROOT': str(self.worker),
+                                                'PANDORA_BUDGET_MIB': '8192'})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.ledger.close()
+        self.tmp.cleanup()
+
+    @unittest.skipUnless(HAVE_KEYGEN, 'ssh-keygen is not installed')
+    def test_the_launched_golden_is_the_signed_golden(self):
+        import hashlib
+        driver = PinningDriver()
+        result = runner.supervise(self.root, 'r1', driver=driver)
+        body = json.loads(result['verdict']['payload'])
+        [(launched, pins)] = driver.launched
+        self.assertEqual('golden-' + body['golden'], launched)
+        self.assertNotEqual(body['golden'], runner.toolchain_of(PLAN['worker']).fingerprint())
+        self.assertEqual(len(body['golden']), 16)
+        self.assertEqual(body['golden_pins'], {
+            'image': 'f00d' * 16,
+            'lockfiles': {'requirements-dev.txt': hashlib.sha256(b'pytest\n').hexdigest(),
+                          'uv.lock': hashlib.sha256(b'locked\n').hexdigest()}})
+        self.assertEqual(pins['base_image'], 'f00d' * 16)
+        # The resolved table is on disk, so every later reader names one golden.
+        on_disk = json.loads((self.paths.attempt('r1') / 'toolchain.json').read_text())
+        self.assertEqual(runner.golden_of(self.paths, 'r1'), body['golden'])
+        self.assertEqual(on_disk['pins']['base_image'], 'f00d' * 16)
+
+    def test_a_resolved_toolchain_is_not_resolved_again(self):
+        driver = PinningDriver()
+        runner.settle_toolchain(self.paths, 'r1', str(self.source), driver)
+        driver.image = 'beef' * 16
+        again = runner.settle_toolchain(self.paths, 'r1', str(self.source), driver)
+        self.assertEqual(again['pins']['base_image'], 'f00d' * 16)
+        self.assertEqual(driver.lookups, [PLAN['worker']['base_image']])
+
+
 class ResultFieldsTest(unittest.TestCase):
     """The three fields `write_result` adds, through a faked supervisor."""
 
@@ -358,6 +449,9 @@ class ResultFieldsTest(unittest.TestCase):
             'argv': PLAN['argv'], 'engine': verdict.engine_id(),
             'finished': result['finished'], 'golden': runner.toolchain_of(
                 PLAN['worker']).fingerprint(),
+            # No image lookup on this driver and no source tree: resolved to
+            # nothing, which names the recipe's own golden.
+            'golden_pins': {'image': None, 'lockfiles': {}},
             'input_id': 'input-a', 'job': 'suite', 'kind': 'pandora-verdict',
             'outcome': 'passed', 'repo': 'demo', 'run_id': 'r1', 'tree': TREE, 'v': 1,
             'cwd': '.', 'env_digest': verdict.env_digest({})})

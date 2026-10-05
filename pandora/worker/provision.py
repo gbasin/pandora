@@ -22,6 +22,15 @@ from .remote import Remote
 SCRIPT = None                      # filled by `script_text`, cached per process
 GATEWAY = None                     # the gateway source, cached per process
 
+# The `min_engine_version` provision writes when the manifest names none. It
+# trails `service.ENGINE_VERSION` on purpose: a worker serves several Macs, and
+# the floor rises only once every client runs a bundle at least that new. Engine
+# 6 (golden pinning, first shipped after v0.3.12) still admits engine 5 bundles,
+# whose runs use the unpinned recipe golden. v0.3.14, the release after the one
+# that ships engine 6, is the earliest that may raise this to 6, and only after
+# every enrolled Mac has upgraded (docs/worker.md, "Engine versions").
+MIN_ENGINE_FLOOR = 5
+
 MARK_BEGIN = '# >>> pandora users >>>'
 MARK_END = '# <<< pandora users <<<'
 
@@ -89,9 +98,11 @@ def preamble(manifest, *, root, engine_root, pool_file):
         'UNATTENDED': 'true' if worker['unattended_upgrades'] else 'false',
         'MANIFEST': versions.render(manifest),
         'MANIFEST_DIGEST': versions.digest(manifest),
-        # The floor is the provisioner's own engine version unless the manifest
-        # says otherwise: the machine's owner moves first, everyone follows.
-        'MIN_ENGINE': str(worker.get('min_engine_version') or _engine_version()),
+        # The floor is `MIN_ENGINE_FLOOR` unless the manifest says otherwise,
+        # never above the provisioner's own engine version: a coordinated
+        # upgrade raises it on purpose, not a provision as a side effect.
+        'MIN_ENGINE': str(worker.get('min_engine_version')
+                          or min(MIN_ENGINE_FLOOR, _engine_version())),
         'GATEWAY_B64': base64.b64encode(gateway_text()).decode(),
         'USERS_B64': base64.b64encode(('\n'.join(lines) + '\n' * bool(lines)).encode()).decode(),
         'FEEDS_B64': base64.b64encode(bundle.feed_manifest().encode()).decode(),

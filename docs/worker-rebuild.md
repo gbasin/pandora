@@ -49,6 +49,10 @@ Do not install Incus by hand. Step 2 installs it at the declared version.
    threads with two threads per core.
    `pandora worker status` prints the effective pin, where it came from, the
    host's topology and the resulting `PANDORA_CPUS`.
+11. Leave `min_engine_version` unset. `provision` then writes the floor 5,
+   which admits every client from v0.3.12 on. A higher floor refuses older
+   clients with `engine-version`, and they cannot fall back. Raise it only as
+   a coordinated upgrade: see "The engine floor" in `docs/worker.md`.
 
 ### Example
 
@@ -202,14 +206,30 @@ Run `pandora worker gc --dry-run` weekly. Read what it would remove. Run
 `pandora worker gc` when you agree with it. The sweep removes leaked run
 instances, leaked storage volumes and goldens past the keep count. The keep
 count applies per toolchain family, not per repository. The sweep never removes
-a golden a live attempt needs, a golden an enrolled `pandora.toml` names, a
-golden named by `--protect`, or a pinned golden. It writes a receipt under
+a golden a live attempt needs, the newest golden of a recipe an enrolled
+`pandora.toml` names, or a golden named by `--protect`. It writes a receipt under
 `<root>/worker/receipts/`.
 
 Run `pandora worker status` after any manual change to the worker. Drift
 between the manifest and the machine makes `status` report `drifted` rather
 than `ready`, whatever the last canary said, because that canary ran against a
 different machine.
+
+## Upgrading to pinned goldens
+
+Engine 6 names each golden by its base image and root lockfiles, and the image
+cache starts empty. Each enrolled repository's first routed run after the
+upgrade builds its golden cold.
+
+1. Run `pandora worker goldens` and `pandora worker status`. Confirm the pool
+   has room for one new golden per enrolled repository above
+   `disk_floor_gib`.
+2. Upgrade the Macs.
+3. Run one claimed command in each enrolled repository. Do this before agents
+   start work.
+
+The old recipe-only golden stays for engine 5 clients until `gc` removes it.
+See [Upgrading to pinned goldens](worker.md#upgrading-to-pinned-goldens).
 
 ## Upgrade cadence
 

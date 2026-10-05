@@ -26,6 +26,9 @@ MEMBERS = (
     '__init__.py',
     'errors.py',
     'exits.py',
+    # The `[worker]` schema the `golden` verb checks a request against.
+    'config/__init__.py',
+    'config/loader.py',
     'engine/__init__.py',
     'engine/admission.py',
     'engine/batches.py',
@@ -36,6 +39,7 @@ MEMBERS = (
     'engine/runner.py',
     'engine/fanout.py',
     'engine/history.py',
+    'engine/pinning.py',
     'engine/shards.py',
     'engine/service.py',
     'engine/turbocache.py',

@@ -2,7 +2,8 @@
 
 A passing remote run on a ready worker produces a verdict: a canonical JSON
 payload naming the tree the run saw, the job, its argv, environment and working
-directory, and the golden it ran on, signed with an Ed25519 key that only this engine root holds. The client
+directory, and the golden it ran on (its pinned fingerprint and what it was
+pinned to), signed with an Ed25519 key that only this engine root holds. The client
 publishes it as a git ref; a CI job for the same tree verifies the signature
 against an allowed-signers file and may skip the work.
 
@@ -131,10 +132,16 @@ def env_digest(env):
 
 
 def payload(*, argv, cwd, engine, env_digest, finished, golden, input_id, job, outcome,
-            repo, run_id, tree):
-    """The canonical payload bytes: sorted keys, no spaces, UTF-8, no newline."""
+            repo, run_id, tree, golden_pins=None):
+    """The canonical payload bytes: sorted keys, no spaces, UTF-8, no newline.
+
+    `golden` is the pinned fingerprint in `golden-<fingerprint>`; `golden_pins`
+    is what it was pinned to, `{image, lockfiles: {name: sha256}}`, or null for
+    a toolchain resolved before pinning existed (`pinning.golden_pins`).
+    """
     return canonical({'argv': list(argv), 'cwd': cwd, 'engine': engine,
                       'env_digest': env_digest, 'finished': finished, 'golden': golden,
+                      'golden_pins': golden_pins,
                       'input_id': input_id, 'job': job, 'kind': KIND, 'outcome': outcome,
                       'repo': repo, 'run_id': run_id, 'tree': tree, 'v': VERSION})
 
@@ -351,7 +358,7 @@ def skip_reason(*, outcome, role, ready, tree, drift=''):
 
 
 def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, drift=None,
-           note=None):
+           note=None, golden_pins=None):
     """The three result fields: `tree`, `verdict`, `verdict_skipped`.
 
     `row` is the attempt's ledger row as a dictionary. `ready` is the worker's
@@ -383,7 +390,8 @@ def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, dri
             raise SignFailed('golden fingerprint unknown')
         data = payload(argv=row['argv'], cwd=str(row.get('cwd') or ''), engine=engine_id(),
                        env_digest=env_digest(row.get('env')), finished=finished,
-                       golden=golden, input_id=row['input_id'], job=row['job'],
+                       golden=golden, golden_pins=golden_pins,
+                       input_id=row['input_id'], job=row['job'],
                        outcome=outcome, repo=row['repo'], run_id=row['run_id'], tree=tree)
         answer['verdict'] = sign(engine_root, data)
     except SignFailed as error:

@@ -16,8 +16,10 @@ fallback policy. What the slice drops, and why:
   `services` / network pod    a run is a machine with its own dockerd, so the
                               repository's compose stack boots unmodified and
                               there is nothing for Pandora to wire.
-  `pins`                      the golden's toolchain is pinned by `[worker]`,
-                              whose fingerprint is the golden's identity.
+  `pins`                      the worker pins the golden itself: it folds the
+                              base image's fingerprint and the source's root
+                              lockfile digests into the `[worker]` recipe
+                              (`engine.pinning`), so nothing here declares one.
 
 `shards` is in, in both tiers. Tier 1 is a shard index handed to the job and
 nothing else; tier 2 adds a `plan` command that emits a JSON inventory, the
@@ -643,6 +645,13 @@ def _worker(value, where):
         # claims an effect nothing reads, so it is refused rather than kept.
         'workdir': _workdir(value.get('workdir', '/work'), where + '.workdir'),
     }
+
+
+def worker_table(value, where='worker'):
+    """A `[worker]` table checked and normalized by the schema `pandora.toml`
+    is loaded with, for a caller that has the table without the file (the
+    engine's `golden` verb). Raises `ConfigError`."""
+    return _worker(_table(value, where), where)
 
 
 def _canary(value, where):

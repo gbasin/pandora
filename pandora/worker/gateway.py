@@ -48,7 +48,7 @@ import sys
 # engine's own spawn; it never legitimately arrives over SSH.
 USER_ENGINE = frozenset((
     'submit', 'resubmit', 'lookup', 'status', 'result', 'cancel', 'wait',
-    'logs', 'ps', 'stats', 'health', 'cache-stats', 'reconcile',
+    'logs', 'ps', 'stats', 'health', 'cache-stats', 'reconcile', 'golden',
 ))
 # `pandora.worker.service` verbs a teammate may call: the read-only survey.
 # `gc`, `canary` and `ready` change the worker and stay admin-only.

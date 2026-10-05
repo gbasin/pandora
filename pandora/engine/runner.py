@@ -34,7 +34,7 @@ from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, derived_cpus_per_run, gate, size_line
 from . import batches, shards as sharding
-from . import admission, history, retry, turbocache, verdict, writeback
+from . import admission, history, pinning, retry, turbocache, verdict, writeback
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
@@ -184,11 +184,13 @@ def supervise(root, run_id, *, driver=None):
         # The toolchain was written beside the attempt at submission time, so the
         # golden's identity is fixed by the request rather than by whatever the
         # engine happens to be configured with when the supervisor starts.
-        worker = json.loads((attempt / 'toolchain.json').read_text())
+        worker = settle_toolchain(paths, run_id, row['source_path'], driver, note)
         toolchain = toolchain_of(worker)
+        note('golden golden-%s: %s' % (toolchain.fingerprint(), pinning.describe(worker)))
         # `source` is used only on a cold build, to bake the toolchain's install
         # command and service images into the golden. A warm golden ignores it.
         golden = driver.prepare(toolchain, source=row['source_path'], log=note)
+        record_built_from(paths, run_id, worker, golden, note)
         mark('prepare')
         ledger.update(run_id, state='running')
         limits = pin_cpus(paths, ledger, run_id, driver, limits)
@@ -736,9 +738,10 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
     def note(text):
         with paths.log(run_id).open('a') as handle:
             handle.write('pandora: ' + text + '\n')
+    golden, golden_pins = golden_and_pins(paths, run_id)
     signed = verdict.decide(paths.root, row_to_dict(ledger.get(run_id)) or {},
                             outcome=outcome, tree=tree, finished=finished,
-                            golden=golden_of(paths, run_id), note=note)
+                            golden=golden, golden_pins=golden_pins, note=note)
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt,
                         finished=finished)
@@ -822,11 +825,60 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
 
 def golden_of(paths, run_id):
     """The fingerprint that names this attempt's golden (`golden-<fp>`), or None."""
+    return golden_and_pins(paths, run_id)[0]
+
+
+def golden_and_pins(paths, run_id):
+    """(fingerprint, golden_pins) of this attempt's toolchain, (None, None) when
+    it cannot be read. Both come from the one resolved `toolchain.json`, so the
+    verdict names the golden `prepare` launched."""
     try:
-        return toolchain_of(json.loads(
-            (paths.attempt(run_id) / 'toolchain.json').read_text())).fingerprint()
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+        spec = json.loads((paths.attempt(run_id) / 'toolchain.json').read_text())
+        return toolchain_of(spec).fingerprint(), pinning.golden_pins(spec)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None, None
+
+
+def settle_toolchain(paths, run_id, source, driver, note=lambda text: None):
+    """The attempt's toolchain with its pins resolved, written back to disk.
+
+    The client asks for a golden by recipe; this is where the worker names it
+    (`pinning`). Once per attempt: a `toolchain.json` that already has `pins`
+    -- a supervisor restarted, or a fan-out child that copied its parent's --
+    is returned as it is, so every reader of the file sees one name.
+    """
+    path = paths.attempt(run_id) / 'toolchain.json'
+    spec = json.loads(path.read_text())
+    if 'pins' in spec:
+        return spec
+    settled = pinning.settle(spec, paths.root, driver,
+                             lambda item: 'golden-' + toolchain_of(item).fingerprint(),
+                             source=source)
+    for line in settled.get('pin_notes') or ():
+        note('golden pin ' + line)
+    staged = path.with_name('.toolchain.json.tmp')
+    staged.write_text(json.dumps(settled))
+    os.replace(staged, path)
+    return settled
+
+
+def record_built_from(paths, run_id, spec, golden, note=lambda text: None):
+    """Write `built_from` into the attempt's `toolchain.json` when the golden
+    was not launched from its pinned image (the alias fallback in `prepare`),
+    so the verdict's `golden_pins` says what the machine really is. It never
+    changes the golden's name: `toolchain_of` does not read it."""
+    built_from = getattr(golden, 'built_from', '') or ''
+    pinned = (spec.get('pins') or {}).get('base_image')
+    if not built_from or built_from == pinned:
+        return spec
+    note('golden %s was built from image %s, not its pinned image %s'
+         % (golden.name, built_from[:12], (pinned or 'unresolved')[:12]))
+    path = paths.attempt(run_id) / 'toolchain.json'
+    updated = dict(spec, built_from=built_from)
+    staged = path.with_name('.toolchain.json.tmp')
+    staged.write_text(json.dumps(updated))
+    os.replace(staged, path)
+    return updated
 
 
 def write_json(path, payload):

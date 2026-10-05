@@ -86,6 +86,10 @@ def supervise_parent(root, run_id, *, driver=None):
     planned, plan_result, reports = None, None, {}
     outcome, layer, exit_code = 'infra_failed', 'engine', None
     try:
+        # Pinned once, here, before any child exists: each child copies this
+        # file, so a plan step and every shard name one golden.
+        runner.settle_toolchain(paths, run_id, plan['source_path'],
+                                driver or runner.IncusDriver(root=paths.root), note)
         want = control.get('want') or config['default']
         free = free_lanes(paths, ledger, plan)
         total, why = sharding.count(config, want=want, free_slots=free)

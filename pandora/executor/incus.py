@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import time
 
@@ -28,6 +29,11 @@ from .interface import (Executor, Golden, Instance, Limits, Receipt, Result, Usa
 
 NAME = re.compile('[a-z0-9][a-z0-9-]{0,50}[a-z0-9]')
 GUEST = '/pandora'
+# Seconds one base-image alias lookup may take (`image_fingerprint`).
+LOOKUP_TIMEOUT = 30
+# The instance config key a golden launched from its alias records its real
+# base image under (`prepare`).
+BUILT_FROM = 'user.pandora.built_from'
 # The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
 # `file` is what says whether the run's own processes filled the cgroup or its
 # file pages did (`file` includes `shmem`, which cannot be reclaimed without
@@ -121,6 +127,30 @@ class IncusDriver(Executor):
             argv += ['--cwd', cwd]
         return run(argv + ['--', 'bash', '-lc', script], timeout=timeout, check=check)
 
+    def image_fingerprint(self, alias, timeout=LOOKUP_TIMEOUT):
+        """The fingerprint of the image `alias` points at today, from the image
+        server for a remote alias. Parsed from the plain listing: `image info`
+        on Incus 6.0.5 has no `--format json`. `sudo -n`, so a lookup never
+        waits on a password prompt; no incus at all fails at once."""
+        if not shutil.which('incus'):
+            raise ExecutionFailed('incus is not installed here')
+        base = list(self.base)
+        if base and base[0] == 'sudo':
+            base.insert(1, '-n')
+        rc, out, err = run(base + ['image', 'info', alias], check=False, timeout=timeout)
+        if rc != 0:
+            raise ExecutionFailed('incus image info %s: %s' % (alias, err.strip()[:200]))
+        for line in out.splitlines():
+            key, _, value = line.partition(':')
+            if key.strip().lower() == 'fingerprint' and value.strip():
+                return value.strip()
+        raise ExecutionFailed('incus image info %s printed no Fingerprint line' % alias)
+
+    def warm(self, name):
+        """True when `name` has the `warm` snapshot clones are taken from."""
+        rc, out, _ = self.incus('snapshot', 'list', name, '--format', 'csv', check=False)
+        return rc == 0 and any(line.split(',')[0] == 'warm' for line in out.splitlines())
+
     def exists(self, name):
         rc, _, _ = self.incus('info', name, check=False)
         return rc == 0
@@ -170,6 +200,11 @@ class IncusDriver(Executor):
                     return item.get('address') or ''
         return ''
 
+    def config_value(self, name, key):
+        """One instance config value, or '' when it is unset or unreadable."""
+        rc, out, _ = self.incus('config', 'get', name, key, check=False)
+        return out.strip() if rc == 0 else ''
+
     def veth(self, name):
         rc, out, _ = self.incus('config', 'get', name, 'volatile.eth0.host_name', check=False)
         return out.strip() if rc == 0 else ''
@@ -190,10 +225,10 @@ class IncusDriver(Executor):
         if not NAME.fullmatch(name):
             raise PrepareFailed('golden name %r is not an instance name' % name)
         if self.exists(name):
-            rc, out, _ = self.incus('snapshot', 'list', name, '--format', 'csv', check=False)
-            if rc == 0 and any(line.split(',')[0] == 'warm' for line in out.splitlines()):
+            if self.warm(name):
                 return Golden(name=name, fingerprint=toolchain.fingerprint(),
-                              snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name))
+                              snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name),
+                              built_from=self.config_value(name, BUILT_FROM))
             self.incus('delete', '-f', name, check=False)
 
         marks, t0 = {}, time.monotonic()
@@ -203,10 +238,31 @@ class IncusDriver(Executor):
         # machine even though the description that built them is identical.
         pins = dict(toolchain.pins)
         base = toolchain.base_image
+        built_from = ''
         if pins.get('base_image'):
-            remote = base.split(':', 1)[0] if ':' in base else 'images'
-            base = '%s:%s' % (remote, pins['base_image'])
-        self.incus('launch', base, name, '-p', self.profile, timeout=900)
+            # `images:ubuntu/26.04` launches as `images:<fingerprint>`; a local
+            # alias launches as the bare fingerprint of the local image.
+            remote = base.split(':', 1)[0] + ':' if ':' in base else ''
+            pinned = remote + pins['base_image']
+            rc, _, err = self.incus('launch', pinned, name, '-p', self.profile,
+                                    timeout=900, check=False)
+            if rc != 0:
+                # The image server drops old images, and a cached pin can be up
+                # to a week old. Building from the alias beats failing every
+                # cold build of this name until the cache expires; the name
+                # then claims an image it was not built from, so say so.
+                log('golden %s: the pinned image %s did not launch (%s); launching the '
+                    'alias %s instead, so this golden is not built from its pinned image'
+                    % (name, pinned, err.strip()[:200] or 'exit %d' % rc, base))
+                self.incus('delete', '-f', name, check=False)
+                self.incus('launch', base, name, '-p', self.profile, timeout=900)
+                # Recorded on the instance, so a run that reuses this golden
+                # later can say what it was really built from (the verdict's
+                # `golden_pins.built_from`).
+                built_from = self.config_value(name, 'volatile.base_image') or 'unknown'
+                self.incus('config', 'set', name, BUILT_FROM, built_from, check=False)
+        else:
+            self.incus('launch', base, name, '-p', self.profile, timeout=900)
         self.wait_ready(name)
         marks['launch'] = time.monotonic() - t0
 
@@ -260,7 +316,8 @@ class IncusDriver(Executor):
         total = time.monotonic() - t0
         log('golden %s built in %.1fs %s' % (name, total, json.dumps({k: round(v, 2) for k, v in marks.items()})))
         return Golden(name=name, fingerprint=toolchain.fingerprint(), snapshot='warm',
-                      built_seconds=total, disk_bytes=self.volume_bytes(name))
+                      built_seconds=total, disk_bytes=self.volume_bytes(name),
+                      built_from=built_from)
 
     def qgroup(self, name):
         """(referenced, exclusive) bytes of an instance's btrfs subvolume.

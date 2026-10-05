@@ -1,16 +1,17 @@
-"""Turn a toolchain *description* into the inputs it actually resolves to.
+"""`pandora worker pins`: what a toolchain resolves to on this worker.
 
-POC blocker 8: `images:ubuntu/26.04` and `apt-get install` make two goldens
-with the same fingerprint different machines, because the fingerprint covered
-the description and was silent about the result. A pin is the result:
+The golden's name is pinned on the routed path (`engine.pinning`): the base
+image's Incus fingerprint and the sha256 of every root lockfile are folded
+into `Toolchain.pins` when the supervisor first reads an attempt. This module
+is the diagnostic over the same code, so `pins` prints the name a routed run
+from the same recipe and the same source would use, through the same image
+cache.
 
-    base_image          the image server's fingerprint for that alias, today
-    lockfile:<name>     sha256 of the lockfile the install will read
-    service:<image>     the registry manifest digest for that tag, today
-
-Resolved before the golden is built, folded into `Toolchain.pins`, and
-therefore into the golden's name. Changing any of them mints a new golden
-rather than quietly reusing one built from different bytes.
+It also reports what the routed path does *not* fold in: the registry
+manifest digest each `service_images` tag resolves to today. Those images are
+pulled inside the instance after launch and rarely matter to a static check,
+so they stay out of the fingerprint; the digests are here so a person can see
+when one moved.
 
 Everything here is stdlib. The registry lookup is an anonymous pull-scope
 token and one HEAD-shaped GET, which is all a manifest digest needs; there is
@@ -19,59 +20,19 @@ available and would have been a second image store if it were.
 """
 import hashlib
 import json
-import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
-LOCKFILES = ('pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'Cargo.lock',
-             'poetry.lock', 'uv.lock', 'go.sum')
+from ..engine import pinning
+from ..engine.pinning import LOCKFILES, PinFailed, lockfiles  # noqa: F401 - the diagnostic's vocabulary
+
 MANIFEST_TYPES = ', '.join((
     'application/vnd.oci.image.index.v1+json',
     'application/vnd.oci.image.manifest.v1+json',
     'application/vnd.docker.distribution.manifest.list.v2+json',
     'application/vnd.docker.distribution.manifest.v2+json',
 ))
-
-
-class PinFailed(RuntimeError):
-    """A pin could not be resolved, so the golden must not claim it has one."""
-
-
-def base_image_pin(alias, timeout=120):
-    """The image server's fingerprint for an alias, via the incus client.
-
-    Parsed from the plain listing rather than `--format json`: `image info`
-    on Incus 6.0.5 has no such flag, and a pin that only resolves on some
-    Incus versions is a pin that silently stops pinning after an upgrade.
-    """
-    proc = subprocess.run(['incus', 'image', 'info', alias],
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
-    if proc.returncode != 0:
-        raise PinFailed('incus image info %s: %s'
-                        % (alias, (proc.stderr or b'').decode()[:200].strip()))
-    for line in (proc.stdout or b'').decode('utf-8', 'replace').splitlines():
-        key, _, value = line.partition(':')
-        if key.strip().lower() == 'fingerprint' and value.strip():
-            return value.strip()
-    raise PinFailed('incus image info %s printed no Fingerprint line' % alias)
-
-
-def lockfile_pins(source):
-    """sha256 of every lockfile in the tree's root, by name.
-
-    Root only, deliberately: a workspace has one lockfile that governs the
-    install, and walking the tree would hash a fixture's lockfile and mint a
-    golden for a change that installs nothing.
-    """
-    found = {}
-    root = Path(source)
-    for name in LOCKFILES:
-        path = root / name
-        if path.is_file():
-            found['lockfile:' + name] = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
-    return found
 
 
 def split_image(image):
@@ -142,25 +103,38 @@ def bearer(challenge, timeout=30):
     return token
 
 
-def resolve(spec, source=None, *, strict=True):
-    """`{key: value}` pins for a toolchain dictionary.
+def resolve(spec, root, driver, *, source=None):
+    """The diagnostic answer for one recipe: the routed name and its inputs.
 
-    `strict` is the honest default: a pin that could not be resolved is an
-    error, because a golden that silently drops one is a golden whose name
-    claims more than it knows.
+    `root` is the engine root, whose image cache the routed path reads; the
+    same `settle` call a supervisor makes, so the two cannot disagree. Read
+    only: a diagnostic never writes that cache, so asking cannot move an
+    alias under the routed runs.
     """
-    pins, problems = {}, []
-    try:
-        pins['base_image'] = base_image_pin(spec['base_image'])
-    except PinFailed as error:
-        problems.append(str(error))
-    if source and Path(source).is_dir():
-        pins.update(lockfile_pins(source))
+    from ..engine.runner import toolchain_of
+    recipe = {key: value for key, value in spec.items()
+              if key not in ('pins', 'pin_notes')}
+    settled = pinning.settle(recipe, root, driver,
+                             lambda item: 'golden-' + toolchain_of(item).fingerprint(),
+                             source=source, write=False)
+    problems = [line for line in settled['pin_notes']
+                if ': unresolved' in line or ': stale' in line or ' refused: ' in line]
+    services, failed = {}, []
     for image in spec.get('service_images') or ():
         try:
-            pins['service:' + image] = registry_digest(image)
-        except PinFailed as error:
-            problems.append(str(error))
-    if problems and strict:
-        raise PinFailed('; '.join(problems))
-    return pins, problems
+            services[image] = registry_digest(image)
+        except (PinFailed, OSError) as error:
+            failed.append(str(error))
+    fingerprint = toolchain_of(settled).fingerprint()
+    return {'ok': not problems and not failed,
+            'golden': 'golden-' + fingerprint,
+            'fingerprint': fingerprint,
+            'fingerprint_recipe': toolchain_of(recipe).fingerprint(),
+            'pins': settled['pins'],
+            'golden_pins': pinning.golden_pins(settled),
+            'notes': settled['pin_notes'],
+            'source': source,
+            # Reported, never folded in: see the module docstring.
+            'service_digests': services,
+            'problems': problems + failed,
+            'toolchain': recipe}
