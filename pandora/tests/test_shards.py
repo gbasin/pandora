@@ -749,6 +749,51 @@ class QueueFanoutTest(FanoutHarness):
                           for item in result['evidence'].get('degraded_shards', [])],
                          ['infra_failed'])
 
+    def test_a_last_batch_holder_finishing_during_poll_gets_a_successor(self):
+        # One shard loses the final batch. Finish it just after settle checked
+        # its state, so poll sees the completed row in that same dispatch pass.
+        self.arrange_queue(scripts={4: ['lost', 'ok']})
+        original = batches.Queue.release_dead
+        execute = self.driver.execute
+        allow_death = threading.Event()
+        deferred = []
+
+        def delayed_death(*args, **kwargs):
+            result = execute(*args, **kwargs)
+            if result.outcome == 'lost':
+                self.assertTrue(allow_death.wait(timeout=5))
+            return result
+
+        def release_dead(queue, finished, *, cap):
+            def observed(holder):
+                done = finished(holder)
+                if not deferred and 4 in self.driver.executions.get(holder, []):
+                    self.assertFalse(done)
+                    allow_death.set()
+                    thread = next(thread for rid, thread in self.spawned if rid == holder)
+                    thread.join(timeout=5)
+                    self.assertFalse(thread.is_alive())
+                    deferred.append(holder)
+                    return False
+                return done
+            return original(queue, observed, cap=cap)
+
+        self.driver.execute = delayed_death
+        batches.Queue.release_dead = release_dead
+        try:
+            result = self.parent(want=1)
+        finally:
+            allow_death.set()
+            self.driver.execute = execute
+            batches.Queue.release_dead = original
+        self.assertEqual(len(deferred), 1)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertTrue(result['verification']['verified'])
+        seen = [seq for seqs in self.driver.executions.values() for seq in seqs]
+        self.assertEqual(seen.count(4), 2)
+        self.assertEqual(result['evidence']['queue']['pending'], [])
+        self.assertEqual(result['evidence']['queue']['leased'], [])
+
     def test_a_poison_batch_exhausts_the_cap_and_is_named(self):
         self.arrange_queue(scripts={2: ['lost', 'lost']})
         result = self.parent(want=2)
