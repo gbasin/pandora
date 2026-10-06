@@ -39,7 +39,7 @@ FANOUT (for orchestrators; plain commands never need it)
 
 MACHINE
   pandora cache stats | cache clear [--repo R]    worker turbo-cache usage and cleanup
-  pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
+  pandora doctor [--from-run <id>] [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
   pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update] [--queue] [--expect-signed]
 """
 import argparse
@@ -876,7 +876,13 @@ def cmd_doctor(args):
     if args.package_home:
         print(doctor.PACKAGE_HOME)
         return 0
-    report = doctor.run(state=args.state, config=args.config)
+    if args.from_run:
+        state = args.state or os.environ.get('PANDORA_STATE')
+        if not state:
+            state, _config = state_of(args)
+        report = doctor.from_run(state, args.from_run)
+    else:
+        report = doctor.run(state=args.state, config=args.config)
     if args.json:
         print(json.dumps(report, indent=1, sort_keys=True))
     else:
@@ -1077,6 +1083,8 @@ def main(argv=None):
 
     doctor = sub.add_parser('doctor', help='check this shell and worktree; changes nothing')
     doctor.add_argument('--json', action='store_true')
+    doctor.add_argument('--from-run', metavar='ID',
+                        help='diagnose saved run evidence offline; no live probes or replay')
     # What `doctor` asks of the `pandora` found on PATH, run from `/`: which
     # package did you import? Not for people.
     doctor.add_argument('--package-home', action='store_true', help=argparse.SUPPRESS)

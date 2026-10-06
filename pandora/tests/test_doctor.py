@@ -402,7 +402,7 @@ class Cli(Scratch):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
             cli.main(['--help'])
-        self.assertIn('pandora doctor [--json]', out.getvalue())
+        self.assertIn('pandora doctor [--from-run <id>] [--json]', out.getvalue())
         out = io.StringIO()
         here = os.getcwd()
         os.chdir(self.root)

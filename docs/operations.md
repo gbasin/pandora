@@ -281,7 +281,7 @@ The doctor changes nothing. It asks the daemon only `ping`. It exits 1 on any
 `fail`. A correct install prints this (paths shortened):
 
 ```
-warn  pnpm on PATH       shim ~/.local/bin/pnpm, real pnpm /opt/homebrew/bin/pnpm (-> .../corepack/dist/pnpm.js); the real pnpm is a corepack shim, which chooses a pnpm per directory, so a local run and a worker run can use different versions
+warn  pnpm on PATH       shim ~/.local/bin/pnpm, real pnpm /opt/homebrew/bin/pnpm (-> .../corepack/dist/pnpm.js); the real pnpm is a corepack shim, which chooses a pnpm per directory, so a local run and a worker run can use different versions; this detects the manager, not a verified version mismatch
 ok    recursion guard    PANDORA_ROUTE_DEPTH is not set
 ok    pandora on PATH    ~/.local/bin/pandora imports ~/.local/share/pandora/versions/f91ef4e7a1c2 from any directory
 ok    install            current is f91ef4e7a1c2, from ~/Code/pandora; `pandora` and the shim run through it
@@ -330,6 +330,41 @@ The version lines warn in these cases:
 
 A checkout that has moved on since the last upgrade is not a warning. The
 `install` line notes its commit.
+
+To diagnose a recorded run without probing today's environment, use its client
+run ID from `pandora ps`:
+
+```sh
+pandora doctor --from-run <id>
+pandora doctor --from-run <id> --json
+```
+
+This mode reads the saved `meta.json`, `result.json`, and a bounded log tail.
+It works when the daemon is stopped or the original worktree is gone. Use
+`--state <directory>` before `doctor` to select another client state directory.
+An explicit state directory also works when the current client config is invalid.
+No live checks, retry, or replay run.
+
+The report identifies the job, repository, lane, remote run, recorded phase,
+failure class, hint, cause retry policy, and implicated checks. A phase inferred
+from a known cause or preparation evidence is labeled. The original terminal
+marker is retained as `last_reported_phase`; `finished` alone does not identify
+the phase that failed. A missing phase or worker host stays unknown.
+For example, `prepare-command-failed` points at the job's `prepare_command`
+and transferred source. It does not blame the current shell's PATH.
+
+JSON adds a `run` object. Its `class` is the named cause, or the outcome when no
+cause was recorded. `hint`, `cause`, `phase`, `phase_source`, `retryable`, and
+`retry_reason` expose the diagnosis. `retryable` describes the cause table only;
+output already seen, prior attempts, placement, and cancellation still govern
+whether a retry is allowed. Saved capture timings appear as `pre_accept` and
+`freeze_steps`. A missing result is reported as metadata-only evidence.
+Exit 1 means a saved failure or unreadable record. Exit 0 means no saved failure
+was identified, including a run that has not finished.
+
+The Corepack warning detects a version manager. It does not establish a local
+and worker version mismatch. Compare versions in the recorded repository before
+changing the manager or its version pins.
 
 `pandora doctor` is read-only. The deeper proof is one real submission:
 
