@@ -121,7 +121,8 @@ def check_pnpm(env):
     if manager:
         return check('pnpm on PATH', WARN,
                      '%s; the real pnpm is a %s shim, which chooses a pnpm per directory, '
-                     'so a local run and a worker run can use different versions'
+                     'so a local run and a worker run can use different versions; '
+                     'this detects the manager, not a verified version mismatch'
                      % (summary, manager), manager=manager, **facts)
     return check('pnpm on PATH', OK, summary, **facts)
 
@@ -781,10 +782,20 @@ def run(*, state=None, config=None, env=None, cwd=None, runner=subprocess.run,
             'package': PACKAGE_HOME, 'checks': checks}
 
 
+def from_run(state, run_id):
+    """Diagnose saved evidence without probing the current environment."""
+    from . import diagnosis
+    return diagnosis.from_run(state, run_id)
+
+
 def render(report):
     lines = ['%-4s  %-18s %s' % (item['status'], item['name'], item['detail'])
              for item in report['checks']]
     failed = sum(item['status'] == FAIL for item in report['checks'])
     lines.append('')
-    lines.append('%d check(s) failed' % failed if failed else 'all checks passed')
+    if report.get('mode') == 'recorded':
+        lines.append('saved evidence only; no live checks were run')
+    passed = ('no failure identified in saved evidence' if report.get('mode') == 'recorded'
+              else 'all checks passed')
+    lines.append('%d check(s) failed' % failed if failed else passed)
     return '\n'.join(lines)

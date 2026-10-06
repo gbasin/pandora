@@ -30,7 +30,7 @@ def log_tail(path, limit=LOG_TAIL_BYTES):
         size = Path(path).stat().st_size
         with Path(path).open('rb') as handle:
             handle.seek(max(0, size - limit * 2))
-            raw = handle.read()
+            raw = handle.read(limit * 2)
     except OSError:
         return ''
     out = []
@@ -41,8 +41,13 @@ def log_tail(path, limit=LOG_TAIL_BYTES):
             frame = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(frame, dict):
+            continue
         if frame.get('t') == 'log':
-            out.append(base64.b64decode(frame['b64']).decode('utf-8', 'replace'))
+            try:
+                out.append(base64.b64decode(frame['b64'], validate=True).decode('utf-8', 'replace'))
+            except (KeyError, ValueError, TypeError):
+                continue
         elif frame.get('t') == 'err':
             out.append(str(frame.get('msg') or ''))
     return ''.join(out)[-limit:]
