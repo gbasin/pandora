@@ -597,6 +597,7 @@ def uninstall(label, *, state, uid=None, home=None, run=subprocess.run, say=prin
     target = plist_path(label, home)
     before = status(label, uid=uid, run=run)
     if before['loaded']:
+        say('uninstall does not drain active runs; check `pandora ps` before stopping the daemon')
         # Never `unload -w`: it disables the label, and a later bootstrap of a
         # disabled label fails until `launchctl enable`.
         launchctl(['bootout', '%s/%s' % (domain(uid), label)], run=run)
