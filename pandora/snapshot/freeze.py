@@ -516,7 +516,7 @@ def input_id(manifest):
 
 
 def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None,
-           missing=None):
+           missing=None, timings=None):
     """Return (manifest, excluded_names, input_id) for a worktree.
 
     Nothing is copied. The manifest is read twice and the second read must agree
@@ -541,8 +541,20 @@ def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None,
     the worktree does not hold. Those files are simply absent from the
     manifest -- nothing counts them unless a caller asks. The local lane and
     write-back read reality as it stands and must not be refused by a gate on
-    it; the remote submit path enforces the bound.
+    it; the remote submit path enforces the bound. `timings`, a dict when given,
+    receives seconds for each pass's worktree scan, name listing, git status,
+    index validation, and entry reads, plus cache saving and identity hashing.
+    A failing phase is recorded too. Timings do not affect the manifest.
     """
+    def measured(name, operation, *args, **kwargs):
+        if timings is None:
+            return operation(*args, **kwargs)
+        started = time.monotonic()
+        try:
+            return operation(*args, **kwargs)
+        finally:
+            timings[name] = round(time.monotonic() - started, 6)
+
     repo = Path(repo).resolve()
     if (repo / '.jj').is_dir() and not (repo / '.git').exists():
         # A native Jujutsu workspace keeps its object store under `.jj` and has
@@ -551,39 +563,44 @@ def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None,
         raise SnapshotError('%s is a native Jujutsu workspace, which has no git '
                             'index to freeze; colocate it (`jj git init '
                             '--colocate`) or run the command directly' % repo)
-    known = Identity(digests_for(cache, repo) if cache is not None else None,
-                     Blobs(Path(cache) / Blobs.NAME) if cache is not None else None)
+    known = measured('cache_setup', lambda: Identity(
+        digests_for(cache, repo) if cache is not None else None,
+        Blobs(Path(cache) / Blobs.NAME) if cache is not None else None))
 
-    def read():
-        nested = nested_worktree_prefixes(repo)
-        first = names(repo, nested)
-        marks = git_status(repo)
-        known.vouched = index_blobs(repo) if index else {}
+    def read(label):
+        nested = measured(label + '.nested_worktrees', nested_worktree_prefixes, repo)
+        first = measured(label + '.names', names, repo, nested)
+        marks = measured(label + '.git_status', git_status, repo)
+        known.vouched = measured(label + '.index_blobs', index_blobs, repo) if index else {}
         selected = [name for name in first
                     if not excluded(name, exclude_globs, marks.get(name) != 'untracked')]
-        manifest = []
-        absent = []
-        for name in selected:
-            record = entry(repo, name, known)
-            if record is None:
-                absent.append(name)
-                continue
-            if name in marks:
-                record['git'] = marks[name]
-            manifest.append(record)
+
+        def entries():
+            manifest, absent = [], []
+            for name in selected:
+                record = entry(repo, name, known)
+                if record is None:
+                    absent.append(name)
+                    continue
+                if name in marks:
+                    record['git'] = marks[name]
+                manifest.append(record)
+            return manifest, absent
+
+        manifest, absent = measured(label + '.entries', entries)
         return nested, first, manifest, absent, marks
 
-    nested, first, manifest, absent, marks = read()
-    if read()[:4] != (nested, first, manifest, absent):
+    nested, first, manifest, absent, marks = read('pass1')
+    if read('pass2')[:4] != (nested, first, manifest, absent):
         raise SnapshotError('the worktree changed while it was being frozen; retry')
     if missing is not None:
         missing.extend(absent)
     dropped = [name for name in first
                if excluded(name, exclude_globs, marks.get(name) != 'untracked')]
-    known.save()
+    measured('cache_save', known.save)
     if counts is not None:
         counts.update(known.counts)
-    return manifest, dropped + nested, input_id(manifest)
+    return manifest, dropped + nested, measured('input_id', input_id, manifest)
 
 
 def git_marks(manifest):

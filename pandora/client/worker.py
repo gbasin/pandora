@@ -52,7 +52,7 @@ class Submission:
 
     def __init__(self, run_id, *, admission=None, duplicate=False, same_tree_as=None,
                  input_id='', durations=None, source=None, shipped=(), writeback=None,
-                 state='admitted', queued=None):
+                 state='admitted', queued=None, freeze_steps=None):
         self.run_id = run_id
         # `queued` when the worker was full: the engine holds the row in its
         # queue (`engine.waitlist`) and nothing has been admitted, so this is
@@ -68,6 +68,7 @@ class Submission:
         self.same_tree_as = same_tree_as
         self.input_id = input_id
         self.durations = durations or {}
+        self.freeze_steps = freeze_steps or {}
         self.source = source or {}
         # The frozen manifest's paths. Kept for the gitignored-path hint, which
         # needs to know what was *not* shipped; ~5,000 strings, held per run.
@@ -139,7 +140,7 @@ class Worker:
         `log` gets the transfer's start, end or failure as one line each, for
         the daemon's log; `transfer_stderr` is where rsync's stderr is kept.
         """
-        marks = {}
+        marks, freeze_steps = {}, {}
         step = {'name': None, 'at': time.monotonic()}
 
         def enter(name):
@@ -157,7 +158,7 @@ class Worker:
             manifest, dropped, input_id = snapshot.freeze(
                 worktree, exclude_globs=plan['secrets_exclude_globs'],
                 cache=getattr(self, 'state', None) and self.state / 'digests',
-                missing=missing)
+                missing=missing, timings=freeze_steps)
             leave()
             if len(missing) > 50 or len(missing) > len(manifest):
                 raise SnapshotError(
@@ -226,6 +227,7 @@ class Worker:
                 marks[step['name']] = round(time.monotonic() - step['at'], 2)
             try:
                 error.pre_accept = dict(marks)
+                error.freeze_steps = dict(freeze_steps)
             except AttributeError:
                 pass
             raise
@@ -233,6 +235,7 @@ class Worker:
             error = EngineError(json.dumps({'code': answer.get('code', 'rejected'),
                                             'detail': answer.get('admission')}))
             error.pre_accept = dict(marks)
+            error.freeze_steps = dict(freeze_steps)
             raise error
         return Submission(answer['run_id'], admission=answer.get('admission'),
                           duplicate=answer.get('duplicate', False),
@@ -240,6 +243,7 @@ class Worker:
                           state=answer.get('state') or 'admitted',
                           queued=answer.get('queued'),
                           input_id=input_id, durations=marks, source=source,
+                          freeze_steps=freeze_steps,
                           shipped=(record['path'] for record in manifest),
                           writeback=(writebacks.context(manifest, plan, worktree=worktree,
                                                         input_id=input_id)

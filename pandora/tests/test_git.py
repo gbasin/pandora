@@ -63,6 +63,8 @@ class SubmitTest(unittest.TestCase):
                                    phase=steps.append)
         self.assertEqual(steps, ['freeze', 'ship'])
         self.assertEqual(set(caught.exception.pre_accept), {'freeze', 'ship'})
+        self.assertIn('pass1.entries', caught.exception.freeze_steps)
+        self.assertIn('pass2.entries', caught.exception.freeze_steps)
 
     def test_the_transfer_is_logged_from_start_to_its_end(self):
         from pandora.errors import TransferError

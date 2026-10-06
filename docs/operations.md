@@ -686,7 +686,18 @@ line. The record lands beside `result.json` as `verdict-publish.json`
 
 ## Enrollment and claim caches
 
+### Source-capture timings
+
+Source-capture diagnostics are recorded as `freeze_steps` in a run's `meta.json`,
+separately from the overall `pre_accept.freeze` duration. `pass1` and `pass2`
+record `nested_worktrees`, `names`, `git_status`, `index_blobs`, and `entries`
+in seconds. `cache_setup`, `cache_save`, and `input_id` cover the remaining
+measured phases. A failed phase keeps its elapsed time. Compare these values
+with the overall freeze time before attributing a long capture to git scanning,
+file reads, or whole-machine contention. No phase timing changes the snapshot.
+
 ### Claim caches
+
 
 Each worktree has its own claim cache, `pandora-claims`, in the worktree's own
 Git directory (`git rev-parse --git-dir`): `<common>/worktrees/<name>/` for a
