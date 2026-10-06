@@ -333,7 +333,9 @@ def publish(worktree, into, changes, *, expected):
             if recovery is None:
                 recovery = Path(tempfile.mkdtemp(prefix='writeback-local-',
                                                  dir=Path(into).parent))
-            backup = recovery / path
+            # Declared paths may themselves be journal.json or journal.tmp.
+            # Keep preserved files separate from recovery bookkeeping.
+            backup = recovery / 'files' / path
             backup.parent.mkdir(parents=True, exist_ok=True)
             # EXDEV fails before any target changes: copying an inode would
             # lose later writes through an editor's already-open descriptor.
@@ -350,7 +352,7 @@ def publish(worktree, into, changes, *, expected):
             exchange(backup, target)
             backups[path] = str(backup)
             written.append(path)
-            if local_state(recovery, path) not in (expected.get(path), changes[path]):
+            if local_state(recovery / 'files', path) not in (expected.get(path), changes[path]):
                 return answer(drifted=[path])
         return answer()
     except OSError as error:
@@ -409,9 +411,10 @@ def resolve(run_dir, result, *, keep_local):
         # What landed is recorded, but the state stays `conflicted`: the files
         # that did not land still have the local versions, so a retry writes
         # only those (the landed ones compare equal to the proposal now).
-        return 70, ['the publication stopped after %s: %s'
+        return 70, (['the publication stopped after %s: %s'
                     % (', '.join(written) or 'no file', published['error']),
                     'the run is still conflicted; `%s` can be retried' % record['resolve']]
+                    + recovery_lines(record))
     record.update(state='resolved', resolution='take-worker',
                   resolved_at=time.time())
     return 0, ['wrote the worker\'s version of %s' % (', '.join(written) or 'nothing'),

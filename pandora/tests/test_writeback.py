@@ -541,6 +541,23 @@ class Publication(Worktree):
         self.assertEqual(Path(entry['backups'][path]).read_text(), 'old\n')
         self.assertEqual(self.read(path), 'worker\n')
 
+    def test_proposed_paths_do_not_collide_with_recovery_journal_names(self):
+        for path in ('journal.json', 'journal.tmp', 'journal.json/nested.txt'):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                worktree = tree(root / 'worktree', {path: 'local\n'})
+                proposed = tree(root / 'run' / 'proposed', {path: 'worker\n'})
+                record = publication.publish(worktree, proposed, {path: sha('worker\n')},
+                                             expected={path: sha('local\n')})
+                self.assertIsNone(record['error'])
+                self.assertEqual(record['written'], [path])
+                self.assertEqual((worktree / path).read_text(), 'worker\n')
+                backup = Path(record['backups'][path])
+                self.assertEqual(backup.read_text(), 'local\n')
+                journal = next((root / 'run').glob('writeback-local-*/journal.json'))
+                self.assertEqual(json.loads(journal.read_text())['backups'][path],
+                                 str(backup))
+
     def test_an_unsupported_exchange_never_falls_back_to_overwrite(self):
         path = 'fixtures/S0-01.ledger.jsonl'
         with mock.patch.object(publication, 'exchange', side_effect=OSError('unsupported')):
@@ -608,6 +625,7 @@ class Resolve(Worktree):
         self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'new\n')
         self.assertEqual(self.read(ROUTES), '{"mine": 1}\n')
         self.assertIn('retried', ' '.join(lines))
+        self.assertIn(record['backups']['fixtures/S0-01.ledger.jsonl'], ' '.join(lines))
         # The retry skips the landed file and takes the worker's routes.json;
         # the record accumulates what the proposal has put down, in total.
         code, _ = publication.resolve(self.run_dir, result, keep_local=False)
