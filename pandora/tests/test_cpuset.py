@@ -262,6 +262,21 @@ class SupervisedPinTest(unittest.TestCase):
                          {'cpus': '0-3,16-19', 'threads': 8, 'cores': 4})
         self.assertEqual(self.ledger.get('r1')['cpus_hint'], 4)
 
+    def test_a_run_moved_during_execution_reports_its_final_pin(self):
+        driver = TopologyDriver(cpuset.cores_of(smt_host(16)))
+        original = driver.execute
+
+        def execute(*args, **kwargs):
+            self.ledger.update('r1', cpuset='4-7,20-23')
+            return original(*args, **kwargs)
+
+        driver.execute = execute
+        result = runner.supervise(self.root, 'r1', driver=driver)
+        self.assertEqual(result['evidence']['cpuset'],
+                         {'cpus': '4-7,20-23', 'threads': 8, 'cores': 4})
+        self.assertEqual(json.loads(self.paths.result('r1').read_text())['evidence']['cpuset'],
+                         result['evidence']['cpuset'])
+
     def test_a_second_live_run_gets_other_cores(self):
         self.ledger.update('r1', state='running', cpuset='0-3,16-19')
         driver = TopologyDriver(cpuset.cores_of(smt_host(16)))
@@ -278,6 +293,7 @@ class SupervisedPinTest(unittest.TestCase):
     def test_a_run_that_ends_spreads_the_runs_left_sharing_its_neighbors_cores(self):
         # r2 and r3 are live and share cores 0-3; r1 ends on cores 4-7.
         claim(self.ledger, request_id='req-13', run_id='r3x')
+        self.paths.attempt('r3x').mkdir(parents=True, exist_ok=True)
         self.ledger.update('r2', state='running', cpuset='0-3,16-19', instance='run-r2',
                            admitted_at=1.0)
         self.ledger.update('r3x', state='running', cpuset='0-3,16-19', instance='run-r3x',
@@ -290,9 +306,12 @@ class SupervisedPinTest(unittest.TestCase):
         self.assertEqual(driver.repinned, [('run-r3x', '4-7,20-23')])
         self.assertEqual(self.ledger.get('r3x')['cpuset'], '4-7,20-23')
         self.assertEqual(self.ledger.get('r2')['cpuset'], '0-3,16-19')
+        self.assertIn('cpu repin 0-3,16-19 -> 4-7,20-23',
+                      self.paths.log('r3x').read_text())
 
     def test_when_the_newest_repin_fails_the_older_sharer_moves(self):
         claim(self.ledger, request_id='req-13', run_id='r3x')
+        self.paths.attempt('r3x').mkdir(parents=True, exist_ok=True)
         self.ledger.update('r2', state='running', cpuset='0-3,16-19', instance='run-r2',
                            admitted_at=1.0)
         self.ledger.update('r3x', state='running', cpuset='0-3,16-19', instance='run-r3x',
@@ -305,6 +324,7 @@ class SupervisedPinTest(unittest.TestCase):
 
     def test_a_run_not_cloned_yet_stays_and_the_older_sharer_moves(self):
         claim(self.ledger, request_id='req-13', run_id='r3x')
+        self.paths.attempt('r3x').mkdir(parents=True, exist_ok=True)
         self.ledger.update('r2', state='running', cpuset='0-3,16-19', instance='run-r2',
                            admitted_at=1.0)
         self.ledger.update('r3x', state='running', cpuset='0-3,16-19', admitted_at=2.0)
@@ -315,6 +335,7 @@ class SupervisedPinTest(unittest.TestCase):
 
     def test_a_failed_repin_keeps_the_old_list(self):
         claim(self.ledger, request_id='req-13', run_id='r3x')
+        self.paths.attempt('r3x').mkdir(parents=True, exist_ok=True)
         self.ledger.update('r2', state='running', cpuset='0-3,16-19', instance='run-r2',
                            admitted_at=1.0)
         self.ledger.update('r3x', state='running', cpuset='0-3,16-19', instance='run-r3x',
