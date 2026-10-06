@@ -515,6 +515,11 @@ def dispatch_queue(paths, ledger, plan, config, parent, total, tests, *,
             note('a batch failed; the queue is halted. Shards finish their '
                  'current batch, then stop.')
         finished_now = poll(paths, ledger, list(live.values()), tails=tails, log=log)
+        # A holder can finish between the first settle and poll. Return its
+        # lease before deciding whether its slot needs a successor, otherwise
+        # the last lost batch can stay leased until no shard remains to run it.
+        if finished_now:
+            settle()
         for index in [i for i, rid in sorted(live.items()) if rid in finished_now]:
             rid = live.pop(index)
             result = finished_now[rid]
