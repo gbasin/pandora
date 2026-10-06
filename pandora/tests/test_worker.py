@@ -507,6 +507,48 @@ class Sweeps(unittest.TestCase):
             gc.sweep(self.root, driver, keep=0, enrolled=set())
         self.assertEqual(driver.destroyed, [])
 
+    def test_persisted_reuse_outranks_an_older_retained_attempt(self):
+        latest = self.spec('a', pins={'base_image': 'latest'})
+        older = self.spec('a', pins={'base_image': 'older'})
+        latest_name, older_name = self.name_of(latest), self.name_of(older)
+        self.attempt('r1', 'acme', 'finished', latest, 100.0)
+        metadata = {
+            self.name_of(spec): {'fingerprint': self.name_of(spec)[len('golden-'):],
+                                 'recipe': goldens.recipe_of(spec), 'source_id': 'a',
+                                 'base_image': spec['base_image'], 'pins': spec['pins'],
+                                 'last_used': at}
+            for spec, at in ((latest, 200.0), (older, 150.0))}
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}
+                             for name in (latest_name, older_name)])
+        driver.golden_metadata = metadata.__getitem__
+        rows = goldens.listing(self.root, driver)['goldens']
+        self.assertEqual(rows[0]['name'], latest_name)
+        self.assertEqual(rows[0]['last_used'], 200.0)
+        self.assertEqual(rows[0]['repo'], 'acme')
+        self.assertEqual(rows[0]['uses'], 1)
+        self.assertEqual(rows[0]['last_run'], 'r1')
+        receipt = gc.sweep(self.root, driver, keep=0,
+                           protect={goldens.recipe_of(latest): 'acme'}, enrolled=set())
+        self.assertEqual(driver.destroyed, [older_name])
+        self.assertEqual(receipt['kept'][0]['name'], latest_name)
+
+    def test_retained_attempts_cannot_hide_an_unreadable_or_invalid_identity(self):
+        spec = self.spec('a')
+        name = self.name_of(spec)
+        self.attempt('r1', 'acme', 'finished', spec, 100.0)
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}])
+
+        def failed(value):
+            raise RuntimeError('incus config read failed')
+
+        for reader, error in ((failed, RuntimeError),
+                              (lambda value: {'fingerprint': 'wrong'}, ValueError)):
+            with self.subTest(error=error):
+                driver.golden_metadata = reader
+                with self.assertRaises(error):
+                    gc.sweep(self.root, driver, keep=0, enrolled=set())
+                self.assertEqual(driver.destroyed, [])
+
     def test_a_metadata_record_for_another_golden_is_refused(self):
         name = self.name_of(self.spec('a'))
         driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}])

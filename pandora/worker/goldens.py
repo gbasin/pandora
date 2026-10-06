@@ -2,11 +2,12 @@
 
 A golden's instance name carries its fingerprint and nothing else, so the
 worker cannot tell from Incus alone which repository a golden belongs to or
-when it was last used. Attempts explain each golden's repository and use history. Golden identity also
-lives on the Incus instance, so retaining attempt directories cannot turn an
-enrolled recipe's golden into an unexplained orphan. Old goldens are enriched
-when next prepared or reused. The index joins those records rather than keeping
-a second mutable inventory that can outlive the instances.
+when it was last used. Attempts explain each golden's repository and use
+history. Golden identity also lives on the Incus instance, so retaining attempt
+directories cannot turn an enrolled recipe's golden into an unexplained orphan.
+Old goldens are enriched when next prepared or reused. The index joins those
+records rather than keeping a second mutable inventory that can outlive the
+instances.
 """
 import json
 import math
@@ -21,12 +22,15 @@ from ..engine.runner import Paths, toolchain_of
 def index(paths, driver):
     """[{fingerprint, name, repo, ...}] newest use first.
 
-    Joins three sources: the instances Incus has, the attempt directories that
-    say which toolchain produced which name, and the ledger rows that say which
-    repository and when.
+    Joins the instances and their persisted identities, the attempt directories
+    that say which toolchain produced which name, and the ledger rows that say
+    which repository and when.
     """
     present = {item['name']: item for item in driver.instances()
                if item['name'].startswith('golden-')}
+    read_metadata = getattr(driver, 'golden_metadata', None)
+    metadata = {name: identity(name, read_metadata(name)) if callable(read_metadata) else {}
+                for name in present}
     sizes = driver.qgroups()
     seen = {}
     for run_id, row in attempts(paths).items():
@@ -53,6 +57,10 @@ def index(paths, driver):
         item['present'] = name in present
         item['state'] = present.get(name, {}).get('state', 'absent')
         item['created'] = present.get(name, {}).get('created', '')
+        # Canary preparation can reuse a golden without adding an attempt.
+        # Retained attempts still explain its repository and recorded runs,
+        # but cannot override a later use persisted on the instance.
+        item['last_used'] = max(item['last_used'], metadata.get(name, {}).get('last_used', 0))
         referenced, exclusive = sizes.get('containers/%s_%s' % (driver.project, name), (0, 0))
         snap = sizes.get('containers-snapshots/%s_%s/warm' % (driver.project, name), (0, 0))
         item['referenced_bytes'] = referenced
@@ -60,18 +68,17 @@ def index(paths, driver):
         rows.append(item)
     # A golden Incus has that no attempt explains is still real and still costs
     # disk, so it is listed with an unknown repository rather than hidden.
-    read_metadata = getattr(driver, 'golden_metadata', None)
     for name, item in sorted(present.items()):
         if name in seen:
             continue
         referenced, exclusive = sizes.get('containers/%s_%s' % (driver.project, name), (0, 0))
-        metadata = identity(name, read_metadata(name)) if callable(read_metadata) else {}
+        value = metadata[name]
         rows.append({'fingerprint': name[len('golden-'):], 'name': name,
-                     'recipe': metadata.get('recipe', ''), 'repo': None,
-                     'source_id': metadata.get('source_id', ''),
-                     'pinned': bool(metadata.get('pins')), 'pins': metadata.get('pins', {}),
-                     'base_image': metadata.get('base_image', ''),
-                     'uses': 0, 'last_used': metadata.get('last_used', 0),
+                     'recipe': value.get('recipe', ''), 'repo': None,
+                     'source_id': value.get('source_id', ''),
+                     'pinned': bool(value.get('pins')), 'pins': value.get('pins', {}),
+                     'base_image': value.get('base_image', ''),
+                     'uses': 0, 'last_used': value.get('last_used', 0),
                      'last_run': '', 'present': True,
                      'state': item['state'], 'created': item['created'],
                      'referenced_bytes': referenced, 'exclusive_bytes': exclusive})
