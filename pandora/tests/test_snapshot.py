@@ -54,6 +54,20 @@ class ExcludeTest(unittest.TestCase):
         self.assertTrue(snapshot.excluded('secrets/thing.txt', ['secrets/*']))
         self.assertTrue(snapshot.excluded('.env', []))
 
+    def test_a_repository_glob_keeps_the_same_example_exemption(self):
+        # Eichler's globs, which dropped three tracked example files and so
+        # made every verdict's tree differ from the commit's.
+        globs = ['.dev.vars', '.dev.vars.*', '**/.env', '**/.env.*', '**/*.pem', '**/.npmrc']
+        for name in ('apps/api/.dev.vars.example', 'apps/progress/.env.example',
+                     'legacy/apps/ike-api/.dev.vars.example', 'certs/dev.pem.sample',
+                     'apps/web/.env.template'):
+            self.assertFalse(snapshot.excluded(name, globs), name)
+        for name in ('apps/api/.dev.vars.local', 'apps/progress/.env.production',
+                     'certs/dev.pem', 'apps/web/.npmrc', 'secrets/thing.example.txt'):
+            self.assertTrue(snapshot.excluded(name, globs + ['secrets/*']), name)
+        # A glob naming an example file outright still does not drop it.
+        self.assertFalse(snapshot.excluded('config/db.example', ['config/*']))
+
     def test_pandoras_own_names_are_not_source(self):
         # Shard-collision evidence lands in the remote outputs dir and used to
         # be moved into the worktree; a write-back temporary sits beside its

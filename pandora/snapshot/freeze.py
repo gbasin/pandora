@@ -10,7 +10,9 @@ what the slice needs. Three changes, each deliberate:
   did not already give.
 * Secret exclusion is the built-in name list plus whatever the repository's
   `[secrets] exclude_globs` adds, so a repository can widen it and never narrow
-  it.
+  it. A name ending in `.example`, `.sample` or `.template` is exempt from the
+  prefix rules and from every glob: those are the files a repository tracks to
+  document its secrets.
 * `input_id` is the manifest digest, which is the identity the engine
   deduplicates on. Two worktrees with byte-identical tracked content produce one
   input_id, which is what makes `same_tree_as` meaningful.
@@ -266,6 +268,12 @@ def excluded(name, globs=()):
         return True
     if fnmatch.fnmatch(base, OWN_TEMPS):
         return True
+    # The repository's globs keep the same exemption the built-in prefixes do:
+    # `**/.env.*` written to catch `.env.local` must not also drop a tracked
+    # `.env.example`. Every tracked file a glob drops makes the run's tree
+    # unequal to any commit's, so no verdict for it can ever match.
+    if base.endswith(NOT_SECRET_SUFFIXES):
+        return False
     return any(fnmatch.fnmatch(name, glob) or fnmatch.fnmatch(base, glob) for glob in globs)
 
 
