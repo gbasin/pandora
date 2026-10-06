@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.14](https://github.com/gbasin/pandora/compare/v0.3.13...v0.3.14) (2026-10-06)
+
+
+### Features
+
+* **doctor:** diagnose recorded runs without live probes ([#234](https://github.com/gbasin/pandora/issues/234)) ([535e51c](https://github.com/gbasin/pandora/commit/535e51c73a299a804e16504b9615e52f5ddcb0a6))
+
 ## [0.3.13](https://github.com/gbasin/pandora/compare/v0.3.12...v0.3.13) (2026-10-06)
 
 
