@@ -152,10 +152,12 @@ def unstage(temps):
 
 
 def stage(worktree, path, source):
-    """Write `source`'s bytes to a temporary beside `path`: fsynced, mode kept.
+    """Write `source`'s bytes to a temporary beside `path`: fsynced, permission bits kept.
 
-    The mode of the file being replaced is kept, so an executable fixture stays
-    executable; a new file gets the umask's default. The temporary is created
+    Ordinary permission bits are kept, so an executable fixture stays
+    executable; a new file gets the umask's default. The new inode belongs to
+    the staging user and does not preserve ownership or ACLs. Setuid, setgid,
+    and sticky bits are not copied to that inode. The temporary is created
     exclusively -- `xb` refuses an existing name -- so a leftover or a planted
     link is never written through; a collision retries under a fresh suffix.
     A failure removes the temporary rather than leaving it to be mistaken for
@@ -177,7 +179,7 @@ def stage(worktree, path, source):
                 handle.flush()
                 os.fsync(handle.fileno())
             if target.is_file():
-                os.chmod(temporary, target.stat().st_mode & 0o7777)
+                os.chmod(temporary, target.stat().st_mode & 0o777)
         except BaseException:
             unstage([temporary])
             raise

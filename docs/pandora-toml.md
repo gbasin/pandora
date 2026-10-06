@@ -316,6 +316,9 @@ writes nothing, and says the result was not validated. `--take-worker` publishes
 the whole proposal, but only over files still exactly as the conflict report saw
 them. Validate without `--update` after every update.
 
+Replacement files keep ordinary permission bits, but have the staging user's
+ownership. Ownership, ACLs, and special mode bits are not preserved.
+
 ### One automatic infrastructure retry
 
 A remote run that ends `infra_failed` is resubmitted once, remote to remote,

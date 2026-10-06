@@ -417,6 +417,15 @@ class Publication(Worktree):
         self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n'}))
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o755)
 
+    def test_special_mode_bits_are_not_copied_to_a_new_inode(self):
+        target = self.repo / 'fixtures/S0-01.ledger.jsonl'
+        os.chmod(target, 0o7755)
+        source = self.root / 'arrived'
+        source.write_text('worker\n')
+        temporary = publication.stage(self.repo, 'fixtures/S0-01.ledger.jsonl', source)
+        self.addCleanup(temporary.unlink)
+        self.assertEqual(stat.S_IMODE(temporary.stat().st_mode), 0o755)
+
     def test_a_symlinked_directory_is_never_written_through(self):
         shutil.rmtree(self.repo / 'fixtures')
         (self.root / 'elsewhere').mkdir()

@@ -498,6 +498,10 @@ class Sweeps(unittest.TestCase):
         receipt = gc.sweep(self.root, driver, keep=2,
                            enrolled=self.enrolled(('acme', 'a')))
         self.assertEqual(driver.destroyed, [names[0]], 'the least recently used goes')
+        # The fake golden references 4 GiB, but only 1 MiB is exclusive.
+        self.assertEqual(receipt['removed'][0]['referenced_bytes'], 4 << 30)
+        self.assertEqual(receipt['freed_bytes'], 1 << 20)
+        self.assertEqual(receipt['freed_bytes_basis'], 'exclusive_before_delete')
         self.assertEqual({item['name'] for item in receipt['kept']}, {names[1], names[2]})
 
     def test_keep_one_keeps_one_golden_per_toolchain_not_per_repo(self):
