@@ -291,8 +291,7 @@ restart does not withdraw a detached run. The next daemon follows it.
 A write-back is one publication: every declared file the run changed, or none.
 Each file is written by temporary file, `fsync` and rename. A crash mid-publication
 can leave part of the set written. The run's record says which. Write-back never
-deletes. Replacement files keep ordinary permission bits, but have the staging
-user's ownership. Ownership, ACLs, and special mode bits are not preserved.
+deletes.
 
 | Case | Written | Exit |
 |---|---|---|
@@ -316,6 +315,9 @@ user's ownership. Ownership, ACLs, and special mode bits are not preserved.
 writes nothing, and says the result was not validated. `--take-worker` publishes
 the whole proposal, but only over files still exactly as the conflict report saw
 them. Validate without `--update` after every update.
+
+Replacement files keep ordinary permission bits, but have the staging user's
+ownership. Ownership, ACLs, and special mode bits are not preserved.
 
 ### One automatic infrastructure retry
 
