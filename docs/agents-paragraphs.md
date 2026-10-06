@@ -76,7 +76,7 @@ and points to the README and `pandora --help` for the rest.
 > |---|---|---|
 > | 64 | A path argument below the repository root, a placement the job cannot take, or an invalid `PANDORA_WHERE`. Nothing ran. | Run it from the repository root, or drop the override. |
 > | 70 | Infrastructure failure, including `oom` and `timed_out`. Not a test verdict. | Read the `pandora: hint:` line first: an `oom` hint names the next `size` class, or less parallelism or shards at `xlarge`, or that the declared size applies again. Otherwise retry. Or run it in the queue here with `PANDORA_WHERE=local <command>`, unless the job is sharded (that gives 64). If the message says this machine is under memory pressure, wait a few minutes, then retry. Do not bypass it. If it says the daemon does not answer, or does not understand `pandora.toml`, run `pandora doctor` and tell the owner. Do not bypass it. |
-> | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, nothing was written back. Or the local queue or the daemon restart took too long, and nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
+> | 75 | A validation is already active in this worktree, or the source changed during the run. After `--update`, check the reported applied files and recovery paths. Or the local queue or the daemon restart took too long, and nothing ran. | Wait for the other run, or retry after a restart. Do not edit the worktree while a validation runs. After an `--update` conflict, follow the printed `pandora resolve <id>` step. |
 > | 124 | `--max-wait` elapsed. The run was not stopped. | `pandora wait <id>` re-attaches. |
 > | 130 | You canceled it. | Nothing. |
 >
@@ -127,8 +127,10 @@ and points to the README and `pandora --help` for the rest.
 > `--update` runs on the worker. It writes its declared files back only after
 > a passing run, and only when you did not edit the worktree during the run.
 > With `PANDORA_WHERE=local` it runs here and writes in place with no check. If
-> you edited a declared file, Pandora keeps your version, prints the path of the
-> worker's version, and exits 75. Merge the two by hand. Then run
+> you edited a declared file, Pandora keeps your version and exits 75. A late
+> edit detected during publication can leave some worker files applied. Pandora
+> prints the applied files and the preserved local versions' recovery paths.
+> Merge the versions by hand. Copy recovery files you need before resolving. Then run
 > `pandora resolve <id> --keep-local`. Validate without `--update` after every
 > update.
 >

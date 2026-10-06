@@ -435,7 +435,7 @@ class Publication(Worktree):
         self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
 
     def test_a_mid_rename_failure_reports_exactly_what_landed(self):
-        original = os.replace
+        original = publication.exchange
         calls = []
 
         def replace(source, target):
@@ -445,7 +445,7 @@ class Publication(Worktree):
             calls.append(target)
             return original(source, target)
 
-        with mock.patch('os.replace', replace):
+        with mock.patch.object(publication, 'exchange', replace):
             record = self.settle(self.propose({'fixtures/S0-01.ledger.jsonl': 'new\n',
                                                ROUTES: '{"theirs": 1}\n'}))
         self.assertEqual(record['state'], 'partial')
@@ -477,6 +477,76 @@ class Publication(Worktree):
         self.assertEqual(self.read('fixtures/S0-01.ledger.jsonl'), 'old\n')
         self.assertEqual(self.read(ROUTES), '{"mine": 2}\n')
         self.assertEqual(list(self.repo.glob('fixtures/.*.tmp')), [])
+
+    def test_an_atomic_save_just_before_exchange_is_preserved_and_reported(self):
+        path = 'fixtures/S0-01.ledger.jsonl'
+        original = publication.exchange
+
+        def exchange(source, target):
+            edited = self.root / 'editor-save'
+            edited.write_text('late edit\n')
+            os.replace(edited, target)
+            original(source, target)
+
+        with mock.patch.object(publication, 'exchange', exchange):
+            record = self.settle(self.propose({path: 'worker\n', ROUTES: '{"new": 1}\n'}))
+        self.assertEqual(record['state'], 'conflicted')
+        self.assertEqual(record['exit'], 75)
+        self.assertEqual(record['written'], [path])
+        self.assertEqual(Path(record['backups'][path]).read_text(), 'late edit\n')
+        self.assertEqual(self.read(path), 'worker\n')
+        self.assertEqual(self.read(ROUTES), '{}\n')
+        self.assertIn(record['backups'][path], ' '.join(publication.describe(record)))
+
+    def test_an_open_writer_keeps_writing_the_preserved_inode(self):
+        path = 'fixtures/S0-01.ledger.jsonl'
+        with (self.repo / path).open('r+') as editor:
+            record = self.settle(self.propose({path: 'worker\n'}))
+            editor.seek(0)
+            editor.write('saved after publication\n')
+            editor.truncate()
+            editor.flush()
+        self.assertEqual(self.read(path), 'worker\n')
+        self.assertEqual(Path(record['backups'][path]).read_text(),
+                         'saved after publication\n')
+
+    def test_a_new_file_created_at_publication_is_never_replaced(self):
+        path = 'fixtures/S0-09.ledger.jsonl'
+        original = os.link
+
+        def link(source, target):
+            Path(target).write_text('editor\n')
+            original(source, target)
+
+        with mock.patch('os.link', link):
+            record = self.settle(self.propose({path: 'worker\n'}))
+        self.assertEqual(record['state'], 'conflicted')
+        self.assertEqual(record['exit'], 75)
+        self.assertEqual(record['written'], [])
+        self.assertEqual(self.read(path), 'editor\n')
+
+    def test_a_process_failure_after_exchange_leaves_a_recovery_journal(self):
+        path = 'fixtures/S0-01.ledger.jsonl'
+        original = publication.exchange
+
+        def exchange(source, target):
+            original(source, target)
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(publication, 'exchange', exchange), \
+                self.assertRaises(KeyboardInterrupt):
+            self.settle(self.propose({path: 'worker\n'}))
+        journal = next(self.run_dir.glob('writeback-local-*/journal.json'))
+        entry = json.loads(journal.read_text())
+        self.assertEqual(Path(entry['backups'][path]).read_text(), 'old\n')
+        self.assertEqual(self.read(path), 'worker\n')
+
+    def test_an_unsupported_exchange_never_falls_back_to_overwrite(self):
+        path = 'fixtures/S0-01.ledger.jsonl'
+        with mock.patch.object(publication, 'exchange', side_effect=OSError('unsupported')):
+            record = self.settle(self.propose({path: 'worker\n'}))
+        self.assertEqual(record['exit'], 70)
+        self.assertEqual(self.read(path), 'old\n')
 
     def test_a_stale_temporary_is_never_written_through(self):
         # A leftover from a crashed publish keeps its bytes; the staged file
@@ -519,7 +589,7 @@ class Resolve(Worktree):
 
     def test_take_worker_records_what_landed_when_a_rename_fails_and_stays_conflicted(self):
         result = self.conflicted()
-        original = os.replace
+        original = publication.exchange
         calls = []
 
         def replace(source, target):
@@ -529,7 +599,7 @@ class Resolve(Worktree):
             calls.append(target)
             return original(source, target)
 
-        with mock.patch('os.replace', replace):
+        with mock.patch.object(publication, 'exchange', replace):
             code, lines = publication.resolve(self.run_dir, result, keep_local=False)
         self.assertEqual(code, 70)
         record = result['writeback']
@@ -597,7 +667,7 @@ class Resolve(Worktree):
         (self.run_dir / 'result.json').write_text(json.dumps(result))
         config = self.root / 'config.toml'
         config.write_text('[client]\nstate = "%s"\n' % self.root)
-        original = os.replace
+        original = publication.exchange
         calls = []
 
         def replace(source, target):
@@ -607,7 +677,7 @@ class Resolve(Worktree):
             calls.append(target)
             return original(source, target)
 
-        with mock.patch('os.replace', replace):
+        with mock.patch.object(publication, 'exchange', replace):
             code, _, err = capture(lambda: cli.main(['--config', str(config), 'resolve',
                                                      'run1', '--take-worker']))
         self.assertEqual(code, 70, err)

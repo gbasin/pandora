@@ -15,8 +15,8 @@ INVARIANTS
       75  busy or stale: validation active here, tree changed, or restart ran long
      124  `--max-wait` elapsed; the run was NOT stopped
      130  canceled
-  * `--update` runs on the worker, never here; its files come back only from a
-    passing run (every shard) over a tree you did not edit, else 75 and a next step.
+  * Remote `--update` publishes only passing proposals (every shard). Conflicts
+    exit 75 with applied files and recovery paths. Local placement writes in place.
   * `PANDORA_WHERE=local|remote <command>` moves one run between lanes, in the
     queue; 64 if it cannot run there, never a fallback. `PANDORA_OFF=1`: last resort.
   * Pandora's own lines go to stderr as `pandora: ...`. The last one may be
