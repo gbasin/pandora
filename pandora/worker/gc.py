@@ -35,7 +35,7 @@ had been used more recently. A toolchain with no `source_id` is its own
 family, keyed by its recipe (the fingerprint without pins), so `keep` never
 prunes it against a different toolchain -- only against the goldens pinned
 from the same recipe as its base image and lockfiles moved. Goldens no recorded
-attempt explains (built by a canary, or by hand) have neither a repository
+attempt or persisted identity explains (built by hand) have neither a repository
 nor a `source_id` and share one `(unknown)` bucket; no enrollment ever names
 it, so with enrollment data it ages out like any orphan, clocked by the
 instance creation time Incus reports.

@@ -2,12 +2,15 @@
 
 A golden's instance name carries its fingerprint and nothing else, so the
 worker cannot tell from Incus alone which repository a golden belongs to or
-when it was last used. Both facts are in the engine's own records -- every
-attempt writes the toolchain it asked for beside its row -- so the index is
-*derived* rather than maintained: a file that has to be kept in step with the
-truth eventually is not.
+when it was last used. Attempts explain each golden's repository and use history. Golden identity also
+lives on the Incus instance, so retaining attempt directories cannot turn an
+enrolled recipe's golden into an unexplained orphan. Old goldens are enriched
+when next prepared or reused. The index joins those records rather than keeping
+a second mutable inventory that can outlive the instances.
 """
 import json
+import math
+import re
 import sqlite3
 from pathlib import Path
 
@@ -57,18 +60,40 @@ def index(paths, driver):
         rows.append(item)
     # A golden Incus has that no attempt explains is still real and still costs
     # disk, so it is listed with an unknown repository rather than hidden.
+    read_metadata = getattr(driver, 'golden_metadata', None)
     for name, item in sorted(present.items()):
         if name in seen:
             continue
         referenced, exclusive = sizes.get('containers/%s_%s' % (driver.project, name), (0, 0))
-        rows.append({'fingerprint': name[len('golden-'):], 'name': name, 'recipe': '',
-                     'repo': None,
-                     'source_id': '', 'pinned': False, 'pins': {}, 'base_image': '',
-                     'uses': 0, 'last_used': 0, 'last_run': '', 'present': True,
+        metadata = identity(name, read_metadata(name)) if callable(read_metadata) else {}
+        rows.append({'fingerprint': name[len('golden-'):], 'name': name,
+                     'recipe': metadata.get('recipe', ''), 'repo': None,
+                     'source_id': metadata.get('source_id', ''),
+                     'pinned': bool(metadata.get('pins')), 'pins': metadata.get('pins', {}),
+                     'base_image': metadata.get('base_image', ''),
+                     'uses': 0, 'last_used': metadata.get('last_used', 0),
+                     'last_run': '', 'present': True,
                      'state': item['state'], 'created': item['created'],
                      'referenced_bytes': referenced, 'exclusive_bytes': exclusive})
     rows.sort(key=lambda item: (-item['last_used'], item['name']))
     return rows
+
+
+def identity(name, value):
+    """Validate persistent identity before it can affect destructive GC policy."""
+    if value is None:
+        return {}
+    if (not isinstance(value, dict) or value.get('fingerprint') != name[len('golden-'):]
+            or not isinstance(value.get('recipe'), str)
+            or not re.fullmatch('[0-9a-f]{16}', value['recipe'])
+            or not isinstance(value.get('pins'), dict)
+            or not isinstance(value.get('source_id'), str)
+            or not isinstance(value.get('base_image'), str)
+            or isinstance(value.get('last_used'), bool)
+            or not isinstance(value.get('last_used'), (int, float))
+            or not math.isfinite(value['last_used']) or value['last_used'] < 0):
+        raise ValueError('invalid golden identity on %s; refusing to guess its GC family' % name)
+    return value
 
 
 def recipe_of(spec):

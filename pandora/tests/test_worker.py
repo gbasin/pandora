@@ -479,6 +479,42 @@ class Sweeps(unittest.TestCase):
         self.assertEqual(rows[0]['repo'], None)
         self.assertEqual(rows[0]['referenced_bytes'], 4 << 30)
 
+    def test_recipe_protection_survives_retention_of_all_attempt_metadata(self):
+        spec = self.spec('a', pins={'base_image': 'abc'})
+        name = self.name_of(spec)
+        self.attempt('r1', 'acme', 'finished', spec, 100.0)
+        import shutil
+        shutil.rmtree(self.root / 'runs' / 'r1')
+        metadata = {'fingerprint': name[len('golden-'):], 'recipe': goldens.recipe_of(spec),
+                    'source_id': 'a', 'base_image': spec['base_image'],
+                    'pins': spec['pins'], 'last_used': 100.0}
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}])
+        driver.golden_metadata = lambda value: metadata
+        receipt = gc.sweep(self.root, driver, keep=0,
+                           protect={metadata['recipe']: 'acme'}, enrolled=set())
+        self.assertEqual(driver.destroyed, [])
+        self.assertIn('named by acme pandora.toml', receipt['kept'][0]['why'])
+
+    def test_an_unreadable_identity_cannot_turn_a_named_golden_into_an_orphan(self):
+        name = self.name_of(self.spec('a'))
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}])
+
+        def failed(value):
+            raise RuntimeError('incus config read failed')
+
+        driver.golden_metadata = failed
+        with self.assertRaises(RuntimeError):
+            gc.sweep(self.root, driver, keep=0, enrolled=set())
+        self.assertEqual(driver.destroyed, [])
+
+    def test_a_metadata_record_for_another_golden_is_refused(self):
+        name = self.name_of(self.spec('a'))
+        driver = FakeDriver([{'name': name, 'state': 'STOPPED', 'created': ''}])
+        driver.golden_metadata = lambda value: {'fingerprint': 'wrong'}
+        with self.assertRaises(ValueError):
+            gc.sweep(self.root, driver, keep=0, enrolled=set())
+        self.assertEqual(driver.destroyed, [])
+
     def test_gc_removes_a_leaked_run_and_keeps_the_live_one(self):
         self.attempt('live', 'acme', 'running', self.spec('a'), time.time())
         driver = FakeDriver([{'name': 'run-live', 'state': 'RUNNING', 'created': ''},
