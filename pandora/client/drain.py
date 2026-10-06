@@ -618,8 +618,8 @@ def drain_and_restart(state, *, restart, wait=DEFAULT_RESTART_WAIT, now=False, s
                     % (pong.get('pid'), successor_seconds, state / 'logs' / 'daemon.log'))
                 return 1
             say('the draining marker is still there %ds after the restart: no new daemon has '
-                'settled its runs. Read %s. Commands wait up to %s (%gs) each, then run '
-                'here unmanaged' % (successor_seconds, state / 'logs' / 'daemon.log',
+                'settled its runs. Read %s. Commands wait up to %s (%gs) each, then exit '
+                '75 without running' % (successor_seconds, state / 'logs' / 'daemon.log',
                                     WAIT_ENV, DEFAULT_CLIENT_WAIT))
             return 1
         sleep(0.25)

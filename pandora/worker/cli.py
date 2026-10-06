@@ -453,8 +453,8 @@ def add_parser(sub):
     node.add_argument('--versions', default=None)
     node.set_defaults(func=cmd_pins)
 
-    for name, help_text in (('reconcile', 'adopt or fail runs after an engine restart'),
-                            ('retain', 'delete old attempt directories'),
+    for name, help_text in (('reconcile', 'adopt or fail runs after a worker service restart'),
+                            ('retain', 'delete old attempt directories and collect unused source snapshots'),
                             ('stats', 'the scheduler picture and outcome counts')):
         node = actions.add_parser(name, help=help_text)
         node.add_argument('--timeout', type=int, default=300)

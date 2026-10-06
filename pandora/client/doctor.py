@@ -262,7 +262,7 @@ def check_daemon(sock_path, launcher_home, data=None, runner=subprocess.run, sup
         if not install.is_version(home, data):
             return check('daemon', WARN, '%s; daemon runs the checkout %s, current is %s. '
                          '`pandora daemon --install` runs it from current (that restarts '
-                         'it: check `pandora ps` first)' % (detail, old, now['name']),
+                         'it after a drain)' % (detail, old, now['name']),
                          **facts), answer
         head = source_head(now, runner)
         if head and head != now['meta'].get('commit'):
@@ -715,7 +715,7 @@ def check_supervision(pong, state, *, platform=None, launchctl=None, home=None,
         return check('daemon supervision', WARN,
                      'launchd runs pid %s as %s at ProcessType %s, the class macOS starves '
                      'first under load; run `pandora daemon --install` to rewrite it as %s '
-                     '(that restarts the daemon without a drain: check `pandora ps` first)'
+                     '(that drains active runs before restarting the daemon)'
                      % (pid, label, kind or '(unset, which launchd treats as Standard)',
                         launchd.PROCESS_TYPE), **facts)
     return check('daemon supervision', OK, 'launchd runs pid %s as %s, %s; %s; %s restarts '

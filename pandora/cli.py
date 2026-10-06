@@ -1,8 +1,7 @@
-"""`pandora`: this repository's heavy commands, run on a Linux worker.
+"""`pandora`: this repository's heavy commands, queued locally or on a Linux worker.
 
 Type the command you would have typed, from the repository root. Pandora routes
 it if the repository claims it and otherwise gets out of the way.
-
 INVARIANTS
   * Same cwd, environment and exit code as a local run; `$?` and traps behave.
   * Declared results are in your worktree before the command exits. A missing
@@ -24,7 +23,7 @@ INVARIANTS
   * Each worktree routes by its own pandora.toml; an edit applies on the next command.
 
 RUNS
-  pandora ps [--json]              what is running and what just ran
+  pandora ps [--limit N] [--json]   what is running and what just ran
   pandora wait <id> [--max-wait S] re-attach; exits as the run exits
   pandora logs <id>                replay a run's output
   pandora result <id> [--json]     outcome, exit, hint; --json for everything
@@ -39,6 +38,7 @@ FANOUT (for orchestrators; plain commands never need it)
   pandora result <id> --json            per-shard outcomes and the input digest
 
 MACHINE
+  pandora cache stats | cache clear [--repo R]    worker turbo-cache usage and cleanup
   pandora doctor [--json] | enroll <repo> (consent, once) | unenroll <repo> | worker <verb>
   pandora upgrade [--release [TAG] | --from <checkout> | --version <name>] [--now] | daemon [--install ...] | selftest [--update] [--queue] [--expect-signed]
 """
@@ -971,7 +971,7 @@ def main(argv=None):
                             '<data>/current (after `pandora upgrade`) or else this checkout, '
                             'and load it; a running daemon is drained first, as --restart does')
     verbs.add_argument('--uninstall', action='store_true',
-                       help='unload the agent and delete its plist')
+                       help='unload the agent and delete its plist without draining active runs')
     verbs.add_argument('--restart', action='store_true',
                        help='drain, then launchctl kickstart -k; `pandora upgrade` does it '
                             'too')
