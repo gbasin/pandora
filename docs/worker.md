@@ -260,12 +260,19 @@ CI job for the same tree can verify the signature and skip the work.
   `git = "synthetic"` has one. The tree covers every file the run saw, tracked
   or untracked. Secret-filtered files never reach the worker, so a tree with
   one of them never equals a commit's tree. `pandora doctor` warns about each
-  tracked file the secret rules exclude (`tracked secrets`). A Git LFS path
+  tracked file an exclusion rule drops (`tracked excluded files`) and names
+  the rule: a built-in directory such as `node_modules` or `.jj`, a built-in
+  secret name, or a `[secrets]` glob. A Git LFS path
   (`filter=lfs` in the tree's `.gitattributes`) enters the tree as the
   canonical LFS pointer for the file's bytes, which is what a checkout with
   git-lfs stores, so the tree equals the commit's. The pointer is computed in
   a scratch index; the synthetic commit and the run's files keep the real
-  bytes. A file that already holds a pointer is stored as is.
+  bytes. A file under 1024 bytes that starts with the LFS spec line already
+  holds a pointer and is stored as is; a larger one gets a fresh pointer, as
+  git-lfs does. A failure in the LFS step never fails the run: the run gets
+  its repository, the result has no tree, and `verdict_skipped` is
+  `tree_failed:<reason>` (`lfs_attributes`, `lfs_pointers`, `lfs_index`, or
+  `no_tree_line` when the script printed neither a tree nor a reason).
 * The payload is canonical JSON with `kind`, `v`, `run_id`, `repo`, `job`,
   `argv`, `cwd`, `env_digest`, `input_id`, `tree`, `golden`, `golden_pins`,
   `engine`, `outcome` and `finished`. `engine` is the digest of the engine
@@ -285,7 +292,9 @@ CI job for the same tree can verify the signature and skip the work.
 * The conditions, in order: the outcome is `passed` (`not_passed`); the
   attempt is a whole run, not a shard or a fan-out parent (`not_whole`); the
   worker's ready state is `ready` (`worker_not_ready`); the run has a tree
-  (`no_synthetic_git`); the worker has not drifted (`worker_drifted`).
+  (`no_synthetic_git` for a job without synthetic git, `tree_failed:<reason>`
+  for one whose tree could not be computed); the worker has not drifted
+  (`worker_drifted`).
   `result.json` names the first that failed in `verdict_skipped`
   ([Run results](operations.md#run-results)). The tree comes before drift so
   a job without synthetic git never pays for the drift check.
@@ -356,6 +365,14 @@ What a verdict does not check:
   file's bytes as tightly as any other file's. A file that holds a pointer in
   the run (checked out without git-lfs) is stored as that pointer, and the
   verdict then vouches for a run that saw the pointer, not the content.
+* The worker writes only the canonical pointer: the spec line, `oid sha256:`
+  and `size`. A pointer it cannot reproduce makes the tree differ from the
+  commit's: one with LFS extension lines (`ext-N-*`), one in the old hawser
+  spec (`version https://hawser.github.com/spec/v1`), or one with extra keys.
+  So does a repository whose `.gitattributes` says `filter=lfs` for a path
+  whose commit holds the raw bytes (committed without git-lfs): the worker
+  stores a pointer where the commit stores content. Each of these fails safe
+  as no match (`no_verdict`), never as a false match.
 
 ## Sharing a worker
 

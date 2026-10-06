@@ -207,7 +207,7 @@ class FakeDriver:
             from pandora.executor.interface import ExecutionFailed
             raise ExecutionFailed('git add failed')
         self.git = (name, dest, marks, message)
-        return 2.9, self.tree
+        return 2.9, self.tree, getattr(self, 'tree_failed', None)
 
     def harden(self, instance, limits):
         if self.explode == 'isolation':
@@ -282,6 +282,20 @@ class SuperviseTest(unittest.TestCase):
         self.assertEqual(marks['untracked'], ['scratch.md'])
         self.assertIn(self.ledger.get('r1')['input_id'], message)
         self.assertEqual(result['durations']['git'], 2.9)
+
+    def test_a_tree_that_cannot_be_computed_is_a_skip_not_a_failure(self):
+        from unittest import mock
+        from pandora.engine import verdict
+        self.request(git='synthetic')
+        driver = FakeDriver(tree=None)
+        driver.tree_failed = 'lfs_pointers'
+        with mock.patch.object(verdict, 'ready_state', return_value='ready'):
+            result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertIsNone(result['tree'])
+        self.assertEqual(result['verdict_skipped'], 'tree_failed:lfs_pointers')
+        self.assertIn('synthetic git tree not computed (lfs_pointers)',
+                      self.paths.log('r1').read_text())
 
     def test_a_job_that_does_not_declare_git_pays_nothing(self):
         self.request(git='none')

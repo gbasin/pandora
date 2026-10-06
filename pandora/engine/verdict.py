@@ -41,6 +41,9 @@ NOT_PASSED = 'not_passed'
 NOT_WHOLE = 'not_whole'
 WORKER_NOT_READY = 'worker_not_ready'
 NO_SYNTHETIC_GIT = 'no_synthetic_git'
+# A job with synthetic git whose tree could not be computed, for example a
+# failed Git LFS pointer step: `tree_failed:<reason>`. The run is unchanged.
+TREE_FAILED = 'tree_failed'
 WORKER_DRIFTED = 'worker_drifted'
 
 # How long one drift answer stands. Every supervisor is its own process, so the
@@ -341,9 +344,10 @@ def sweep_temps(folder, *, age=DRIFT_TTL):
             pass
 
 
-def skip_reason(*, outcome, role, ready, tree, drift=''):
+def skip_reason(*, outcome, role, ready, tree, drift='', tree_failed=None):
     """The first signing condition that fails, or None when all hold.
-    `drift` is `worker_drift`'s answer: '' for none."""
+    `drift` is `worker_drift`'s answer: '' for none. `tree_failed` is why a
+    job with synthetic git has no tree; None when it has no synthetic git."""
     if outcome != 'passed':
         return NOT_PASSED
     if (role or 'single') != 'single':
@@ -351,14 +355,14 @@ def skip_reason(*, outcome, role, ready, tree, drift=''):
     if ready != 'ready':
         return WORKER_NOT_READY
     if not tree:
-        return NO_SYNTHETIC_GIT
+        return '%s:%s' % (TREE_FAILED, tree_failed) if tree_failed else NO_SYNTHETIC_GIT
     if drift:
         return WORKER_DRIFTED
     return None
 
 
 def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, drift=None,
-           note=None, golden_pins=None):
+           note=None, golden_pins=None, tree_failed=None):
     """The three result fields: `tree`, `verdict`, `verdict_skipped`.
 
     `row` is the attempt's ledger row as a dictionary. `ready` is the worker's
@@ -377,7 +381,7 @@ def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, dri
                 and tree):
             drift = worker_drift(engine_root)
         reason = skip_reason(outcome=outcome, role=role, ready=ready, tree=tree,
-                             drift=drift or '')
+                             drift=drift or '', tree_failed=tree_failed)
         if reason:
             answer['verdict_skipped'] = reason
             if reason == WORKER_DRIFTED and note is not None:

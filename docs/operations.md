@@ -643,7 +643,7 @@ an engine that signs verdicts. The client copies them home unchanged.
 |---|---|
 | `tree` | The 40-hex git tree the run saw, for a job with `git = "synthetic"`. `null` otherwise. |
 | `verdict` | `{payload, signature, signer}`: the canonical JSON payload, the armored SSHSIG block, and the worker's public key line. `null` when the worker did not sign. |
-| `verdict_skipped` | Why there is no verdict: `not_passed`, `not_whole`, `worker_not_ready`, `no_synthetic_git` or `worker_drifted`. `null` when signed. |
+| `verdict_skipped` | Why there is no verdict: `not_passed`, `not_whole`, `worker_not_ready`, `no_synthetic_git`, `tree_failed:<reason>` or `worker_drifted`. `null` when signed. |
 
 A result from an older engine has none of the three keys.
 
@@ -911,7 +911,7 @@ signed verdicts ([docs/worker.md](worker.md#verdicts)):
 |---|---|
 | `tree` | The 40-hex git tree of every file the run saw, untracked files included. Null for a job without `git = "synthetic"`. |
 | `verdict` | Null, or `{"payload", "signature", "signer"}`: the canonical payload JSON as a string, the armored SSHSIG block, and the worker's public key line. |
-| `verdict_skipped` | Null when `verdict` is set. Otherwise the first condition that failed: `not_passed`, `not_whole`, `worker_not_ready`, `no_synthetic_git`, `worker_drifted`, or `sign_failed:<reason>`. `worker_drifted` writes its detail to the run log ([docs/worker.md](worker.md#verdicts)). |
+| `verdict_skipped` | Null when `verdict` is set. Otherwise the first condition that failed: `not_passed`, `not_whole`, `worker_not_ready`, `no_synthetic_git`, `tree_failed:<reason>` (synthetic git ran but its tree could not be computed, for example a failed Git LFS pointer step; [docs/worker.md](worker.md#verdicts)), `worker_drifted`, or `sign_failed:<reason>`. `worker_drifted` writes its detail to the run log ([docs/worker.md](worker.md#verdicts)). |
 
 A verdict never changes the run's outcome or exit code.
 

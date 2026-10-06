@@ -11,8 +11,8 @@ what the slice needs. Three changes, each deliberate:
 * Secret exclusion is the built-in name list plus whatever the repository's
   `[secrets] exclude_globs` adds, so a repository can widen it and never narrow
   it. A name ending in `.example`, `.sample` or `.template` is exempt from the
-  prefix rules and from every glob: those are the files a repository tracks to
-  document its secrets.
+  prefix rules, and a tracked one from every glob: those are the files a
+  repository tracks to document its secrets.
 * `input_id` is the manifest digest, which is the identity the engine
   deduplicates on. Two worktrees with byte-identical tracked content produce one
   input_id, which is what makes `same_tree_as` meaningful.
@@ -255,26 +255,42 @@ def index_blobs(repo):
         return {}
 
 
-def excluded(name, globs=()):
+def excluded(name, globs=(), tracked=False):
+    return exclusion_rule(name, globs, tracked) is not None
+
+
+def exclusion_rule(name, globs=(), tracked=False):
+    """Why `name` never reaches the worker, or None when it does.
+
+    The answer names the rule: `built-in dir <part>`, `built-in name`,
+    `pandora's own name`, or `[secrets] glob <glob>`. `tracked` says whether
+    git tracks the file; it matters only for the repository's globs.
+    """
     parts = Path(name).parts
     base = parts[-1]
-    if any(part in SECRET_DIRS for part in parts):
-        return True
+    for part in parts:
+        if part in SECRET_DIRS:
+            return 'built-in dir %s' % part
     if any(part in OWN_DIRS for part in parts):
-        return True
+        return "pandora's own name"
     if base in SECRET_NAMES or base.lower().endswith(SECRET_SUFFIXES):
-        return True
+        return 'built-in name'
     if base.startswith(SECRET_PREFIXES) and not base.endswith(NOT_SECRET_SUFFIXES):
-        return True
+        return 'built-in name'
     if fnmatch.fnmatch(base, OWN_TEMPS):
-        return True
-    # The repository's globs keep the same exemption the built-in prefixes do:
-    # `**/.env.*` written to catch `.env.local` must not also drop a tracked
-    # `.env.example`. Every tracked file a glob drops makes the run's tree
-    # unequal to any commit's, so no verdict for it can ever match.
-    if base.endswith(NOT_SECRET_SUFFIXES):
-        return False
-    return any(fnmatch.fnmatch(name, glob) or fnmatch.fnmatch(base, glob) for glob in globs)
+        return "pandora's own name"
+    # A tracked file keeps the same exemption from the repository's globs that
+    # the built-in prefixes give: `**/.env.*` written to catch `.env.local` must
+    # not also drop a tracked `.env.example`. Every tracked file a glob drops
+    # makes the run's tree unequal to any commit's, so no verdict for it can
+    # ever match. An untracked one has no commit to match and is excluded as
+    # the glob says: `secrets/prod.template` may hold real values.
+    if tracked and base.endswith(NOT_SECRET_SUFFIXES):
+        return None
+    for glob in globs:
+        if fnmatch.fnmatch(name, glob) or fnmatch.fnmatch(base, glob):
+            return '[secrets] glob %s' % glob
+    return None
 
 
 def entry(root, name, known=None):
@@ -543,7 +559,8 @@ def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None,
         first = names(repo, nested)
         marks = git_status(repo)
         known.vouched = index_blobs(repo) if index else {}
-        selected = [name for name in first if not excluded(name, exclude_globs)]
+        selected = [name for name in first
+                    if not excluded(name, exclude_globs, marks.get(name) != 'untracked')]
         manifest = []
         absent = []
         for name in selected:
@@ -554,14 +571,15 @@ def freeze(repo, *, exclude_globs=(), cache=None, index=True, counts=None,
             if name in marks:
                 record['git'] = marks[name]
             manifest.append(record)
-        return nested, first, manifest, absent
+        return nested, first, manifest, absent, marks
 
-    nested, first, manifest, absent = read()
-    if read() != (nested, first, manifest, absent):
+    nested, first, manifest, absent, marks = read()
+    if read()[:4] != (nested, first, manifest, absent):
         raise SnapshotError('the worktree changed while it was being frozen; retry')
     if missing is not None:
         missing.extend(absent)
-    dropped = [name for name in first if excluded(name, exclude_globs)]
+    dropped = [name for name in first
+               if excluded(name, exclude_globs, marks.get(name) != 'untracked')]
     known.save()
     if counts is not None:
         counts.update(known.counts)

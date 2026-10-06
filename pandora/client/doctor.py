@@ -533,14 +533,16 @@ def check_outputs(root, fallback=None, *, run=subprocess.run):
 
 
 def check_secrets(root, fallback=None, *, run=subprocess.run):
-    """No tracked file may be dropped by the secret rules.
+    """No tracked file may be dropped by the exclusion rules.
 
     A dropped file never reaches the worker, so the run's tree lacks it and
     never equals a commit's tree: no verdict for this worktree can match. The
-    rules are `[secrets] exclude_globs` plus the built-in names
-    (`snapshot.freeze.excluded`).
+    rules are the built-in directories (which include `node_modules` and
+    `.jj`, not only secrets), the built-in secret names, and
+    `[secrets] exclude_globs` (`snapshot.freeze.exclusion_rule`). Each file is
+    shown with the rule that matched it.
     """
-    from ..snapshot.freeze import excluded
+    from ..snapshot.freeze import exclusion_rule
     try:
         config = loader.load_for(root, fallback)
     except (ConfigError, OSError):
@@ -549,17 +551,25 @@ def check_secrets(root, fallback=None, *, run=subprocess.run):
     listed = run(['git', '-C', str(root), 'ls-files', '-z', '--cached'], capture_output=True)
     if listed.returncode != 0:
         return []
-    dropped = [name for name in (item.decode('utf-8', 'surrogateescape')
-                                 for item in listed.stdout.split(b'\0') if item)
-               if excluded(name, globs)]
-    if dropped:
-        shown = ', '.join(dropped[:3]) + (', ...' if len(dropped) > 3 else '')
-        return [check('tracked secrets', WARN,
-                      '%d tracked file(s) are excluded by [secrets] or the built-in secret '
-                      'names (%s); they never reach the worker, so the run\'s tree never '
-                      'equals a commit\'s and no verdict can match. Untrack them, or narrow '
-                      'exclude_globs' % (len(dropped), shown), dropped=dropped)]
-    return [check('tracked secrets', OK, 'no tracked file is excluded by [secrets]')]
+    rules = {}
+    for item in listed.stdout.split(b'\0'):
+        if not item:
+            continue
+        name = item.decode('utf-8', 'surrogateescape')
+        rule = exclusion_rule(name, globs, tracked=True)
+        if rule is not None:
+            rules[name] = rule
+    if rules:
+        dropped = list(rules)
+        shown = ', '.join('%s (%s)' % (name, rules[name]) for name in dropped[:3]) \
+            + (', ...' if len(dropped) > 3 else '')
+        return [check('tracked excluded files', WARN,
+                      '%d tracked file(s) are excluded by a built-in rule or [secrets] '
+                      'exclude_globs: %s; they never reach the worker, so the run\'s tree '
+                      'never equals a commit\'s and no verdict can match. Untrack them, or '
+                      'narrow exclude_globs' % (len(dropped), shown),
+                      dropped=dropped, rules=rules)]
+    return [check('tracked excluded files', OK, 'no tracked file is excluded')]
 
 
 def check_cwd(cwd):

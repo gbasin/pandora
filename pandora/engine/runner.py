@@ -165,8 +165,9 @@ def supervise(root, run_id, *, driver=None):
     peak_mib, receipt_dict = 0, None
     preparing_clone = False
     # The tree the synthetic repository saw, the one a verdict names; None for
-    # a job without one.
+    # a job without one. `tree_failed` is why a job with one has no tree.
     tree = None
+    tree_failed = None
     # None when the plan arms no write-back; otherwise always a record, so a
     # client can tell "proposed nothing" from "was never asked to".
     proposal = (writeback.incomplete('the run did not pass, so it proposes nothing', None)
@@ -218,12 +219,15 @@ def supervise(root, run_id, *, driver=None):
         # Before the cache and before the command: the repository is part of
         # the source, and a job that declared it must never start without it.
         if submitted.get('git') == 'synthetic':
-            seconds, tree = driver.synthetic_git(
+            seconds, tree, tree_failed = driver.synthetic_git(
                 instance.name, '/work', request.get('git_marks') or {},
                 'pandora %s' % row['input_id'])
             durations['git'] = round(seconds, 2)
             marks = time.monotonic()
             note('synthetic git repository in %.1fs' % durations['git'])
+            if not tree:
+                note('synthetic git tree not computed (%s); the run goes on, unsigned'
+                     % tree_failed)
         # turbo's remote cache, served by this worker on the runs' bridge
         # (`turbocache`). Probed, never required: a run the cache cannot serve
         # is slower, not wrong, so the reason goes in the log and the evidence.
@@ -432,7 +436,7 @@ def supervise(root, run_id, *, driver=None):
     result_json = write_result(paths, ledger, run_id, outcome=outcome, layer=layer,
                                exit_code=exit_code, peak_mib=peak_mib,
                                durations=durations, evidence=evidence, receipt=receipt_dict,
-                               extra=extra or None, tree=tree)
+                               extra=extra or None, tree=tree, tree_failed=tree_failed)
     # This run's cores are free now; spread any runs that share cores onto them.
     rebalance_cpus(paths, ledger, driver)
     ledger.close()
@@ -731,7 +735,7 @@ def queue_session(paths, ledger, run_id, plan, driver, instance, *, env, limits,
 
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
-                 durations, evidence, receipt, extra=None, tree=None):
+                 durations, evidence, receipt, extra=None, tree=None, tree_failed=None):
     # Signed before the row says `finished`, not after: a client reads the
     # result as soon as the row is finished, and signing calls `ssh-keygen`.
     finished = time.time()
@@ -741,7 +745,8 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
     golden, golden_pins = golden_and_pins(paths, run_id)
     signed = verdict.decide(paths.root, row_to_dict(ledger.get(run_id)) or {},
                             outcome=outcome, tree=tree, finished=finished,
-                            golden=golden, golden_pins=golden_pins, note=note)
+                            golden=golden, golden_pins=golden_pins, note=note,
+                            tree_failed=tree_failed)
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt,
                         finished=finished)

@@ -203,7 +203,7 @@ Fix a `no_verdict` first, then rerun to see the next reason.
 | `reason` | Cause | Action |
 |---|---|---|
 | `match` | A signed verdict for this tree, job and argv verified. | None. |
-| `no_verdict` | No ref `refs/pandora/verdicts/<tree>/<job>` on `origin`, or the fetch failed. Most often: the branch is behind its base, so the merge commit's tree differs; the agent edited after the run; an untracked file was in the worktree during the run; a tracked file is excluded by `[secrets]` (`pandora doctor` warns, `tracked secrets`); the run failed or was not routed; or publication failed. | Check `pandora result <id>` on the Mac for the `verdict:` line, and `pandora logs <id>` for the publication line. Rebase onto the base before the final run. |
+| `no_verdict` | No ref `refs/pandora/verdicts/<tree>/<job>` on `origin`, or the fetch failed. Most often: the branch is behind its base, so the merge commit's tree differs; the agent edited after the run; an untracked file was in the worktree during the run; a tracked file is excluded by a built-in rule or `[secrets]` (`pandora doctor` warns, `tracked excluded files`); the run failed or was not routed; or publication failed. | Check `pandora result <id>` on the Mac for the `verdict:` line, and `pandora logs <id>` for the publication line. Rebase onto the base before the final run. |
 | `signers_missing` | The signers file is not on the default branch at the `signers` path. | Merge the signers file into the default branch. |
 | `no_signers` | The signers file has no key line, or the `signers` input is empty. | Add the worker's key line. |
 | `bad_signature` | The signature does not verify against any listed key. The worker was rebuilt, or the key line is wrong. | Rotate the key ([Rotate the key](#rotate-the-key-after-a-worker-rebuild)). Check the principal and the namespace. |
@@ -224,7 +224,7 @@ Fix a `no_verdict` first, then rerun to see the next reason.
 | `no_tree` | The checkout has no `HEAD` commit. | Put `actions/checkout` before the step. |
 | `bad_tree_from` | The `tree_from` input is not `merge` or `head`. | Fix the `tree_from` input. |
 | `bad_head_sha` | `tree_from` is `head` and the pull request head is not a full commit sha. | Should not occur with the action. Report it to the Pandora owner. |
-| `head_unavailable` | `tree_from` is `head` and the pull request head could not be fetched from `origin`. | Check the runner's access to the repository, then rerun. |
+| `head_unavailable` | `tree_from` is `head` and the pull request head could not be fetched from `origin`. On a private repository this also happens when `actions/checkout` ran with `persist-credentials: false`, which leaves the later fetch without a token. | Check the runner's access to the repository, or drop `persist-credentials: false` from the checkout step, then rerun. |
 | `no_ssh_keygen` | The runner has no `ssh-keygen`. | Use a runner image with OpenSSH. |
 | `no_python3` | The runner has no `python3`. | Use a runner image with Python 3. |
 | `no_tempdir` | `mktemp -d` failed. | Check the runner's disk. |
