@@ -259,6 +259,45 @@ class FreezeTest(unittest.TestCase):
                 snapshot.verify(materialized, manifest)
 
 
+class FreezeTimings(unittest.TestCase):
+    def test_timings_separate_the_two_passes_without_changing_the_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            expected = snapshot.freeze(repo)
+            original = snapshot.nested_worktree_prefixes
+            clock, timings = [0.0], {}
+
+            def scan(root):
+                clock[0] += 7.0
+                return original(root)
+
+            with mock.patch.object(snapshot.time, 'monotonic', side_effect=lambda: clock[0]), \
+                    mock.patch.object(snapshot, 'nested_worktree_prefixes', scan):
+                self.assertEqual(snapshot.freeze(repo, timings=timings), expected)
+            self.assertEqual(timings['pass1.nested_worktrees'], 7.0)
+            self.assertEqual(timings['pass2.nested_worktrees'], 7.0)
+            self.assertEqual(timings['pass1.entries'], 0.0)
+            self.assertEqual(timings['pass2.entries'], 0.0)
+            self.assertIn('cache_save', timings)
+            self.assertIn('input_id', timings)
+
+    def test_a_failed_phase_keeps_its_elapsed_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n'})
+            clock, timings = [0.0], {}
+
+            def failed(*args):
+                clock[0] += 5.0
+                raise SnapshotError('file disappeared')
+
+            with mock.patch.object(snapshot.time, 'monotonic', side_effect=lambda: clock[0]), \
+                    mock.patch.object(snapshot, 'entry', failed), \
+                    self.assertRaises(SnapshotError):
+                snapshot.freeze(repo, timings=timings)
+            self.assertEqual(timings['pass1.entries'], 5.0)
+            self.assertNotIn('pass2.entries', timings)
+
+
 class IndexTest(unittest.TestCase):
     """A file git vouches for is not read, and the manifest cannot tell."""
 

@@ -215,6 +215,7 @@ class Run:
         self.phase = None
         # freeze / ship / submit, measured before `accepted`.
         self.pre_accept = request.get('pre_accept') or {}
+        self.freeze_steps = request.get('freeze_steps') or {}
         # {cause, detail} when the request was refused before reaching the
         # worker, so `pandora result` can say why a row with no result ended.
         self.refusal = request.get('refusal')
@@ -269,7 +270,8 @@ class Run:
                                 else int((self.accepted - self.started) * 1000)),
                    'hint': self.hint, 'hint_rule': self.hint_rule,
                    'attempts': self.attempts, 'phase': self.phase,
-                   'pre_accept': self.pre_accept, 'updated': now(),
+                   'pre_accept': self.pre_accept, 'freeze_steps': self.freeze_steps,
+                   'updated': now(),
                    'placement': self.request.get('placement'), 'owner': OWNER,
                    # A write-back run, so a daemon that finds this row before
                    # `accepted` knows its frozen context was never saved.
@@ -1711,6 +1713,7 @@ class Daemon:
             except Exception as error:
                 # What each step cost up to the failure, the failing one included.
                 run.pre_accept = dict(getattr(error, 'pre_accept', None) or run.pre_accept)
+                run.freeze_steps = dict(getattr(error, 'freeze_steps', None) or run.freeze_steps)
                 raise
             finally:
                 # Stopped before any other frame is written: two threads never
@@ -1782,6 +1785,7 @@ class Daemon:
         run.remote = submission.run_id
         run.shipped = getattr(submission, 'shipped', frozenset())
         run.pre_accept = dict(getattr(submission, 'durations', None) or {})
+        run.freeze_steps = dict(getattr(submission, 'freeze_steps', None) or {})
         if getattr(submission, 'writeback', None) is not None:
             # On disk before `accepted`, so a daemon that adopts this run after
             # a restart checks the proposal against the same frozen hashes.
