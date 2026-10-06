@@ -21,19 +21,23 @@ can stop it:
    the run was away gets its edit kept and the worker's version beside the run,
    never a silent overwrite: exit 75, the paths, and `pandora resolve`.
 
-A write-back is one publication: every file, or none. Publishing the ledger and
-not the route manifest leaves a pair that no run ever produced. So publishing
-is two passes: every file is staged as a temporary in its own directory and
-verified against the proposal's hash, every pending target is re-verified
-against its pre-publish state -- the window between the conflict check and the
-renames is all of staging -- and only then does a rename pass put them all in
-place. A staging failure or a mid-staging edit lands nothing; a crash between
-two renames can still split the set, so the record says which landed.
+A write-back stages and checks the whole proposal before publishing. Existing
+files are exchanged atomically, retaining each displaced local inode in a
+private recovery directory beside the proposal. A late edit detected after
+exchange stops publication with exit 75; the applied prefix and recovery paths
+are recorded. New files are linked exclusively, so a concurrent create is
+never replaced. A crash or failure between files can split the set. A journal
+written before each exchange makes displaced files discoverable even if the
+process dies before it records the result. No rollback overwrites a second edit.
 
 Nothing here ever deletes a file. See the engine half for why.
 """
+import ctypes
+import errno
 import json
 import os
+import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -237,6 +241,7 @@ def settle(run_dir, result, *, run_id, fetch, freeze):
                     why='%d declared file(s) changed here during the run' % len(conflicts))
     published = publish(frozen['worktree'], into, changes, expected=frozen['base'])
     written = published['written']
+    record['backups'] = published.get('backups', {})
     if published.get('drifted'):
         # A declared file moved while its temporary was being staged: the same
         # verdict as a conflict found before anything was fetched, naming the
@@ -245,9 +250,8 @@ def settle(run_dir, result, *, run_id, fetch, freeze):
                       'local': local_state(frozen['worktree'], path),
                       'proposed': changes[path]} for path in published['drifted']]
         return dict(record, state='conflicted', exit=proposals.COLLISION_EXIT,
-                    conflicts=conflicts,
-                    why='%d declared file(s) changed here while the write-back was '
-                        'being staged' % len(conflicts))
+                    conflicts=conflicts, written=written,
+                    why='%d declared file(s) changed here during publication' % len(conflicts))
     if published['error'] is not None:
         return dict(record, state='partial' if written else 'incomplete',
                     exit=proposals.INFRA_EXIT, written=written,
@@ -258,49 +262,105 @@ def settle(run_dir, result, *, run_id, fetch, freeze):
                 why=None, published_at=time.time())
 
 
-def publish(worktree, into, changes, *, expected):
-    """Stage every proposed file beside its target, then rename them all.
+def exchange(source, target):
+    """Atomically swap two names; keep the displaced inode, including open writers.
 
-    `expected` maps each path to the local state the caller's own conflict
-    check accepted -- the frozen hash, or the contents a resolve report saw.
-    Files whose local bytes already are the proposal are skipped. Everything
-    that can fail on I/O -- reading the proposal, writing and fsyncing the
-    temporary -- happens before the first rename, each staged file is checked
-    against the proposal's hash, and then every pending target is re-verified
-    against `expected`: a file edited while its temporary was being staged is
-    `drifted`, the temporaries are removed and nothing is renamed. A rename is
-    then the only step that can split the set, and the record always says what
-    landed: {'written': [...], 'unwritten': [...], 'error': failure-or-None,
-    'drifted': [paths]}. Cleanup of the temporaries is best-effort; it never
-    raises over the record.
+    No replace fallback: a filesystem without exchange support cannot safely
+    publish over an existing file. Both names must be on the same filesystem.
+    """
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == 'darwin':
+        operation = getattr(libc, 'renamex_np', None)
+        if operation is not None:
+            operation.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            arguments = (os.fsencode(source), os.fsencode(target), 2)  # RENAME_SWAP
+    elif sys.platform.startswith('linux'):
+        operation = getattr(libc, 'renameat2', None)
+        if operation is not None:
+            operation.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                                  ctypes.c_char_p, ctypes.c_uint]
+            arguments = (-100, os.fsencode(source), -100, os.fsencode(target), 2)
+    else:
+        operation = None
+    if operation is None:
+        raise OSError(errno.ENOTSUP, 'atomic exchange is unavailable')
+    operation.restype = ctypes.c_int
+    if operation(*arguments) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(target))
+
+
+def publish(worktree, into, changes, *, expected):
+    """Stage and recheck the whole proposal, then publish without discarding inodes.
+
+    Existing targets are exchanged with a staged file in a private recovery
+    directory beside the proposal. A journal written before each exchange says
+    where the original will be, even if the process dies immediately afterward.
+    The displaced file is checked after the exchange: a late edit is reported
+    as a conflict, with the applied prefix and the preserved local file named.
+    No automatic rollback races a second editor save. New targets use link(),
+    which cannot replace a file created after the final check.
     """
     todo = [path for path in sorted(changes)
             if local_state(worktree, path) != changes[path]]
-    staged = []
+    staged, written, backups = [], [], {}
+    recovery = None
+
+    def answer(error=None, drifted=()):
+        return {'written': written, 'unwritten': todo[len(written):],
+                'error': error, 'drifted': list(drifted), 'backups': dict(backups)}
+
     try:
         for path in todo:
             temporary = stage(worktree, path, Path(into) / path)
             staged.append(temporary)
             if proposals.digest(temporary) != changes[path]:
                 raise OSError('the staged bytes for %s do not match the proposal' % path)
+        drifted = [path for path in todo
+                   if local_state(worktree, path) not in (expected.get(path), changes[path])]
+        if drifted:
+            return answer(drifted=drifted)
+        for temporary, path in zip(staged, todo):
+            target = Path(worktree) / path
+            local = local_state(worktree, path)
+            if local not in (expected.get(path), changes[path]):
+                return answer(drifted=[path])
+            if local is None:
+                try:
+                    os.link(temporary, target)
+                except FileExistsError:
+                    return answer(drifted=[path])
+                written.append(path)
+                continue
+            if recovery is None:
+                recovery = Path(tempfile.mkdtemp(prefix='writeback-local-',
+                                                 dir=Path(into).parent))
+            # Declared paths may themselves be journal.json or journal.tmp.
+            # Keep preserved files separate from recovery bookkeeping.
+            backup = recovery / 'files' / path
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            # EXDEV fails before any target changes: copying an inode would
+            # lose later writes through an editor's already-open descriptor.
+            os.replace(temporary, backup)
+            planned = {**backups, path: str(backup)}
+            journal = recovery / 'journal.json'
+            pending = journal.with_suffix('.tmp')
+            with pending.open('w') as handle:
+                json.dump({'worktree': str(worktree), 'backups': planned,
+                           'proposed': changes}, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(pending, journal)
+            exchange(backup, target)
+            backups[path] = str(backup)
+            written.append(path)
+            if local_state(recovery / 'files', path) not in (expected.get(path), changes[path]):
+                return answer(drifted=[path])
+        return answer()
     except OSError as error:
+        return answer(error=str(error))
+    finally:
         unstage(staged)
-        return {'written': [], 'unwritten': todo, 'error': str(error)}
-    drifted = [path for path in todo
-               if local_state(worktree, path) not in (expected.get(path), changes[path])]
-    if drifted:
-        unstage(staged)
-        return {'written': [], 'unwritten': todo, 'error': None, 'drifted': drifted}
-    written = []
-    for temporary, path in zip(staged, todo):
-        try:
-            os.replace(temporary, Path(worktree) / path)
-        except OSError as error:
-            unstage(staged[len(written):])
-            return {'written': written, 'unwritten': todo[len(written):],
-                    'error': str(error)}
-        written.append(path)
-    return {'written': written, 'unwritten': [], 'error': None}
 
 
 # --- after a conflict ---------------------------------------------------------------
@@ -344,32 +404,45 @@ def resolve(run_dir, result, *, keep_local):
     # The record accumulates: a retry lands only what is still missing, but the
     # record of what this run's proposal put in the worktree must not shrink.
     record['written'] = sorted(set(record.get('written') or []) | set(written))
+    record.setdefault('backups', {}).update(published.get('backups', {}))
     if published.get('drifted'):
-        return 75, ['changed again since the conflict was reported, so nothing was '
-                    'written this time: %s' % ', '.join(published['drifted'])]
+        return 75, (['changed again during publication: %s; applied: %s'
+                     % (', '.join(published['drifted']), ', '.join(written) or 'nothing')]
+                    + recovery_lines(record))
     if published['error'] is not None:
         # What landed is recorded, but the state stays `conflicted`: the files
         # that did not land still have the local versions, so a retry writes
         # only those (the landed ones compare equal to the proposal now).
-        return 70, ['the publication stopped after %s: %s'
+        return 70, (['the publication stopped after %s: %s'
                     % (', '.join(written) or 'no file', published['error']),
                     'the run is still conflicted; `%s` can be retried' % record['resolve']]
+                    + recovery_lines(record))
     record.update(state='resolved', resolution='take-worker',
                   resolved_at=time.time())
     return 0, ['wrote the worker\'s version of %s' % (', '.join(written) or 'nothing'),
-               'review `git diff`, then validate without --update']
+               'review `git diff`, then validate without --update'] + recovery_lines(record)
 
+
+
+def recovery_lines(record):
+    return ['local version of %s preserved in %s' % (path, saved)
+            for path, saved in sorted((record.get('backups') or {}).items())]
 
 
 def describe(record):
     """The `pandora:` lines a caller sees about its write-back, in order."""
     state, names = record.get('state'), _names
     if state == 'published':
-        return ['wrote back %d file(s): %s' % (len(record['written']), names(record['written']))]
+        return (['wrote back %d file(s): %s'
+                 % (len(record['written']), names(record['written']))]
+                + recovery_lines(record))
     if state == 'unchanged':
         return ['the run changed none of the declared files; nothing was written back']
     if state == 'conflicted':
-        lines = ['not written back: %s. Your versions are kept:' % record['why']]
+        lines = ['write-back conflict: %s. Your versions are kept:' % record['why']]
+        if record.get('written'):
+            lines.append('applied before the conflict: %s' % names(record['written']))
+        lines += recovery_lines(record)
         lines += ['  %s  (the worker\'s: %s/%s)' % (item['path'], record['proposed'], item['path'])
                   for item in record['conflicts']]
         lines.append('merge the worker\'s versions in by hand, then `%s`; or `%s` to '
@@ -381,12 +454,13 @@ def describe(record):
         return ['not written back: %s: %s. The proposal is kept in %s'
                 % (record['why'], names(record['stale']), record['proposed'])]
     if state == 'partial':
-        return ['write-back stopped partway: %s' % record['why'],
+        return (['write-back stopped partway: %s' % record['why'],
                 '  landed: %s' % names(record['written']),
                 '  not written: %s -- the worker\'s versions are kept in %s'
                 % (names(record.get('unwritten') or []), record['proposed'])]
+                + recovery_lines(record))
     if state in ('incomplete', 'not-run'):
-        return ['not written back: %s' % record.get('why')]
+        return ['not written back: %s' % record.get('why')] + recovery_lines(record)
     return []
 
 

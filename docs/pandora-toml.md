@@ -288,16 +288,34 @@ restart does not withdraw a detached run. The next daemon follows it.
 
 ### Write-back (`--update`)
 
-A write-back is one publication: every declared file the run changed, or none.
-Each file is written by temporary file, `fsync` and rename. A crash mid-publication
-can leave part of the set written. The run's record says which. Write-back never
-deletes.
+Pandora stages and checks the whole proposal before publication. Existing files
+are atomically exchanged with staged files, preserving the displaced local
+versions in a private `writeback-local-*` directory beside the run's proposal.
+The result prints those recovery paths. New files are created without replacing
+an existing path. An edit detected before publication writes nothing. An edit
+detected after an exchange stops with exit 75 and records the applied files and
+preserved local versions. Review both before resolving the conflict. Pandora
+does not roll back automatically because that could overwrite another edit.
+
+A failure or crash between files can leave part of the set applied. Each recovery
+directory contains `journal.json`, written before each exchange, so its files
+can be inspected even if the process dies before it records the result. A journal
+entry whose bytes equal the proposal may be a staged file that was never exchanged.
+The run's normal retention policy also covers recovery files. Conflicted runs
+are kept until resolved. Copy any recovery files you need before resolving or
+before a completed run is collected.
+
+Publication over an existing file requires atomic exchange support and a run
+directory on the same filesystem as the target. If either requirement is missing,
+Pandora stops with exit 70 and reports any applied prefix. It never falls back to
+an overwrite that discards the local inode. Write-back never deletes declared files.
 
 | Case | Written | Exit |
 |---|---|---|
 | Run passed, and every changed declared file is still as frozen here | The worker's version of each | 0 |
 | Run passed and changed nothing declared | Nothing | 0 |
 | A declared file the run changed was edited here during the run | Nothing | 75, with `pandora resolve <id> --keep-local` or `--take-worker` |
+| A file changes after the last check, at publication | An applied prefix may remain; displaced local versions are preserved | 75, with recovery paths and `pandora resolve` |
 | A declared file absent at freeze was created by the run and is still absent here | The new file | 0 |
 | The same, but a file now exists here at that path | Nothing | 75, as a conflict |
 | A declared file present at freeze is absent after the run | Nothing | 70 |
