@@ -9,7 +9,6 @@ too high a price for changing a hostname.
     [worker]
     host = "ubuntu@10.0.0.1"
     engine_root = "pandora-engine"      # relative to the worker's home
-    budget_mib = 14000                  # optional; the engine measures its own
     health_interval_s = 60              # how often the daemon asks the engine how it is
 
     # Transitions only: down/up, a failed canary, the disk floor, kernel drift.
@@ -65,19 +64,16 @@ CLIENT_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')
 DEFAULT_STATE = Path('~/.local/state/pandora/default')
 
 DEFAULTS = {
-    'worker': {'host': '', 'engine_root': 'pandora-engine', 'budget_mib': None,
+    'worker': {'host': '', 'engine_root': 'pandora-engine',
                'ssh_persist': '10m', 'health_interval_s': 60},
     # Transitions only, and only on darwin. `osascript` is not a portable idea,
     # so everywhere else this is a no-op and the transition is a log line.
     'notify': {'enabled': True},
-    'client': {'state': str(DEFAULT_STATE), 'max_wait_seconds': 0, 'name': '',
+    'client': {'state': str(DEFAULT_STATE), 'name': '',
                # Finished run directories older than this are removed by the
                # daemon (`runindex.prune`); 0 keeps every run.
                'keep_runs_days': 7},
     'repos': [],
-    # The fake backend stays available, because a test that needs a worker is a
-    # test that does not run. `mode` is only consulted when it is not "worker".
-    'backend': {'mode': 'worker'},
     # The local lane's budget and its two exclusivity rules. `budget_mib` of 0
     # means "this machine's RAM minus the reserve", which is the honest default:
     # a number typed into a file goes stale the moment the Mac is replaced.
@@ -93,7 +89,7 @@ def _expand(value):
 
 def normalize(raw):
     config = {'worker': dict(DEFAULTS['worker']), 'client': dict(DEFAULTS['client']),
-              'backend': dict(DEFAULTS['backend']), 'local': dict(DEFAULTS['local']),
+              'local': dict(DEFAULTS['local']),
               'notify': dict(DEFAULTS['notify']), 'repos': []}
     # Same closed-schema rule as the keys inside a table: a misspelled
     # `[wroker]` that loaded silently would leave worker.host empty (#128).
@@ -102,7 +98,7 @@ def normalize(raw):
         raise ConfigError('config.toml has unknown top-level table%s %s; allowed: %s'
                           % ('' if len(unknown) == 1 else 's', ', '.join(unknown),
                              ', '.join(sorted(DEFAULTS))))
-    for section in ('worker', 'client', 'backend', 'local', 'notify'):
+    for section in ('worker', 'client', 'local', 'notify'):
         block = raw.get(section, {})
         if not isinstance(block, dict):
             raise ConfigError('[%s] must be a table' % section)

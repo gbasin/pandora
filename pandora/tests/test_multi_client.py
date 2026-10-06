@@ -508,6 +508,25 @@ class ClientIdentity(unittest.TestCase):
                     settings.normalize({'client': {key: 2}})
                 self.assertIn(key, str(caught.exception))
 
+    def test_the_remaining_dead_settings_are_refused_not_ignored(self):
+        for section, key, value in (('worker', 'budget_mib', 14000),
+                                    ('client', 'max_wait_seconds', 60)):
+            with self.subTest(section=section, key=key):
+                with self.assertRaises(ConfigError) as caught:
+                    settings.normalize({section: {key: value}})
+                self.assertIn('[%s]' % section, str(caught.exception))
+                self.assertIn(key, str(caught.exception))
+        for block in ({}, {'mode': 'worker'}, {'mode': 'fake'}):
+            with self.subTest(backend=block), self.assertRaises(ConfigError) as caught:
+                settings.normalize({'backend': block})
+            self.assertIn('backend', str(caught.exception))
+
+    def test_local_budget_and_pressure_wait_are_still_configurable(self):
+        config = settings.normalize({'local': {'budget_mib': 14000,
+                                               'pause': {'max_wait_seconds': 60}}})
+        self.assertEqual(config['local']['budget_mib'], 14000)
+        self.assertEqual(config['local']['pause']['max_wait_seconds'], 60)
+
     def test_odd_characters_in_the_default_are_replaced(self):
         with mock.patch.object(settings.getpass, 'getuser', return_value='gary basin'), \
                 mock.patch.object(settings.socket, 'gethostname', return_value='my mac.lan'):

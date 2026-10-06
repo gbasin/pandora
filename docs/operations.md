@@ -173,9 +173,12 @@ The optional keys and their defaults:
 | | `queue_timeout_seconds` | `0` | 0 waits for the budget as long as it takes. A nonzero bound ends a waiting run with exit 75, and nothing runs. |
 | `[local.pause]` | `enabled`, `sample_seconds`, `swap_growth_mib_per_minute`, `psi_full_avg10`, `free_percent`, `load_per_cpu`, `max_wait_seconds` | `true`, 3, 256, 20.0, 5.0, 8.0, 300 | The gate that stops new local jobs on a Mac under memory pressure. A job held past `max_wait_seconds` exits 70 and never runs. |
 
-`pandora/client/settings.py` documents every key. It also accepts `[worker]
-budget_mib`, `[client] max_wait_seconds`, `[client] fallback_slots` and
-`[client] fallback_wait_seconds`, but none of them affects behavior.
+`pandora/client/settings.py` documents every key. Remove `[worker] budget_mib`,
+`[client] max_wait_seconds`, `[client] fallback_slots`,
+`[client] fallback_wait_seconds`, and the `[backend]` table from older
+configurations. These settings never affected behavior and are now refused.
+The worker measures its own memory budget. Use `[local] budget_mib` for the
+local lane and `[local.pause] max_wait_seconds` for the local pressure gate.
 
 ### 4. Start the daemon
 
