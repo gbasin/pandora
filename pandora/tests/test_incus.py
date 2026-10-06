@@ -4,8 +4,10 @@ The parts that are subprocesses are tested on the worker by `canary.py`.
 """
 import json
 import subprocess
+import tempfile
 import unittest
 import unittest.mock
+from pathlib import Path
 
 from pandora.executor import incus as incus_driver
 from pandora.executor.incus import IncusDriver, parse_cgroup
@@ -395,6 +397,55 @@ class StalledSeconds(unittest.TestCase):
     def test_time_older_than_the_window_does_not_count(self):
         samples = self.samples([True] * 40 + [False] * 80)
         self.assertEqual(self.driver.stalled_seconds(samples), 0.0)
+
+
+class PollLogDrain(unittest.TestCase):
+    def test_a_running_command_streams_output_without_an_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'log').write_text('still running\n')
+
+            def execute(*args, **kwargs):
+                proc = subprocess.run(['bash', '-c', args[-1]], capture_output=True,
+                                      text=True, timeout=kwargs['timeout'])
+                return proc.returncode, proc.stdout, proc.stderr
+
+            driver = IncusDriver(root=tmp)
+            instance = Instance(name='run-r1', run_id='r1', golden='golden-abc')
+            with unittest.mock.patch.object(incus_driver, 'GUEST', tmp), \
+                    unittest.mock.patch.object(driver, 'incus', side_effect=execute):
+                self.assertEqual(driver.poll(instance, 0, 5), ('still running\n', None))
+
+    def test_completion_during_tail_keeps_final_bytes_for_the_next_poll(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            guest = Path(tmp)
+            (guest / 'log').write_text('marker\n')
+            # Complete the command immediately after tail has read its bytes.
+            # Reading rc afterward would report completion and lose the last line.
+            shell = '''tail() {
+                command tail "$@"
+                if [ ! -f "$GUEST_TEST/rc" ]; then
+                    printf 'final line\\n' >> "$GUEST_TEST/log"
+                    printf '0\\n' > "$GUEST_TEST/rc"
+                fi
+            }
+            '''
+
+            def execute(*args, **kwargs):
+                proc = subprocess.run(['bash', '-c', 'GUEST_TEST=%s\n' % tmp
+                                       + shell + args[-1]], capture_output=True,
+                                      text=True, timeout=kwargs['timeout'])
+                return proc.returncode, proc.stdout, proc.stderr
+
+            driver = IncusDriver(root=tmp)
+            instance = Instance(name='run-r1', run_id='r1', golden='golden-abc')
+            with unittest.mock.patch.object(incus_driver, 'GUEST', tmp), \
+                    unittest.mock.patch.object(driver, 'incus', side_effect=execute):
+                chunk, code = driver.poll(instance, 0, 5)
+                self.assertEqual(chunk, 'marker\n')
+                self.assertIsNone(code)
+                final, code = driver.poll(instance, len(chunk.encode()), 5)
+                self.assertEqual(final, 'final line\n')
+                self.assertEqual(code, 0)
 
 
 class ThrashingDriver(IncusDriver):

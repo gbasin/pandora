@@ -944,9 +944,12 @@ rm -rf "$2"
         short timeout and its failure is never fatal — the watchdog runs off
         host-side cgroup reads, which nothing inside the run can affect.
         """
+        # Observe completion before reading output. If the command ends during
+        # tail, defer its exit code to the next poll so its final bytes are read.
         rc, out, _ = self.incus('exec', instance.name, '--', 'bash', '-c',
+                                'code=$(cat %s/rc 2>/dev/null); '
                                 'tail -c +%d %s/log 2>/dev/null; echo "--RC--"; '
-                                'cat %s/rc 2>/dev/null' % (offset + 1, GUEST, GUEST),
+                                'printf "%%s\\n" "$code"' % (GUEST, offset + 1, GUEST),
                                 check=False, timeout=timeout)
         if rc != 0:
             if not self.exists(instance.name):
