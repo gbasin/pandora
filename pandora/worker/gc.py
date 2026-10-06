@@ -333,7 +333,8 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
                               'collectable in %.1f h'
                               % (label, (age + orphan_grace - now) / 3600))
             row = {'kind': 'golden', 'name': item['name'], 'repo': key[0],
-                   'family': label, 'referenced_bytes': item['referenced_bytes']}
+                   'family': label, 'referenced_bytes': item['referenced_bytes'],
+                   'exclusive_bytes': item['exclusive_bytes']}
             if reason:
                 kept.append(dict(row, why=reason))
                 continue
@@ -390,7 +391,9 @@ def sweep(root, driver, *, keep=2, dry_run=False, protect=None, enrolled=None,
                'drop': sorted(drop), 'orphan_grace_hours': orphan_grace / 3600,
                'at': time.time(), 'seconds': round(time.monotonic() - started, 2),
                'removed': removed, 'kept': kept, 'failed': failed,
-               'freed_bytes': sum(item.get('referenced_bytes', 0) for item in removed
+               # Estimate only: shared extents can remain in clones after removal.
+               'freed_bytes_basis': 'exclusive_before_delete',
+               'freed_bytes': sum(item.get('exclusive_bytes', 0) for item in removed
                                   if item.get('removed')),
                'pool': after}
     return receipt
@@ -414,7 +417,7 @@ def aborted(driver, started, keep, dry_run, protect, enrolled, repos, drop,
             'removed': [], 'kept': [],
             'failed': [{'kind': 'listing', 'name': 'incus list', 'removed': False,
                         'why': reason}],
-            'freed_bytes': 0, 'pool': pool}
+            'freed_bytes': 0, 'freed_bytes_basis': 'exclusive_before_delete', 'pool': pool}
 
 
 def destroy(driver, name):

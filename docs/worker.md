@@ -551,7 +551,12 @@ lockfile changes or an image refresh, or sweep more often than weekly.
   fingerprint, or a recipe's, which protects that recipe's newest golden.
 
 A `gc` without `--dry-run` writes a receipt under `~/pandora/worker/receipts/`
-on the worker.
+on the worker. Its `freed_bytes` is an estimate from the removed goldens'
+pre-delete exclusive bytes, marked `freed_bytes_basis = "exclusive_before_delete"`.
+It excludes extents still shared with clones. It can undercount when several
+removed volumes shared extents with each other. Leaked runs and volumes without
+size readings contribute zero. The receipt's pool reading is the state after
+the sweep, including concurrent activity; it is not an attribution of freed space.
 
 The other worker verbs:
 

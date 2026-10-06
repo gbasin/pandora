@@ -291,7 +291,8 @@ restart does not withdraw a detached run. The next daemon follows it.
 A write-back is one publication: every declared file the run changed, or none.
 Each file is written by temporary file, `fsync` and rename. A crash mid-publication
 can leave part of the set written. The run's record says which. Write-back never
-deletes.
+deletes. Replacement files keep ordinary permission bits, but have the staging
+user's ownership. Ownership, ACLs, and special mode bits are not preserved.
 
 | Case | Written | Exit |
 |---|---|---|
