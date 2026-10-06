@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.13](https://github.com/gbasin/pandora/compare/v0.3.12...v0.3.13) (2026-10-06)
+
+
+### Features
+
+* **diagnostics:** record source-capture phase timings ([#230](https://github.com/gbasin/pandora/issues/230)) ([259383b](https://github.com/gbasin/pandora/commit/259383bdc1a6446bcbe4e54edb1925e761bf34ea))
+* pin goldens to their base image and root lockfiles ([#222](https://github.com/gbasin/pandora/issues/222)) ([c91e47c](https://github.com/gbasin/pandora/commit/c91e47cab6e806e42aef2c8aa59c6cb9cf19a028))
+* refuse to sign a verdict while the worker has drifted ([#221](https://github.com/gbasin/pandora/issues/221)) ([c941c46](https://github.com/gbasin/pandora/commit/c941c46d425253c687c48078e3f7a4b732b8b7b7))
+* verdict ref prune workflow and the consumer runbook ([#220](https://github.com/gbasin/pandora/issues/220)) ([7af04f8](https://github.com/gbasin/pandora/commit/7af04f87d35dcc6ff97d0cdd061cca610be967be))
+
+
+### Bug Fixes
+
+* **config:** refuse settings that never affected behavior ([#225](https://github.com/gbasin/pandora/issues/225)) ([e12b0eb](https://github.com/gbasin/pandora/commit/e12b0eba5f9855e438b1c978c8c5113f8d4e711b))
+* **cpu:** report successful repins and the final placement ([#229](https://github.com/gbasin/pandora/issues/229)) ([5059e51](https://github.com/gbasin/pandora/commit/5059e511b4243c138b1d498c513cc2d566b2a0c9))
+* **executor:** read completion before draining command logs ([#233](https://github.com/gbasin/pandora/issues/233)) ([5956eb8](https://github.com/gbasin/pandora/commit/5956eb830eac0afa6716261952ea9eb5bfca280d))
+* **goldens:** retain recipe identity on the golden instance ([#231](https://github.com/gbasin/pandora/issues/231)) ([6f637ec](https://github.com/gbasin/pandora/commit/6f637ec6cda8bc86ea8815211215fcb4a0f82af6))
+* **help:** align queue and daemon messages with behavior ([#227](https://github.com/gbasin/pandora/issues/227)) ([92bc3e5](https://github.com/gbasin/pandora/commit/92bc3e542fd25cb57c4a20b4342cbb7b858f9b02))
+* **receipts:** exclude shared extents and special mode bits ([#228](https://github.com/gbasin/pandora/issues/228)) ([b4d7454](https://github.com/gbasin/pandora/commit/b4d7454cd2f45dcfcd6e1e67af230ddea2b0d71a))
+* **shards:** settle finished holders before respawn decisions ([#232](https://github.com/gbasin/pandora/issues/232)) ([a508f64](https://github.com/gbasin/pandora/commit/a508f64d71bacf90aa5300dbdb8527803ca2d81a))
+* tree parity for signed verdicts ([secrets] example files, Git LFS) and tree_from ([#224](https://github.com/gbasin/pandora/issues/224)) ([0f7e90c](https://github.com/gbasin/pandora/commit/0f7e90c2135045c1caa615f8f5dec2d98ccaf7fc))
+* **writeback:** preserve local files displaced at publication ([#226](https://github.com/gbasin/pandora/issues/226)) ([7ad7ee5](https://github.com/gbasin/pandora/commit/7ad7ee5e47d9fab7472aaa2af0e39b26c02b4821))
+
 ## [0.3.12](https://github.com/gbasin/pandora/compare/v0.3.11...v0.3.12) (2026-10-05)
 
 
