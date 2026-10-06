@@ -72,6 +72,18 @@ def tree_of(out):
     return found[-1] if found else None
 
 
+TREE_FAILED_LINE = re.compile(r'^pandora-tree-failed ([a-z_]{1,40})$', re.M)
+
+
+def tree_failure(out):
+    """Why `GIT_SCRIPT` printed no tree: the reason it printed, else
+    `no_tree_line`. None when it printed a tree."""
+    if tree_of(out):
+        return None
+    found = TREE_FAILED_LINE.findall(out or '')
+    return found[-1] if found else 'no_tree_line'
+
+
 def run(argv, *, timeout=600, check=True, stdin=None, capture=True):
     """One subprocess. Never a shell unless the caller wrote the shell line."""
     proc = subprocess.run(argv, input=stdin, timeout=timeout,
@@ -501,7 +513,45 @@ class IncusDriver(Executor):
 
     # --- a repository for suites that ask git ---------------------------------
 
+    # Run by `xargs` over `ls-files -s -z` records ("<mode> <blob> <stage>\t<path>")
+    # of every path whose `filter` attribute is `lfs`. For each regular file it
+    # writes the canonical Git LFS pointer blob for the file's bytes, which is
+    # what a checkout with git-lfs installed stores, and prints one
+    # `--index-info -z` record for it; the caller applies them all at once to a
+    # scratch index. A file under 1024 bytes that already starts with the spec
+    # line (checked out without git-lfs) prints nothing and keeps its entry, as
+    # git-lfs keeps it; a larger one is content and gets a pointer, as git-lfs
+    # gives it one. The working file is never touched. Any failure exits
+    # nonzero, and the caller then prints no tree.
     GIT_SCRIPT = r"""set -e
+LFS_POINTERS=$(cat <<'LFS'
+set -e
+if command -v sha256sum >/dev/null 2>&1; then sum='sha256sum'
+elif command -v shasum >/dev/null 2>&1; then sum='shasum -a 256'
+else echo 'no sha256sum or shasum' >&2; exit 1; fi
+spec='version https://git-lfs.github.com/spec/v1'
+tab=$(printf '\t')
+for record; do
+  meta=${record%%"$tab"*}
+  path=${record#*"$tab"}
+  mode=${meta%% *}
+  [ "$mode" = 100644 ] || [ "$mode" = 100755 ] || continue
+  [ -f "$path" ] && [ ! -L "$path" ] || continue
+  size=$(wc -c < "$path" | tr -d ' ')
+  if [ "$size" -lt 1024 ] && [ "$(head -c ${#spec} "$path" | tr -d '\000')" = "$spec" ]; then
+    continue
+  fi
+  oid=$($sum < "$path")
+  oid=${oid%% *}
+  if [ ${#oid} -ne 64 ] || [ -n "$(printf '%s' "$oid" | tr -d '0-9a-f')" ]; then
+    echo "bad sha256 for $path" >&2; exit 1
+  fi
+  blob=$(printf '%s\noid sha256:%s\nsize %s\n' "$spec" "$oid" "$size" \
+    | git hash-object -w --stdin)
+  printf '%s %s\t%s\000' "$mode" "$blob" "$path"
+done
+LFS
+)
 cd "$1"
 git config --system --add safe.directory '*'
 rm -rf .git
@@ -515,8 +565,27 @@ git add -A
 if [ -s "$2/ignored" ]; then
   git --literal-pathspecs add -f --pathspec-from-file="$2/ignored" --pathspec-file-nul
 fi
-tree=$(git write-tree)
-printf 'pandora-tree %s\n' "$tree"
+# The LFS step never fails the run: on any failure no tree is printed, the
+# reason is, and the script goes on to the commit the run needs.
+tree=
+failed=
+if ! git ls-files -s -z -- ':(attr:filter=lfs)' > "$2/lfs"; then
+  failed=lfs_attributes
+elif [ ! -s "$2/lfs" ]; then
+  tree=$(git write-tree)
+elif ! xargs -0 sh -c "$LFS_POINTERS" pandora-lfs < "$2/lfs" > "$2/lfs-info"; then
+  failed=lfs_pointers
+elif ! cp .git/index "$2/index" \
+    || ! GIT_INDEX_FILE="$2/index" git update-index -z --index-info < "$2/lfs-info" \
+    || ! tree=$(GIT_INDEX_FILE="$2/index" git write-tree); then
+  failed=lfs_index
+  tree=
+fi
+if [ -n "$tree" ]; then
+  printf 'pandora-tree %s\n' "$tree"
+else
+  printf 'pandora-tree-failed %s\n' "${failed:-write_tree}"
+fi
 if [ -s "$2/untracked" ]; then
   git --literal-pathspecs rm -q --cached --ignore-unmatch --pathspec-from-file="$2/untracked" --pathspec-file-nul
 fi
@@ -543,8 +612,22 @@ rm -rf "$2"
         additions and before the untracked removals. It is the tree a
         `git add -A && git commit` of the caller's worktree would record if
         nothing changed, and it is what a signed verdict names
-        (`pandora.engine.verdict`). Returns (seconds, tree), with tree None
-        when the line is missing.
+        (`pandora.engine.verdict`). Returns (seconds, tree, failed): tree is
+        None when the line is missing, and `failed` then says why
+        (`tree_failure`). A tree that cannot be computed never fails the run:
+        the commit is still made, and the verdict is skipped as
+        `tree_failed:<failed>`.
+
+        Git LFS: a path whose `filter` attribute is `lfs` is stored in the
+        caller's commits as a pointer, but here, with no LFS filter, `git add`
+        stores its real bytes. The tree is therefore written from a scratch
+        copy of the index in which each such entry is the canonical pointer
+        for the file's bytes (`LFS_POINTERS` in `GIT_SCRIPT`), so it equals the
+        commit's. The commit uses the real index, with the real bytes:
+        `git status` and `git diff HEAD` in the run then see a clean tree
+        without git-lfs. A file under 1024 bytes that already holds a pointer
+        is left as is. Any failure in this step prints `pandora-tree-failed
+        <reason>` instead of a tree.
         """
         t0 = time.monotonic()
         lists = GUEST + '/git-marks'
@@ -558,7 +641,7 @@ rm -rf "$2"
                            check=False, timeout=900)
         if rc != 0:
             raise ExecutionFailed('synthetic git in %s failed: %s' % (name, err.strip()[:400]))
-        return time.monotonic() - t0, tree_of(out)
+        return time.monotonic() - t0, tree_of(out), tree_failure(out)
 
     # --- clone -------------------------------------------------------------
 

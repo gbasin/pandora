@@ -405,6 +405,7 @@ def check_repository(cwd, config, sock_path, data=None):
     out += check_caches(cwd, root, common, kind)
     if root is not None:
         out += check_outputs(root, parsed.get('config'))
+        out += check_secrets(root, parsed.get('config'))
     home = parsed.get('home')
     if home:
         # Read for one release, never acted on: the shim runs the client from
@@ -529,6 +530,46 @@ def check_outputs(root, fallback=None, *, run=subprocess.run):
                       'gitignore them' % (len(dirty), dirty[0]), dirty=dirty)]
     return [check('declared outputs', OK,
                   'every declared output path is ignored or tracked')]
+
+
+def check_secrets(root, fallback=None, *, run=subprocess.run):
+    """No tracked file may be dropped by the exclusion rules.
+
+    A dropped file never reaches the worker, so the run's tree lacks it and
+    never equals a commit's tree: no verdict for this worktree can match. The
+    rules are the built-in directories (which include `node_modules` and
+    `.jj`, not only secrets), the built-in secret names, and
+    `[secrets] exclude_globs` (`snapshot.freeze.exclusion_rule`). Each file is
+    shown with the rule that matched it.
+    """
+    from ..snapshot.freeze import exclusion_rule
+    try:
+        config = loader.load_for(root, fallback)
+    except (ConfigError, OSError):
+        return []
+    globs = (config.get('secrets') or {}).get('exclude_globs') or []
+    listed = run(['git', '-C', str(root), 'ls-files', '-z', '--cached'], capture_output=True)
+    if listed.returncode != 0:
+        return []
+    rules = {}
+    for item in listed.stdout.split(b'\0'):
+        if not item:
+            continue
+        name = item.decode('utf-8', 'surrogateescape')
+        rule = exclusion_rule(name, globs, tracked=True)
+        if rule is not None:
+            rules[name] = rule
+    if rules:
+        dropped = list(rules)
+        shown = ', '.join('%s (%s)' % (name, rules[name]) for name in dropped[:3]) \
+            + (', ...' if len(dropped) > 3 else '')
+        return [check('tracked excluded files', WARN,
+                      '%d tracked file(s) are excluded by a built-in rule or [secrets] '
+                      'exclude_globs: %s; they never reach the worker, so the run\'s tree '
+                      'never equals a commit\'s and no verdict can match. Untrack them, or '
+                      'narrow exclude_globs' % (len(dropped), shown),
+                      dropped=dropped, rules=rules)]
+    return [check('tracked excluded files', OK, 'no tracked file is excluded')]
 
 
 def check_cwd(cwd):

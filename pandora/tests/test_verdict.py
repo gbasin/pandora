@@ -121,6 +121,18 @@ class ConditionsTest(unittest.TestCase):
                 self.assertEqual(verdict.skip_reason(outcome=outcome, role=role,
                                                      ready=ready, tree=tree), want)
 
+    def test_a_tree_that_failed_names_its_reason(self):
+        self.assertEqual(verdict.skip_reason(outcome='passed', role='single', ready='ready',
+                                             tree=None, tree_failed='lfs_pointers'),
+                         'tree_failed:lfs_pointers')
+        # The earlier conditions still come first.
+        self.assertEqual(verdict.skip_reason(outcome='command_failed', role='single',
+                                             ready='ready', tree=None,
+                                             tree_failed='lfs_pointers'), 'not_passed')
+        self.assertEqual(verdict.skip_reason(outcome='passed', role='single',
+                                             ready='unproven', tree=None,
+                                             tree_failed='lfs_pointers'), 'worker_not_ready')
+
     def test_drift_comes_after_ready_and_the_tree(self):
         for outcome, role, ready, tree, drift, want in self.DRIFTED:
             with self.subTest(outcome=outcome, role=role, ready=ready, tree=tree, drift=drift):

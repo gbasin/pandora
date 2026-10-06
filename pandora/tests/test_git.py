@@ -1,5 +1,6 @@
 """The synthetic repository: declared per job, built from the caller's tracked set."""
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -247,3 +248,238 @@ class ScriptTest(unittest.TestCase):
         self.assertIsNone(tree_of(''))
         self.assertIsNone(tree_of('pandora-tree xyz\n'))
         self.assertEqual(tree_of('noise\npandora-tree %s\n' % ('a' * 40)), 'a' * 40)
+
+
+LFS_SPEC = 'version https://git-lfs.github.com/spec/v1'
+
+
+def lfs_pointer(data):
+    import hashlib
+    return ('%s\noid sha256:%s\nsize %d\n'
+            % (LFS_SPEC, hashlib.sha256(data).hexdigest(), len(data))).encode()
+
+
+class LfsTreeTest(unittest.TestCase):
+    """A Git LFS path is stored as its pointer in a real repository's tree.
+
+    The worker's synthetic repository has no LFS filter, so `git add -A`
+    stores the real bytes. The tree it prints must still equal the commit's.
+    No git-lfs binary is needed: the pointer blob is written by hand, as the
+    clean filter would.
+    """
+
+    def setUp(self):
+        import os
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.env = dict(os.environ, GIT_CONFIG_SYSTEM=str(self.root / 'system.gitconfig'),
+                        GIT_CONFIG_GLOBAL=str(self.root / 'global.gitconfig'),
+                        GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@localhost',
+                        GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@localhost')
+
+    def git(self, repo, *args, stdin=None):
+        import subprocess
+        return subprocess.run(['git', '-C', str(repo), *args], env=self.env, check=True,
+                              input=stdin, capture_output=True).stdout
+
+    def committed(self, files, stored):
+        """A real repository whose commit holds `files`, with `stored` overriding
+        the blob of a path (the pointer git-lfs would store). Returns HEAD^{tree}."""
+        import os
+        real = self.root / 'real'
+        real.mkdir()
+        self.git(real, 'init', '-q', '-b', 'main')
+        for name, data in files.items():
+            path = real / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(stored.get(name, data))
+            if name.endswith('.sh'):
+                os.chmod(path, 0o755)
+        self.git(real, 'add', '-A')
+        self.git(real, 'commit', '-qm', 'first')
+        return self.git(real, 'rev-parse', 'HEAD^{tree}').decode().strip()
+
+    def synthetic(self, files, *, shell='sh', env=None):
+        """Run GIT_SCRIPT over a work tree holding `files`; returns (tree, run git).
+        The script's stdout is kept in `self.printed`."""
+        import os
+        import subprocess
+        from pandora.executor.incus import IncusDriver, tree_of
+        work = self.root / 'work'
+        for name, data in files.items():
+            path = work / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            if name.endswith('.sh'):
+                os.chmod(path, 0o755)
+        lists = self.root / 'marks'
+        lists.mkdir()
+        for flag in ('untracked', 'ignored'):
+            (lists / flag).write_bytes(b'')
+        proc = subprocess.run([shell, '-c', IncusDriver.GIT_SCRIPT, 'git', str(work),
+                               str(lists), 'pandora abc'], env=env or self.env,
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(lists.exists())
+        self.printed = proc.stdout
+        return tree_of(proc.stdout), work
+
+    ATTRS = b'*.bin filter=lfs diff=lfs merge=lfs -text\n'
+
+    def test_the_tree_stores_the_pointer_for_real_bytes(self):
+        data = bytes(range(256)) * 40 + b'\0tail'
+        tool = b'#!/bin/sh\n' + bytes(range(256))
+        files = {'.gitattributes': self.ATTRS, 'assets/model.bin': data,
+                 'assets/run.sh.bin': tool, 'readme.md': b'hi\n',
+                 'dir with space/a b.bin': b'spaced\n'}
+        want = self.committed(files, {name: lfs_pointer(body) for name, body in files.items()
+                                      if name.endswith('.bin')})
+        tree, work = self.synthetic(files)
+        self.assertEqual(tree, want)
+        # The working bytes are what the run needs, and stay untouched.
+        self.assertEqual((work / 'assets/model.bin').read_bytes(), data)
+        # The commit keeps the real bytes, so `git status` in the run is clean
+        # without git-lfs installed.
+        self.assertEqual(self.git(work, 'status', '--porcelain'), b'')
+        self.assertEqual(self.git(work, 'cat-file', 'blob', 'HEAD:assets/model.bin'), data)
+
+    def test_the_mode_of_an_lfs_entry_is_kept(self):
+        import os
+        data = b'\x7fELF' + bytes(100)
+        real = self.root / 'real'
+        real.mkdir()
+        self.git(real, 'init', '-q', '-b', 'main')
+        (real / '.gitattributes').write_bytes(self.ATTRS)
+        (real / 'tool.bin').write_bytes(lfs_pointer(data))
+        os.chmod(real / 'tool.bin', 0o755)
+        self.git(real, 'add', '-A')
+        self.git(real, 'commit', '-qm', 'first')
+        want = self.git(real, 'rev-parse', 'HEAD^{tree}').decode().strip()
+        work = self.root / 'work'
+        work.mkdir()
+        (work / 'tool.bin').write_bytes(data)
+        os.chmod(work / 'tool.bin', 0o755)
+        tree, work = self.synthetic({'.gitattributes': self.ATTRS})
+        self.assertEqual(tree, want)
+        listing = self.git(work, 'ls-tree', tree, 'tool.bin').decode()
+        self.assertTrue(listing.startswith('100755 blob '), listing)
+
+    def test_a_file_already_a_pointer_is_not_pointed_at_again(self):
+        # Checked out without git-lfs: the work tree holds the pointer itself.
+        pointer = lfs_pointer(b'the real content\n')
+        files = {'.gitattributes': self.ATTRS, 'big.bin': pointer}
+        want = self.committed(files, {})
+        tree, _work = self.synthetic(files)
+        self.assertEqual(tree, want)
+
+    def test_a_repository_without_lfs_is_unchanged(self):
+        files = {'.gitattributes': b'*.txt text\n', 'a.bin': bytes(range(256)),
+                 'b.txt': b'b\n', 'run.sh': b'#!/bin/sh\n'}
+        want = self.committed(files, {})
+        tree, work = self.synthetic(files)
+        self.assertEqual(tree, want)
+        self.assertEqual(self.git(work, 'rev-parse', 'HEAD^{tree}').decode().strip(), want)
+
+    def test_a_large_file_that_starts_with_the_spec_line_gets_a_pointer(self):
+        # git-lfs reads a file as a pointer only under 1024 bytes; a larger one
+        # is content, whatever its first line says.
+        data = (LFS_SPEC + '\n').encode() + b'x' * 3072
+        files = {'.gitattributes': self.ATTRS, 'big.bin': data}
+        want = self.committed(files, {'big.bin': lfs_pointer(data)})
+        tree, _work = self.synthetic(files)
+        self.assertEqual(tree, want)
+
+    def test_a_negated_filter_is_stored_as_its_bytes(self):
+        attrs = self.ATTRS + b'raw.bin -filter\n'
+        files = {'.gitattributes': attrs, 'big.bin': b'content\n', 'raw.bin': b'raw\n'}
+        want = self.committed(files, {'big.bin': lfs_pointer(b'content\n')})
+        tree, work = self.synthetic(files)
+        self.assertEqual(tree, want)
+        self.assertEqual(self.git(work, 'cat-file', 'blob', '%s:raw.bin' % tree), b'raw\n')
+
+    def test_a_symlink_with_the_lfs_attribute_stays_a_link(self):
+        # git-lfs never filters a symlink: the tree stores the link target.
+        data = b'content\n'
+        real = self.root / 'real'
+        real.mkdir()
+        self.git(real, 'init', '-q', '-b', 'main')
+        (real / '.gitattributes').write_bytes(self.ATTRS)
+        (real / 'a.bin').write_bytes(lfs_pointer(data))
+        (real / 'link.bin').symlink_to('a.bin')
+        self.git(real, 'add', '-A')
+        self.git(real, 'commit', '-qm', 'first')
+        want = self.git(real, 'rev-parse', 'HEAD^{tree}').decode().strip()
+        work = self.root / 'work'
+        work.mkdir()
+        (work / 'link.bin').symlink_to('a.bin')
+        tree, work = self.synthetic({'.gitattributes': self.ATTRS, 'a.bin': data})
+        self.assertEqual(tree, want)
+        listing = self.git(work, 'ls-tree', tree, 'link.bin').decode()
+        self.assertTrue(listing.startswith('120000 blob '), listing)
+
+    def test_a_failed_pointer_step_prints_no_tree_and_still_commits(self):
+        # A sha256 tool that fails: the run must still get its repository.
+        import os
+        from pandora.executor.incus import tree_failure
+        stubs = self.root / 'stubs'
+        stubs.mkdir()
+        for tool in ('sha256sum', 'shasum'):
+            (stubs / tool).write_text('#!/bin/sh\nexit 3\n')
+            os.chmod(stubs / tool, 0o755)
+        env = dict(self.env, PATH='%s:%s' % (stubs, self.env.get('PATH', '')))
+        files = {'.gitattributes': self.ATTRS, 'big.bin': b'content\n', 'a.txt': b'a\n'}
+        tree, work = self.synthetic(files, env=env)
+        self.assertIsNone(tree)
+        self.assertEqual(tree_failure(self.printed), 'lfs_pointers')
+        self.assertEqual(self.git(work, 'status', '--porcelain'), b'')
+        self.assertEqual(self.git(work, 'cat-file', 'blob', 'HEAD:big.bin'), b'content\n')
+
+    def test_no_sha256_tool_at_all_prints_no_tree_and_still_commits(self):
+        import os
+        import shutil
+        from pandora.executor.incus import tree_failure
+        # Every tool on PATH but the two sha256 ones.
+        farm = self.root / 'farm'
+        farm.mkdir()
+        for folder in (self.env.get('PATH') or '').split(':'):
+            if not folder or not os.path.isdir(folder):
+                continue
+            for name in os.listdir(folder):
+                if name in ('sha256sum', 'shasum') or (farm / name).exists() \
+                        or (farm / name).is_symlink():
+                    continue
+                (farm / name).symlink_to(os.path.join(folder, name))
+        env = dict(self.env, PATH=str(farm))
+        self.assertIsNone(shutil.which('sha256sum', path=str(farm)))
+        self.assertIsNone(shutil.which('shasum', path=str(farm)))
+        files = {'.gitattributes': self.ATTRS, 'big.bin': b'content\n'}
+        tree, work = self.synthetic(files, env=env)
+        self.assertIsNone(tree)
+        self.assertEqual(tree_failure(self.printed), 'lfs_pointers')
+        self.assertEqual(self.git(work, 'cat-file', 'blob', 'HEAD:big.bin'), b'content\n')
+
+    def test_the_failure_reason_is_read_from_the_output(self):
+        from pandora.executor.incus import tree_failure
+        self.assertIsNone(tree_failure('pandora-tree %s\n' % ('a' * 40)))
+        self.assertEqual(tree_failure('pandora-tree-failed lfs_index\n'), 'lfs_index')
+        self.assertEqual(tree_failure(''), 'no_tree_line')
+        self.assertEqual(tree_failure('pandora-tree-failed Bad Reason\n'), 'no_tree_line')
+
+    def test_the_pointers_are_applied_in_one_index_update(self):
+        from pandora.executor.incus import IncusDriver
+        script = IncusDriver.GIT_SCRIPT
+        self.assertEqual(script.count('update-index'), 1)
+        self.assertIn('update-index -z --index-info', script)
+        self.assertEqual(script.count('attr:filter=lfs'), 1)
+
+    @unittest.skipUnless(shutil.which('dash'), 'dash is not installed')
+    def test_the_script_runs_under_dash(self):
+        # The worker's /bin/sh is dash on Debian and Ubuntu.
+        data = bytes(range(256)) * 8
+        files = {'.gitattributes': self.ATTRS, 'assets/model.bin': data,
+                 'dir with space/a b.bin': b'spaced\n', 'readme.md': b'hi\n'}
+        want = self.committed(files, {name: lfs_pointer(body) for name, body in files.items()
+                                      if name.endswith('.bin')})
+        tree, _work = self.synthetic(files, shell='dash')
+        self.assertEqual(tree, want)

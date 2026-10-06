@@ -16,6 +16,7 @@ table) and [docs/operations.md](operations.md#signed-verdict-publication)
 * [Triage](#triage)
 * [Trust rules](#trust-rules)
 * [What a verdict does not check](#what-a-verdict-does-not-check)
+* [Which tree: the merge commit or the pull request head](#which-tree-the-merge-commit-or-the-pull-request-head)
 * [Pruning](#pruning)
 
 ## What a verdict is
@@ -91,6 +92,12 @@ of a Pandora release, and put the release tag in a comment:
 * `argv` is the job's `run.argv` as a JSON array. It must match the signed
   argv exactly.
 * `signers` is optional. The default is `.github/pandora/allowed_signers`.
+* `tree_from` is optional. The default is `merge`. Read
+  [Which tree](#which-tree-the-merge-commit-or-the-pull-request-head) before
+  you set `head`.
+* The step outputs `verified`, `reason`, `run_id`, `golden`, `tree` (the
+  tree the verdict was looked up for) and `tree_from` (`merge` or `head`, the
+  source actually used).
 * The verify script never fails the step. Every miss sets `verified` to
   `false` and the covered steps run.
 * GitHub downloads the action in "Set up job", before any step runs. If it
@@ -196,7 +203,7 @@ Fix a `no_verdict` first, then rerun to see the next reason.
 | `reason` | Cause | Action |
 |---|---|---|
 | `match` | A signed verdict for this tree, job and argv verified. | None. |
-| `no_verdict` | No ref `refs/pandora/verdicts/<tree>/<job>` on `origin`, or the fetch failed. Most often: the branch is behind its base, so the merge commit's tree differs; the agent edited after the run; an untracked file was in the worktree during the run; the run failed or was not routed; or publication failed. | Check `pandora result <id>` on the Mac for the `verdict:` line, and `pandora logs <id>` for the publication line. Rebase onto the base before the final run. |
+| `no_verdict` | No ref `refs/pandora/verdicts/<tree>/<job>` on `origin`, or the fetch failed. Most often: the branch is behind its base, so the merge commit's tree differs; the agent edited after the run; an untracked file was in the worktree during the run; a tracked file is excluded by a built-in rule or `[secrets]` (`pandora doctor` warns, `tracked excluded files`); the run failed or was not routed; or publication failed. | Check `pandora result <id>` on the Mac for the `verdict:` line, and `pandora logs <id>` for the publication line. Rebase onto the base before the final run. |
 | `signers_missing` | The signers file is not on the default branch at the `signers` path. | Merge the signers file into the default branch. |
 | `no_signers` | The signers file has no key line, or the `signers` input is empty. | Add the worker's key line. |
 | `bad_signature` | The signature does not verify against any listed key. The worker was rebuilt, or the key line is wrong. | Rotate the key ([Rotate the key](#rotate-the-key-after-a-worker-rebuild)). Check the principal and the namespace. |
@@ -215,6 +222,9 @@ Fix a `no_verdict` first, then rerun to see the next reason.
 | `bad_default_branch` | The default branch name is not a valid branch name. | Check the repository settings. |
 | `base_unavailable` | The default branch could not be fetched. | Check the runner's access to the repository, then rerun. |
 | `no_tree` | The checkout has no `HEAD` commit. | Put `actions/checkout` before the step. |
+| `bad_tree_from` | The `tree_from` input is not `merge` or `head`. | Fix the `tree_from` input. |
+| `bad_head_sha` | `tree_from` is `head` and the pull request head is not a full commit sha. | Should not occur with the action. Report it to the Pandora owner. |
+| `head_unavailable` | `tree_from` is `head` and the pull request head could not be fetched from `origin`. On a private repository this also happens when `actions/checkout` ran with `persist-credentials: false`, which leaves the later fetch without a token. | Check the runner's access to the repository, or drop `persist-credentials: false` from the checkout step, then rerun. |
 | `no_ssh_keygen` | The runner has no `ssh-keygen`. | Use a runner image with OpenSSH. |
 | `no_python3` | The runner has no `python3`. | Use a runner image with Python 3. |
 | `no_tempdir` | `mktemp -d` failed. | Check the runner's disk. |
@@ -232,8 +242,10 @@ Fix a `no_verdict` first, then rerun to see the next reason.
 * Failures never transfer. A failed or missing verdict only means the job runs.
 * A verdict means pass only. The worker signs nothing for a failed run.
 * A verdict has no TTL. It holds for its tree until someone deletes the ref.
-* The tree is `HEAD^{tree}` of the CI checkout. On a pull request that is the
-  merge commit GitHub builds, not the branch head.
+* By default the tree is `HEAD^{tree}` of the CI checkout. On a pull request
+  that is the merge commit GitHub builds, not the branch head. `tree_from:
+  head` changes that
+  ([Which tree](#which-tree-the-merge-commit-or-the-pull-request-head)).
 * CI does not pin the golden fingerprint yet. It records the verdict's golden,
   but does not compare it with an expected value.
 
@@ -244,6 +256,41 @@ the bytes. Package drift after the last canary, a worker under a custom root,
 and files git normalizes are listed in
 [docs/worker.md, Verdicts](worker.md#verdicts). Trust a signer only as far as
 every key that can reach the worker.
+
+## Which tree: the merge commit or the pull request head
+
+`tree_from: head` matches the branch as pushed even when the base moved, at
+the cost of CI vouching for a tree it did not itself test on this event.
+Recommended only when a merge queue re-runs the same job on the merged tree.
+
+`merge`, the default, looks up the verdict for `HEAD^{tree}` of the checkout.
+On a `pull_request` event that is the merge commit GitHub builds from the
+head and the current base. A verdict matches only when the run saw that
+merged tree, so a base that moves after the run makes it miss. The skip is
+then exactly as strong as running the job: the tree CI would test is the tree
+the worker tested.
+
+`head` looks up the verdict for the tree of
+`github.event.pull_request.head.sha`, the branch as pushed. The action
+fetches that commit at depth 1 when the checkout lacks it. A verdict then
+survives a moved base, so an agent need not rebase before every final run.
+The cost: CI skips the job on a merge commit whose tree no one tested. A
+change on the base that conflicts in meaning with the branch, without a text
+conflict, passes this check and breaks on the base after merge.
+
+Use `head` only when something else tests the merged tree before it lands:
+a merge queue that runs the same job on its merge group (`merge_group`
+event). On that event there is no pull request head, so the step falls back
+to `merge`, and the queue either finds a verdict for the merged tree or runs
+the job. On any event but `pull_request`, `head` falls back to `merge`.
+`tree_from` in the outputs says which tree was used.
+
+```yaml
+        with:
+          job: check
+          argv: '["pnpm","check"]'
+          tree_from: head   # only with a merge queue that re-runs this job
+```
 
 ## Pruning
 

@@ -88,7 +88,7 @@ is the worked version of the same job written two ways.
 | `[matching]` | `strip_prefixes` (wrapper tokens removed before matching, such as `run` and `validate`). `subdirectory = "reroot"`, `"reject"` or `"passthrough"`: what a claimed command typed below the worktree root does. `reroot` runs it from the root unless an argument names a path, then exits 64. `reject` refuses it with exit 1. `local` is an old name for `reroot`. `passthrough` claims it only at the root, so below it the command runs unchanged, like an unclaimed one, decided in the shim with no fork. Use it when bare root forms (`test`, `build`) mean a package's own script in a subdirectory. |
 | `[feedback]` | `reject_suffix`, `extra_message`: text added to refusals. |
 | `[env]` | `set`, `passthrough`, `unset`, `reject_if_set`. Only the caller's variables named in `passthrough` reach the run, under `set` and the job's `run.env`. `unset` applies to all three. A declared name that is secret-shaped or describes this Mac (`PATH`, `LANG`, `NODE_OPTIONS`) is never forwarded, and is named on stderr. `reject_if_set` is checked against the caller's whole environment, so it can refuse on those names too. |
-| `[secrets]` | `exclude_globs`: paths never frozen or shipped. |
+| `[secrets]` | `exclude_globs`: paths never frozen or shipped, added to the built-in secret names. A glob matches the repository-relative path or the file name. A tracked file whose name ends in `.example`, `.sample` or `.template` is never excluded by a glob, as the built-in `.env.*` and `.dev.vars.*` rules already keep it, so `**/.env.*` drops `.env.local` and keeps a tracked `.env.example`. An untracked one is excluded as the glob says: `secrets/*` drops an untracked `secrets/prod.template`. A tracked file that a rule excludes never reaches the worker, so the run's tree cannot equal a commit's and no verdict can match ([Signed verdicts](#signed-verdicts)). `pandora doctor` warns about each such file and names the rule that matched (`tracked excluded files`). |
 | `[worker]` | Required. Golden toolchain, with `base_image` required: `base_image`, `packages`, `node_version`, `pnpm_version`, `service_images`, `install_command`, `source_id`, `env`, `workdir`. `workdir` sets only the canary's working directory. Routed runs ignore it. `prepare_command` is an optional per-run hook described below. It does not change the golden fingerprint. The worker also folds the Incus image that `base_image` resolves to and the sha256 of each lockfile at the repository root into the fingerprint, so a new base image or a lockfile change builds a new golden on the next run ([Goldens](worker.md#goldens)). |
 | `[fallback]` | Optional repository-wide fallback. Acme declares none on purpose. |
 | `[verdicts]` | Optional. `publish` (`false` by default) and `remote` (`"origin"` by default): whether the daemon pushes a worker's signed verdict to that remote as a git ref. Described below. |
@@ -156,7 +156,7 @@ the worker knows the git tree it ran over, and ran on a worker that has not
 drifted from its manifest. The signed payload names that tree, the job, the argv and the golden.
 `result.json` carries `tree`, `verdict` (`payload`, `signature`, `signer`) and
 `verdict_skipped`, the first condition that failed: `not_passed`, `not_whole`,
-`worker_not_ready`, `no_synthetic_git` or `worker_drifted`.
+`worker_not_ready`, `no_synthetic_git`, `tree_failed:<reason>` or `worker_drifted`.
 
 ```toml
 [verdicts]

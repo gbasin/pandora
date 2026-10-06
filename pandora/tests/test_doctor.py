@@ -549,5 +549,53 @@ class DeclaredOutputs(Scratch):
         self.assertEqual(doctor.check_outputs(repo), [])
 
 
+
+class TrackedExcludedFiles(Scratch):
+    """A tracked file the secret rules drop makes every verdict unmatchable."""
+
+    def make_repo(self, files):
+        from pandora.tests.test_snapshot import make_repo
+        toml = CONFIG + '[secrets]\nexclude_globs = ["**/.env.*", "**/*.pem", "deploy/*"]\n'
+        return make_repo(self.root / 'repo', dict({'a.txt': 'a\n', 'pandora.toml': toml},
+                                                  **files))
+
+    def test_tracked_files_the_globs_drop_are_warned_by_name(self):
+        repo = self.make_repo({'apps/x/.env.local': 'A=1\n', 'certs/a.pem': 'k\n',
+                               'certs/b.pem': 'k\n', 'certs/c.pem': 'k\n',
+                               'apps/x/.env.example': 'A=\n'})
+        item = doctor.check_secrets(repo)[0]
+        self.assertEqual(item['status'], 'warn', item)
+        self.assertEqual(item['facts']['dropped'],
+                         ['apps/x/.env.local', 'certs/a.pem', 'certs/b.pem', 'certs/c.pem'])
+        self.assertIn('4 tracked file(s)', item['detail'])
+        self.assertIn('apps/x/.env.local (built-in name), certs/a.pem (built-in name), '
+                      'certs/b.pem (built-in name), ...', item['detail'])
+        self.assertIn('no verdict can match', item['detail'])
+
+    def test_a_glob_match_names_the_glob(self):
+        repo = self.make_repo({'deploy/prod.yml': 'k: v\n', 'deploy/prod.example': 'k:\n'})
+        item = doctor.check_secrets(repo)[0]
+        self.assertEqual(item['facts']['rules'], {'deploy/prod.yml': '[secrets] glob deploy/*'})
+        self.assertIn('deploy/prod.yml ([secrets] glob deploy/*)', item['detail'])
+
+    def test_example_files_and_untracked_secrets_are_fine(self):
+        repo = self.make_repo({'apps/x/.env.example': 'A=\n', 'certs/dev.pem.sample': 'k\n'})
+        (repo / 'apps/x/.env.local').write_text('A=1\n')
+        item = doctor.check_secrets(repo)[0]
+        self.assertEqual(item['status'], 'ok', item)
+
+    def test_a_tracked_built_in_dir_is_named(self):
+        repo = self.make_repo({'web/node_modules/x/index.js': 'x\n'})
+        item = doctor.check_secrets(repo)[0]
+        self.assertEqual(item['name'], 'tracked excluded files', item)
+        self.assertEqual(item['status'], 'warn', item)
+        self.assertIn('web/node_modules/x/index.js (built-in dir node_modules)', item['detail'])
+
+    def test_no_configuration_is_not_a_check(self):
+        repo = self.make_repo({})
+        (repo / 'pandora.toml').unlink()
+        self.assertEqual(doctor.check_secrets(repo), [])
+
+
 if __name__ == '__main__':
     unittest.main()

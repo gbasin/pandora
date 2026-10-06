@@ -3,10 +3,15 @@
 #
 #   scripts/verdict-verify.sh --job suite \
 #       --argv '["python3","-m","unittest","discover","-s","pandora"]' \
-#       [--signers .github/pandora/allowed_signers] [--default-branch main]
+#       [--signers .github/pandora/allowed_signers] [--default-branch main] \
+#       [--tree-from merge|head] [--head-sha <sha>]
 #
 # Run from the root of a git checkout whose `origin` holds the verdict refs.
-# The tree is HEAD^{tree}. The verdict is the parentless commit at
+# The tree is HEAD^{tree} (`--tree-from merge`, the default). With
+# `--tree-from head` it is the tree of --head-sha, the pull request's head
+# commit, fetched from origin at depth 1 when the checkout lacks it. An empty
+# --head-sha (any event but pull_request) falls back to `merge`. The verdict is
+# the parentless commit at
 # refs/pandora/verdicts/<tree>/<job>, holding payload.json, verdict.sig and
 # signer.
 #
@@ -24,7 +29,8 @@
 # --base <rev> reads the signers file from <rev> as given, with no fetch. It
 # exists for the unit tests only; CI never passes it.
 #
-# Prints verified=, reason=, run_id= and golden= lines on stdout, appends them
+# Prints verified=, reason=, run_id=, golden=, tree= and tree_from= lines on
+# stdout (tree_from is the source actually used: merge or head), appends them
 # to $GITHUB_OUTPUT when it is set, and prints one ::notice:: line. Exit 0
 # whatever the answer: a verification problem is verified=false and a reason,
 # never a failed step.
@@ -41,19 +47,25 @@ reason=''
 run_id=''
 golden=''
 work=''
+tree=''
+tree_from='merge'
+used=''
+head_sha=''
 
 finish() {
     reason=$1
     if [ "$verified" = true ]; then
-        echo "::notice::pandora verdict: verified run $run_id for $job (golden $golden); $reason"
+        echo "::notice::pandora verdict: verified run $run_id for $job (golden $golden, tree $tree from $used); $reason"
     else
-        echo "::notice::pandora verdict: not verified for ${job:-?}: $reason"
+        echo "::notice::pandora verdict: not verified for ${job:-?}${used:+ (tree $tree from $used)}: $reason"
     fi
     {
         echo "verified=$verified"
         echo "reason=$reason"
         echo "run_id=$run_id"
         echo "golden=$golden"
+        echo "tree=$tree"
+        echo "tree_from=$used"
     } | tee -a "${GITHUB_OUTPUT:-/dev/null}"
     if [ -n "$work" ]; then
         rm -rf -- "$work"
@@ -67,6 +79,8 @@ while [ $# -gt 0 ]; do
         --argv) argv=${2-}; shift 2 || finish bad_input ;;
         --signers) signers=${2-}; shift 2 || finish bad_input ;;
         --default-branch) default_branch=${2-}; shift 2 || finish bad_input ;;
+        --tree-from) tree_from=${2-}; shift 2 || finish bad_input ;;
+        --head-sha) head_sha=${2-}; shift 2 || finish bad_input ;;
         # Tests only: read the signers file from this rev, unfetched.
         --base) base=${2-}; shift 2 || finish bad_input ;;
         *) finish "bad_input" ;;
@@ -80,7 +94,23 @@ done
 command -v ssh-keygen >/dev/null 2>&1 || finish no_ssh_keygen
 command -v python3 >/dev/null 2>&1 || finish no_python3
 
-tree=$(git rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null) || finish no_tree
+case $tree_from in
+    merge | head) ;;
+    *) finish bad_tree_from ;;
+esac
+if [ "$tree_from" = head ] && [ -n "$head_sha" ]; then
+    [[ $head_sha =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || finish bad_head_sha
+    if ! git cat-file -e "$head_sha^{commit}" 2>/dev/null; then
+        git fetch --quiet --depth 1 origin "$head_sha" >/dev/null 2>&1 \
+            || finish head_unavailable
+    fi
+    tree=$(git rev-parse --verify --quiet "$head_sha^{tree}" 2>/dev/null) \
+        || finish head_unavailable
+    used='head'
+else
+    tree=$(git rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null) || finish no_tree
+    used='merge'
+fi
 
 if [ -z "$base" ]; then
     if [ -z "$default_branch" ]; then

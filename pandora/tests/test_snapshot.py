@@ -54,6 +54,48 @@ class ExcludeTest(unittest.TestCase):
         self.assertTrue(snapshot.excluded('secrets/thing.txt', ['secrets/*']))
         self.assertTrue(snapshot.excluded('.env', []))
 
+    def test_a_repository_glob_keeps_the_same_example_exemption_for_tracked_files(self):
+        # Eichler's globs, which dropped three tracked example files and so
+        # made every verdict's tree differ from the commit's.
+        globs = ['.dev.vars', '.dev.vars.*', '**/.env', '**/.env.*', '**/*.pem', '**/.npmrc']
+        for name in ('apps/api/.dev.vars.example', 'apps/progress/.env.example',
+                     'legacy/apps/ike-api/.dev.vars.example', 'certs/dev.pem.sample',
+                     'apps/web/.env.template'):
+            self.assertFalse(snapshot.excluded(name, globs, tracked=True), name)
+        for name in ('apps/api/.dev.vars.local', 'apps/progress/.env.production',
+                     'certs/dev.pem', 'apps/web/.npmrc', 'secrets/thing.example.txt'):
+            self.assertTrue(snapshot.excluded(name, globs + ['secrets/*'], tracked=True), name)
+        # A glob naming a tracked example file outright still does not drop it.
+        self.assertFalse(snapshot.excluded('config/db.example', ['config/*'], tracked=True))
+
+    def test_an_untracked_example_file_still_obeys_the_globs(self):
+        # The exemption exists so a tracked file's tree matches its commit. An
+        # untracked `secrets/prod.template` has no commit and may hold values.
+        self.assertTrue(snapshot.excluded('secrets/prod.template', ['secrets/*']))
+        self.assertTrue(snapshot.excluded('secrets/prod.template', ['secrets/*'], tracked=False))
+        self.assertFalse(snapshot.excluded('secrets/prod.template', ['secrets/*'], tracked=True))
+        # The built-in prefix exemption does not depend on tracking.
+        self.assertFalse(snapshot.excluded('.env.example', []))
+
+    def test_freeze_applies_the_exemption_by_tracked_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'a.txt': 'a\n',
+                                                  'secrets/db.example': 'USER=\n'})
+            (repo / 'secrets' / 'prod.template').write_text('PASSWORD=hunter2\n')
+            manifest, dropped, _ = snapshot.freeze(repo, exclude_globs=['secrets/*'])
+            paths = {record['path'] for record in manifest}
+            self.assertIn('secrets/db.example', paths)
+            self.assertNotIn('secrets/prod.template', paths)
+            self.assertIn('secrets/prod.template', dropped)
+
+    def test_the_rule_that_excludes_a_name_is_named(self):
+        self.assertEqual(snapshot.exclusion_rule('web/node_modules/x/index.js'),
+                         'built-in dir node_modules')
+        self.assertEqual(snapshot.exclusion_rule('apps/.env.local'), 'built-in name')
+        self.assertEqual(snapshot.exclusion_rule('secrets/a.txt', ['secrets/*']),
+                         '[secrets] glob secrets/*')
+        self.assertIsNone(snapshot.exclusion_rule('src/a.py', ['secrets/*']))
+
     def test_pandoras_own_names_are_not_source(self):
         # Shard-collision evidence lands in the remote outputs dir and used to
         # be moved into the worktree; a write-back temporary sits beside its

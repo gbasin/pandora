@@ -113,14 +113,19 @@ class VerdictVerifyTest(unittest.TestCase):
     # --- verifying --------------------------------------------------------
 
     def verify(self, *, job='suite', argv=ARGV, base=None, branch='change', env=None,
-               default_branch=None):
+               default_branch=None, tree_from=None, head_sha=None, checkout=None):
         """Run the script in a clone, as CI does. `base` is the tests-only override;
         without it the script fetches the default branch. `argv` may be a raw string."""
         ci = self.root / 'ci'
         if not ci.exists():
             subprocess.run(['git', 'clone', '-q', str(self.origin), str(ci)],
                            check=True, capture_output=True)
-        git(ci, 'checkout', '-q', branch)
+        if checkout is None:
+            git(ci, 'checkout', '-q', branch)
+        else:
+            # A pull request's merge ref, which a plain clone does not fetch.
+            git(ci, 'fetch', '-q', 'origin', checkout)
+            git(ci, 'checkout', '-q', '--detach', 'FETCH_HEAD')
         output = self.root / 'github_output'
         argv = argv if isinstance(argv, str) else json.dumps(argv)
         command = ['bash', str(SCRIPT), '--job', job, '--argv', argv]
@@ -128,6 +133,10 @@ class VerdictVerifyTest(unittest.TestCase):
             command += ['--base', base]
         if default_branch is not None:
             command += ['--default-branch', default_branch]
+        if tree_from is not None:
+            command += ['--tree-from', tree_from]
+        if head_sha is not None:
+            command += ['--head-sha', head_sha]
         environment = dict(os.environ, GITHUB_OUTPUT=str(output))
         environment.pop('GITHUB_BASE_REF', None)
         environment.update(env or {})
@@ -144,7 +153,8 @@ class VerdictVerifyTest(unittest.TestCase):
         self.publish(tree)
         fields = self.verify()
         self.assertEqual(fields, {'verified': 'true', 'reason': 'match', 'run_id': 'r42',
-                                  'golden': '0123456789abcdef'})
+                                  'golden': '0123456789abcdef', 'tree': tree,
+                                  'tree_from': 'merge'})
 
     def test_a_payload_for_another_tree_is_refused(self):
         tree = self.base_and_head()
@@ -189,9 +199,10 @@ class VerdictVerifyTest(unittest.TestCase):
         self.assertEqual(fields['run_id'], '')
 
     def test_a_missing_ref_is_a_miss(self):
-        self.base_and_head()
+        tree = self.base_and_head()
         self.assertEqual(self.verify(), {'verified': 'false', 'reason': 'no_verdict',
-                                         'run_id': '', 'golden': ''})
+                                         'run_id': '', 'golden': '', 'tree': tree,
+                                         'tree_from': 'merge'})
 
     def test_an_empty_signers_file_verifies_nothing(self):
         tree = self.base_and_head(base_signers='')
@@ -296,6 +307,70 @@ class VerdictVerifyTest(unittest.TestCase):
         tree = self.base_and_head()
         self.publish(tree)
         self.assertEqual(self.verify(argv='python3 -m unittest')['reason'], 'bad_argv')
+
+    # --- tree_from ----------------------------------------------------------
+
+    def pull_request(self):
+        """main moves on after the change branched; origin gets the change's head
+        only at refs/pull/1/head and the merge at refs/pull/1/merge, as GitHub
+        does. Returns (head sha, head tree, merge tree)."""
+        head_tree = self.base_and_head()
+        head = git(self.dev, 'rev-parse', 'HEAD').decode().strip()
+        git(self.dev, 'push', '-q', 'origin', '%s:refs/pull/1/head' % head)
+        git(self.dev, 'push', '-q', 'origin', '--delete', 'change')
+        self.commit({'README': 'base moved\n'}, 'base moves', 'main')
+        git(self.dev, 'checkout', '-q', '--detach', 'main')
+        git(self.dev, 'merge', '-q', '--no-edit', head)
+        merge_tree = git(self.dev, 'rev-parse', 'HEAD^{tree}').decode().strip()
+        git(self.dev, 'push', '-q', 'origin', 'HEAD:refs/pull/1/merge')
+        self.assertNotEqual(head_tree, merge_tree)
+        return head, head_tree, merge_tree
+
+    def test_merge_is_the_default_and_names_the_merge_tree(self):
+        head, head_tree, merge_tree = self.pull_request()
+        self.publish(head_tree)
+        fields = self.verify(checkout='refs/pull/1/merge', head_sha=head)
+        self.assertEqual((fields['reason'], fields['tree'], fields['tree_from']),
+                         ('no_verdict', merge_tree, 'merge'))
+        self.publish(merge_tree)
+        fields = self.verify(checkout='refs/pull/1/merge', tree_from='merge', head_sha=head)
+        self.assertEqual((fields['verified'], fields['tree'], fields['tree_from']),
+                         ('true', merge_tree, 'merge'))
+
+    def test_head_names_the_pull_requests_head_tree_fetched_at_depth_one(self):
+        head, head_tree, merge_tree = self.pull_request()
+        self.publish(head_tree)
+        ci = self.root / 'ci'
+        subprocess.run(['git', 'clone', '-q', '--depth', '1', '--no-single-branch',
+                        'file://%s' % self.origin, str(ci)], check=True, capture_output=True)
+        git(ci, 'fetch', '-q', '--depth', '1', 'origin', 'refs/pull/1/merge')
+        git(ci, 'checkout', '-q', '--detach', 'FETCH_HEAD')
+        self.assertNotEqual(subprocess.run(['git', '-C', str(ci), 'cat-file', '-e',
+                                            head + '^{commit}'],
+                                           capture_output=True).returncode, 0)
+        fields = self.verify(checkout='refs/pull/1/merge', tree_from='head', head_sha=head)
+        self.assertEqual(fields, {'verified': 'true', 'reason': 'match', 'run_id': 'r42',
+                                  'golden': '0123456789abcdef', 'tree': head_tree,
+                                  'tree_from': 'head'})
+
+    def test_head_without_a_pull_request_falls_back_to_merge(self):
+        tree = self.base_and_head()
+        self.publish(tree)
+        fields = self.verify(tree_from='head', head_sha='')
+        self.assertEqual((fields['verified'], fields['tree'], fields['tree_from']),
+                         ('true', tree, 'merge'))
+
+    def test_head_that_cannot_be_fetched_is_a_miss(self):
+        self.base_and_head()
+        fields = self.verify(tree_from='head', head_sha='0' * 40)
+        self.assertEqual((fields['verified'], fields['reason'], fields['tree_from']),
+                         ('false', 'head_unavailable', ''))
+
+    def test_a_bad_tree_from_or_head_sha_is_refused(self):
+        self.base_and_head()
+        self.assertEqual(self.verify(tree_from='base')['reason'], 'bad_tree_from')
+        self.assertEqual(self.verify(tree_from='head', head_sha='HEAD~1')['reason'],
+                         'bad_head_sha')
 
     def test_a_job_that_cannot_name_a_ref_is_refused(self):
         self.base_and_head()
