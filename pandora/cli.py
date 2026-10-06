@@ -1,5 +1,4 @@
 """`pandora`: this repository's heavy commands, queued locally or on a Linux worker.
-
 Type the command you would have typed, from the repository root. Pandora routes
 it if the repository claims it and otherwise gets out of the way.
 INVARIANTS
@@ -30,6 +29,7 @@ RUNS
   pandora cancel <id>              stop it; a remote instance is destroyed
   pandora resolve <id> --keep-local|--take-worker   after an --update conflict
   pandora stats [--since 24h|7d] [--json]   what routed, waited, fell back
+  pandora manifest [path] [--json] [--worker-cache]   preview the source snapshot
 
 FANOUT (for orchestrators; plain commands never need it)
   pandora run --detach -- <pnpm args>   submit, print the run id, return
@@ -871,6 +871,34 @@ def cmd_cancel(args):
     return 0
 
 
+def cmd_manifest(args):
+    from .client import manifest
+    path = Path(args.path or Path.cwd()).expanduser().resolve()
+    if not path.is_dir():
+        notice('manifest path is not a directory: %s' % path)
+        return 64
+    root = enrollment.worktree_root(path)
+    if root is None:
+        notice('manifest needs a Git worktree: %s' % path)
+        return 64
+    config = settings.load(args.config)
+    repo = enrollment.repo_entry(config, root)
+    repo_config = loader.load_for(root, repo and repo.get('config'))
+    state = Path(args.state or os.environ.get('PANDORA_STATE') or
+                 config['client']['state']).expanduser()
+    report = manifest.build(root, config=repo_config, state=state,
+                            history_repo=repo['name'] if repo else None)
+    if args.worker_cache:
+        report['worker_cache'] = manifest.worker_cache(report, config=config)
+    if args.json:
+        print(json.dumps(report, indent=1, sort_keys=True))
+    else:
+        print(manifest.render(report))
+    if report.get('worker_cache', {}).get('status') == 'unknown':
+        return INFRA
+    return 0 if report['submission_allowed'] else 75
+
+
 def cmd_doctor(args):
     from .client import doctor
     if args.package_home:
@@ -1080,6 +1108,18 @@ def main(argv=None):
         if name == 'result':
             node.add_argument('--json', action='store_true')
         node.set_defaults(func=function)
+
+    manifest = sub.add_parser('manifest', help='preview the source snapshot without submitting',
+        description='Freeze a worktree using its configured exclusions. Report source '
+                    'entries, regular-file bytes, top directories, excluded and missing '
+                    'names, input digest, and retained same-input history. No daemon, '
+                    'transfer, or job is started. The default is offline.')
+    manifest.add_argument('path', nargs='?', help='directory inside the worktree (default: cwd)')
+    manifest.add_argument('--json', action='store_true')
+    manifest.add_argument('--worker-cache', action='store_true',
+        help='probe the configured worker for this input; refresh its retention grace '
+             'if present, but transfer no files and lease no instance')
+    manifest.set_defaults(func=cmd_manifest)
 
     doctor = sub.add_parser('doctor', help='check this shell and worktree; changes nothing')
     doctor.add_argument('--json', action='store_true')
