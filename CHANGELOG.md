@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.15](https://github.com/gbasin/pandora/compare/v0.3.14...v0.3.15) (2026-10-06)
+
+
+### Features
+
+* preview source snapshots with pandora manifest ([#236](https://github.com/gbasin/pandora/issues/236)) ([a5365ab](https://github.com/gbasin/pandora/commit/a5365abba3353be90f20a7cf48cbc62d6ea735da))
+
 ## [0.3.14](https://github.com/gbasin/pandora/compare/v0.3.13...v0.3.14) (2026-10-06)
 
 
