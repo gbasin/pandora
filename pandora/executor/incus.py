@@ -501,7 +501,34 @@ class IncusDriver(Executor):
 
     # --- a repository for suites that ask git ---------------------------------
 
+    # Run by `xargs` over `ls-files -s -z` records ("<mode> <blob> <stage>\t<path>")
+    # of every path whose `filter` attribute is `lfs`, against a scratch index.
+    # Each regular file's entry becomes the canonical Git LFS pointer for its
+    # bytes, which is what a checkout with git-lfs installed stores. A file
+    # that already is a pointer (checked out without git-lfs) keeps its entry:
+    # git-lfs would store it as is too. The working file is never touched.
     GIT_SCRIPT = r"""set -e
+LFS_POINTERS=$(cat <<'LFS'
+set -e
+if command -v sha256sum >/dev/null 2>&1; then sum='sha256sum'; else sum='shasum -a 256'; fi
+spec='version https://git-lfs.github.com/spec/v1'
+tab=$(printf '\t')
+for record; do
+  meta=${record%%"$tab"*}
+  path=${record#*"$tab"}
+  mode=${meta%% *}
+  [ "$mode" = 100644 ] || [ "$mode" = 100755 ] || continue
+  [ -f "$path" ] && [ ! -L "$path" ] || continue
+  if [ "$(head -c ${#spec} "$path" | tr -d '\000')" = "$spec" ]; then continue; fi
+  oid=$($sum < "$path")
+  oid=${oid%% *}
+  size=$(wc -c < "$path" | tr -d ' ')
+  blob=$(printf '%s\noid sha256:%s\nsize %s\n' "$spec" "$oid" "$size" \
+    | git hash-object -w --stdin)
+  git update-index --cacheinfo "$mode,$blob,$path"
+done
+LFS
+)
 cd "$1"
 git config --system --add safe.directory '*'
 rm -rf .git
@@ -515,7 +542,14 @@ git add -A
 if [ -s "$2/ignored" ]; then
   git --literal-pathspecs add -f --pathspec-from-file="$2/ignored" --pathspec-file-nul
 fi
-tree=$(git write-tree)
+git ls-files -s -z -- ':(attr:filter=lfs)' > "$2/lfs"
+if [ -s "$2/lfs" ]; then
+  cp .git/index "$2/index"
+  GIT_INDEX_FILE="$2/index" xargs -0 sh -c "$LFS_POINTERS" pandora-lfs < "$2/lfs"
+  tree=$(GIT_INDEX_FILE="$2/index" git write-tree)
+else
+  tree=$(git write-tree)
+fi
 printf 'pandora-tree %s\n' "$tree"
 if [ -s "$2/untracked" ]; then
   git --literal-pathspecs rm -q --cached --ignore-unmatch --pathspec-from-file="$2/untracked" --pathspec-file-nul
@@ -545,6 +579,15 @@ rm -rf "$2"
         nothing changed, and it is what a signed verdict names
         (`pandora.engine.verdict`). Returns (seconds, tree), with tree None
         when the line is missing.
+
+        Git LFS: a path whose `filter` attribute is `lfs` is stored in the
+        caller's commits as a pointer, but here, with no LFS filter, `git add`
+        stores its real bytes. The tree is therefore written from a scratch
+        copy of the index in which each such entry is the canonical pointer
+        for the file's bytes (`LFS_POINTERS` in `GIT_SCRIPT`), so it equals the
+        commit's. The commit uses the real index, with the real bytes:
+        `git status` and `git diff HEAD` in the run then see a clean tree
+        without git-lfs. A file that already holds a pointer is left as is.
         """
         t0 = time.monotonic()
         lists = GUEST + '/git-marks'

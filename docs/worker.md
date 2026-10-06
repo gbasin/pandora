@@ -259,7 +259,13 @@ CI job for the same tree can verify the signature and skip the work.
 * The tree comes from the synthetic repository. Only a job with
   `git = "synthetic"` has one. The tree covers every file the run saw, tracked
   or untracked. Secret-filtered files never reach the worker, so a tree with
-  one of them never equals a commit's tree.
+  one of them never equals a commit's tree. `pandora doctor` warns about each
+  tracked file the secret rules exclude (`tracked secrets`). A Git LFS path
+  (`filter=lfs` in the tree's `.gitattributes`) enters the tree as the
+  canonical LFS pointer for the file's bytes, which is what a checkout with
+  git-lfs stores, so the tree equals the commit's. The pointer is computed in
+  a scratch index; the synthetic commit and the run's files keep the real
+  bytes. A file that already holds a pointer is stored as is.
 * The payload is canonical JSON with `kind`, `v`, `run_id`, `repo`, `job`,
   `argv`, `cwd`, `env_digest`, `input_id`, `tree`, `golden`, `golden_pins`,
   `engine`, `outcome` and `finished`. `engine` is the digest of the engine
@@ -346,6 +352,10 @@ What a verdict does not check:
   `* text=auto` is stored with LF, and an LFS pointer is stored in place of
   the content it names. A tree can therefore match a checkout whose bytes
   differ. This is known and rare. `test_git` pins the normalization.
+* An LFS pointer names the content by sha256, so the tree binds an LFS
+  file's bytes as tightly as any other file's. A file that holds a pointer in
+  the run (checked out without git-lfs) is stored as that pointer, and the
+  verdict then vouches for a run that saw the pointer, not the content.
 
 ## Sharing a worker
 
