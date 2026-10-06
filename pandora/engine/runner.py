@@ -433,10 +433,16 @@ def supervise(root, run_id, *, driver=None):
     extra = {'writeback': proposal} if proposal is not None else {}
     if learned is not None:
         extra['learned'] = learned
-    result_json = write_result(paths, ledger, run_id, outcome=outcome, layer=layer,
-                               exit_code=exit_code, peak_mib=peak_mib,
-                               durations=durations, evidence=evidence, receipt=receipt_dict,
-                               extra=extra or None, tree=tree, tree_failed=tree_failed)
+    # Read the final pin and finish under the same gate as a rebalance. A move
+    # between those steps would otherwise leave stale evidence again.
+    with gate(paths.root):
+        current = ledger.get(run_id)
+        if evidence.get('cpuset') and current['cpuset']:
+            evidence['cpuset'] = dict(evidence['cpuset'], cpus=current['cpuset'])
+        result_json = write_result(paths, ledger, run_id, outcome=outcome, layer=layer,
+                                   exit_code=exit_code, peak_mib=peak_mib,
+                                   durations=durations, evidence=evidence, receipt=receipt_dict,
+                                   extra=extra or None, tree=tree, tree_failed=tree_failed)
     # This run's cores are free now; spread any runs that share cores onto them.
     rebalance_cpus(paths, ledger, driver)
     ledger.close()
@@ -555,13 +561,14 @@ def rebalance_cpus(paths, ledger, driver):
                            if row['cpuset'] and row['state'] in ('admitted', 'running',
                                                                  'collecting')),
                           key=lambda row: (row['admitted_at'] or 0, row['created']))
-            placed, instances = [], {}
+            placed, instances, previous = [], {}, {}
             for row in rows:
                 try:
                     placed.append((row['run_id'], cpuset.parse_list(row['cpuset'])))
                 except ValueError:
                     continue
                 instances[row['run_id']] = row['instance']
+                previous[row['run_id']] = row['cpuset']
 
             def move(run_id, chosen):
                 if not instances.get(run_id):
@@ -573,6 +580,11 @@ def rebalance_cpus(paths, ledger, driver):
                     return False
                 ledger.update(run_id, cpuset=text)
                 made[run_id] = text
+                try:
+                    with paths.log(run_id).open('a') as handle:
+                        handle.write('pandora: cpu repin %s -> %s\n' % (previous[run_id], text))
+                except OSError:
+                    pass  # The move already happened; logging cannot undo it.
                 return True
 
             cpuset.rebalance(cores, placed, apply=move)

@@ -867,7 +867,9 @@ Known caveats:
   are admitted.
 * The run cap (half the threads) times the pin (a quarter) is twice the host.
   Past four concurrent runs on the default derivation, cpusets overlap and
-  `cpu.weight` shares the overlapping cores. `PANDORA_CPUS` says what a run
+  `cpu.weight` shares the overlapping cores. Successful moves append a
+  `cpu repin <old> -> <new>` line to the moved run's log. Its final receipt
+  records the last pin in `evidence.cpuset.cpus`. `PANDORA_CPUS` says what a run
   owns, not what it gets on a full worker. When a run ends, the engine moves
   live runs that share cores onto cores no run uses, with `limits.cpu` on the
   running container, most recently admitted first. A run moves only when enough whole idle
