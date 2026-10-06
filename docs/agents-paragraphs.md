@@ -114,7 +114,9 @@ and points to the README and `pandora --help` for the rest.
 >
 > `pandora ps` lists runs. `pandora logs <id>` replays one. `pandora cancel <id>`
 > stops one. `pandora result <id>` shows its outcome and hint. `pandora stats`
-> shows what ran, where, and what fell back. `pandora doctor` checks that this
+> shows what ran, where, and what fell back. `pandora manifest` previews the
+> source snapshot offline: file count, bytes, exclusions, and input digest.
+> `pandora doctor` checks that this
 > shell and worktree are set up to route. It changes nothing. `pandora --help`
 > lists the rest.
 >

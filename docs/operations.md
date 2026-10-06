@@ -366,6 +366,47 @@ The Corepack warning detects a version manager. It does not establish a local
 and worker version mismatch. Compare versions in the recorded repository before
 changing the manager or its version pins.
 
+### Preview source before a run
+
+Run `pandora manifest` to see what the worktree would ship.
+Pass a directory to preview another worktree. A directory below its root
+previews the whole worktree.
+
+```sh
+pandora manifest
+pandora manifest ~/Code/acme-wt/change --json
+pandora manifest --worker-cache
+```
+
+The command uses this worktree's `pandora.toml`. If that file is absent, it uses
+the enrollment's configured fallback. It applies the same capture and secret
+exclusions as a remote run. It starts no daemon, transfer, or job. The default
+is offline and writes no digest cache or run record.
+
+The report includes the input digest, manifest entry count, regular-file bytes,
+a top-directory histogram, excluded names, missing tracked names, and the
+latest retained local run with the same input. Symlinks count as entries and
+contribute zero bytes. Sizes are observed during the preview; they are source
+bytes, not estimated network traffic. Git-ignored untracked files are omitted
+before Pandora applies its exclusions, so the exclusion list does not inventory
+every ignored file. Matching input proves source identity only. It does not
+prove the same job, environment, or verdict.
+
+`--worker-cache` checks whether the exact input is on the configured worker.
+The existing probe refreshes a present snapshot's retention grace. It leases
+no instance and sends no source. An absent input can still share files with
+other cached snapshots; source bytes do not predict rsync's transfer size.
+Cache status is an observation and can change before submission. A failed
+probe reports `unknown` while preserving the local preview.
+
+Exit 0 means the preview completed. Exit 64 means the path is not a directory
+inside a Git worktree. Exit 75 means the missing tracked files exceed the
+remote submission bound: more than 50, or more than the manifest entry count.
+Exit 70 means configuration, capture, or the requested worker probe failed.
+A preview does not validate job arguments, toolchains, or worker admission.
+
+### Prove worker execution
+
 `pandora doctor` is read-only. The deeper proof is one real submission:
 
 ```sh
