@@ -12,6 +12,7 @@ here depends on which of the two does the shipping.
 
 Everything a run needs lives under /pandora inside the instance.
 """
+from dataclasses import replace
 import glob
 import json
 import os
@@ -34,6 +35,7 @@ LOOKUP_TIMEOUT = 30
 # The instance config key a golden launched from its alias records its real
 # base image under (`prepare`).
 BUILT_FROM = 'user.pandora.built_from'
+GOLDEN_IDENTITY = 'user.pandora.golden_identity'
 # The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
 # `file` is what says whether the run's own processes filled the cgroup or its
 # file pages did (`file` includes `shmem`, which cannot be reclaimed without
@@ -226,6 +228,27 @@ class IncusDriver(Executor):
     def golden_name(self, toolchain):
         return 'golden-' + toolchain.fingerprint()
 
+    def remember_golden(self, name, toolchain):
+        """Identity belongs to the instance, not an expiring attempt directory."""
+        value = {'fingerprint': toolchain.fingerprint(),
+                 'recipe': replace(toolchain, pins=()).fingerprint(),
+                 'source_id': toolchain.source_id, 'base_image': toolchain.base_image,
+                 'pins': dict(toolchain.pins), 'last_used': time.time()}
+        rc, _, error = self.incus('config', 'set', name,
+                                  GOLDEN_IDENTITY + '=' + json.dumps(value), check=False)
+        if rc != 0:
+            raise PrepareFailed('could not record golden identity: %s' % error.strip()[:200])
+
+    def golden_metadata(self, name):
+        """None for an old golden; a failed read must not look like no identity."""
+        _, value, _ = self.incus('config', 'get', name, GOLDEN_IDENTITY)
+        if not value.strip():
+            return None
+        try:
+            return json.loads(value)
+        except ValueError:
+            raise ExecutorError('invalid identity on %s' % name) from None
+
     def prepare(self, toolchain, source=None, log=print):
         """Build (or reuse) the golden instance for this toolchain.
 
@@ -238,6 +261,7 @@ class IncusDriver(Executor):
             raise PrepareFailed('golden name %r is not an instance name' % name)
         if self.exists(name):
             if self.warm(name):
+                self.remember_golden(name, toolchain)
                 return Golden(name=name, fingerprint=toolchain.fingerprint(),
                               snapshot='warm', reused=True, disk_bytes=self.volume_bytes(name),
                               built_from=self.config_value(name, BUILT_FROM))
@@ -323,6 +347,7 @@ class IncusDriver(Executor):
         mark = time.monotonic()
         self.sh(name, 'systemctl stop docker docker.socket || true', check=False, timeout=300)
         self.incus('stop', name, timeout=600)
+        self.remember_golden(name, toolchain)
         self.incus('snapshot', 'create', name, 'warm', timeout=600)
         marks['snapshot'] = time.monotonic() - mark
         total = time.monotonic() - t0

@@ -523,6 +523,14 @@ out its own older goldens and never another toolchain's
 Goldens no recorded attempt explains share one `(unknown)` family. The default
 for `N` comes from `golden_keep` in the versions manifest, which is 2.
 
+Goldens prepared or reused by this version store their fingerprint, recipe,
+source identity, pins, and last-use time in the Incus instance's
+`user.pandora.golden_identity` key. GC can still recognize the latest golden of
+an enrolled recipe after its attempt directories are collected. Older goldens
+without that record are enriched on their next preparation or reuse. A failed
+identity read or malformed identity stops the golden index instead of guessing
+which enrolled recipe a golden belongs to.
+
 Every routed golden is pinned ([Goldens](#goldens)), so pinned goldens are
 ranked like any other. A new base image or a lockfile change adds a golden to
 its family, and the keep count pushes out the oldest. With `golden_keep = 2`, a

@@ -55,6 +55,40 @@ system_usec 16018286
 '''
 
 
+class GoldenIdentity(unittest.TestCase):
+    def test_reusing_a_warm_golden_records_identity_outside_attempt_directories(self):
+        driver = IncusDriver(root='/tmp/pandora-identity-test')
+        driver.exists = lambda name: True
+        driver.warm = lambda name: True
+        driver.volume_bytes = lambda name: 0
+        saved = {}
+
+        def incus(*args, **kwargs):
+            if args[:2] == ('config', 'set'):
+                key, _, value = args[3].partition('=')
+                saved[key] = value
+            if args[:2] == ('config', 'get'):
+                return 0, saved.get(args[3], ''), ''
+            return 0, '', ''
+
+        driver.incus = incus
+        toolchain = Toolchain(source_id='a', pins=(('base_image', 'abc'),))
+        golden = driver.prepare(toolchain)
+        value = driver.golden_metadata(golden.name)
+        self.assertTrue(golden.reused)
+        self.assertEqual(value['fingerprint'], toolchain.fingerprint())
+        self.assertEqual(value['recipe'], Toolchain(source_id='a').fingerprint())
+        self.assertEqual(value['pins'], {'base_image': 'abc'})
+        self.assertGreater(value['last_used'], 0)
+
+    def test_a_failed_identity_write_refuses_the_prepare(self):
+        driver = IncusDriver(root='/tmp/pandora-identity-test')
+        driver.exists = driver.warm = lambda name: True
+        driver.incus = lambda *args, **kwargs: (1, '', 'permission denied')
+        with self.assertRaises(incus_driver.PrepareFailed):
+            driver.prepare(Toolchain())
+
+
 class ParseCgroup(unittest.TestCase):
     def setUp(self):
         self.usage = parse_cgroup(SAMPLE)
