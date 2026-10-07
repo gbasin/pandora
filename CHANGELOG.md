@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.17](https://github.com/gbasin/pandora/compare/v0.3.16...v0.3.17) (2026-10-07)
+
+
+### Performance Improvements
+
+* measure CAS transport from Mac to worker ([#243](https://github.com/gbasin/pandora/issues/243)) ([f5518a0](https://github.com/gbasin/pandora/commit/f5518a0f1ae1c738439d12656ec1e677036f1403))
+
 ## [0.3.16](https://github.com/gbasin/pandora/compare/v0.3.15...v0.3.16) (2026-10-07)
 
 
