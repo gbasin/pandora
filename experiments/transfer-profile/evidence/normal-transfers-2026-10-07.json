@@ -1,0 +1,3256 @@
+{
+  "observed_at": 1791384655.50618,
+  "records": [
+    {
+      "id": "87f8914d6e6f",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383487.907996,
+      "updated": 1791383511.9956522,
+      "pre_accept": {
+        "freeze": 0.94,
+        "ship": 5.31,
+        "submit": 0.44
+      },
+      "freeze_steps": {
+        "cache_setup": 0.028213,
+        "pass1.nested_worktrees": 0.056063,
+        "pass1.names": 0.038447,
+        "pass1.git_status": 0.06566,
+        "pass1.index_blobs": 0.140526,
+        "pass1.entries": 0.083029,
+        "pass2.nested_worktrees": 0.058666,
+        "pass2.names": 0.035141,
+        "pass2.git_status": 0.063037,
+        "pass2.index_blobs": 0.135939,
+        "pass2.entries": 0.08082,
+        "cache_save": 0.001778,
+        "input_id": 0.005651
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3.5e-05,
+          "probe": 0.339131,
+          "bases": 0.249107,
+          "stage": 0.265146,
+          "progress": 0.057496,
+          "rsync": 3.826792,
+          "publish": 0.286658,
+          "cleanup": 0.269784
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464824,
+        "rsync": {
+          "sent_bytes": 251836,
+          "received_bytes": 221,
+          "literal_bytes": 2126,
+          "matched_bytes": 13349,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "452c0fe42280",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383512.751581,
+      "updated": 1791383539.608584,
+      "pre_accept": {
+        "freeze": 0.94,
+        "ship": 5.62,
+        "submit": 0.63
+      },
+      "freeze_steps": {
+        "cache_setup": 0.021977,
+        "pass1.nested_worktrees": 0.049885,
+        "pass1.names": 0.042715,
+        "pass1.git_status": 0.06648,
+        "pass1.index_blobs": 0.149348,
+        "pass1.entries": 0.093535,
+        "pass2.nested_worktrees": 0.050479,
+        "pass2.names": 0.031725,
+        "pass2.git_status": 0.065931,
+        "pass2.index_blobs": 0.124892,
+        "pass2.entries": 0.085938,
+        "cache_save": 0.002302,
+        "input_id": 0.006642
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 5e-06,
+          "probe": 0.26306,
+          "bases": 0.286484,
+          "stage": 0.273436,
+          "progress": 0.038087,
+          "rsync": 3.883831,
+          "publish": 0.5028,
+          "cleanup": 0.359817
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464824,
+        "rsync": {
+          "sent_bytes": 250417,
+          "received_bytes": 221,
+          "literal_bytes": 700,
+          "matched_bytes": 14775,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "5319057c34ab",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791383538.931322,
+      "updated": 1791383649.3059251,
+      "pre_accept": {
+        "freeze": 1.59,
+        "ship": 7.32,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013192,
+        "pass1.nested_worktrees": 0.115135,
+        "pass1.names": 0.133485,
+        "pass1.git_status": 0.393661,
+        "pass1.index_blobs": 0.205219,
+        "pass1.entries": 0.080883,
+        "pass2.nested_worktrees": 0.038526,
+        "pass2.names": 0.036495,
+        "pass2.git_status": 0.058286,
+        "pass2.index_blobs": 0.243741,
+        "pass2.entries": 0.076538,
+        "cache_save": 0.064905,
+        "input_id": 0.004383
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.280411,
+          "bases": 0.264946,
+          "stage": 0.262514,
+          "progress": 0.069229,
+          "rsync": 5.624009,
+          "publish": 0.484009,
+          "cleanup": 0.329781
+        },
+        "files": 5392,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294564299,
+        "rsync": {
+          "sent_bytes": 411253,
+          "received_bytes": 4079,
+          "literal_bytes": 157870,
+          "matched_bytes": 351634,
+          "transferred_file_bytes": 509504,
+          "regular_files_transferred": 32
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "6666f24eb202",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383558.573189,
+      "updated": 1791383579.465633,
+      "pre_accept": {
+        "freeze": 1.29,
+        "ship": 4.82,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.036842,
+        "pass1.nested_worktrees": 0.192431,
+        "pass1.names": 0.103317,
+        "pass1.git_status": 0.248288,
+        "pass1.index_blobs": 0.13662,
+        "pass1.entries": 0.075153,
+        "pass2.nested_worktrees": 0.058946,
+        "pass2.names": 0.03688,
+        "pass2.git_status": 0.051231,
+        "pass2.index_blobs": 0.103607,
+        "pass2.entries": 0.093379,
+        "cache_save": 0.004704,
+        "input_id": 0.005649
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.26241,
+          "bases": 0.260759,
+          "stage": 0.311732,
+          "progress": 0.038634,
+          "rsync": 3.381994,
+          "publish": 0.282979,
+          "cleanup": 0.274997
+        },
+        "files": 5389,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294782224,
+        "rsync": {
+          "sent_bytes": 663667,
+          "received_bytes": 10125,
+          "literal_bytes": 405455,
+          "matched_bytes": 986077,
+          "transferred_file_bytes": 1391532,
+          "regular_files_transferred": 48
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "c08d994e1a8a",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383559.549762,
+      "updated": 1791383644.7847428,
+      "pre_accept": {
+        "freeze": 1.03,
+        "ship": 0.25,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.009325,
+        "pass1.nested_worktrees": 0.044328,
+        "pass1.names": 0.109842,
+        "pass1.git_status": 0.164965,
+        "pass1.index_blobs": 0.127283,
+        "pass1.entries": 0.080536,
+        "pass2.nested_worktrees": 0.055855,
+        "pass2.names": 0.032147,
+        "pass2.git_status": 0.063108,
+        "pass2.index_blobs": 0.122556,
+        "pass2.entries": 0.073233,
+        "cache_save": 0.000818,
+        "input_id": 0.00448
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.247465
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "52bed8ddc0a1",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383566.723716,
+      "updated": 1791383583.124778,
+      "pre_accept": {
+        "freeze": 0.82,
+        "ship": 4.51,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012273,
+        "pass1.nested_worktrees": 0.047607,
+        "pass1.names": 0.033982,
+        "pass1.git_status": 0.056761,
+        "pass1.index_blobs": 0.114468,
+        "pass1.entries": 0.088865,
+        "pass2.nested_worktrees": 0.039142,
+        "pass2.names": 0.032954,
+        "pass2.git_status": 0.047722,
+        "pass2.index_blobs": 0.108323,
+        "pass2.entries": 0.073011,
+        "cache_save": 0.028004,
+        "input_id": 0.004635
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 2e-06,
+          "probe": 0.252336,
+          "bases": 0.308283,
+          "stage": 0.291862,
+          "progress": 0.062083,
+          "rsync": 3.026697,
+          "publish": 0.274639,
+          "cleanup": 0.285302
+        },
+        "files": 5384,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294499716,
+        "rsync": {
+          "sent_bytes": 355216,
+          "received_bytes": 5155,
+          "literal_bytes": 102100,
+          "matched_bytes": 485958,
+          "transferred_file_bytes": 588058,
+          "regular_files_transferred": 26
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "e5f376c2a638",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383581.634999,
+      "updated": 1791383599.263983,
+      "pre_accept": {
+        "freeze": 0.94,
+        "ship": 5.01,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010849,
+        "pass1.nested_worktrees": 0.169127,
+        "pass1.names": 0.107301,
+        "pass1.git_status": 0.055416,
+        "pass1.index_blobs": 0.094826,
+        "pass1.entries": 0.078751,
+        "pass2.nested_worktrees": 0.035512,
+        "pass2.names": 0.029306,
+        "pass2.git_status": 0.061478,
+        "pass2.index_blobs": 0.089081,
+        "pass2.entries": 0.066875,
+        "cache_save": 0.002028,
+        "input_id": 0.006256
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3e-06,
+          "probe": 0.260638,
+          "bases": 0.252405,
+          "stage": 0.28099,
+          "progress": 0.037032,
+          "rsync": 3.65187,
+          "publish": 0.252954,
+          "cleanup": 0.270922
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 315246,
+          "received_bytes": 5248,
+          "literal_bytes": 61640,
+          "matched_bytes": 509911,
+          "transferred_file_bytes": 571551,
+          "regular_files_transferred": 23
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "e1824242fae6",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383628.567023,
+      "updated": 1791383646.5296068,
+      "pre_accept": {
+        "freeze": 0.88,
+        "ship": 0.27,
+        "submit": 0.43
+      },
+      "freeze_steps": {
+        "cache_setup": 0.020258,
+        "pass1.nested_worktrees": 0.047001,
+        "pass1.names": 0.088243,
+        "pass1.git_status": 0.058812,
+        "pass1.index_blobs": 0.125629,
+        "pass1.entries": 0.088401,
+        "pass2.nested_worktrees": 0.045167,
+        "pass2.names": 0.034221,
+        "pass2.git_status": 0.057547,
+        "pass2.index_blobs": 0.104198,
+        "pass2.entries": 0.070817,
+        "cache_save": 0.003485,
+        "input_id": 0.005451
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.273273
+        },
+        "files": 5383,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "2e6ff64d9c02",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383649.226461,
+      "updated": 1791383673.570267,
+      "pre_accept": {
+        "freeze": 0.89,
+        "ship": 4.65,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011015,
+        "pass1.nested_worktrees": 0.136187,
+        "pass1.names": 0.033144,
+        "pass1.git_status": 0.05305,
+        "pass1.index_blobs": 0.121207,
+        "pass1.entries": 0.069036,
+        "pass2.nested_worktrees": 0.047124,
+        "pass2.names": 0.051513,
+        "pass2.git_status": 0.052659,
+        "pass2.index_blobs": 0.106324,
+        "pass2.entries": 0.076626,
+        "cache_save": 0.000721,
+        "input_id": 0.004847
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.249862,
+          "bases": 0.256979,
+          "stage": 0.254208,
+          "progress": 0.047795,
+          "rsync": 3.286644,
+          "publish": 0.28399,
+          "cleanup": 0.267352
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 250421,
+          "received_bytes": 221,
+          "literal_bytes": 700,
+          "matched_bytes": 14775,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "8434dd72b6ae",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383661.3685691,
+      "updated": 1791383682.8568509,
+      "pre_accept": {
+        "freeze": 0.95,
+        "ship": 4.52,
+        "submit": 0.37
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013392,
+        "pass1.nested_worktrees": 0.139664,
+        "pass1.names": 0.101282,
+        "pass1.git_status": 0.052057,
+        "pass1.index_blobs": 0.122348,
+        "pass1.entries": 0.079855,
+        "pass2.nested_worktrees": 0.035602,
+        "pass2.names": 0.030796,
+        "pass2.git_status": 0.074123,
+        "pass2.index_blobs": 0.0985,
+        "pass2.entries": 0.065323,
+        "cache_save": 0.001371,
+        "input_id": 0.00477
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3e-06,
+          "probe": 0.243569,
+          "bases": 0.252735,
+          "stage": 0.255796,
+          "progress": 0.056953,
+          "rsync": 3.173388,
+          "publish": 0.25682,
+          "cleanup": 0.276155
+        },
+        "files": 5389,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 295114315,
+        "rsync": {
+          "sent_bytes": 591822,
+          "received_bytes": 341,
+          "literal_bytes": 341287,
+          "matched_bytes": 16396,
+          "transferred_file_bytes": 357683,
+          "regular_files_transferred": 3
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "8ca8dd8a241a",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791383673.680583,
+      "updated": 1791383685.20752,
+      "pre_accept": {
+        "freeze": 0.81,
+        "ship": 0.26,
+        "submit": 0.37
+      },
+      "freeze_steps": {
+        "cache_setup": 0.008906,
+        "pass1.nested_worktrees": 0.035969,
+        "pass1.names": 0.100812,
+        "pass1.git_status": 0.057199,
+        "pass1.index_blobs": 0.104923,
+        "pass1.entries": 0.063716,
+        "pass2.nested_worktrees": 0.0441,
+        "pass2.names": 0.039117,
+        "pass2.git_status": 0.051595,
+        "pass2.index_blobs": 0.100314,
+        "pass2.entries": 0.064574,
+        "cache_save": 0.001006,
+        "input_id": 0.004474
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.261014
+        },
+        "files": 5392,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "cc322a24d238",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383675.00828,
+      "updated": 1791383700.1996858,
+      "pre_accept": {
+        "freeze": 0.77,
+        "ship": 4.64,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010215,
+        "pass1.nested_worktrees": 0.052243,
+        "pass1.names": 0.03499,
+        "pass1.git_status": 0.049138,
+        "pass1.index_blobs": 0.103225,
+        "pass1.entries": 0.074742,
+        "pass2.nested_worktrees": 0.053543,
+        "pass2.names": 0.031434,
+        "pass2.git_status": 0.052716,
+        "pass2.index_blobs": 0.101624,
+        "pass2.entries": 0.074388,
+        "cache_save": 0.001339,
+        "input_id": 0.004689
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.243665,
+          "bases": 0.241958,
+          "stage": 0.258758,
+          "progress": 0.074658,
+          "rsync": 3.203343,
+          "publish": 0.28988,
+          "cleanup": 0.319636
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 257209,
+          "received_bytes": 221,
+          "literal_bytes": 7524,
+          "matched_bytes": 7951,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "67906607e6c1",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383692.504787,
+      "updated": 1791383708.5802538,
+      "pre_accept": {
+        "freeze": 0.84,
+        "ship": 0.24,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.01043,
+        "pass1.nested_worktrees": 0.047888,
+        "pass1.names": 0.096508,
+        "pass1.git_status": 0.049012,
+        "pass1.index_blobs": 0.10589,
+        "pass1.entries": 0.096064,
+        "pass2.nested_worktrees": 0.038183,
+        "pass2.names": 0.028927,
+        "pass2.git_status": 0.04697,
+        "pass2.index_blobs": 0.106532,
+        "pass2.entries": 0.077115,
+        "cache_save": 0.001143,
+        "input_id": 0.004518
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.237024
+        },
+        "files": 5389,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "bd693363ccee",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791383698.632571,
+      "updated": 1791383935.122303,
+      "pre_accept": {
+        "freeze": 0.98,
+        "ship": 0.25,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011081,
+        "pass1.nested_worktrees": 0.088724,
+        "pass1.names": 0.10155,
+        "pass1.git_status": 0.067451,
+        "pass1.index_blobs": 0.108107,
+        "pass1.entries": 0.084105,
+        "pass2.nested_worktrees": 0.045469,
+        "pass2.names": 0.032217,
+        "pass2.git_status": 0.063061,
+        "pass2.index_blobs": 0.119297,
+        "pass2.entries": 0.121698,
+        "cache_save": 0.001077,
+        "input_id": 0.004711
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 2e-06,
+          "probe": 0.244774
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "ce5d483e5704",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383701.394233,
+      "updated": 1791383728.7696629,
+      "pre_accept": {
+        "freeze": 1.1,
+        "ship": 5.01,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.009912,
+        "pass1.nested_worktrees": 0.062091,
+        "pass1.names": 0.050167,
+        "pass1.git_status": 0.090493,
+        "pass1.index_blobs": 0.184136,
+        "pass1.entries": 0.115817,
+        "pass2.nested_worktrees": 0.090572,
+        "pass2.names": 0.050054,
+        "pass2.git_status": 0.074954,
+        "pass2.index_blobs": 0.118603,
+        "pass2.entries": 0.077974,
+        "cache_save": 0.00083,
+        "input_id": 0.005377
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.271509,
+          "bases": 0.285818,
+          "stage": 0.25446,
+          "progress": 0.042942,
+          "rsync": 3.581723,
+          "publish": 0.270595,
+          "cleanup": 0.260295
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 256717,
+          "received_bytes": 221,
+          "literal_bytes": 7035,
+          "matched_bytes": 8440,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "440df66f1b85",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383709.306222,
+      "updated": 1791383726.349631,
+      "pre_accept": {
+        "freeze": 0.9,
+        "ship": 0.24,
+        "submit": 0.44
+      },
+      "freeze_steps": {
+        "cache_setup": 0.022006,
+        "pass1.nested_worktrees": 0.045516,
+        "pass1.names": 0.105944,
+        "pass1.git_status": 0.052452,
+        "pass1.index_blobs": 0.112998,
+        "pass1.entries": 0.071808,
+        "pass2.nested_worktrees": 0.061701,
+        "pass2.names": 0.035096,
+        "pass2.git_status": 0.060785,
+        "pass2.index_blobs": 0.121942,
+        "pass2.entries": 0.071598,
+        "cache_save": 0.002297,
+        "input_id": 0.004962
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.23761
+        },
+        "files": 5389,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "ff8367af65f6",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383711.2045171,
+      "updated": 1791383729.105286,
+      "pre_accept": {
+        "freeze": 0.95,
+        "ship": 4.84,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010307,
+        "pass1.nested_worktrees": 0.051534,
+        "pass1.names": 0.121807,
+        "pass1.git_status": 0.063677,
+        "pass1.index_blobs": 0.109648,
+        "pass1.entries": 0.077934,
+        "pass2.nested_worktrees": 0.044021,
+        "pass2.names": 0.033929,
+        "pass2.git_status": 0.115214,
+        "pass2.index_blobs": 0.106179,
+        "pass2.entries": 0.068844,
+        "cache_save": 0.012754,
+        "input_id": 0.004686
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.248739,
+          "bases": 0.2795,
+          "stage": 0.26832,
+          "progress": 0.051072,
+          "rsync": 3.453415,
+          "publish": 0.25625,
+          "cleanup": 0.272215
+        },
+        "files": 5392,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294565059,
+        "rsync": {
+          "sent_bytes": 405962,
+          "received_bytes": 4465,
+          "literal_bytes": 152195,
+          "matched_bytes": 402966,
+          "transferred_file_bytes": 555161,
+          "regular_files_transferred": 33
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "23cc6a6ea423",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383726.634919,
+      "updated": 1791383742.4298398,
+      "pre_accept": {
+        "freeze": 1.1,
+        "ship": 4.79,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.018253,
+        "pass1.nested_worktrees": 0.155838,
+        "pass1.names": 0.112558,
+        "pass1.git_status": 0.058706,
+        "pass1.index_blobs": 0.128941,
+        "pass1.entries": 0.109763,
+        "pass2.nested_worktrees": 0.052451,
+        "pass2.names": 0.03117,
+        "pass2.git_status": 0.076107,
+        "pass2.index_blobs": 0.107543,
+        "pass2.entries": 0.096096,
+        "cache_save": 0.021835,
+        "input_id": 0.004285
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 2e-06,
+          "probe": 0.247833,
+          "bases": 0.310278,
+          "stage": 0.243629,
+          "progress": 0.104382,
+          "rsync": 3.381615,
+          "publish": 0.249497,
+          "cleanup": 0.247421
+        },
+        "files": 5386,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294481028,
+        "rsync": {
+          "sent_bytes": 330431,
+          "received_bytes": 7240,
+          "literal_bytes": 76281,
+          "matched_bytes": 733497,
+          "transferred_file_bytes": 809778,
+          "regular_files_transferred": 27
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "b2d8345f20bb",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383729.396384,
+      "updated": 1791383759.2548952,
+      "pre_accept": {
+        "freeze": 0.88,
+        "ship": 4.72,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.009276,
+        "pass1.nested_worktrees": 0.051683,
+        "pass1.names": 0.048974,
+        "pass1.git_status": 0.063897,
+        "pass1.index_blobs": 0.11936,
+        "pass1.entries": 0.07672,
+        "pass2.nested_worktrees": 0.077237,
+        "pass2.names": 0.043881,
+        "pass2.git_status": 0.060252,
+        "pass2.index_blobs": 0.105578,
+        "pass2.entries": 0.076731,
+        "cache_save": 0.003671,
+        "input_id": 0.006704
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 8e-06,
+          "probe": 0.238968,
+          "bases": 0.249649,
+          "stage": 0.257339,
+          "progress": 0.032174,
+          "rsync": 3.372567,
+          "publish": 0.26527,
+          "cleanup": 0.297294
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 257209,
+          "received_bytes": 221,
+          "literal_bytes": 7524,
+          "matched_bytes": 7951,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "4c64b93c2c43",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383759.80488,
+      "updated": 1791383783.47682,
+      "pre_accept": {
+        "freeze": 0.96,
+        "ship": 5.03,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010834,
+        "pass1.nested_worktrees": 0.06832,
+        "pass1.names": 0.039122,
+        "pass1.git_status": 0.070984,
+        "pass1.index_blobs": 0.108535,
+        "pass1.entries": 0.109716,
+        "pass2.nested_worktrees": 0.071059,
+        "pass2.names": 0.039788,
+        "pass2.git_status": 0.08345,
+        "pass2.index_blobs": 0.137037,
+        "pass2.entries": 0.084637,
+        "cache_save": 0.00103,
+        "input_id": 0.005438
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.288781,
+          "bases": 0.299755,
+          "stage": 0.278169,
+          "progress": 0.066985,
+          "rsync": 3.463084,
+          "publish": 0.283397,
+          "cleanup": 0.339865
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 250414,
+          "received_bytes": 221,
+          "literal_bytes": 700,
+          "matched_bytes": 14775,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "cf9845cca39b",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383767.3856509,
+      "updated": 1791383786.5282938,
+      "pre_accept": {
+        "freeze": 1.02,
+        "ship": 0.26,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.014304,
+        "pass1.nested_worktrees": 0.059249,
+        "pass1.names": 0.10122,
+        "pass1.git_status": 0.079836,
+        "pass1.index_blobs": 0.11037,
+        "pass1.entries": 0.105576,
+        "pass2.nested_worktrees": 0.050375,
+        "pass2.names": 0.036163,
+        "pass2.git_status": 0.063697,
+        "pass2.index_blobs": 0.114985,
+        "pass2.entries": 0.090938,
+        "cache_save": 0.057642,
+        "input_id": 0.005109
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.255233
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "f62c4ba793d9",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383784.390989,
+      "updated": 1791383811.0974221,
+      "pre_accept": {
+        "freeze": 0.89,
+        "ship": 4.88,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010956,
+        "pass1.nested_worktrees": 0.083129,
+        "pass1.names": 0.043164,
+        "pass1.git_status": 0.068313,
+        "pass1.index_blobs": 0.111676,
+        "pass1.entries": 0.080347,
+        "pass2.nested_worktrees": 0.051461,
+        "pass2.names": 0.043609,
+        "pass2.git_status": 0.064458,
+        "pass2.index_blobs": 0.111932,
+        "pass2.entries": 0.079649,
+        "cache_save": 0.000855,
+        "input_id": 0.004672
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3e-06,
+          "probe": 0.244255,
+          "bases": 0.237627,
+          "stage": 0.262075,
+          "progress": 0.059373,
+          "rsync": 3.55712,
+          "publish": 0.269881,
+          "cleanup": 0.247453
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 256720,
+          "received_bytes": 221,
+          "literal_bytes": 7035,
+          "matched_bytes": 8440,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "8dce49d9c614",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383789.75804,
+      "updated": 1791383820.348804,
+      "pre_accept": {
+        "freeze": 0.92,
+        "ship": 5.41,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011988,
+        "pass1.nested_worktrees": 0.04995,
+        "pass1.names": 0.040458,
+        "pass1.git_status": 0.069574,
+        "pass1.index_blobs": 0.106007,
+        "pass1.entries": 0.073793,
+        "pass2.nested_worktrees": 0.059972,
+        "pass2.names": 0.037033,
+        "pass2.git_status": 0.054684,
+        "pass2.index_blobs": 0.162176,
+        "pass2.entries": 0.109249,
+        "cache_save": 0.001591,
+        "input_id": 0.005749
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.293328,
+          "bases": 0.293419,
+          "stage": 0.591184,
+          "progress": 0.075452,
+          "rsync": 3.565678,
+          "publish": 0.264633,
+          "cleanup": 0.322648
+        },
+        "files": 5386,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294481028,
+        "rsync": {
+          "sent_bytes": 255717,
+          "received_bytes": 221,
+          "literal_bytes": 6965,
+          "matched_bytes": 8475,
+          "transferred_file_bytes": 15440,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "89ed8338e880",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791383797.809109,
+      "updated": 1791384121.6316218,
+      "pre_accept": {
+        "freeze": 0.87,
+        "ship": 0.27,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.01562,
+        "pass1.nested_worktrees": 0.049255,
+        "pass1.names": 0.037579,
+        "pass1.git_status": 0.05973,
+        "pass1.index_blobs": 0.118211,
+        "pass1.entries": 0.093469,
+        "pass2.nested_worktrees": 0.043006,
+        "pass2.names": 0.029302,
+        "pass2.git_status": 0.056499,
+        "pass2.index_blobs": 0.119264,
+        "pass2.entries": 0.076866,
+        "cache_save": 0.024644,
+        "input_id": 0.004987
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.26579
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "169162742a9a",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383809.075733,
+      "updated": 1791383839.937472,
+      "pre_accept": {
+        "freeze": 1.55,
+        "ship": 0.28,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.025623,
+        "pass1.nested_worktrees": 0.102365,
+        "pass1.names": 0.09497,
+        "pass1.git_status": 0.072862,
+        "pass1.index_blobs": 0.148524,
+        "pass1.entries": 0.177435,
+        "pass2.nested_worktrees": 0.066414,
+        "pass2.names": 0.044095,
+        "pass2.git_status": 0.071047,
+        "pass2.index_blobs": 0.186056,
+        "pass2.entries": 0.325063,
+        "cache_save": 0.044997,
+        "input_id": 0.005838
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 6e-06,
+          "probe": 0.276922
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "62fc3ee5c911",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383812.669878,
+      "updated": 1791383835.2546859,
+      "pre_accept": {
+        "freeze": 1.04,
+        "ship": 0.29,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.020187,
+        "pass1.nested_worktrees": 0.069754,
+        "pass1.names": 0.040088,
+        "pass1.git_status": 0.07178,
+        "pass1.index_blobs": 0.155674,
+        "pass1.entries": 0.097537,
+        "pass2.nested_worktrees": 0.065623,
+        "pass2.names": 0.045058,
+        "pass2.git_status": 0.065991,
+        "pass2.index_blobs": 0.133618,
+        "pass2.entries": 0.115487,
+        "cache_save": 0.005948,
+        "input_id": 0.007124
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.287782
+        },
+        "files": 5383,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "c7a8453080ea",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383821.107415,
+      "updated": 1791383870.658057,
+      "pre_accept": {
+        "freeze": 1.03,
+        "ship": 5.57,
+        "submit": 0.43
+      },
+      "freeze_steps": {
+        "cache_setup": 0.015568,
+        "pass1.nested_worktrees": 0.076232,
+        "pass1.names": 0.040388,
+        "pass1.git_status": 0.072938,
+        "pass1.index_blobs": 0.145674,
+        "pass1.entries": 0.100901,
+        "pass2.nested_worktrees": 0.061877,
+        "pass2.names": 0.03806,
+        "pass2.git_status": 0.069153,
+        "pass2.index_blobs": 0.156038,
+        "pass2.entries": 0.091604,
+        "cache_save": 0.002031,
+        "input_id": 0.006395
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.350599,
+          "bases": 0.293943,
+          "stage": 0.319836,
+          "progress": 0.070696,
+          "rsync": 3.975014,
+          "publish": 0.288513,
+          "cleanup": 0.262857
+        },
+        "files": 5386,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294481028,
+        "rsync": {
+          "sent_bytes": 257113,
+          "received_bytes": 221,
+          "literal_bytes": 8365,
+          "matched_bytes": 7075,
+          "transferred_file_bytes": 15440,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "ef8769227573",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383836.674918,
+      "updated": 1791383863.504854,
+      "pre_accept": {
+        "freeze": 1.25,
+        "ship": 6.18,
+        "submit": 0.61
+      },
+      "freeze_steps": {
+        "cache_setup": 0.0311,
+        "pass1.nested_worktrees": 0.06168,
+        "pass1.names": 0.144503,
+        "pass1.git_status": 0.065404,
+        "pass1.index_blobs": 0.169954,
+        "pass1.entries": 0.188709,
+        "pass2.nested_worktrees": 0.052177,
+        "pass2.names": 0.038916,
+        "pass2.git_status": 0.081999,
+        "pass2.index_blobs": 0.137452,
+        "pass2.entries": 0.109921,
+        "cache_save": 0.002745,
+        "input_id": 0.009046
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 2e-06,
+          "probe": 0.263755,
+          "bases": 0.249974,
+          "stage": 0.282619,
+          "progress": 0.066312,
+          "rsync": 4.266662,
+          "publish": 0.476569,
+          "cleanup": 0.538491
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 258097,
+          "received_bytes": 221,
+          "literal_bytes": 8435,
+          "matched_bytes": 7040,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "69ca84d41cd7",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383864.1568918,
+      "updated": 1791383898.477864,
+      "pre_accept": {
+        "freeze": 1.01,
+        "ship": 5.7,
+        "submit": 0.38
+      },
+      "freeze_steps": {
+        "cache_setup": 0.014748,
+        "pass1.nested_worktrees": 0.064026,
+        "pass1.names": 0.042942,
+        "pass1.git_status": 0.070405,
+        "pass1.index_blobs": 0.14115,
+        "pass1.entries": 0.094968,
+        "pass2.nested_worktrees": 0.056261,
+        "pass2.names": 0.044967,
+        "pass2.git_status": 0.07182,
+        "pass2.index_blobs": 0.156449,
+        "pass2.entries": 0.086877,
+        "cache_save": 0.002097,
+        "input_id": 0.009693
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.260065,
+          "bases": 0.270366,
+          "stage": 0.269378,
+          "progress": 0.038174,
+          "rsync": 4.321803,
+          "publish": 0.269355,
+          "cleanup": 0.267214
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 250417,
+          "received_bytes": 221,
+          "literal_bytes": 700,
+          "matched_bytes": 14775,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "be013fd01f61",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383870.585599,
+      "updated": 1791383891.162178,
+      "pre_accept": {
+        "freeze": 1.15,
+        "ship": 5.11,
+        "submit": 0.38
+      },
+      "freeze_steps": {
+        "cache_setup": 0.026371,
+        "pass1.nested_worktrees": 0.068508,
+        "pass1.names": 0.146553,
+        "pass1.git_status": 0.073937,
+        "pass1.index_blobs": 0.130977,
+        "pass1.entries": 0.130986,
+        "pass2.nested_worktrees": 0.070168,
+        "pass2.names": 0.042824,
+        "pass2.git_status": 0.067439,
+        "pass2.index_blobs": 0.127087,
+        "pass2.entries": 0.105451,
+        "cache_save": 0.002168,
+        "input_id": 0.007814
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.289006,
+          "bases": 0.265842,
+          "stage": 0.265025,
+          "progress": 0.055998,
+          "rsync": 3.74593,
+          "publish": 0.239924,
+          "cleanup": 0.242519
+        },
+        "files": 5393,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294569966,
+        "rsync": {
+          "sent_bytes": 420348,
+          "received_bytes": 5418,
+          "literal_bytes": 165843,
+          "matched_bytes": 494516,
+          "transferred_file_bytes": 660359,
+          "regular_files_transferred": 36
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "9afca4e52808",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383878.408585,
+      "updated": 1791383911.011028,
+      "pre_accept": {
+        "freeze": 1.32,
+        "ship": 5.47,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.02886,
+        "pass1.nested_worktrees": 0.076608,
+        "pass1.names": 0.139548,
+        "pass1.git_status": 0.182045,
+        "pass1.index_blobs": 0.205935,
+        "pass1.entries": 0.105036,
+        "pass2.nested_worktrees": 0.04813,
+        "pass2.names": 0.038019,
+        "pass2.git_status": 0.067932,
+        "pass2.index_blobs": 0.145919,
+        "pass2.entries": 0.10513,
+        "cache_save": 0.005351,
+        "input_id": 0.006144
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.295318,
+          "bases": 0.266969,
+          "stage": 0.254407,
+          "progress": 0.059612,
+          "rsync": 4.021822,
+          "publish": 0.290885,
+          "cleanup": 0.270293
+        },
+        "files": 5386,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294481028,
+        "rsync": {
+          "sent_bytes": 252065,
+          "received_bytes": 221,
+          "literal_bytes": 3289,
+          "matched_bytes": 12151,
+          "transferred_file_bytes": 15440,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "c21847eee421",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383900.2686021,
+      "updated": 1791383937.6151118,
+      "pre_accept": {
+        "freeze": 0.89,
+        "ship": 0.27,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.021234,
+        "pass1.nested_worktrees": 0.056724,
+        "pass1.names": 0.037889,
+        "pass1.git_status": 0.05388,
+        "pass1.index_blobs": 0.129161,
+        "pass1.entries": 0.081707,
+        "pass2.nested_worktrees": 0.041224,
+        "pass2.names": 0.028981,
+        "pass2.git_status": 0.055841,
+        "pass2.index_blobs": 0.122428,
+        "pass2.entries": 0.11473,
+        "cache_save": 0.001773,
+        "input_id": 0.005729
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.265319
+        },
+        "files": 5383,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "7cfca289d1b6",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383914.10908,
+      "updated": 1791383949.822622,
+      "pre_accept": {
+        "freeze": 1.07,
+        "ship": 0.28,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012484,
+        "pass1.nested_worktrees": 0.174211,
+        "pass1.names": 0.107188,
+        "pass1.git_status": 0.062879,
+        "pass1.index_blobs": 0.150518,
+        "pass1.entries": 0.094389,
+        "pass2.nested_worktrees": 0.038042,
+        "pass2.names": 0.032182,
+        "pass2.git_status": 0.062419,
+        "pass2.index_blobs": 0.111793,
+        "pass2.entries": 0.076337,
+        "cache_save": 0.002258,
+        "input_id": 0.007014
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.278419
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "1f33f579652d",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383939.343117,
+      "updated": 1791383967.57617,
+      "pre_accept": {
+        "freeze": 0.96,
+        "ship": 4.9,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.023731,
+        "pass1.nested_worktrees": 0.050365,
+        "pass1.names": 0.04212,
+        "pass1.git_status": 0.06814,
+        "pass1.index_blobs": 0.19586,
+        "pass1.entries": 0.080252,
+        "pass2.nested_worktrees": 0.059307,
+        "pass2.names": 0.036306,
+        "pass2.git_status": 0.067234,
+        "pass2.index_blobs": 0.116156,
+        "pass2.entries": 0.079909,
+        "cache_save": 0.002428,
+        "input_id": 0.005285
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.252806,
+          "bases": 0.264099,
+          "stage": 0.270809,
+          "progress": 0.05107,
+          "rsync": 3.423628,
+          "publish": 0.325818,
+          "cleanup": 0.291721
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 258116,
+          "received_bytes": 221,
+          "literal_bytes": 8435,
+          "matched_bytes": 7040,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "0fe9b194fb4b",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383951.291368,
+      "updated": 1791383969.252934,
+      "pre_accept": {
+        "freeze": 1.06,
+        "ship": 0.24,
+        "submit": 0.36
+      },
+      "freeze_steps": {
+        "cache_setup": 0.022268,
+        "pass1.nested_worktrees": 0.174897,
+        "pass1.names": 0.11222,
+        "pass1.git_status": 0.054999,
+        "pass1.index_blobs": 0.13975,
+        "pass1.entries": 0.077364,
+        "pass2.nested_worktrees": 0.040472,
+        "pass2.names": 0.043384,
+        "pass2.git_status": 0.059611,
+        "pass2.index_blobs": 0.108148,
+        "pass2.entries": 0.082027,
+        "cache_save": 0.001848,
+        "input_id": 0.006196
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.239656
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "758bd3e0b0c4",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383970.8089101,
+      "updated": 1791383994.906306,
+      "pre_accept": {
+        "freeze": 1.12,
+        "ship": 5.24,
+        "submit": 0.45
+      },
+      "freeze_steps": {
+        "cache_setup": 0.014548,
+        "pass1.nested_worktrees": 0.05806,
+        "pass1.names": 0.033391,
+        "pass1.git_status": 0.065187,
+        "pass1.index_blobs": 0.149034,
+        "pass1.entries": 0.070633,
+        "pass2.nested_worktrees": 0.040696,
+        "pass2.names": 0.028993,
+        "pass2.git_status": 0.07987,
+        "pass2.index_blobs": 0.212785,
+        "pass2.entries": 0.107634,
+        "cache_save": 0.002792,
+        "input_id": 0.006471
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.260905,
+          "bases": 0.260209,
+          "stage": 0.292891,
+          "progress": 0.040535,
+          "rsync": 3.818608,
+          "publish": 0.278721,
+          "cleanup": 0.271781
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 258116,
+          "received_bytes": 221,
+          "literal_bytes": 8435,
+          "matched_bytes": 7040,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "3035e098751e",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791383996.847141,
+      "updated": 1791384020.274558,
+      "pre_accept": {
+        "freeze": 0.78,
+        "ship": 4.87,
+        "submit": 0.54
+      },
+      "freeze_steps": {
+        "cache_setup": 0.009542,
+        "pass1.nested_worktrees": 0.046766,
+        "pass1.names": 0.037772,
+        "pass1.git_status": 0.057129,
+        "pass1.index_blobs": 0.107368,
+        "pass1.entries": 0.078625,
+        "pass2.nested_worktrees": 0.040279,
+        "pass2.names": 0.035352,
+        "pass2.git_status": 0.054854,
+        "pass2.index_blobs": 0.105891,
+        "pass2.entries": 0.073185,
+        "cache_save": 0.001071,
+        "input_id": 0.004769
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.258228,
+          "bases": 0.312839,
+          "stage": 0.290468,
+          "progress": 0.038476,
+          "rsync": 3.373991,
+          "publish": 0.278099,
+          "cleanup": 0.292684
+        },
+        "files": 5383,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294464974,
+        "rsync": {
+          "sent_bytes": 250421,
+          "received_bytes": 221,
+          "literal_bytes": 700,
+          "matched_bytes": 14775,
+          "transferred_file_bytes": 15475,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "a15683acb7a7",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384041.818202,
+      "updated": 1791384083.18877,
+      "pre_accept": {
+        "freeze": 0.92,
+        "ship": 0.25,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.023522,
+        "pass1.nested_worktrees": 0.14246,
+        "pass1.names": 0.034499,
+        "pass1.git_status": 0.054231,
+        "pass1.index_blobs": 0.104922,
+        "pass1.entries": 0.078047,
+        "pass2.nested_worktrees": 0.034901,
+        "pass2.names": 0.033563,
+        "pass2.git_status": 0.057757,
+        "pass2.index_blobs": 0.117787,
+        "pass2.entries": 0.071839,
+        "cache_save": 0.024731,
+        "input_id": 0.004684
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.244605
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "f4ef6c1d8242",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384063.5620859,
+      "updated": 1791384108.604248,
+      "pre_accept": {
+        "freeze": 1.09,
+        "ship": 5.63,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012703,
+        "pass1.nested_worktrees": 0.231533,
+        "pass1.names": 0.106968,
+        "pass1.git_status": 0.064899,
+        "pass1.index_blobs": 0.126554,
+        "pass1.entries": 0.080976,
+        "pass2.nested_worktrees": 0.054323,
+        "pass2.names": 0.027996,
+        "pass2.git_status": 0.051013,
+        "pass2.index_blobs": 0.112437,
+        "pass2.entries": 0.082956,
+        "cache_save": 0.001542,
+        "input_id": 0.004947
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.246864,
+          "bases": 0.268502,
+          "stage": 0.289405,
+          "progress": 0.051223,
+          "rsync": 4.108467,
+          "publish": 0.342607,
+          "cleanup": 0.311282
+        },
+        "files": 5389,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 295115491,
+        "rsync": {
+          "sent_bytes": 1000387,
+          "received_bytes": 10199,
+          "literal_bytes": 741994,
+          "matched_bytes": 989069,
+          "transferred_file_bytes": 1731063,
+          "regular_files_transferred": 49
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "700847ebaa15",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384084.3440158,
+      "updated": 1791384507.4517262,
+      "pre_accept": {
+        "freeze": 0.96,
+        "ship": 0.25,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012353,
+        "pass1.nested_worktrees": 0.178457,
+        "pass1.names": 0.091726,
+        "pass1.git_status": 0.057127,
+        "pass1.index_blobs": 0.108274,
+        "pass1.entries": 0.069279,
+        "pass2.nested_worktrees": 0.039225,
+        "pass2.names": 0.028079,
+        "pass2.git_status": 0.057974,
+        "pass2.index_blobs": 0.09424,
+        "pass2.entries": 0.072896,
+        "cache_save": 0.001273,
+        "input_id": 0.005803
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.247421
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "ccec2667816a",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384124.184999,
+      "updated": 1791384160.681721,
+      "pre_accept": {
+        "freeze": 1.02,
+        "ship": 4.89,
+        "submit": 0.43
+      },
+      "freeze_steps": {
+        "cache_setup": 0.015734,
+        "pass1.nested_worktrees": 0.178608,
+        "pass1.names": 0.108066,
+        "pass1.git_status": 0.053458,
+        "pass1.index_blobs": 0.12249,
+        "pass1.entries": 0.084555,
+        "pass2.nested_worktrees": 0.041304,
+        "pass2.names": 0.038522,
+        "pass2.git_status": 0.050567,
+        "pass2.index_blobs": 0.114477,
+        "pass2.entries": 0.071476,
+        "cache_save": 0.004041,
+        "input_id": 0.005528
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.272111,
+          "bases": 0.295191,
+          "stage": 0.302388,
+          "progress": 0.051197,
+          "rsync": 3.404727,
+          "publish": 0.269082,
+          "cleanup": 0.283188
+        },
+        "files": 5389,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 295115541,
+        "rsync": {
+          "sent_bytes": 253883,
+          "received_bytes": 179,
+          "literal_bytes": 3550,
+          "matched_bytes": 7062,
+          "transferred_file_bytes": 10612,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "48c39b946111",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384135.704907,
+      "updated": 1791384239.331527,
+      "pre_accept": {
+        "freeze": 1.03,
+        "ship": 4.97,
+        "submit": 0.43
+      },
+      "freeze_steps": {
+        "cache_setup": 0.032261,
+        "pass1.nested_worktrees": 0.201263,
+        "pass1.names": 0.062236,
+        "pass1.git_status": 0.058525,
+        "pass1.index_blobs": 0.12685,
+        "pass1.entries": 0.087305,
+        "pass2.nested_worktrees": 0.04193,
+        "pass2.names": 0.030934,
+        "pass2.git_status": 0.064546,
+        "pass2.index_blobs": 0.110635,
+        "pass2.entries": 0.081179,
+        "cache_save": 0.001835,
+        "input_id": 0.005341
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.258198,
+          "bases": 0.267937,
+          "stage": 0.267569,
+          "progress": 0.056189,
+          "rsync": 3.588245,
+          "publish": 0.244643,
+          "cleanup": 0.26252
+        },
+        "files": 5386,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294516738,
+        "rsync": {
+          "sent_bytes": 423548,
+          "received_bytes": 14603,
+          "literal_bytes": 163201,
+          "matched_bytes": 1473707,
+          "transferred_file_bytes": 1636908,
+          "regular_files_transferred": 52
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "1ba2692af1a2",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384140.855366,
+      "updated": 1791384248.95168,
+      "pre_accept": {
+        "freeze": 1.04,
+        "ship": 0.29,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.018316,
+        "pass1.nested_worktrees": 0.103491,
+        "pass1.names": 0.114306,
+        "pass1.git_status": 0.068075,
+        "pass1.index_blobs": 0.116416,
+        "pass1.entries": 0.094571,
+        "pass2.nested_worktrees": 0.048049,
+        "pass2.names": 0.037635,
+        "pass2.git_status": 0.067794,
+        "pass2.index_blobs": 0.120402,
+        "pass2.entries": 0.102131,
+        "cache_save": 0.003278,
+        "input_id": 0.006059
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3e-06,
+          "probe": 0.289626
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "d0db1267f6c3",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384168.148779,
+      "updated": 1791384180.699761,
+      "pre_accept": {
+        "freeze": 1.17,
+        "ship": 0.25,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011806,
+        "pass1.nested_worktrees": 0.19887,
+        "pass1.names": 0.100087,
+        "pass1.git_status": 0.108346,
+        "pass1.index_blobs": 0.148022,
+        "pass1.entries": 0.073458,
+        "pass2.nested_worktrees": 0.073744,
+        "pass2.names": 0.034838,
+        "pass2.git_status": 0.058545,
+        "pass2.index_blobs": 0.136947,
+        "pass2.entries": 0.08153,
+        "cache_save": 0.001512,
+        "input_id": 0.005143
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.248846
+        },
+        "files": 5389,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "d6b8cae6410e",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384174.301512,
+      "updated": 1791384260.557848,
+      "pre_accept": {
+        "freeze": 1.17,
+        "ship": 4.58,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011476,
+        "pass1.nested_worktrees": 0.049309,
+        "pass1.names": 0.106382,
+        "pass1.git_status": 0.292374,
+        "pass1.index_blobs": 0.109465,
+        "pass1.entries": 0.081506,
+        "pass2.nested_worktrees": 0.047226,
+        "pass2.names": 0.035197,
+        "pass2.git_status": 0.053068,
+        "pass2.index_blobs": 0.113664,
+        "pass2.entries": 0.080229,
+        "cache_save": 0.053786,
+        "input_id": 0.00561
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.280477,
+          "bases": 0.293689,
+          "stage": 0.28257,
+          "progress": 0.0615,
+          "rsync": 3.043602,
+          "publish": 0.310927,
+          "cleanup": 0.293429
+        },
+        "files": 5394,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294578731,
+        "rsync": {
+          "sent_bytes": 426733,
+          "received_bytes": 5801,
+          "literal_bytes": 171731,
+          "matched_bytes": 535043,
+          "transferred_file_bytes": 706774,
+          "regular_files_transferred": 40
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "22e8b47002fb",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384180.9715562,
+      "updated": 1791384201.144245,
+      "pre_accept": {
+        "freeze": 1.1,
+        "ship": 4.61,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012439,
+        "pass1.nested_worktrees": 0.046711,
+        "pass1.names": 0.099503,
+        "pass1.git_status": 0.254239,
+        "pass1.index_blobs": 0.108115,
+        "pass1.entries": 0.080836,
+        "pass2.nested_worktrees": 0.045678,
+        "pass2.names": 0.038066,
+        "pass2.git_status": 0.060666,
+        "pass2.index_blobs": 0.108321,
+        "pass2.entries": 0.088321,
+        "cache_save": 0.001579,
+        "input_id": 0.006772
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.280392,
+          "bases": 0.308986,
+          "stage": 0.276278,
+          "progress": 0.037314,
+          "rsync": 3.131838,
+          "publish": 0.28427,
+          "cleanup": 0.29057
+        },
+        "files": 5384,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294507838,
+        "rsync": {
+          "sent_bytes": 361635,
+          "received_bytes": 5143,
+          "literal_bytes": 108504,
+          "matched_bytes": 487676,
+          "transferred_file_bytes": 596180,
+          "regular_files_transferred": 26
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "ca272ba17e13",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384207.869537,
+      "updated": 1791384261.6191082,
+      "pre_accept": {
+        "freeze": 1.1,
+        "ship": 0.26,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012934,
+        "pass1.nested_worktrees": 0.186515,
+        "pass1.names": 0.115733,
+        "pass1.git_status": 0.0826,
+        "pass1.index_blobs": 0.1123,
+        "pass1.entries": 0.080957,
+        "pass2.nested_worktrees": 0.050073,
+        "pass2.names": 0.034557,
+        "pass2.git_status": 0.063015,
+        "pass2.index_blobs": 0.117299,
+        "pass2.entries": 0.104167,
+        "cache_save": 0.001592,
+        "input_id": 0.005187
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.261052
+        },
+        "files": 5384,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "bd5d7e04c581",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384223.3721752,
+      "updated": 1791384242.333507,
+      "pre_accept": {
+        "freeze": 1.32,
+        "ship": 4.73,
+        "submit": 0.45
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012511,
+        "pass1.nested_worktrees": 0.183592,
+        "pass1.names": 0.111276,
+        "pass1.git_status": 0.348927,
+        "pass1.index_blobs": 0.112959,
+        "pass1.entries": 0.093342,
+        "pass2.nested_worktrees": 0.036234,
+        "pass2.names": 0.031661,
+        "pass2.git_status": 0.06233,
+        "pass2.index_blobs": 0.103278,
+        "pass2.entries": 0.076751,
+        "cache_save": 0.003924,
+        "input_id": 0.005552
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.257719,
+          "bases": 0.295575,
+          "stage": 0.349253,
+          "progress": 0.067707,
+          "rsync": 3.153323,
+          "publish": 0.287566,
+          "cleanup": 0.307886
+        },
+        "files": 5385,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294476406,
+        "rsync": {
+          "sent_bytes": 332596,
+          "received_bytes": 6418,
+          "literal_bytes": 77929,
+          "matched_bytes": 628286,
+          "transferred_file_bytes": 706215,
+          "regular_files_transferred": 28
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "a34c228770bf",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384243.471591,
+      "updated": 1791384264.277784,
+      "pre_accept": {
+        "freeze": 1.25,
+        "ship": 5.92,
+        "submit": 1.22
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013397,
+        "pass1.nested_worktrees": 0.200077,
+        "pass1.names": 0.02812,
+        "pass1.git_status": 0.211853,
+        "pass1.index_blobs": 0.11598,
+        "pass1.entries": 0.080385,
+        "pass2.nested_worktrees": 0.041881,
+        "pass2.names": 0.038919,
+        "pass2.git_status": 0.063168,
+        "pass2.index_blobs": 0.119514,
+        "pass2.entries": 0.077306,
+        "cache_save": 0.112684,
+        "input_id": 0.005275
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.289751,
+          "bases": 0.294926,
+          "stage": 0.285078,
+          "progress": 0.065956,
+          "rsync": 3.381284,
+          "publish": 0.26174,
+          "cleanup": 0.367763
+        },
+        "files": 5386,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294517126,
+        "rsync": {
+          "sent_bytes": 423734,
+          "received_bytes": 14157,
+          "literal_bytes": 163751,
+          "matched_bytes": 1422614,
+          "transferred_file_bytes": 1586365,
+          "regular_files_transferred": 51
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "675ce46e79bc",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384260.6339998,
+      "updated": 1791384280.342616,
+      "pre_accept": {
+        "freeze": 1.1,
+        "ship": 5.01,
+        "submit": 0.38
+      },
+      "freeze_steps": {
+        "cache_setup": 0.016372,
+        "pass1.nested_worktrees": 0.186803,
+        "pass1.names": 0.107077,
+        "pass1.git_status": 0.070957,
+        "pass1.index_blobs": 0.120037,
+        "pass1.entries": 0.096702,
+        "pass2.nested_worktrees": 0.064242,
+        "pass2.names": 0.03194,
+        "pass2.git_status": 0.056313,
+        "pass2.index_blobs": 0.109913,
+        "pass2.entries": 0.0826,
+        "cache_save": 0.001623,
+        "input_id": 0.007753
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.242526,
+          "bases": 0.302703,
+          "stage": 0.294796,
+          "progress": 0.07065,
+          "rsync": 3.552096,
+          "publish": 0.268639,
+          "cleanup": 0.279158
+        },
+        "files": 5385,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294476970,
+        "rsync": {
+          "sent_bytes": 252566,
+          "received_bytes": 455,
+          "literal_bytes": 2546,
+          "matched_bytes": 40994,
+          "transferred_file_bytes": 43540,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "340fc5041bfc",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384261.916106,
+      "updated": 1791384631.6838112,
+      "pre_accept": {
+        "freeze": 1.19,
+        "ship": 0.26,
+        "submit": 0.38
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011558,
+        "pass1.nested_worktrees": 0.054331,
+        "pass1.names": 0.113615,
+        "pass1.git_status": 0.257851,
+        "pass1.index_blobs": 0.119782,
+        "pass1.entries": 0.142637,
+        "pass2.nested_worktrees": 0.050396,
+        "pass2.names": 0.039045,
+        "pass2.git_status": 0.057527,
+        "pass2.index_blobs": 0.123207,
+        "pass2.entries": 0.077102,
+        "cache_save": 0.000943,
+        "input_id": 0.005443
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.262492
+        },
+        "files": 5384,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "9ef1f15b05ad",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384294.701043,
+      "updated": 1791384314.903151,
+      "pre_accept": {
+        "freeze": 1.12,
+        "ship": 5.47,
+        "submit": 0.45
+      },
+      "freeze_steps": {
+        "cache_setup": 0.01753,
+        "pass1.nested_worktrees": 0.231031,
+        "pass1.names": 0.106601,
+        "pass1.git_status": 0.061647,
+        "pass1.index_blobs": 0.121829,
+        "pass1.entries": 0.07381,
+        "pass2.nested_worktrees": 0.057172,
+        "pass2.names": 0.041893,
+        "pass2.git_status": 0.059036,
+        "pass2.index_blobs": 0.12063,
+        "pass2.entries": 0.087826,
+        "cache_save": 0.003999,
+        "input_id": 0.00574
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.288333,
+          "bases": 0.317617,
+          "stage": 0.297624,
+          "progress": 0.070631,
+          "rsync": 3.881713,
+          "publish": 0.301456,
+          "cleanup": 0.294001
+        },
+        "files": 5385,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294477104,
+        "rsync": {
+          "sent_bytes": 254675,
+          "received_bytes": 917,
+          "literal_bytes": 4334,
+          "matched_bytes": 89586,
+          "transferred_file_bytes": 93920,
+          "regular_files_transferred": 2
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "37dd30a24eba",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384303.200671,
+      "updated": 1791384315.206603,
+      "pre_accept": {
+        "freeze": 1.09,
+        "ship": 0.27,
+        "submit": 0.44
+      },
+      "freeze_steps": {
+        "cache_setup": 0.015361,
+        "pass1.nested_worktrees": 0.054305,
+        "pass1.names": 0.119722,
+        "pass1.git_status": 0.075191,
+        "pass1.index_blobs": 0.146045,
+        "pass1.entries": 0.135961,
+        "pass2.nested_worktrees": 0.058023,
+        "pass2.names": 0.052546,
+        "pass2.git_status": 0.064948,
+        "pass2.index_blobs": 0.129231,
+        "pass2.entries": 0.084883,
+        "cache_save": 0.001006,
+        "input_id": 0.005268
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.266281
+        },
+        "files": 5399,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "709807be2f42",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384322.281545,
+      "updated": 1791384373.000483,
+      "pre_accept": {
+        "freeze": 1.29,
+        "ship": 5.5,
+        "submit": 0.45
+      },
+      "freeze_steps": {
+        "cache_setup": 0.039745,
+        "pass1.nested_worktrees": 0.227089,
+        "pass1.names": 0.139045,
+        "pass1.git_status": 0.063235,
+        "pass1.index_blobs": 0.148578,
+        "pass1.entries": 0.088636,
+        "pass2.nested_worktrees": 0.066725,
+        "pass2.names": 0.040932,
+        "pass2.git_status": 0.071724,
+        "pass2.index_blobs": 0.161722,
+        "pass2.entries": 0.086536,
+        "cache_save": 0.002712,
+        "input_id": 0.005555
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.487776,
+          "bases": 0.284775,
+          "stage": 0.29361,
+          "progress": 0.063381,
+          "rsync": 3.736607,
+          "publish": 0.304549,
+          "cleanup": 0.317927
+        },
+        "files": 5385,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294477137,
+        "rsync": {
+          "sent_bytes": 251305,
+          "received_bytes": 185,
+          "literal_bytes": 1433,
+          "matched_bytes": 7417,
+          "transferred_file_bytes": 8850,
+          "regular_files_transferred": 2
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "0dd952869418",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384383.459799,
+      "updated": 1791384575.473653,
+      "pre_accept": {
+        "freeze": 0.98,
+        "ship": 0.26,
+        "submit": 0.38
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013945,
+        "pass1.nested_worktrees": 0.180086,
+        "pass1.names": 0.09459,
+        "pass1.git_status": 0.060204,
+        "pass1.index_blobs": 0.109762,
+        "pass1.entries": 0.079719,
+        "pass2.nested_worktrees": 0.048457,
+        "pass2.names": 0.028035,
+        "pass2.git_status": 0.051531,
+        "pass2.index_blobs": 0.100807,
+        "pass2.entries": 0.07145,
+        "cache_save": 0.002054,
+        "input_id": 0.005368
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.254703
+        },
+        "files": 5385,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "fb597b58e7a6",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384402.5597188,
+      "updated": 1791384490.633605,
+      "pre_accept": {
+        "freeze": 1.33,
+        "ship": 4.73,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.01791,
+        "pass1.nested_worktrees": 0.168925,
+        "pass1.names": 0.127087,
+        "pass1.git_status": 0.321935,
+        "pass1.index_blobs": 0.111218,
+        "pass1.entries": 0.101407,
+        "pass2.nested_worktrees": 0.058905,
+        "pass2.names": 0.031162,
+        "pass2.git_status": 0.064807,
+        "pass2.index_blobs": 0.102002,
+        "pass2.entries": 0.07325,
+        "cache_save": 0.001463,
+        "input_id": 0.006828
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.289754,
+          "bases": 0.32387,
+          "stage": 0.332299,
+          "progress": 0.051992,
+          "rsync": 3.09871,
+          "publish": 0.290094,
+          "cleanup": 0.336533
+        },
+        "files": 5394,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294580312,
+        "rsync": {
+          "sent_bytes": 442203,
+          "received_bytes": 6371,
+          "literal_bytes": 186793,
+          "matched_bytes": 577309,
+          "transferred_file_bytes": 764102,
+          "regular_files_transferred": 43
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "6bf8665e7d4a",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384430.351825,
+      "updated": 1791384449.463918,
+      "pre_accept": {
+        "freeze": 1.35,
+        "ship": 5.13,
+        "submit": 0.44
+      },
+      "freeze_steps": {
+        "cache_setup": 0.014919,
+        "pass1.nested_worktrees": 0.192618,
+        "pass1.names": 0.124709,
+        "pass1.git_status": 0.337849,
+        "pass1.index_blobs": 0.118517,
+        "pass1.entries": 0.080635,
+        "pass2.nested_worktrees": 0.048985,
+        "pass2.names": 0.037652,
+        "pass2.git_status": 0.053034,
+        "pass2.index_blobs": 0.118544,
+        "pass2.entries": 0.083828,
+        "cache_save": 0.001335,
+        "input_id": 0.005598
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.262762,
+          "bases": 0.293139,
+          "stage": 0.274568,
+          "progress": 0.059715,
+          "rsync": 3.58258,
+          "publish": 0.311832,
+          "cleanup": 0.320524
+        },
+        "files": 5388,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294533729,
+        "rsync": {
+          "sent_bytes": 381383,
+          "received_bytes": 2996,
+          "literal_bytes": 129513,
+          "matched_bytes": 242699,
+          "transferred_file_bytes": 372212,
+          "regular_files_transferred": 25
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "f7f218ace53b",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384460.7406359,
+      "updated": 1791384515.808637,
+      "pre_accept": {
+        "freeze": 0.94,
+        "ship": 0.25,
+        "submit": 0.5
+      },
+      "freeze_steps": {
+        "cache_setup": 0.012039,
+        "pass1.nested_worktrees": 0.143661,
+        "pass1.names": 0.03976,
+        "pass1.git_status": 0.05503,
+        "pass1.index_blobs": 0.112591,
+        "pass1.entries": 0.0731,
+        "pass2.nested_worktrees": 0.041898,
+        "pass2.names": 0.028445,
+        "pass2.git_status": 0.053863,
+        "pass2.index_blobs": 0.093055,
+        "pass2.entries": 0.080471,
+        "cache_save": 0.056518,
+        "input_id": 0.005342
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3e-06,
+          "probe": 0.251367
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "cbc48cff3ad0",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384488.923564,
+      "updated": 1791384507.548123,
+      "pre_accept": {
+        "freeze": 0.99,
+        "ship": 4.49,
+        "submit": 0.49
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013254,
+        "pass1.nested_worktrees": 0.186114,
+        "pass1.names": 0.092695,
+        "pass1.git_status": 0.051427,
+        "pass1.index_blobs": 0.108717,
+        "pass1.entries": 0.087503,
+        "pass2.nested_worktrees": 0.037072,
+        "pass2.names": 0.025799,
+        "pass2.git_status": 0.056059,
+        "pass2.index_blobs": 0.102198,
+        "pass2.entries": 0.092111,
+        "cache_save": 0.003397,
+        "input_id": 0.005632
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.285024,
+          "bases": 0.315717,
+          "stage": 0.292091,
+          "progress": 0.065345,
+          "rsync": 2.970802,
+          "publish": 0.271637,
+          "cleanup": 0.275917
+        },
+        "files": 5401,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294562511,
+        "rsync": {
+          "sent_bytes": 269556,
+          "received_bytes": 1345,
+          "literal_bytes": 18617,
+          "matched_bytes": 117252,
+          "transferred_file_bytes": 135869,
+          "regular_files_transferred": 7
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "fa6e23fe2b40",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384496.028666,
+      "updated": 1791384510.506089,
+      "pre_accept": {
+        "freeze": 0.85,
+        "ship": 0.24,
+        "submit": 0.44
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011051,
+        "pass1.nested_worktrees": 0.039699,
+        "pass1.names": 0.100502,
+        "pass1.git_status": 0.058281,
+        "pass1.index_blobs": 0.11209,
+        "pass1.entries": 0.071937,
+        "pass2.nested_worktrees": 0.037604,
+        "pass2.names": 0.036607,
+        "pass2.git_status": 0.057985,
+        "pass2.index_blobs": 0.113578,
+        "pass2.entries": 0.076676,
+        "cache_save": 0.002412,
+        "input_id": 0.004733
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.244139
+        },
+        "files": 5394,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "141ed575c1b5",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384514.749943,
+      "updated": 1791384634.609185,
+      "pre_accept": {
+        "freeze": 1.23,
+        "ship": 0.25,
+        "submit": 0.55
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013058,
+        "pass1.nested_worktrees": 0.159511,
+        "pass1.names": 0.112578,
+        "pass1.git_status": 0.251866,
+        "pass1.index_blobs": 0.11687,
+        "pass1.entries": 0.079022,
+        "pass2.nested_worktrees": 0.039435,
+        "pass2.names": 0.038324,
+        "pass2.git_status": 0.056062,
+        "pass2.index_blobs": 0.102384,
+        "pass2.entries": 0.118023,
+        "cache_save": 0.002663,
+        "input_id": 0.005541
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.245558
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "d7b726cb41ca",
+      "repo": "eichler",
+      "state": "running",
+      "started": 1791384516.946107,
+      "updated": 1791384518.4464252,
+      "pre_accept": {
+        "freeze": 0.85,
+        "ship": 0.26,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010359,
+        "pass1.nested_worktrees": 0.038944,
+        "pass1.names": 0.110469,
+        "pass1.git_status": 0.052583,
+        "pass1.index_blobs": 0.110858,
+        "pass1.entries": 0.087842,
+        "pass2.nested_worktrees": 0.038305,
+        "pass2.names": 0.025745,
+        "pass2.git_status": 0.050807,
+        "pass2.index_blobs": 0.102582,
+        "pass2.entries": 0.079893,
+        "cache_save": 0.000548,
+        "input_id": 0.005146
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.256355
+        },
+        "files": 5388,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "f1094f195596",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384518.398984,
+      "updated": 1791384618.484232,
+      "pre_accept": {
+        "freeze": 0.86,
+        "ship": 4.56,
+        "submit": 0.39
+      },
+      "freeze_steps": {
+        "cache_setup": 0.013848,
+        "pass1.nested_worktrees": 0.039498,
+        "pass1.names": 0.118016,
+        "pass1.git_status": 0.054415,
+        "pass1.index_blobs": 0.112872,
+        "pass1.entries": 0.088325,
+        "pass2.nested_worktrees": 0.035398,
+        "pass2.names": 0.027104,
+        "pass2.git_status": 0.058378,
+        "pass2.index_blobs": 0.089783,
+        "pass2.entries": 0.079438,
+        "cache_save": 0.002639,
+        "input_id": 0.005544
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.248967,
+          "bases": 0.242746,
+          "stage": 0.261785,
+          "progress": 0.056405,
+          "rsync": 3.233804,
+          "publish": 0.250722,
+          "cleanup": 0.264109
+        },
+        "files": 5394,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294580285,
+        "rsync": {
+          "sent_bytes": 251566,
+          "received_bytes": 269,
+          "literal_bytes": 1326,
+          "matched_bytes": 20639,
+          "transferred_file_bytes": 21965,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "166ba6420541",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384519.382348,
+      "updated": 1791384539.649837,
+      "pre_accept": {
+        "freeze": 0.9,
+        "ship": 4.46,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011878,
+        "pass1.nested_worktrees": 0.074306,
+        "pass1.names": 0.091022,
+        "pass1.git_status": 0.067033,
+        "pass1.index_blobs": 0.110055,
+        "pass1.entries": 0.079137,
+        "pass2.nested_worktrees": 0.041106,
+        "pass2.names": 0.031481,
+        "pass2.git_status": 0.058124,
+        "pass2.index_blobs": 0.111396,
+        "pass2.entries": 0.079113,
+        "cache_save": 0.001039,
+        "input_id": 0.005711
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.257792,
+          "bases": 0.26833,
+          "stage": 0.342363,
+          "progress": 0.034566,
+          "rsync": 3.01982,
+          "publish": 0.263533,
+          "cleanup": 0.268523
+        },
+        "files": 5401,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294562494,
+        "rsync": {
+          "sent_bytes": 251854,
+          "received_bytes": 151,
+          "literal_bytes": 1838,
+          "matched_bytes": 3061,
+          "transferred_file_bytes": 4899,
+          "regular_files_transferred": 2
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "f79a124791d5",
+      "repo": "eichler",
+      "state": "running",
+      "started": 1791384546.31597,
+      "updated": 1791384552.349662,
+      "pre_accept": {
+        "freeze": 1.1,
+        "ship": 4.5,
+        "submit": 0.42
+      },
+      "freeze_steps": {
+        "cache_setup": 0.018419,
+        "pass1.nested_worktrees": 0.210793,
+        "pass1.names": 0.095897,
+        "pass1.git_status": 0.066088,
+        "pass1.index_blobs": 0.162496,
+        "pass1.entries": 0.083755,
+        "pass2.nested_worktrees": 0.041405,
+        "pass2.names": 0.030295,
+        "pass2.git_status": 0.060484,
+        "pass2.index_blobs": 0.108129,
+        "pass2.entries": 0.082447,
+        "cache_save": 0.00174,
+        "input_id": 0.005365
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.265072,
+          "bases": 0.290176,
+          "stage": 0.277797,
+          "progress": 0.07757,
+          "rsync": 3.043964,
+          "publish": 0.267235,
+          "cleanup": 0.266622
+        },
+        "files": 5401,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294562488,
+        "rsync": {
+          "sent_bytes": 250415,
+          "received_bytes": 95,
+          "literal_bytes": 455,
+          "matched_bytes": 700,
+          "transferred_file_bytes": 1155,
+          "regular_files_transferred": 1
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "fe0beb517050",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384563.342529,
+      "updated": 1791384582.425167,
+      "pre_accept": {
+        "freeze": 1.18,
+        "ship": 5.49,
+        "submit": 0.4
+      },
+      "freeze_steps": {
+        "cache_setup": 0.018118,
+        "pass1.nested_worktrees": 0.208782,
+        "pass1.names": 0.109405,
+        "pass1.git_status": 0.055792,
+        "pass1.index_blobs": 0.175917,
+        "pass1.entries": 0.097419,
+        "pass2.nested_worktrees": 0.035476,
+        "pass2.names": 0.038153,
+        "pass2.git_status": 0.055235,
+        "pass2.index_blobs": 0.124093,
+        "pass2.entries": 0.083865,
+        "cache_save": 0.029279,
+        "input_id": 0.005035
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.301643,
+          "bases": 0.26578,
+          "stage": 0.286436,
+          "progress": 0.059291,
+          "rsync": 3.866556,
+          "publish": 0.35599,
+          "cleanup": 0.318309
+        },
+        "files": 5390,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 295117301,
+        "rsync": {
+          "sent_bytes": 997422,
+          "received_bytes": 9270,
+          "literal_bytes": 739619,
+          "matched_bytes": 892067,
+          "transferred_file_bytes": 1631686,
+          "regular_files_transferred": 47
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "93f9fc5f4801",
+      "repo": "eichler",
+      "state": "passed",
+      "started": 1791384614.431015,
+      "updated": 1791384634.2709398,
+      "pre_accept": {
+        "freeze": 1.35,
+        "ship": 5.55,
+        "submit": 0.47
+      },
+      "freeze_steps": {
+        "cache_setup": 0.017594,
+        "pass1.nested_worktrees": 0.192081,
+        "pass1.names": 0.155358,
+        "pass1.git_status": 0.074045,
+        "pass1.index_blobs": 0.143931,
+        "pass1.entries": 0.084177,
+        "pass2.nested_worktrees": 0.064887,
+        "pass2.names": 0.04429,
+        "pass2.git_status": 0.076668,
+        "pass2.index_blobs": 0.228749,
+        "pass2.entries": 0.109438,
+        "cache_save": 0.002166,
+        "input_id": 0.005096
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.293575,
+          "bases": 0.282786,
+          "stage": 0.292053,
+          "progress": 0.071336,
+          "rsync": 4.025031,
+          "publish": 0.265636,
+          "cleanup": 0.301631
+        },
+        "files": 5389,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 295120141,
+        "rsync": {
+          "sent_bytes": 260527,
+          "received_bytes": 1969,
+          "literal_bytes": 8941,
+          "matched_bytes": 207277,
+          "transferred_file_bytes": 216218,
+          "regular_files_transferred": 3
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "9eeb0cfbe1cd",
+      "repo": "eichler",
+      "state": "running",
+      "started": 1791384632.685472,
+      "updated": 1791384634.3627331,
+      "pre_accept": {
+        "freeze": 0.94,
+        "ship": 0.3,
+        "submit": 0.43
+      },
+      "freeze_steps": {
+        "cache_setup": 0.014485,
+        "pass1.nested_worktrees": 0.076824,
+        "pass1.names": 0.102025,
+        "pass1.git_status": 0.059498,
+        "pass1.index_blobs": 0.111534,
+        "pass1.entries": 0.083284,
+        "pass2.nested_worktrees": 0.045974,
+        "pass2.names": 0.036815,
+        "pass2.git_status": 0.0608,
+        "pass2.index_blobs": 0.117411,
+        "pass2.entries": 0.09123,
+        "cache_save": 0.001755,
+        "input_id": 0.005336
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 4e-06,
+          "probe": 0.297214
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "ebf8f48e3deb",
+      "repo": "eichler",
+      "state": "command_failed",
+      "started": 1791384637.5967438,
+      "updated": 1791384652.2120278,
+      "pre_accept": {
+        "freeze": 0.93,
+        "ship": 0.32,
+        "submit": 0.41
+      },
+      "freeze_steps": {
+        "cache_setup": 0.010642,
+        "pass1.nested_worktrees": 0.048497,
+        "pass1.names": 0.101514,
+        "pass1.git_status": 0.05625,
+        "pass1.index_blobs": 0.10184,
+        "pass1.entries": 0.072157,
+        "pass2.nested_worktrees": 0.047849,
+        "pass2.names": 0.038664,
+        "pass2.git_status": 0.059462,
+        "pass2.index_blobs": 0.141475,
+        "pass2.entries": 0.091714,
+        "cache_save": 0.009529,
+        "input_id": 0.006974
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 0.0,
+          "probe": 0.322599
+        },
+        "files": 5386,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "70115665b4d6",
+      "repo": "eichler",
+      "state": "running",
+      "started": 1791384638.2677288,
+      "updated": 1791384645.476955,
+      "pre_accept": {
+        "freeze": 1.23,
+        "ship": 5.51,
+        "submit": 0.47
+      },
+      "freeze_steps": {
+        "cache_setup": 0.014894,
+        "pass1.nested_worktrees": 0.099959,
+        "pass1.names": 0.129388,
+        "pass1.git_status": 0.068785,
+        "pass1.index_blobs": 0.117473,
+        "pass1.entries": 0.108699,
+        "pass2.nested_worktrees": 0.049314,
+        "pass2.names": 0.036657,
+        "pass2.git_status": 0.061569,
+        "pass2.index_blobs": 0.116215,
+        "pass2.entries": 0.250919,
+        "cache_save": 0.026643,
+        "input_id": 0.004357
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 2e-06,
+          "probe": 0.26674,
+          "bases": 0.265838,
+          "stage": 0.267459,
+          "progress": 0.09998,
+          "rsync": 3.941728,
+          "publish": 0.359543,
+          "cleanup": 0.298971
+        },
+        "files": 5394,
+        "cache": "absent",
+        "base_count": 4,
+        "source_bytes": 294580287,
+        "rsync": {
+          "sent_bytes": 435234,
+          "received_bytes": 6353,
+          "literal_bytes": 179775,
+          "matched_bytes": 584302,
+          "transferred_file_bytes": 764077,
+          "regular_files_transferred": 43
+        },
+        "rsync_exit": 0
+      }
+    },
+    {
+      "id": "4c4ac0251137",
+      "repo": "eichler",
+      "state": "running",
+      "started": 1791384638.922796,
+      "updated": 1791384640.832292,
+      "pre_accept": {
+        "freeze": 1.05,
+        "ship": 0.29,
+        "submit": 0.57
+      },
+      "freeze_steps": {
+        "cache_setup": 0.011061,
+        "pass1.nested_worktrees": 0.04385,
+        "pass1.names": 0.106868,
+        "pass1.git_status": 0.096349,
+        "pass1.index_blobs": 0.141723,
+        "pass1.entries": 0.186891,
+        "pass2.nested_worktrees": 0.045046,
+        "pass2.names": 0.035414,
+        "pass2.git_status": 0.061549,
+        "pass2.index_blobs": 0.10624,
+        "pass2.entries": 0.07417,
+        "cache_save": 0.003043,
+        "input_id": 0.005373
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 1e-06,
+          "probe": 0.285777
+        },
+        "files": 5389,
+        "cache": "present"
+      }
+    },
+    {
+      "id": "e5a238348b90",
+      "repo": "eichler",
+      "state": "running",
+      "started": 1791384648.813098,
+      "updated": 1791384650.563895,
+      "pre_accept": {
+        "freeze": 0.98,
+        "ship": 0.28,
+        "submit": 0.48
+      },
+      "freeze_steps": {
+        "cache_setup": 0.009991,
+        "pass1.nested_worktrees": 0.044282,
+        "pass1.names": 0.033735,
+        "pass1.git_status": 0.063163,
+        "pass1.index_blobs": 0.159519,
+        "pass1.entries": 0.087472,
+        "pass2.nested_worktrees": 0.042814,
+        "pass2.names": 0.038985,
+        "pass2.git_status": 0.062424,
+        "pass2.index_blobs": 0.110583,
+        "pass2.entries": 0.084828,
+        "cache_save": 0.099255,
+        "input_id": 0.005351
+      },
+      "transfer": {
+        "steps": {
+          "root_lookup": 3e-06,
+          "probe": 0.283374
+        },
+        "files": 5384,
+        "cache": "present"
+      }
+    }
+  ]
+}

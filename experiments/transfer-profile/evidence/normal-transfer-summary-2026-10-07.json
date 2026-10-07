@@ -1,0 +1,799 @@
+{
+  "observed_at": "2026-10-07T14:50:55.506180+00:00",
+  "record_count": 72,
+  "skipped_malformed_records": 0,
+  "repositories": {
+    "eichler": {
+      "cache_hits": {
+        "count": 29,
+        "state_counts": {
+          "passed": 14,
+          "command_failed": 11,
+          "running": 4
+        },
+        "pre_accept_seconds": {
+          "freeze": {
+            "count": 29,
+            "p50": 0.98,
+            "p95": 1.214,
+            "min": 0.81,
+            "max": 1.55,
+            "sum": 29.16
+          },
+          "ship": {
+            "count": 29,
+            "p50": 0.26,
+            "p95": 0.296,
+            "min": 0.24,
+            "max": 0.32,
+            "sum": 7.68
+          },
+          "submit": {
+            "count": 29,
+            "p50": 0.41,
+            "p95": 0.53,
+            "min": 0.36,
+            "max": 0.57,
+            "sum": 12.21
+          }
+        },
+        "step_seconds": {
+          "probe": {
+            "count": 29,
+            "p50": 0.261014,
+            "p95": 0.294179,
+            "min": 0.237024,
+            "max": 0.322599,
+            "sum": 7.63169
+          },
+          "root_lookup": {
+            "count": 29,
+            "p50": 1e-06,
+            "p95": 4e-06,
+            "min": 0.0,
+            "max": 6e-06,
+            "sum": 5.1e-05
+          }
+        },
+        "freeze_step_seconds": {
+          "cache_save": {
+            "count": 29,
+            "p50": 0.002258,
+            "p95": 0.057192,
+            "min": 0.000548,
+            "max": 0.099255,
+            "sum": 0.361048
+          },
+          "cache_setup": {
+            "count": 29,
+            "p50": 0.012934,
+            "p95": 0.02302,
+            "min": 0.008906,
+            "max": 0.025623,
+            "sum": 0.426207
+          },
+          "input_id": {
+            "count": 29,
+            "p50": 0.005342,
+            "p95": 0.006998,
+            "min": 0.004474,
+            "max": 0.007124,
+            "sum": 0.157344
+          },
+          "pass1.entries": {
+            "count": 29,
+            "p50": 0.083284,
+            "p95": 0.163516,
+            "min": 0.063716,
+            "max": 0.186891,
+            "sum": 2.708441
+          },
+          "pass1.git_status": {
+            "count": 29,
+            "p50": 0.060204,
+            "p95": 0.217106,
+            "min": 0.049012,
+            "max": 0.257851,
+            "sum": 2.362502
+          },
+          "pass1.index_blobs": {
+            "count": 29,
+            "p50": 0.116416,
+            "p95": 0.153612,
+            "min": 0.10184,
+            "max": 0.159519,
+            "sum": 3.569586
+          },
+          "pass1.names": {
+            "count": 29,
+            "p50": 0.10122,
+            "p95": 0.115162,
+            "min": 0.033735,
+            "max": 0.119722,
+            "sum": 2.625782
+          },
+          "pass1.nested_worktrees": {
+            "count": 29,
+            "p50": 0.059249,
+            "p95": 0.183943,
+            "min": 0.035969,
+            "max": 0.19887,
+            "sum": 2.689664
+          },
+          "pass2.entries": {
+            "count": 29,
+            "p50": 0.080471,
+            "p95": 0.120228,
+            "min": 0.064574,
+            "max": 0.325063,
+            "sum": 2.723486
+          },
+          "pass2.git_status": {
+            "count": 29,
+            "p50": 0.059462,
+            "p95": 0.067073,
+            "min": 0.04697,
+            "max": 0.071047,
+            "sum": 1.720214
+          },
+          "pass2.index_blobs": {
+            "count": 29,
+            "p50": 0.117299,
+            "p95": 0.139664,
+            "min": 0.093055,
+            "max": 0.186056,
+            "sum": 3.398359
+          },
+          "pass2.names": {
+            "count": 29,
+            "p50": 0.035096,
+            "p95": 0.044673,
+            "min": 0.025745,
+            "max": 0.052546,
+            "sum": 1.028187
+          },
+          "pass2.nested_worktrees": {
+            "count": 29,
+            "p50": 0.045167,
+            "p95": 0.066098,
+            "min": 0.034901,
+            "max": 0.073744,
+            "sum": 1.377424
+          }
+        },
+        "byte_distributions": {
+          "sent_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "received_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "literal_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "matched_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "transferred_file_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "source_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          }
+        },
+        "file_distributions": {
+          "manifest_files": {
+            "count": 29,
+            "p50": 5386.0,
+            "p95": 5393.2,
+            "min": 5383,
+            "max": 5399,
+            "sum": 156231.0
+          },
+          "regular_files_transferred": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          }
+        },
+        "base_count_counts": {},
+        "base_count_unknown": 29,
+        "rsync_fraction_of_ship": {
+          "paired_count": 0,
+          "sum_rsync_seconds": null,
+          "sum_ship_seconds": null,
+          "fraction": null,
+          "rsync_longer_than_ship_count": 0
+        },
+        "low_wire_count": 0,
+        "low_wire_examples": [],
+        "record_ids": [
+          "c08d994e1a8a",
+          "e1824242fae6",
+          "8ca8dd8a241a",
+          "67906607e6c1",
+          "bd693363ccee",
+          "440df66f1b85",
+          "cf9845cca39b",
+          "89ed8338e880",
+          "169162742a9a",
+          "62fc3ee5c911",
+          "c21847eee421",
+          "7cfca289d1b6",
+          "0fe9b194fb4b",
+          "a15683acb7a7",
+          "700847ebaa15",
+          "1ba2692af1a2",
+          "d0db1267f6c3",
+          "ca272ba17e13",
+          "340fc5041bfc",
+          "37dd30a24eba",
+          "0dd952869418",
+          "f7f218ace53b",
+          "fa6e23fe2b40",
+          "141ed575c1b5",
+          "d7b726cb41ca",
+          "9eeb0cfbe1cd",
+          "ebf8f48e3deb",
+          "4c4ac0251137",
+          "e5a238348b90"
+        ]
+      },
+      "completed_misses": {
+        "count": 43,
+        "state_counts": {
+          "passed": 33,
+          "command_failed": 8,
+          "running": 2
+        },
+        "pre_accept_seconds": {
+          "freeze": {
+            "count": 43,
+            "p50": 1.09,
+            "p95": 1.348,
+            "min": 0.77,
+            "max": 1.59,
+            "sum": 46.33
+          },
+          "ship": {
+            "count": 43,
+            "p50": 5.01,
+            "p95": 5.898,
+            "min": 4.46,
+            "max": 7.32,
+            "sum": 219.85
+          },
+          "submit": {
+            "count": 43,
+            "p50": 0.42,
+            "p95": 0.603,
+            "min": 0.37,
+            "max": 1.22,
+            "sum": 19.22
+          }
+        },
+        "step_seconds": {
+          "bases": {
+            "count": 43,
+            "p50": 0.2795,
+            "p95": 0.315429,
+            "min": 0.237627,
+            "max": 0.32387,
+            "sum": 11.992226
+          },
+          "cleanup": {
+            "count": 43,
+            "p50": 0.285302,
+            "p95": 0.357822,
+            "min": 0.242519,
+            "max": 0.538491,
+            "sum": 12.73736
+          },
+          "probe": {
+            "count": 43,
+            "p50": 0.26306,
+            "p95": 0.335382,
+            "min": 0.238968,
+            "max": 0.487776,
+            "sum": 11.834653
+          },
+          "progress": {
+            "count": 43,
+            "p50": 0.059291,
+            "p95": 0.077358,
+            "min": 0.032174,
+            "max": 0.104382,
+            "sum": 2.507168
+          },
+          "publish": {
+            "count": 43,
+            "p50": 0.278721,
+            "p95": 0.464866,
+            "min": 0.239924,
+            "max": 0.5028,
+            "sum": 12.733837
+          },
+          "root_lookup": {
+            "count": 43,
+            "p50": 1e-06,
+            "p95": 5e-06,
+            "min": 0.0,
+            "max": 3.5e-05,
+            "sum": 0.000108
+          },
+          "rsync": {
+            "count": 43,
+            "p50": 3.552096,
+            "p95": 4.250843,
+            "min": 2.970802,
+            "max": 5.624009,
+            "sum": 154.146125
+          },
+          "stage": {
+            "count": 43,
+            "p50": 0.278169,
+            "p95": 0.341357,
+            "min": 0.243629,
+            "max": 0.591184,
+            "sum": 12.420473
+          }
+        },
+        "freeze_step_seconds": {
+          "cache_save": {
+            "count": 43,
+            "p50": 0.002168,
+            "p95": 0.051335,
+            "min": 0.000721,
+            "max": 0.112684,
+            "sum": 0.427827
+          },
+          "cache_setup": {
+            "count": 43,
+            "p50": 0.014548,
+            "p95": 0.032145,
+            "min": 0.009276,
+            "max": 0.039745,
+            "sum": 0.728964
+          },
+          "input_id": {
+            "count": 43,
+            "p50": 0.005552,
+            "p95": 0.007808,
+            "min": 0.004285,
+            "max": 0.009693,
+            "sum": 0.247289
+          },
+          "pass1.entries": {
+            "count": 43,
+            "p50": 0.083755,
+            "p95": 0.115212,
+            "min": 0.069036,
+            "max": 0.188709,
+            "sum": 3.877159
+          },
+          "pass1.git_status": {
+            "count": 43,
+            "p50": 0.06648,
+            "p95": 0.336258,
+            "min": 0.049138,
+            "max": 0.393661,
+            "sum": 4.758823
+          },
+          "pass1.index_blobs": {
+            "count": 43,
+            "p50": 0.121829,
+            "p95": 0.194688,
+            "min": 0.094826,
+            "max": 0.205935,
+            "sum": 5.676095
+          },
+          "pass1.names": {
+            "count": 43,
+            "p50": 0.101282,
+            "p95": 0.144007,
+            "min": 0.02812,
+            "max": 0.155358,
+            "sum": 3.730981
+          },
+          "pass1.nested_worktrees": {
+            "count": 43,
+            "p50": 0.083129,
+            "p95": 0.225459,
+            "min": 0.039498,
+            "max": 0.231533,
+            "sum": 5.092224
+          },
+          "pass2.entries": {
+            "count": 43,
+            "p50": 0.082447,
+            "p95": 0.109419,
+            "min": 0.065323,
+            "max": 0.250919,
+            "sum": 3.795378
+          },
+          "pass2.git_status": {
+            "count": 43,
+            "p50": 0.061569,
+            "p95": 0.081786,
+            "min": 0.047722,
+            "max": 0.115214,
+            "sum": 2.753392
+          },
+          "pass2.index_blobs": {
+            "count": 43,
+            "p50": 0.113664,
+            "p95": 0.207724,
+            "min": 0.089081,
+            "max": 0.243741,
+            "sum": 5.394556
+          },
+          "pass2.names": {
+            "count": 43,
+            "p50": 0.036495,
+            "p95": 0.044899,
+            "min": 0.025799,
+            "max": 0.051513,
+            "sum": 1.557798
+          },
+          "pass2.nested_worktrees": {
+            "count": 43,
+            "p50": 0.049314,
+            "p95": 0.07097,
+            "min": 0.035398,
+            "max": 0.090572,
+            "sum": 2.202471
+          }
+        },
+        "byte_distributions": {
+          "sent_bytes": {
+            "count": 43,
+            "p50": 258116.0,
+            "p95": 656482.5,
+            "min": 250414,
+            "max": 1000387,
+            "sum": 15086172.0
+          },
+          "received_bytes": {
+            "count": 43,
+            "p50": 341.0,
+            "p95": 10191.6,
+            "min": 95,
+            "max": 14603,
+            "sum": 132483.0
+          },
+          "literal_bytes": {
+            "count": 43,
+            "p50": 8435.0,
+            "p95": 399038.2,
+            "min": 455,
+            "max": 741994,
+            "sum": 4247189.0
+          },
+          "matched_bytes": {
+            "count": 43,
+            "p50": 20639.0,
+            "p95": 988769.8,
+            "min": 700,
+            "max": 1473707,
+            "sum": 12476542.0
+          },
+          "transferred_file_bytes": {
+            "count": 43,
+            "p50": 43540.0,
+            "p95": 1627153.9,
+            "min": 1155,
+            "max": 1731063,
+            "sum": 16723731.0
+          },
+          "source_bytes": {
+            "count": 43,
+            "p50": 294481028.0,
+            "p95": 295115536.0,
+            "min": 294464824,
+            "max": 295120141,
+            "sum": 12666987657.0
+          }
+        },
+        "file_distributions": {
+          "manifest_files": {
+            "count": 43,
+            "p50": 5386.0,
+            "p95": 5400.3,
+            "min": 5383,
+            "max": 5401,
+            "sum": 231665.0
+          },
+          "regular_files_transferred": {
+            "count": 43,
+            "p50": 2.0,
+            "p95": 48.9,
+            "min": 1,
+            "max": 52,
+            "sum": 668.0
+          }
+        },
+        "base_count_counts": {
+          "4": 43
+        },
+        "base_count_unknown": 0,
+        "rsync_fraction_of_ship": {
+          "paired_count": 43,
+          "sum_rsync_seconds": 154.146125,
+          "sum_ship_seconds": 219.85,
+          "fraction": 0.7011422560836935,
+          "rsync_longer_than_ship_count": 0
+        },
+        "low_wire_count": 43,
+        "low_wire_examples": [
+          {
+            "id": "f79a124791d5",
+            "state": "running",
+            "started": "2026-10-07T14:49:06.315970+00:00",
+            "source_bytes": 294562488,
+            "wire_bytes": 250510,
+            "wire_fraction_of_source": 0.0008504477325028569,
+            "ship_seconds": 4.5,
+            "rsync_seconds": 3.043964,
+            "literal_bytes": 455,
+            "matched_bytes": 700,
+            "base_count": 4
+          },
+          {
+            "id": "4c64b93c2c43",
+            "state": "passed",
+            "started": "2026-10-07T14:35:59.804880+00:00",
+            "source_bytes": 294464974,
+            "wire_bytes": 250635,
+            "wire_fraction_of_source": 0.0008511538625303531,
+            "ship_seconds": 5.03,
+            "rsync_seconds": 3.463084,
+            "literal_bytes": 700,
+            "matched_bytes": 14775,
+            "base_count": 4
+          },
+          {
+            "id": "69ca84d41cd7",
+            "state": "passed",
+            "started": "2026-10-07T14:37:44.156892+00:00",
+            "source_bytes": 294464974,
+            "wire_bytes": 250638,
+            "wire_fraction_of_source": 0.0008511640504992624,
+            "ship_seconds": 5.7,
+            "rsync_seconds": 4.321803,
+            "literal_bytes": 700,
+            "matched_bytes": 14775,
+            "base_count": 4
+          },
+          {
+            "id": "452c0fe42280",
+            "state": "passed",
+            "started": "2026-10-07T14:31:52.751581+00:00",
+            "source_bytes": 294464824,
+            "wire_bytes": 250638,
+            "wire_fraction_of_source": 0.0008511644840811275,
+            "ship_seconds": 5.62,
+            "rsync_seconds": 3.883831,
+            "literal_bytes": 700,
+            "matched_bytes": 14775,
+            "base_count": 4
+          },
+          {
+            "id": "2e6ff64d9c02",
+            "state": "passed",
+            "started": "2026-10-07T14:34:09.226461+00:00",
+            "source_bytes": 294464974,
+            "wire_bytes": 250642,
+            "wire_fraction_of_source": 0.0008511776344578082,
+            "ship_seconds": 4.65,
+            "rsync_seconds": 3.286644,
+            "literal_bytes": 700,
+            "matched_bytes": 14775,
+            "base_count": 4
+          }
+        ],
+        "record_ids": [
+          "87f8914d6e6f",
+          "452c0fe42280",
+          "5319057c34ab",
+          "6666f24eb202",
+          "52bed8ddc0a1",
+          "e5f376c2a638",
+          "2e6ff64d9c02",
+          "8434dd72b6ae",
+          "cc322a24d238",
+          "ce5d483e5704",
+          "ff8367af65f6",
+          "23cc6a6ea423",
+          "b2d8345f20bb",
+          "4c64b93c2c43",
+          "f62c4ba793d9",
+          "8dce49d9c614",
+          "c7a8453080ea",
+          "ef8769227573",
+          "69ca84d41cd7",
+          "be013fd01f61",
+          "9afca4e52808",
+          "1f33f579652d",
+          "758bd3e0b0c4",
+          "3035e098751e",
+          "f4ef6c1d8242",
+          "ccec2667816a",
+          "48c39b946111",
+          "d6b8cae6410e",
+          "22e8b47002fb",
+          "bd5d7e04c581",
+          "a34c228770bf",
+          "675ce46e79bc",
+          "9ef1f15b05ad",
+          "709807be2f42",
+          "fb597b58e7a6",
+          "6bf8665e7d4a",
+          "cbc48cff3ad0",
+          "f1094f195596",
+          "166ba6420541",
+          "f79a124791d5",
+          "fe0beb517050",
+          "93f9fc5f4801",
+          "70115665b4d6"
+        ]
+      },
+      "incomplete_or_unknown": {
+        "count": 0,
+        "state_counts": {},
+        "pre_accept_seconds": {
+          "freeze": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "ship": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "submit": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          }
+        },
+        "step_seconds": {},
+        "freeze_step_seconds": {},
+        "byte_distributions": {
+          "sent_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "received_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "literal_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "matched_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "transferred_file_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "source_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          }
+        },
+        "file_distributions": {
+          "manifest_files": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          },
+          "regular_files_transferred": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null,
+            "sum": null
+          }
+        },
+        "base_count_counts": {},
+        "base_count_unknown": 0,
+        "rsync_fraction_of_ship": {
+          "paired_count": 0,
+          "sum_rsync_seconds": null,
+          "sum_ship_seconds": null,
+          "fraction": null,
+          "rsync_longer_than_ship_count": 0
+        },
+        "low_wire_count": 0,
+        "low_wire_examples": [],
+        "record_ids": []
+      }
+    }
+  },
+  "limitations": [
+    "Offline summary of the supplied retained-record snapshot; not a random or complete workload sample.",
+    "Cohorts use transfer observations, independently of a later passed, failed, or running job state.",
+    "Completed misses require cache absent, observed rsync exit 0, rsync/publication/cleanup timers, and valid submit elapsed time proving progress to engine submission. Timers alone cannot prove callback success; cleanup can fail harmlessly.",
+    "Missing or invalid values remain unknown. Each distribution has its own observation count.",
+    "Quantiles use linear interpolation; small samples do not establish stable latency percentiles.",
+    "Rsync fraction is sum(rsync)/sum(ship) over paired valid rows with positive ship, not a ratio of unmatched aggregates.",
+    "Rsync elapsed time mixes metadata/checksum reads, protocol work, and transport; it does not isolate checksum CPU.",
+    "Sent plus received bytes are rsync protocol bytes, not complete network or SSH traffic.",
+    "Low-wire examples require observed sent/received bytes totaling at most 1% of observed source bytes; literal/matched counters may be unknown.",
+    "No source contents, logs, live state, SSH calls, or jobs are read or run."
+  ]
+}
