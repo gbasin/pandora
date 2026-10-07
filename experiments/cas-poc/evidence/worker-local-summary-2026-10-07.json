@@ -1,0 +1,2761 @@
+{
+  "schema": 1,
+  "scope": "isolated worker-local comparison; no production caches, SSH or WAN",
+  "rounds": 5,
+  "priming_rounds_excluded": 1,
+  "fixture": {
+    "regular_files": 5000,
+    "manifest_paths": 5001,
+    "regular_bytes": 393216000,
+    "large_files": 100,
+    "compressible_large_files": 50,
+    "incompressible_large_files": 50,
+    "small_files": 4900,
+    "small_file_bytes": 128,
+    "symlinks": 1,
+    "executable_path": "small/00000.txt",
+    "odd_paths": [
+      "small/path with spaces.txt",
+      "small/path with\nnewline.txt"
+    ],
+    "readonly_modes": [
+      "0444",
+      "0555"
+    ],
+    "manifest_sha256": "dadccfd65498ae347aa7d763f6ec2d91c60b0cbb065c684bbf1827c838b65253",
+    "case_manifest_bytes": {
+      "cold": 569875,
+      "warm_unchanged": 569875,
+      "warm_small_delta": 569875,
+      "warm_large_delta": 569875,
+      "divergent": 569875,
+      "retained_history": 569875,
+      "mode_change": 569875
+    }
+  },
+  "machine": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "python": "3.14.4",
+    "machine": "x86_64",
+    "logical_cpus": 8
+  },
+  "rsync": {
+    "path": "/usr/bin/rsync",
+    "version": "rsync  version 3.4.1  protocol version 32\nCopyright (C) 1996-2025 by Andrew Tridgell, Wayne Davison, and others.\nWeb site: https://rsync.samba.org/\nCapabilities:\n    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,\n    socketpairs, symlinks, symtimes, hardlinks, hardlink-specials,\n    hardlink-symlinks, IPv6, atimes, batchfiles, inplace, append, ACLs,\n    xattrs, optional secluded-args, iconv, prealloc, stop-at, no crtimes\nOptimizations:\n    SIMD-roll, no asm-roll, openssl-crypto, no asm-MD5\nChecksum list:\n    xxh128 xxh3 xxh64 (xxhash) md5 md4 sha1 none\nCompress list:\n    zstd lz4 zlibx zlib none\nDaemon auth list:\n    sha512 sha256 sha1 md5 md4\n\nrsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you\nare welcome to redistribute it under certain conditions.  See the GNU\nGeneral Public Licence for details.\n"
+  },
+  "cases": {
+    "cold": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 1.185685,
+            "p95": 1.31757,
+            "min": 1.071245247963816,
+            "max": 1.332501395023428
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.44001,
+            "p95": 0.486398,
+            "min": 0.3520925509510562,
+            "max": 0.49229926289990544
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.302663,
+            "p95": 0.374721,
+            "min": 0.2752036480233073,
+            "max": 0.3908150789793581
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.464551,
+            "p95": 0.501756,
+            "min": 0.42451657610945404,
+            "max": 0.5027657221071422
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.554847,
+            "p95": 1.627889,
+            "min": 1.3464488959871233,
+            "max": 1.642848054994829
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 2.464506,
+            "p95": 2.563082,
+            "min": 2.1230580230476335,
+            "max": 2.5631171439308673
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.711632,
+            "p95": 0.733901,
+            "min": 0.647168637951836,
+            "max": 0.7366460210178047
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.106897,
+            "p95": 0.120311,
+            "min": 0.09841307101305574,
+            "max": 0.12283824104815722
+          },
+          "publish": {
+            "count": 5,
+            "p50": 2.8e-05,
+            "p95": 3.3e-05,
+            "min": 1.722201704978943e-05,
+            "max": 3.3622956834733486e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.372053,
+            "p95": 0.464916,
+            "min": 0.3223624660167843,
+            "max": 0.4723308039829135
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 5e-06,
+            "p95": 6e-06,
+            "min": 2.7848873287439346e-06,
+            "max": 6.592017598450184e-06
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 393611866.0,
+            "p95": 393611866.0,
+            "min": 393611866,
+            "max": 393611866
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 95112.0,
+            "p95": 95112.0,
+            "min": 95112,
+            "max": 95112
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 393216000.0,
+            "p95": 393216000.0,
+            "min": 393216000,
+            "max": 393216000
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 1.290535,
+            "p95": 1.42751,
+            "min": 0.9683733710553497,
+            "max": 1.447012501070276
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.419892,
+            "p95": 0.450676,
+            "min": 0.3611221640603617,
+            "max": 0.4518680579494685
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.321486,
+            "p95": 0.365864,
+            "min": 0.27547567803412676,
+            "max": 0.37547978409565985
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.472979,
+            "p95": 0.533076,
+            "min": 0.41216886800248176,
+            "max": 0.5400878520449623
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.612021,
+            "p95": 1.764528,
+            "min": 1.2495139091042802,
+            "max": 1.7744148741476238
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 2.504892,
+            "p95": 2.744703,
+            "min": 2.0443200811278075,
+            "max": 2.760410741204396
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.715668,
+            "p95": 0.761483,
+            "min": 0.5643350299214944,
+            "max": 0.7637719890335575
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.107978,
+            "p95": 0.13118,
+            "min": 0.08867780398577452,
+            "max": 0.13293674995657057
+          },
+          "publish": {
+            "count": 5,
+            "p50": 2.1e-05,
+            "p95": 3.5e-05,
+            "min": 2.1320069208741188e-05,
+            "max": 3.6909012123942375e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.441371,
+            "p95": 0.551139,
+            "min": 0.31478328397497535,
+            "max": 0.5695311389863491
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 393611866.0,
+            "p95": 393611866.0,
+            "min": 393611866,
+            "max": 393611866
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 95112.0,
+            "p95": 95112.0,
+            "min": 95112,
+            "max": 95112
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 393216000.0,
+            "p95": 393216000.0,
+            "min": 393216000,
+            "max": 393216000
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.442262,
+            "p95": 0.533461,
+            "min": 0.3931541279889643,
+            "max": 0.5381142590194941
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.413481,
+            "p95": 0.452661,
+            "min": 0.35029343503993005,
+            "max": 0.45436693693045527
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.289752,
+            "p95": 0.351746,
+            "min": 0.26646169496234506,
+            "max": 0.3578706330154091
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.467497,
+            "p95": 0.496398,
+            "min": 0.41658631595782936,
+            "max": 0.4989422580692917
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.755877,
+            "p95": 0.863747,
+            "min": 0.6596158229513094,
+            "max": 0.8727168630575761
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.646624,
+            "p95": 1.777563,
+            "min": 1.4774065519450232,
+            "max": 1.7811750789405778
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 0.442262,
+            "p95": 0.533461,
+            "min": 0.3931541279889643,
+            "max": 0.5381142590194941
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 393691927.0,
+            "p95": 393691927.0,
+            "min": 393691927,
+            "max": 393691927
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 95132.0,
+            "p95": 95132.0,
+            "min": 95132,
+            "max": 95132
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 393216000.0,
+            "p95": 393216000.0,
+            "min": 393216000,
+            "max": 393216000
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    "divergent": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.87814,
+            "p95": 0.89903,
+            "min": 0.7387083910871297,
+            "max": 0.9017076810123399
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.385634,
+            "p95": 0.393416,
+            "min": 0.35436490504071116,
+            "max": 0.3939575960393995
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.304055,
+            "p95": 0.344449,
+            "min": 0.271876985905692,
+            "max": 0.3537393710575998
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.426821,
+            "p95": 0.448847,
+            "min": 0.40384541905950755,
+            "max": 0.45096528402063996
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.150017,
+            "p95": 1.242832,
+            "min": 1.0459971530362964,
+            "max": 1.2554470520699397
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.976024,
+            "p95": 2.060521,
+            "min": 1.8095397121505812,
+            "max": 2.076225488097407
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.456024,
+            "p95": 0.471378,
+            "min": 0.3438665249850601,
+            "max": 0.47302166000008583
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.08189,
+            "p95": 0.089275,
+            "min": 0.07743206201121211,
+            "max": 0.09078849398065358
+          },
+          "publish": {
+            "count": 5,
+            "p50": 2.2e-05,
+            "p95": 2.7e-05,
+            "min": 1.5188939869403839e-05,
+            "max": 2.7270987629890442e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.235178,
+            "p95": 0.265719,
+            "min": 0.22250170807819813,
+            "max": 0.27043888706248254
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 0.091789,
+            "p95": 0.102677,
+            "min": 0.08089539094362408,
+            "max": 0.10504714900162071
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 90.0,
+          "p95": 90.0,
+          "min": 90,
+          "max": 90
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 353329920.0,
+          "p95": 353329920.0,
+          "min": 353329920,
+          "max": 353329920
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 353421013.0,
+            "p95": 353421013.0,
+            "min": 353421013,
+            "max": 353421013
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 1722.0,
+            "p95": 1722.0,
+            "min": 1722,
+            "max": 1722
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 353329920.0,
+            "p95": 353329920.0,
+            "min": 353329920,
+            "max": 353329920
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.711695,
+            "p95": 0.827355,
+            "min": 0.7098361259559169,
+            "max": 0.8467780810315162
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.379087,
+            "p95": 0.41696,
+            "min": 0.3502575879683718,
+            "max": 0.42196727299597114
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.290077,
+            "p95": 0.332921,
+            "min": 0.25845105294138193,
+            "max": 0.33812189707532525
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.457673,
+            "p95": 0.46852,
+            "min": 0.40464178298134357,
+            "max": 0.47013790905475616
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.008112,
+            "p95": 1.152311,
+            "min": 1.0001840989571065,
+            "max": 1.1848999781068414
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.828313,
+            "p95": 2.032748,
+            "min": 1.785501365084201,
+            "max": 2.0770051601575688
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.413228,
+            "p95": 0.461192,
+            "min": 0.3932310020318255,
+            "max": 0.4645150990691036
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.077525,
+            "p95": 0.093403,
+            "min": 0.07195823092479259,
+            "max": 0.09532332303933799
+          },
+          "publish": {
+            "count": 5,
+            "p50": 3.2e-05,
+            "p95": 4e-05,
+            "min": 1.8113991245627403e-05,
+            "max": 4.077597986906767e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.234846,
+            "p95": 0.278452,
+            "min": 0.21230563707649708,
+            "max": 0.28676681395154446
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 90.0,
+          "p95": 90.0,
+          "min": 90,
+          "max": 90
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 353329920.0,
+          "p95": 353329920.0,
+          "min": 353329920,
+          "max": 353329920
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 353421013.0,
+            "p95": 353421013.0,
+            "min": 353421013,
+            "max": 353421013
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 1722.0,
+            "p95": 1722.0,
+            "min": 1722,
+            "max": 1722
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 353329920.0,
+            "p95": 353329920.0,
+            "min": 353329920,
+            "max": 353329920
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 1.610573,
+            "p95": 1.691112,
+            "min": 1.4989366019144654,
+            "max": 1.707932117045857
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.398549,
+            "p95": 0.414171,
+            "min": 0.3778957771137357,
+            "max": 0.41787157708313316
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.329713,
+            "p95": 0.354633,
+            "min": 0.29591759492177516,
+            "max": 0.35967687191441655
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.467282,
+            "p95": 0.499796,
+            "min": 0.44138976698741317,
+            "max": 0.5005209998926148
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.90649,
+            "p95": 2.045746,
+            "min": 1.798320080852136,
+            "max": 2.0676089889602736
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 2.751668,
+            "p95": 2.953728,
+            "min": 2.6382591988658533,
+            "max": 2.9823780570877716
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 1.610573,
+            "p95": 1.691112,
+            "min": 1.4989366019144654,
+            "max": 1.707932117045857
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 353585222.0,
+            "p95": 353585222.0,
+            "min": 353585222,
+            "max": 353585222
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 1074867.0,
+            "p95": 1074867.0,
+            "min": 1074867,
+            "max": 1074867
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 353329920.0,
+            "p95": 353329920.0,
+            "min": 353329920,
+            "max": 353329920
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    "mode_change": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.494971,
+            "p95": 0.626986,
+            "min": 0.4548503749538213,
+            "max": 0.6385018549626693
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.379319,
+            "p95": 0.456861,
+            "min": 0.3261065009282902,
+            "max": 0.4592519039288163
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.268375,
+            "p95": 0.33943,
+            "min": 0.24968208989594132,
+            "max": 0.35211116599384695
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.482353,
+            "p95": 0.513958,
+            "min": 0.3891619769856334,
+            "max": 0.5196670050499961
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.754729,
+            "p95": 0.93187,
+            "min": 0.7075161929242313,
+            "max": 0.9330362449400127
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.625168,
+            "p95": 1.868511,
+            "min": 1.431367164826952,
+            "max": 1.8714245528681204
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.049247,
+            "p95": 0.071438,
+            "min": 0.04640594497323036,
+            "max": 0.07440107502043247
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.071823,
+            "p95": 0.090619,
+            "min": 0.07021149399224669,
+            "max": 0.09527271799743176
+          },
+          "publish": {
+            "count": 5,
+            "p50": 1.6e-05,
+            "p95": 2.2e-05,
+            "min": 1.340499147772789e-05,
+            "max": 2.2792955860495567e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.044299,
+            "p95": 0.050739,
+            "min": 0.04383675497956574,
+            "max": 0.05109906196594238
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 0.324306,
+            "p95": 0.419331,
+            "min": 0.29268109204713255,
+            "max": 0.4244156569475308
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 1.0,
+          "p95": 1.0,
+          "min": 1,
+          "max": 1
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 128.0,
+          "p95": 128.0,
+          "min": 128,
+          "max": 128
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 252.0,
+            "p95": 252.0,
+            "min": 252,
+            "max": 252
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 31.0,
+            "p95": 31.0,
+            "min": 31,
+            "max": 31
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 128.0,
+            "p95": 128.0,
+            "min": 128,
+            "max": 128
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.187483,
+            "p95": 0.211421,
+            "min": 0.15810880193021148,
+            "max": 0.21634498599451035
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.399663,
+            "p95": 0.445777,
+            "min": 0.37222739099524915,
+            "max": 0.44773556501604617
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.31196,
+            "p95": 0.347951,
+            "min": 0.23357948497869074,
+            "max": 0.3561533800093457
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.478398,
+            "p95": 0.537826,
+            "min": 0.38874862098600715,
+            "max": 0.5392913580872118
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.479446,
+            "p95": 0.558735,
+            "min": 0.42106222396250814,
+            "max": 0.5724983660038561
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.32041,
+            "p95": 1.537943,
+            "min": 1.1820382359437644,
+            "max": 1.5522001440403983
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.057898,
+            "p95": 0.064352,
+            "min": 0.045267780078575015,
+            "max": 0.06557050603441894
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.073358,
+            "p95": 0.102908,
+            "min": 0.0689914949471131,
+            "max": 0.10693919903133065
+          },
+          "publish": {
+            "count": 5,
+            "p50": 2.7e-05,
+            "p95": 3.3e-05,
+            "min": 1.5558907762169838e-05,
+            "max": 3.3551943488419056e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.046917,
+            "p95": 0.049518,
+            "min": 0.04355909291189164,
+            "max": 0.049789624055847526
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 1.0,
+          "p95": 1.0,
+          "min": 1,
+          "max": 1
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 128.0,
+          "p95": 128.0,
+          "min": 128,
+          "max": 128
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 252.0,
+            "p95": 252.0,
+            "min": 252,
+            "max": 252
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 31.0,
+            "p95": 31.0,
+            "min": 31,
+            "max": 31
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 128.0,
+            "p95": 128.0,
+            "min": 128,
+            "max": 128
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.262446,
+            "p95": 0.316803,
+            "min": 0.2373192320810631,
+            "max": 0.3188109719194472
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.419346,
+            "p95": 0.46647,
+            "min": 0.3867706210585311,
+            "max": 0.47656333609484136
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.303458,
+            "p95": 0.318153,
+            "min": 0.2963384250178933,
+            "max": 0.320318611105904
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.443765,
+            "p95": 0.516165,
+            "min": 0.3921084860339761,
+            "max": 0.5271325929788873
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.558784,
+            "p95": 0.616136,
+            "min": 0.5533669689903036,
+            "max": 0.6171136619523168
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.416701,
+            "p95": 1.559854,
+            "min": 1.3329721980262548,
+            "max": 1.5654569489415735
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 0.262446,
+            "p95": 0.316803,
+            "min": 0.2373192320810631,
+            "max": 0.3188109719194472
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 165677.0,
+            "p95": 165677.0,
+            "min": 165677,
+            "max": 165677
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 26.0,
+            "p95": 26.0,
+            "min": 26,
+            "max": 26
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    "retained_history": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.466689,
+            "p95": 0.502702,
+            "min": 0.4244788649957627,
+            "max": 0.506160621996969
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.37501,
+            "p95": 0.457446,
+            "min": 0.3386876080185175,
+            "max": 0.4703002640744671
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.281565,
+            "p95": 0.308879,
+            "min": 0.2665847649332136,
+            "max": 0.3143238729098812
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.414568,
+            "p95": 0.472023,
+            "min": 0.3657287380192429,
+            "max": 0.4761931219836697
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.753788,
+            "p95": 0.809503,
+            "min": 0.6910636299289763,
+            "max": 0.8204844949068502
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.585946,
+            "p95": 1.672024,
+            "min": 1.3954799759667367,
+            "max": 1.68185613991227
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.05082,
+            "p95": 0.055659,
+            "min": 0.04713989200536162,
+            "max": 0.055790895014069974
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.079481,
+            "p95": 0.086579,
+            "min": 0.07144344598054886,
+            "max": 0.08729134197346866
+          },
+          "publish": {
+            "count": 5,
+            "p50": 1.9e-05,
+            "p95": 1.9e-05,
+            "min": 1.474795863032341e-05,
+            "max": 1.9385945051908493e-05
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 0.343965,
+            "p95": 0.367576,
+            "min": 0.2986283019417897,
+            "max": 0.3708517199847847
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "received_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "literal_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "matched_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 746545920.0,
+          "p95": 746545920.0,
+          "min": 746545920,
+          "max": 746545920
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5090.0,
+          "p95": 5090.0,
+          "min": 5090,
+          "max": 5090
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.130991,
+            "p95": 0.139639,
+            "min": 0.11103497399017215,
+            "max": 0.14028508902993053
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.40571,
+            "p95": 0.438202,
+            "min": 0.32177755795419216,
+            "max": 0.44462494796607643
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.318097,
+            "p95": 0.398625,
+            "min": 0.28381845192052424,
+            "max": 0.4163186040241271
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.478969,
+            "p95": 0.516396,
+            "min": 0.3922406539786607,
+            "max": 0.5196516560390592
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.458382,
+            "p95": 0.530829,
+            "min": 0.3948534259106964,
+            "max": 0.5473091420717537
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.336022,
+            "p95": 1.431428,
+            "min": 1.1794884018599987,
+            "max": 1.4319887410383672
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.04883,
+            "p95": 0.056331,
+            "min": 0.04377200303133577,
+            "max": 0.05633525596931577
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.080683,
+            "p95": 0.083577,
+            "min": 0.06723330495879054,
+            "max": 0.08393959305249155
+          },
+          "publish": {
+            "count": 5,
+            "p50": 1.9e-05,
+            "p95": 2.4e-05,
+            "min": 1.757289282977581e-05,
+            "max": 2.4326029233634472e-05
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "received_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "literal_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "matched_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 746545920.0,
+          "p95": 746545920.0,
+          "min": 746545920,
+          "max": 746545920
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5090.0,
+          "p95": 5090.0,
+          "min": 5090,
+          "max": 5090
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 1.677269,
+            "p95": 1.713523,
+            "min": 1.4792251859325916,
+            "max": 1.7212385659804568
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.41863,
+            "p95": 0.447483,
+            "min": 0.3406328179407865,
+            "max": 0.4489465059014037
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.307724,
+            "p95": 0.335329,
+            "min": 0.2400873260339722,
+            "max": 0.33822640299331397
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.433281,
+            "p95": 0.487865,
+            "min": 0.39516645402181894,
+            "max": 0.4943144950084388
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.973969,
+            "p95": 2.048852,
+            "min": 1.7193125119665638,
+            "max": 2.0594649689737707
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 2.815936,
+            "p95": 2.978443,
+            "min": 2.483878882834688,
+            "max": 3.0027259698836133
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 1.677269,
+            "p95": 1.713523,
+            "min": 1.4792251859325916,
+            "max": 1.7212385659804568
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 353585222.0,
+            "p95": 353585222.0,
+            "min": 353585222,
+            "max": 353585222
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 1074867.0,
+            "p95": 1074867.0,
+            "min": 1074867,
+            "max": 1074867
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 353329920.0,
+            "p95": 353329920.0,
+            "min": 353329920,
+            "max": 353329920
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    "warm_large_delta": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.538318,
+            "p95": 0.585241,
+            "min": 0.46865861397236586,
+            "max": 0.5884119370020926
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.406583,
+            "p95": 0.439844,
+            "min": 0.3444709200412035,
+            "max": 0.44564236607402563
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.329786,
+            "p95": 0.368096,
+            "min": 0.26780591695569456,
+            "max": 0.3752729760017246
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.468977,
+            "p95": 0.48065,
+            "min": 0.40224269207101315,
+            "max": 0.4808532460592687
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.868104,
+            "p95": 0.94041,
+            "min": 0.7364645309280604,
+            "max": 0.9478288809768856
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.748926,
+            "p95": 1.855906,
+            "min": 1.483178143040277,
+            "max": 1.8733079551020637
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.054801,
+            "p95": 0.064363,
+            "min": 0.049469272955320776,
+            "max": 0.06523034698329866
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.077147,
+            "p95": 0.091509,
+            "min": 0.06996568304020911,
+            "max": 0.09203172707930207
+          },
+          "publish": {
+            "count": 5,
+            "p50": 1.7e-05,
+            "p95": 2e-05,
+            "min": 1.4997902326285839e-05,
+            "max": 2.000702079385519e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.048002,
+            "p95": 0.054137,
+            "min": 0.04661386494990438,
+            "max": 0.05535273300483823
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 0.361986,
+            "p95": 0.387223,
+            "min": 0.2993657951010391,
+            "max": 0.3921768150757998
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 1.0,
+          "p95": 1.0,
+          "min": 1,
+          "max": 1
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 3925888.0,
+          "p95": 3925888.0,
+          "min": 3925888,
+          "max": 3925888
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 3926956.0,
+            "p95": 3926956.0,
+            "min": 3926956,
+            "max": 3926956
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 31.0,
+            "p95": 31.0,
+            "min": 31,
+            "max": 31
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 3925888.0,
+            "p95": 3925888.0,
+            "min": 3925888,
+            "max": 3925888
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.192348,
+            "p95": 0.235023,
+            "min": 0.17389469407498837,
+            "max": 0.23683429206721485
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.438975,
+            "p95": 0.476467,
+            "min": 0.34064362896606326,
+            "max": 0.4844488629605621
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.299487,
+            "p95": 0.351091,
+            "min": 0.25133234600070864,
+            "max": 0.363048949977383
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.426385,
+            "p95": 0.528523,
+            "min": 0.39059472596272826,
+            "max": 0.5391751499846578
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.485181,
+            "p95": 0.579927,
+            "min": 0.4334293310530484,
+            "max": 0.5908283509779721
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.298642,
+            "p95": 1.584918,
+            "min": 1.174918649950996,
+            "max": 1.614452363923192
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.056483,
+            "p95": 0.100958,
+            "min": 0.0557074990356341,
+            "max": 0.10391999408602715
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.079856,
+            "p95": 0.08835,
+            "min": 0.07155429408885539,
+            "max": 0.08868579904083163
+          },
+          "publish": {
+            "count": 5,
+            "p50": 3.2e-05,
+            "p95": 4.2e-05,
+            "min": 2.3694941774010658e-05,
+            "max": 4.455295857042074e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.047848,
+            "p95": 0.052636,
+            "min": 0.04589168110396713,
+            "max": 0.052915910026058555
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 1.0,
+          "p95": 1.0,
+          "min": 1,
+          "max": 1
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 3925888.0,
+          "p95": 3925888.0,
+          "min": 3925888,
+          "max": 3925888
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 3926956.0,
+            "p95": 3926956.0,
+            "min": 3926956,
+            "max": 3926956
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 31.0,
+            "p95": 31.0,
+            "min": 31,
+            "max": 31
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 3925888.0,
+            "p95": 3925888.0,
+            "min": 3925888,
+            "max": 3925888
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.271521,
+            "p95": 0.300023,
+            "min": 0.2347705999854952,
+            "max": 0.302066070958972
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.427834,
+            "p95": 0.483024,
+            "min": 0.3506865029921755,
+            "max": 0.4967855099821463
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.315228,
+            "p95": 0.368404,
+            "min": 0.25919027999043465,
+            "max": 0.37911886302754283
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.488909,
+            "p95": 0.516022,
+            "min": 0.40905461402144283,
+            "max": 0.5162423589499667
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.597067,
+            "p95": 0.666364,
+            "min": 0.4999367429409176,
+            "max": 0.6811849339865148
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.459595,
+            "p95": 1.665381,
+            "min": 1.259677859954536,
+            "max": 1.6942128029186279
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 0.271521,
+            "p95": 0.300023,
+            "min": 0.2347705999854952,
+            "max": 0.302066070958972
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 4092557.0,
+            "p95": 4092557.0,
+            "min": 4092557,
+            "max": 4092557
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 11965.0,
+            "p95": 11965.0,
+            "min": 11965,
+            "max": 11965
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 3925888.0,
+            "p95": 3925888.0,
+            "min": 3925888,
+            "max": 3925888
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    "warm_small_delta": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.568116,
+            "p95": 0.599797,
+            "min": 0.47316150192636997,
+            "max": 0.6023058270802721
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.395352,
+            "p95": 0.435275,
+            "min": 0.36714844196103513,
+            "max": 0.43977697007358074
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.319249,
+            "p95": 0.369999,
+            "min": 0.24952709896024317,
+            "max": 0.3761416160268709
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.458524,
+            "p95": 0.461022,
+            "min": 0.3893916279776022,
+            "max": 0.4613408729201183
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.913544,
+            "p95": 0.920585,
+            "min": 0.7226886008866131,
+            "max": 0.9215543300379068
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.740438,
+            "p95": 1.812255,
+            "min": 1.5069863959215581,
+            "max": 1.8226721730316058
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.058237,
+            "p95": 0.063478,
+            "min": 0.05331823509186506,
+            "max": 0.06430305703543127
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.077977,
+            "p95": 0.084045,
+            "min": 0.07134077290538698,
+            "max": 0.08441481401678175
+          },
+          "publish": {
+            "count": 5,
+            "p50": 1.7e-05,
+            "p95": 1.9e-05,
+            "min": 1.393596176058054e-05,
+            "max": 1.99279747903347e-05
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.044071,
+            "p95": 0.045132,
+            "min": 0.043501295032911,
+            "max": 0.045134069048799574
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 0.395792,
+            "p95": 0.410404,
+            "min": 0.3046468941029161,
+            "max": 0.4124518079916015
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 1.0,
+          "p95": 1.0,
+          "min": 1,
+          "max": 1
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 128.0,
+          "p95": 128.0,
+          "min": 128,
+          "max": 128
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 261.0,
+            "p95": 261.0,
+            "min": 261,
+            "max": 261
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 31.0,
+            "p95": 31.0,
+            "min": 31,
+            "max": 31
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 128.0,
+            "p95": 128.0,
+            "min": 128,
+            "max": 128
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.180108,
+            "p95": 0.187558,
+            "min": 0.15771861001849174,
+            "max": 0.18836320203263313
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.395374,
+            "p95": 0.438744,
+            "min": 0.3586598540423438,
+            "max": 0.4392709709936753
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.326016,
+            "p95": 0.368531,
+            "min": 0.25728404300753027,
+            "max": 0.3762938108993694
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.446323,
+            "p95": 0.470317,
+            "min": 0.4061004710383713,
+            "max": 0.4740679240785539
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.510351,
+            "p95": 0.549416,
+            "min": 0.415002653026022,
+            "max": 0.555309553979896
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.371595,
+            "p95": 1.402813,
+            "min": 1.2164773689582944,
+            "max": 1.404935116879642
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.057469,
+            "p95": 0.05975,
+            "min": 0.04448694398161024,
+            "max": 0.060228712973184884
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.076725,
+            "p95": 0.082159,
+            "min": 0.06961865199264139,
+            "max": 0.08219863602425903
+          },
+          "publish": {
+            "count": 5,
+            "p50": 4.5e-05,
+            "p95": 0.000162,
+            "min": 1.7862999811768532e-05,
+            "max": 0.0001869110856205225
+          },
+          "rsync": {
+            "count": 5,
+            "p50": 0.045008,
+            "p95": 0.045909,
+            "min": 0.043512677075341344,
+            "max": 0.04591758898459375
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 1.0,
+          "p95": 1.0,
+          "min": 1,
+          "max": 1
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 128.0,
+          "p95": 128.0,
+          "min": 128,
+          "max": 128
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 261.0,
+            "p95": 261.0,
+            "min": 261,
+            "max": 261
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 31.0,
+            "p95": 31.0,
+            "min": 31,
+            "max": 31
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 128.0,
+            "p95": 128.0,
+            "min": 128,
+            "max": 128
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.252379,
+            "p95": 0.328785,
+            "min": 0.22656396101228893,
+            "max": 0.34343421400990337
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.384455,
+            "p95": 0.427997,
+            "min": 0.3579717619577423,
+            "max": 0.43537822796497494
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.299267,
+            "p95": 0.32143,
+            "min": 0.27634450898040086,
+            "max": 0.3240253459662199
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.408212,
+            "p95": 0.489024,
+            "min": 0.38329555990640074,
+            "max": 0.4902744630817324
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.562348,
+            "p95": 0.614666,
+            "min": 0.5111096280161291,
+            "max": 0.6197787229903042
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.378628,
+            "p95": 1.502722,
+            "min": 1.2671443899162114,
+            "max": 1.5198676059953868
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 0.252379,
+            "p95": 0.328785,
+            "min": 0.22656396101228893,
+            "max": 0.34343421400990337
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 165850.0,
+            "p95": 165850.0,
+            "min": 165850,
+            "max": 165850
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 47.0,
+            "p95": 47.0,
+            "min": 47,
+            "max": 47
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 128.0,
+            "p95": 128.0,
+            "min": 128,
+            "max": 128
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    },
+    "warm_unchanged": {
+      "cas_rehash": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.524895,
+            "p95": 0.560572,
+            "min": 0.4334396489430219,
+            "max": 0.5678604240529239
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.401043,
+            "p95": 0.446242,
+            "min": 0.37514734093565494,
+            "max": 0.4539387129480019
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.316709,
+            "p95": 0.350615,
+            "min": 0.28156246000435203,
+            "max": 0.3590412400662899
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.455262,
+            "p95": 0.4926,
+            "min": 0.409843574045226,
+            "max": 0.49552420410327613
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.837167,
+            "p95": 0.882252,
+            "min": 0.7503473398974165,
+            "max": 0.890459475107491
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.663006,
+            "p95": 1.818643,
+            "min": 1.5807569378521293,
+            "max": 1.839922392158769
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.057992,
+            "p95": 0.061312,
+            "min": 0.04315851198043674,
+            "max": 0.062013421091251075
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.081258,
+            "p95": 0.088107,
+            "min": 0.0694602340226993,
+            "max": 0.08911691792309284
+          },
+          "publish": {
+            "count": 5,
+            "p50": 1.8e-05,
+            "p95": 2.1e-05,
+            "min": 1.560896635055542e-05,
+            "max": 2.111901994794607e-05
+          },
+          "verify_cached": {
+            "count": 5,
+            "p50": 0.383449,
+            "p95": 0.414595,
+            "min": 0.3207898249384016,
+            "max": 0.4201920919585973
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "received_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "literal_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "matched_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "cas_trusted": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.141844,
+            "p95": 0.150552,
+            "min": 0.1213910470250994,
+            "max": 0.15130042808596045
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.422621,
+            "p95": 0.455137,
+            "min": 0.38498128310311586,
+            "max": 0.4588093530619517
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.303187,
+            "p95": 0.348146,
+            "min": 0.255235891090706,
+            "max": 0.3482035439228639
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.43433,
+            "p95": 0.497829,
+            "min": 0.3916113729355857,
+            "max": 0.49948577699251473
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.450174,
+            "p95": 0.494173,
+            "min": 0.3970795340137556,
+            "max": 0.4954709429293871
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.299357,
+            "p95": 1.443573,
+            "min": 1.1736721900524572,
+            "max": 1.4537660729838535
+          }
+        },
+        "step_seconds": {
+          "place": {
+            "count": 5,
+            "p50": 0.057499,
+            "p95": 0.063649,
+            "min": 0.0510314250132069,
+            "max": 0.06510501203592867
+          },
+          "plan": {
+            "count": 5,
+            "p50": 0.085033,
+            "p95": 0.088982,
+            "min": 0.07031483692117035,
+            "max": 0.08969091495964676
+          },
+          "publish": {
+            "count": 5,
+            "p50": 3e-05,
+            "p95": 4.1e-05,
+            "min": 2.4445937015116215e-05,
+            "max": 4.26099868491292e-05
+          }
+        },
+        "missing_files": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "missing_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "received_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "literal_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "matched_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        }
+      },
+      "rsync": {
+        "seconds": {
+          "wall_seconds": {
+            "count": 5,
+            "p50": 0.241378,
+            "p95": 0.336914,
+            "min": 0.23342402302660048,
+            "max": 0.3527007820084691
+          },
+          "verification_seconds": {
+            "count": 5,
+            "p50": 0.396324,
+            "p95": 0.463039,
+            "min": 0.35231565905269235,
+            "max": 0.46530851791612804
+          },
+          "execution_copy_seconds": {
+            "count": 5,
+            "p50": 0.335325,
+            "p95": 0.34961,
+            "min": 0.268460173974745,
+            "max": 0.3514539630850777
+          },
+          "execution_audit_seconds": {
+            "count": 5,
+            "p50": 0.429443,
+            "p95": 0.496857,
+            "min": 0.40281171002425253,
+            "max": 0.5060217019636184
+          },
+          "transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 0.583614,
+            "p95": 0.667571,
+            "min": 0.503578306059353,
+            "max": 0.6880253000417724
+          },
+          "verified_transfer_and_copy_seconds": {
+            "count": 5,
+            "p50": 1.382542,
+            "p95": 1.620658,
+            "min": 1.2853373060934246,
+            "max": 1.6480074970750138
+          }
+        },
+        "step_seconds": {
+          "rsync": {
+            "count": 5,
+            "p50": 0.241378,
+            "p95": 0.336914,
+            "min": 0.23342402302660048,
+            "max": 0.3527007820084691
+          }
+        },
+        "missing_files": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "missing_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "stats": {
+          "sent_bytes": {
+            "count": 5,
+            "p50": 165666.0,
+            "p95": 165666.0,
+            "min": 165666,
+            "max": 165666
+          },
+          "received_bytes": {
+            "count": 5,
+            "p50": 19.0,
+            "p95": 19.0,
+            "min": 19,
+            "max": 19
+          },
+          "literal_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "matched_bytes": {
+            "count": 5,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "initial_blob_bytes": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "initial_blob_count": {
+          "count": 5,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Canonical readonly modes model executable identity, not arbitrary original permission bits.",
+    "Manifest capture, store/base preparation, external output audits, and source construction are outside transfer timing.",
+    "Every new CAS blob is SHA256-verified; trusted reuse assumes verified protected storage, while rehash verifies reused blobs inside its timer.",
+    "External full SHA256/mode/symlink audits are timed separately and included in verified_transfer_and_copy_seconds for both paths.",
+    "CAS manifest/control-message serialization and transport are not implemented; serialized manifest bytes are reported, not treated as zero wire cost.",
+    "Both rsync processes use local transport with --no-whole-file; network RTT, Mac reads, SSH helpers and whole-request costs are unmeasured.",
+    "retained_history gives CAS additional retained content; its seeded storage is counted, and equal-GC-budget comparisons remain open.",
+    "Filesystem caches are not dropped; method/case order rotates but shared prior reads and seed preparation can still warm caches.",
+    "No production concurrency, gateway protocol, source GC, crash durability, or rollout is implemented."
+  ]
+}

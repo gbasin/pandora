@@ -1,0 +1,27 @@
+{
+  "local_run": "d1d7bdaf0edb",
+  "worker_run": "r13147020580c420",
+  "outcome": "passed",
+  "input_id": "05fa3e6a5323039dc3018fa795c5aa4a1d358d6480fa5e6f46ad25a581531454",
+  "durations": {
+    "boot": 1.17,
+    "clone": 0.38,
+    "collect": 0.04,
+    "destroy": 1.21,
+    "execute": 37.48,
+    "harden": 0.04,
+    "inject": 0.33,
+    "prepare": 0.11,
+    "start": 0.31
+  },
+  "command": [
+    "python3",
+    "experiments/cas-poc/delta_probe.py"
+  ],
+  "code_sha256": {
+    "experiments/cas-poc/cas.py": "f84fbb5eecf231e499b09e609a46ed5be73cb8a26d63eb917c463d15dbefe370",
+    "experiments/cas-poc/benchmark.py": "d8a6dd77d166e3c0d5e3c9b631568be572903a0e4d3dfb9c22356f0989d3341b",
+    "experiments/cas-poc/delta_probe.py": "67d5bdcb10d80700abda1e8ed39285ce0440c57af4af38396851f8c8078983c9",
+    "experiments/transfer-profile/benchmark.py": "70d07cff61e102660a4c53d8d016b1fe094ea1c3b67b1ebdf554f695dc37ea1a"
+  }
+}

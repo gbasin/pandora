@@ -50,5 +50,31 @@ forms = [{ prefix = ["python3", "experiments/transfer-profile/benchmark.py"] }]
 run = { argv = ["python3", "experiments/transfer-profile/benchmark.py"] }
 outputs = [{ kind = "artifacts", paths = ["artifacts/transfer-profile.json"] }]
 
+# A controlled scratch CAS comparison. Source and stores exist only inside the
+# disposable job container. Production transfer code and source caches are unused.
+[[jobs]]
+id = "cas-poc"
+summary = "Compare scratch CAS integrity policies with rsync"
+where = "remote"
+size = "medium"
+args = "none"
+fallback = "refuse"
+timeout_minutes = 15
+forms = [{ prefix = ["python3", "experiments/cas-poc/benchmark.py"] }]
+run = { argv = ["python3", "experiments/cas-poc/benchmark.py"] }
+outputs = [{ kind = "artifacts", paths = ["artifacts/cas-poc.json"] }]
+
+[[jobs]]
+id = "cas-delta-probe"
+summary = "Measure whole-blob upload after a tiny large-file edit"
+where = "remote"
+size = "medium"
+args = "none"
+fallback = "refuse"
+timeout_minutes = 15
+forms = [{ prefix = ["python3", "experiments/cas-poc/delta_probe.py"] }]
+run = { argv = ["python3", "experiments/cas-poc/delta_probe.py"] }
+outputs = [{ kind = "artifacts", paths = ["artifacts/cas-delta-probe.json"] }]
+
 [verdicts]
 publish = true

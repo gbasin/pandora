@@ -1,0 +1,26 @@
+{
+  "local_run": "f20275a20bf1",
+  "worker_run": "r7f7440ae24ae4e7",
+  "outcome": "passed",
+  "input_id": "cd82813d4d7e94820edae08bd2859f96edc9912064bedba54a9cab9a82f9829f",
+  "durations": {
+    "boot": 1.06,
+    "clone": 0.09,
+    "collect": 0.05,
+    "destroy": 1.06,
+    "execute": 307.17,
+    "harden": 0.04,
+    "inject": 0.36,
+    "prepare": 0.09,
+    "start": 0.48
+  },
+  "command": [
+    "python3",
+    "experiments/cas-poc/benchmark.py"
+  ],
+  "code_sha256": {
+    "experiments/cas-poc/cas.py": "f84fbb5eecf231e499b09e609a46ed5be73cb8a26d63eb917c463d15dbefe370",
+    "experiments/cas-poc/benchmark.py": "d8a6dd77d166e3c0d5e3c9b631568be572903a0e4d3dfb9c22356f0989d3341b",
+    "experiments/transfer-profile/benchmark.py": "70d07cff61e102660a4c53d8d016b1fe094ea1c3b67b1ebdf554f695dc37ea1a"
+  }
+}
