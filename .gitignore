@@ -6,3 +6,4 @@ __pycache__/
 /artifacts/transfer-profile.json
 /artifacts/cas-poc.json
 /artifacts/cas-delta-probe.json
+/artifacts/cas-network.json
