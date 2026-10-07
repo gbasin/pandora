@@ -1,0 +1,782 @@
+{
+  "schema": 1,
+  "scope": "worker-local 16-byte edit in a large file; no WAN or production cache",
+  "rounds": 5,
+  "priming_rounds_excluded": 1,
+  "fixture": {
+    "regular_files": 5000,
+    "manifest_paths": 5001,
+    "regular_bytes": 393216000,
+    "large_files": 100,
+    "compressible_large_files": 50,
+    "incompressible_large_files": 50,
+    "small_files": 4900,
+    "small_file_bytes": 128,
+    "symlinks": 1,
+    "executable_path": "small/00000.txt",
+    "odd_paths": [
+      "small/path with spaces.txt",
+      "small/path with\nnewline.txt"
+    ],
+    "edited_path": "large/000.bin",
+    "changed_bytes": 16,
+    "edited_file_bytes": 3925888,
+    "preserved_original_mtime": true,
+    "readonly_modes": [
+      "0444",
+      "0555"
+    ],
+    "case_manifest_bytes": {
+      "partial_large_edit": 569875
+    }
+  },
+  "samples": [
+    {
+      "wall_seconds": 0.2784968650666997,
+      "verification_seconds": 0.36799431301187724,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 1552,
+        "matched_bytes": 3924336,
+        "file_list_bytes": 131059,
+        "sent_bytes": 170355,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,552 bytes\nMatched data: 3,924,336 bytes\nFile list size: 131,059\nFile list generation time: 0.106 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 170,355\nTotal bytes received: 11,965\n\nsent 170,355 bytes  received 11,965 bytes  121,546.67 bytes/sec\ntotal size is 393,216,015  speedup is 2,156.74\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "steps": {
+        "rsync": 0.2784968650666997
+      },
+      "execution_copy_seconds": 0.2966207010904327,
+      "execution_audit_seconds": 0.4797931560315192,
+      "verified_transfer_and_copy_seconds": 1.4229050352005288,
+      "transfer_and_copy_seconds": 0.5751175661571324,
+      "case": "partial_large_edit",
+      "method": "rsync",
+      "round": 0,
+      "method_order": 0,
+      "initial_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "final_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.07774995488580316,
+        "rsync": 0.04787172295618802,
+        "place": 0.06086134596262127,
+        "publish": 3.7379912100732327e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "trusted",
+      "wall_seconds": 0.18661130697000772,
+      "verification_seconds": 0.41193541197571903,
+      "execution_copy_seconds": 0.28541100898291916,
+      "execution_audit_seconds": 0.4122532979818061,
+      "verified_transfer_and_copy_seconds": 1.296211025910452,
+      "transfer_and_copy_seconds": 0.4720223159529269,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_trusted",
+      "round": 0,
+      "method_order": 1,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.08428047900088131,
+        "rsync": 0.04983174102380872,
+        "place": 0.060612250003032386,
+        "verify_cached": 0.34332477394491434,
+        "publish": 2.4545937776565552e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "rehash",
+      "wall_seconds": 0.5381701110163704,
+      "verification_seconds": 0.4174371639965102,
+      "execution_copy_seconds": 0.2929010520456359,
+      "execution_audit_seconds": 0.4368202530313283,
+      "verified_transfer_and_copy_seconds": 1.6853285800898448,
+      "transfer_and_copy_seconds": 0.8310711630620062,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_rehash",
+      "round": 0,
+      "method_order": 2,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.07603793393354863,
+        "rsync": 0.05182613304350525,
+        "place": 0.06058530893642455,
+        "publish": 1.8193968571722507e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "trusted",
+      "wall_seconds": 0.1885585100390017,
+      "verification_seconds": 0.4137648540781811,
+      "execution_copy_seconds": 0.28863964590709656,
+      "execution_audit_seconds": 0.48054053797386587,
+      "verified_transfer_and_copy_seconds": 1.3715035479981452,
+      "transfer_and_copy_seconds": 0.47719815594609827,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_trusted",
+      "round": 1,
+      "method_order": 0,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.07413579407148063,
+        "rsync": 0.047592318966053426,
+        "place": 0.059015733073465526,
+        "verify_cached": 0.2874728370225057,
+        "publish": 1.6830977983772755e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "rehash",
+      "wall_seconds": 0.46832287299912423,
+      "verification_seconds": 0.3537266019266099,
+      "execution_copy_seconds": 0.27268638205714524,
+      "execution_audit_seconds": 0.417581505025737,
+      "verified_transfer_and_copy_seconds": 1.5123173620086163,
+      "transfer_and_copy_seconds": 0.7410092550562695,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_rehash",
+      "round": 1,
+      "method_order": 1,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "wall_seconds": 0.23234417696949095,
+      "verification_seconds": 0.35247642593458295,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 1552,
+        "matched_bytes": 3924336,
+        "file_list_bytes": 131059,
+        "sent_bytes": 170355,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,552 bytes\nMatched data: 3,924,336 bytes\nFile list size: 131,059\nFile list generation time: 0.095 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 170,355\nTotal bytes received: 11,965\n\nsent 170,355 bytes  received 11,965 bytes  364,640.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,156.74\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "steps": {
+        "rsync": 0.23234417696949095
+      },
+      "execution_copy_seconds": 0.25776940293144435,
+      "execution_audit_seconds": 0.4195994819747284,
+      "verified_transfer_and_copy_seconds": 1.2621894878102466,
+      "transfer_and_copy_seconds": 0.4901135799009353,
+      "case": "partial_large_edit",
+      "method": "rsync",
+      "round": 1,
+      "method_order": 2,
+      "initial_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "final_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.06824082299135625,
+        "rsync": 0.04637209000065923,
+        "place": 0.05723286897409707,
+        "verify_cached": 0.30770975805353373,
+        "publish": 2.6289024390280247e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "rehash",
+      "wall_seconds": 0.4796773580601439,
+      "verification_seconds": 0.42821697099134326,
+      "execution_copy_seconds": 0.2535987979499623,
+      "execution_audit_seconds": 0.40290987596381456,
+      "verified_transfer_and_copy_seconds": 1.564403002965264,
+      "transfer_and_copy_seconds": 0.7332761560101062,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_rehash",
+      "round": 2,
+      "method_order": 0,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "wall_seconds": 0.27311680000275373,
+      "verification_seconds": 0.37454495404381305,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 1552,
+        "matched_bytes": 3924336,
+        "file_list_bytes": 131059,
+        "sent_bytes": 170355,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,552 bytes\nMatched data: 3,924,336 bytes\nFile list size: 131,059\nFile list generation time: 0.122 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 170,355\nTotal bytes received: 11,965\n\nsent 170,355 bytes  received 11,965 bytes  364,640.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,156.74\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "steps": {
+        "rsync": 0.27311680000275373
+      },
+      "execution_copy_seconds": 0.25566752906888723,
+      "execution_audit_seconds": 0.4550000849412754,
+      "verified_transfer_and_copy_seconds": 1.3583293680567294,
+      "transfer_and_copy_seconds": 0.528784329071641,
+      "case": "partial_large_edit",
+      "method": "rsync",
+      "round": 2,
+      "method_order": 1,
+      "initial_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "final_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.0809728130698204,
+        "rsync": 0.04758644802495837,
+        "place": 0.07485934102442116,
+        "publish": 2.129003405570984e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "trusted",
+      "wall_seconds": 0.20355323504190892,
+      "verification_seconds": 0.35761402593925595,
+      "execution_copy_seconds": 0.2511461350368336,
+      "execution_audit_seconds": 0.4249071709346026,
+      "verified_transfer_and_copy_seconds": 1.237220566952601,
+      "transfer_and_copy_seconds": 0.4546993700787425,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_trusted",
+      "round": 2,
+      "method_order": 2,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "wall_seconds": 0.21137696492951363,
+      "verification_seconds": 0.3814267870038748,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 1552,
+        "matched_bytes": 3924336,
+        "file_list_bytes": 131059,
+        "sent_bytes": 170355,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,552 bytes\nMatched data: 3,924,336 bytes\nFile list size: 131,059\nFile list generation time: 0.090 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 170,355\nTotal bytes received: 11,965\n\nsent 170,355 bytes  received 11,965 bytes  364,640.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,156.74\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "steps": {
+        "rsync": 0.21137696492951363
+      },
+      "execution_copy_seconds": 0.23692641407251358,
+      "execution_audit_seconds": 0.39799156796652824,
+      "verified_transfer_and_copy_seconds": 1.2277217339724302,
+      "transfer_and_copy_seconds": 0.4483033790020272,
+      "case": "partial_large_edit",
+      "method": "rsync",
+      "round": 3,
+      "method_order": 0,
+      "initial_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "final_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.08391502301674336,
+        "rsync": 0.04743256897199899,
+        "place": 0.057094709016382694,
+        "publish": 3.385404124855995e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "trusted",
+      "wall_seconds": 0.18855941202491522,
+      "verification_seconds": 0.33298545400612056,
+      "execution_copy_seconds": 0.22470148606225848,
+      "execution_audit_seconds": 0.35867783206049353,
+      "verified_transfer_and_copy_seconds": 1.1049241841537878,
+      "transfer_and_copy_seconds": 0.4132608980871737,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_trusted",
+      "round": 3,
+      "method_order": 1,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.06624409591313452,
+        "rsync": 0.0451355300610885,
+        "place": 0.04087275196798146,
+        "verify_cached": 0.25633146497420967,
+        "publish": 1.3294978998601437e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "rehash",
+      "wall_seconds": 0.40867252892348915,
+      "verification_seconds": 0.3307118290103972,
+      "execution_copy_seconds": 0.24730182194616646,
+      "execution_audit_seconds": 0.3380360610317439,
+      "verified_transfer_and_copy_seconds": 1.3247222409117967,
+      "transfer_and_copy_seconds": 0.6559743508696556,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_rehash",
+      "round": 3,
+      "method_order": 2,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.06261494697537273,
+        "rsync": 0.044833171996288,
+        "place": 0.04679174697957933,
+        "publish": 1.5378929674625397e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "trusted",
+      "wall_seconds": 0.15432448603678495,
+      "verification_seconds": 0.32093157700728625,
+      "execution_copy_seconds": 0.3099338010651991,
+      "execution_audit_seconds": 0.38950975297484547,
+      "verified_transfer_and_copy_seconds": 1.1746996170841157,
+      "transfer_and_copy_seconds": 0.464258287101984,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_trusted",
+      "round": 4,
+      "method_order": 0,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.0718435839517042,
+        "rsync": 0.04529358702711761,
+        "place": 0.04704574402421713,
+        "verify_cached": 0.3026992970844731,
+        "publish": 1.3535958714783192e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "rehash",
+      "wall_seconds": 0.4669693340547383,
+      "verification_seconds": 0.38532359909731895,
+      "execution_copy_seconds": 0.2672395019326359,
+      "execution_audit_seconds": 0.405600304948166,
+      "verified_transfer_and_copy_seconds": 1.5251327400328591,
+      "transfer_and_copy_seconds": 0.7342088359873742,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_rehash",
+      "round": 4,
+      "method_order": 1,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "wall_seconds": 0.23677740502171218,
+      "verification_seconds": 0.33254241303075105,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 1552,
+        "matched_bytes": 3924336,
+        "file_list_bytes": 131059,
+        "sent_bytes": 170355,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,552 bytes\nMatched data: 3,924,336 bytes\nFile list size: 131,059\nFile list generation time: 0.099 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 170,355\nTotal bytes received: 11,965\n\nsent 170,355 bytes  received 11,965 bytes  364,640.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,156.74\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "steps": {
+        "rsync": 0.23677740502171218
+      },
+      "execution_copy_seconds": 0.24117178993765265,
+      "execution_audit_seconds": 0.37884649506304413,
+      "verified_transfer_and_copy_seconds": 1.18933810305316,
+      "transfer_and_copy_seconds": 0.47794919495936483,
+      "case": "partial_large_edit",
+      "method": "rsync",
+      "round": 4,
+      "method_order": 2,
+      "initial_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "final_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "candidate_bases": 1
+    }
+  ],
+  "priming": [
+    {
+      "wall_seconds": 0.24601246300153434,
+      "verification_seconds": 0.44229130900930613,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 1552,
+        "matched_bytes": 3924336,
+        "file_list_bytes": 131059,
+        "sent_bytes": 170355,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,552 bytes\nMatched data: 3,924,336 bytes\nFile list size: 131,059\nFile list generation time: 0.103 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 170,355\nTotal bytes received: 11,965\n\nsent 170,355 bytes  received 11,965 bytes  121,546.67 bytes/sec\ntotal size is 393,216,015  speedup is 2,156.74\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "steps": {
+        "rsync": 0.24601246300153434
+      },
+      "execution_copy_seconds": 0.2888030429603532,
+      "execution_audit_seconds": 0.42804209305904806,
+      "verified_transfer_and_copy_seconds": 1.4051489080302417,
+      "transfer_and_copy_seconds": 0.5348155059618875,
+      "case": "partial_large_edit",
+      "method": "rsync",
+      "round": -1,
+      "method_order": 0,
+      "initial_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "final_store": {
+        "blob_count": 0,
+        "blob_bytes": 0
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.07295475795399398,
+        "rsync": 0.04628770099952817,
+        "place": 0.046927541960030794,
+        "publish": 2.8121983632445335e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "trusted",
+      "wall_seconds": 0.16629723098594695,
+      "verification_seconds": 0.4121705930447206,
+      "execution_copy_seconds": 0.2703610690077767,
+      "execution_audit_seconds": 0.39790284202899784,
+      "verified_transfer_and_copy_seconds": 1.246731735067442,
+      "transfer_and_copy_seconds": 0.43665829999372363,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_trusted",
+      "round": -1,
+      "method_order": 1,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    },
+    {
+      "steps": {
+        "plan": 0.07103493600152433,
+        "rsync": 0.04745052300859243,
+        "place": 0.05428597901482135,
+        "verify_cached": 0.301571971969679,
+        "publish": 2.860301174223423e-05
+      },
+      "missing_files": 1,
+      "missing_bytes": 3925888,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 3926962,
+        "received_bytes": 31,
+        "regular_files_transferred": 1
+      },
+      "integrity": "rehash",
+      "wall_seconds": 0.47448863205499947,
+      "verification_seconds": 0.38613140396773815,
+      "execution_copy_seconds": 0.26828594598919153,
+      "execution_audit_seconds": 0.4279942330904305,
+      "verified_transfer_and_copy_seconds": 1.5569002151023597,
+      "transfer_and_copy_seconds": 0.742774578044191,
+      "verified": true,
+      "case": "partial_large_edit",
+      "method": "cas_rehash",
+      "round": -1,
+      "method_order": 2,
+      "initial_store": {
+        "blob_count": 5000,
+        "blob_bytes": 393216000
+      },
+      "final_store": {
+        "blob_count": 5001,
+        "blob_bytes": 397141888
+      },
+      "candidate_bases": 1
+    }
+  ],
+  "source_variants_immutable": true,
+  "machine": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "python": "3.14.4",
+    "logical_cpus": 8
+  },
+  "rsync": {
+    "path": "/usr/bin/rsync",
+    "version": "rsync  version 3.4.1  protocol version 32\nCopyright (C) 1996-2025 by Andrew Tridgell, Wayne Davison, and others.\nWeb site: https://rsync.samba.org/\nCapabilities:\n    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,\n    socketpairs, symlinks, symtimes, hardlinks, hardlink-specials,\n    hardlink-symlinks, IPv6, atimes, batchfiles, inplace, append, ACLs,\n    xattrs, optional secluded-args, iconv, prealloc, stop-at, no crtimes\nOptimizations:\n    SIMD-roll, no asm-roll, openssl-crypto, no asm-MD5\nChecksum list:\n    xxh128 xxh3 xxh64 (xxhash) md5 md4 sha1 none\nCompress list:\n    zstd lz4 zlibx zlib none\nDaemon auth list:\n    sha512 sha256 sha1 md5 md4\n\nrsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you\nare welcome to redistribute it under certain conditions.  See the GNU\nGeneral Public Licence for details.\n"
+  },
+  "limitations": [
+    "Local transport timings do not measure the WAN cost of CAS whole-blob upload versus rsync block deltas.",
+    "Missing CAS blobs are sent in full into a fresh stage; new bytes are SHA256-verified before insertion.",
+    "Manifest capture, verified seeding and fixture preparation are excluded; full audits are separate for both paths.",
+    "Canonical readonly/execution modes and both integrity policies are identical to the main comparison.",
+    "No system caches are dropped; method rotation does not eliminate all warming or contention.",
+    "CAS control-message transport, GC, concurrency and crash durability remain unimplemented."
+  ]
+}

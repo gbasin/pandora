@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 *.egg-info/
 /artifacts/transfer-profile.json
+/artifacts/cas-poc.json
+/artifacts/cas-delta-probe.json
