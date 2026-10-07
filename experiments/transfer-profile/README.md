@@ -54,3 +54,19 @@ or isolate checksum time. Saved same-input history is not a cache-hit indicator.
 Committed evidence records the experiment's date and environment. Keep old
 measurements intact; add a new evidence file for another run. The decision note
 states which conclusions the measurement supports and which remain untested.
+
+The normal-transfer snapshot from v0.3.16 includes cache and phase observations.
+Summarize this immutable export without accessing live state:
+
+```sh
+python3 experiments/transfer-profile/observations.py \
+  --records experiments/transfer-profile/evidence/normal-transfers-2026-10-07.json \
+  --out /tmp/normal-transfer-summary.json
+```
+
+The export contains selected metadata fields only. It excludes source contents,
+logs, commands, credentials, and worktree paths. The summary separates cache
+hits, completed misses, and incomplete or unknown observations. A completed miss
+requires successful rsync plus a subsequent submission timing; publication and
+cleanup timers alone do not prove callback success. Later job outcomes do not
+change the transfer cohort. Each statistic reports its own sample count.
