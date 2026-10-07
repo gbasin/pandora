@@ -1,0 +1,92 @@
+{
+  "cold": {
+    "n": 10,
+    "p50_seconds": 0.2578151674824767,
+    "p95_seconds": 0.27473757740226573,
+    "min_seconds": 0.24971066997386515,
+    "max_seconds": 0.27726400701794773,
+    "literal_bytes_p50": 393216000.0,
+    "sent_bytes_p50": 393691980.0,
+    "shared_files": [
+      0
+    ],
+    "shared_bytes": [
+      0
+    ]
+  },
+  "cold_compressed": {
+    "n": 10,
+    "p50_seconds": 0.3139964814763516,
+    "p95_seconds": 0.381182982318569,
+    "min_seconds": 0.29486631404142827,
+    "max_seconds": 0.38919016800355166,
+    "literal_bytes_p50": 393216000.0,
+    "sent_bytes_p50": 196961148.0,
+    "shared_files": [
+      0
+    ],
+    "shared_bytes": [
+      0
+    ]
+  },
+  "divergent": {
+    "n": 10,
+    "p50_seconds": 1.150847890530713,
+    "p95_seconds": 1.2831900161865635,
+    "min_seconds": 1.1173043550224975,
+    "max_seconds": 1.3182685079518706,
+    "literal_bytes_p50": 353329920.0,
+    "sent_bytes_p50": 353585275.0,
+    "shared_files": [
+      4910
+    ],
+    "shared_bytes": [
+      39886080
+    ]
+  },
+  "four_bases": {
+    "n": 10,
+    "p50_seconds": 0.23831929953303188,
+    "p95_seconds": 0.25227729365578855,
+    "min_seconds": 0.23322707100305706,
+    "max_seconds": 0.26311521604657173,
+    "literal_bytes_p50": 3925888.0,
+    "sent_bytes_p50": 4092603.0,
+    "shared_files": [
+      4999
+    ],
+    "shared_bytes": [
+      389290112
+    ]
+  },
+  "warm_delta": {
+    "n": 10,
+    "p50_seconds": 0.16703914699610323,
+    "p95_seconds": 0.17173017225577497,
+    "min_seconds": 0.16416583897080272,
+    "max_seconds": 0.17219660803675652,
+    "literal_bytes_p50": 3925888.0,
+    "sent_bytes_p50": 4092603.0,
+    "shared_files": [
+      4999
+    ],
+    "shared_bytes": [
+      389290112
+    ]
+  },
+  "warm_unchanged": {
+    "n": 10,
+    "p50_seconds": 0.1623097230331041,
+    "p95_seconds": 0.167916849500034,
+    "min_seconds": 0.16044382902327925,
+    "max_seconds": 0.16990887804422528,
+    "literal_bytes_p50": 0.0,
+    "sent_bytes_p50": 165719.0,
+    "shared_files": [
+      5000
+    ],
+    "shared_bytes": [
+      393216000
+    ]
+  }
+}

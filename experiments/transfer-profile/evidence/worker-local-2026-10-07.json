@@ -1,0 +1,1631 @@
+{
+  "schema": 1,
+  "rsync": {
+    "path": "/usr/bin/rsync",
+    "version": "rsync  version 3.4.1  protocol version 32\nCopyright (C) 1996-2025 by Andrew Tridgell, Wayne Davison, and others.\nWeb site: https://rsync.samba.org/\nCapabilities:\n    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,\n    socketpairs, symlinks, symtimes, hardlinks, hardlink-specials,\n    hardlink-symlinks, IPv6, atimes, batchfiles, inplace, append, ACLs,\n    xattrs, optional secluded-args, iconv, prealloc, stop-at, no crtimes\nOptimizations:\n    SIMD-roll, no asm-roll, openssl-crypto, no asm-MD5\nChecksum list:\n    xxh128 xxh3 xxh64 (xxhash) md5 md4 sha1 none\nCompress list:\n    zstd lz4 zlibx zlib none\nDaemon auth list:\n    sha512 sha256 sha1 md5 md4\n\nrsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you\nare welcome to redistribute it under certain conditions.  See the GNU\nGeneral Public Licence for details.\n"
+  },
+  "machine": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "python": "3.14.4",
+    "logical_cpus": 8
+  },
+  "fixture": {
+    "regular_files": 5000,
+    "manifest_paths": 5001,
+    "regular_bytes": 393216000,
+    "large_files": 100,
+    "compressible_large_files": 50,
+    "incompressible_large_files": 50,
+    "small_files": 4900,
+    "small_file_bytes": 128,
+    "symlinks": 1,
+    "executable_path": "small/00000.txt",
+    "odd_paths": [
+      "small/path with spaces.txt",
+      "small/path with\nnewline.txt"
+    ],
+    "manifest_sha256": "e1a49e896037cc2c9d76fc811c2a2bd7c14634c66464ef2559b76df93bd59f88",
+    "delta_changed_regular_files": 1,
+    "delta_changed_bytes": 3925888,
+    "divergent_changed_regular_files": 90,
+    "divergent_changed_bytes": 353329920
+  },
+  "rounds": 10,
+  "priming_rounds_excluded": 1,
+  "samples": [
+    {
+      "wall_seconds": 0.2713479830417782,
+      "verification_seconds": 0.2549855610122904,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 0,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.16044382902327925,
+      "verification_seconds": 0.2562677259556949,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 0,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.16494585201144218,
+      "verification_seconds": 0.25487199903000146,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.066 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 0,
+      "order": 2
+    },
+    {
+      "wall_seconds": 1.151004630024545,
+      "verification_seconds": 0.2574630370363593,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 0,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.23843947402201593,
+      "verification_seconds": 0.2534161490621045,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 0,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.37139642203692347,
+      "verification_seconds": 0.26190372405108064,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  131,370,853.33 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 0,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.16226354101672769,
+      "verification_seconds": 0.27303807192947716,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 1,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.1666566199855879,
+      "verification_seconds": 0.2675723640713841,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 1,
+      "order": 1
+    },
+    {
+      "wall_seconds": 1.1311970470706,
+      "verification_seconds": 0.2898112549446523,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 1,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.26311521604657173,
+      "verification_seconds": 0.2574485900113359,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.082 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  2,736,378.67 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 1,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.31357535696588457,
+      "verification_seconds": 0.26207938301377,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 1,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.25698647391982377,
+      "verification_seconds": 0.26007378206122667,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.070 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 1,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.17219660803675652,
+      "verification_seconds": 0.2569673680700362,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.071 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 2,
+      "order": 0
+    },
+    {
+      "wall_seconds": 1.3182685079518706,
+      "verification_seconds": 0.25986308697611094,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 2,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.23901474406011403,
+      "verification_seconds": 0.2887084470130503,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 2,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.30139375501312315,
+      "verification_seconds": 0.28745419601909816,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 2,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.2529368889518082,
+      "verification_seconds": 0.25932422792539,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 2,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.16548214794602245,
+      "verification_seconds": 0.2561751519097015,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.071 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 2,
+      "order": 5
+    },
+    {
+      "wall_seconds": 1.1736959799891338,
+      "verification_seconds": 0.26676407794002444,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 3,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.23836012603715062,
+      "verification_seconds": 0.34889884502626956,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 3,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.3037084040697664,
+      "verification_seconds": 0.25947412801906466,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 3,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.24971066997386515,
+      "verification_seconds": 0.2588372639147565,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  262,524,741.33 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 3,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.1623559050494805,
+      "verification_seconds": 0.2565912620630115,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 3,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.16893852909561247,
+      "verification_seconds": 0.25822952401358634,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  2,736,378.67 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 3,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.2371170650003478,
+      "verification_seconds": 0.25730550196021795,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 4,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.29486631404142827,
+      "verification_seconds": 0.26274892897345126,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 4,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.2558678350178525,
+      "verification_seconds": 0.2774981160182506,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.074 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 4,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.16291289904620498,
+      "verification_seconds": 0.25451974698808044,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 4,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.16416583897080272,
+      "verification_seconds": 0.25636974698863924,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 4,
+      "order": 4
+    },
+    {
+      "wall_seconds": 1.1456655979854986,
+      "verification_seconds": 0.25859168404713273,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 4,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.3473663709592074,
+      "verification_seconds": 0.2596605069702491,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 5,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.27726400701794773,
+      "verification_seconds": 0.2752194129861891,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 5,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.16990887804422528,
+      "verification_seconds": 0.2627315759891644,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.071 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 5,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.1664589790161699,
+      "verification_seconds": 0.3216834010090679,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 5,
+      "order": 3
+    },
+    {
+      "wall_seconds": 1.1173043550224975,
+      "verification_seconds": 0.26051746506709605,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 5,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.23574522195849568,
+      "verification_seconds": 0.25387968798168004,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 5,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.25627840496599674,
+      "verification_seconds": 0.2550832449924201,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.066 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  262,524,741.33 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 6,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.16182178305462003,
+      "verification_seconds": 0.2660764689790085,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 6,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.17116008407901973,
+      "verification_seconds": 0.255568474996835,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.066 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  2,736,378.67 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 6,
+      "order": 2
+    },
+    {
+      "wall_seconds": 1.150691151036881,
+      "verification_seconds": 0.25546993990428746,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.070 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 6,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.23827847302891314,
+      "verification_seconds": 0.2760812590131536,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  2,736,378.67 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 6,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.31441760598681867,
+      "verification_seconds": 0.25722603197209537,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 6,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.1621329359477386,
+      "verification_seconds": 0.2550345229683444,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 7,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.16742167400661856,
+      "verification_seconds": 0.25652538891881704,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 7,
+      "order": 1
+    },
+    {
+      "wall_seconds": 1.1710719590773806,
+      "verification_seconds": 0.2576128380605951,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.066 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 7,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.23492776008788496,
+      "verification_seconds": 0.25682716397568583,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 7,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.343743426958099,
+      "verification_seconds": 0.252903216984123,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 7,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.27059151499997824,
+      "verification_seconds": 0.2686964620370418,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  262,524,741.33 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 7,
+      "order": 5
+    },
+    {
+      "wall_seconds": 0.1679055809509009,
+      "verification_seconds": 0.2588745030807331,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 8,
+      "order": 0
+    },
+    {
+      "wall_seconds": 1.2403163040289655,
+      "verification_seconds": 0.25933380506467074,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  141,864,056.80 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 8,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.23322707100305706,
+      "verification_seconds": 0.2582433599745855,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 8,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.29991354898083955,
+      "verification_seconds": 0.2528667579172179,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 8,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.27164971898309886,
+      "verification_seconds": 0.25404636992607266,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 8,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.16117422992829233,
+      "verification_seconds": 0.3497341610491276,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 8,
+      "order": 5
+    },
+    {
+      "wall_seconds": 1.1260892489226535,
+      "verification_seconds": 0.2627012300072238,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": 9,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.2390309440670535,
+      "verification_seconds": 0.25791564490646124,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": 9,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.38919016800355166,
+      "verification_seconds": 0.2612527130404487,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  131,370,853.33 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": 9,
+      "order": 2
+    },
+    {
+      "wall_seconds": 0.2586438610451296,
+      "verification_seconds": 0.258639212930575,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": 9,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.1645992420380935,
+      "verification_seconds": 0.25337486097123474,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.069 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": 9,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.16617208102252334,
+      "verification_seconds": 0.2566951470216736,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.066 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": 9,
+      "order": 5
+    }
+  ],
+  "priming": [
+    {
+      "wall_seconds": 0.2609606549376622,
+      "verification_seconds": 0.3391635899897665,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 393691980,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 393,691,980\nTotal bytes received: 95,132\n\nsent 393,691,980 bytes  received 95,132 bytes  787,574,224.00 bytes/sec\ntotal size is 393,216,015  speedup is 1.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold",
+      "round": -1,
+      "order": 0
+    },
+    {
+      "wall_seconds": 0.16266326105687767,
+      "verification_seconds": 0.2610293950419873,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 165719,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,719\nTotal bytes received: 19\n\nsent 165,719 bytes  received 19 bytes  331,476.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.52\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true,
+      "case": "warm_unchanged",
+      "round": -1,
+      "order": 1
+    },
+    {
+      "wall_seconds": 0.16620583401527256,
+      "verification_seconds": 0.25466830597724766,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "warm_delta",
+      "round": -1,
+      "order": 2
+    },
+    {
+      "wall_seconds": 1.2164734140969813,
+      "verification_seconds": 0.2711871119681746,
+      "stats": {
+        "transferred_file_bytes": 353329920,
+        "literal_bytes": 353329920,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 353585275,
+        "received_bytes": 1074867,
+        "regular_files_transferred": 90
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 90\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 353,329,920 bytes\nLiteral data: 353,329,920 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 353,585,275\nTotal bytes received: 1,074,867\n\nsent 353,585,275 bytes  received 1,074,867 bytes  236,440,094.67 bytes/sec\ntotal size is 393,216,015  speedup is 1.11\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4910,
+        "regular_bytes": 39886080
+      },
+      "verified": true,
+      "case": "divergent",
+      "round": -1,
+      "order": 3
+    },
+    {
+      "wall_seconds": 0.23897293396294117,
+      "verification_seconds": 0.38585980306379497,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 4092603,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,603\nTotal bytes received: 11,965\n\nsent 4,092,603 bytes  received 11,965 bytes  8,209,136.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true,
+      "case": "four_bases",
+      "round": -1,
+      "order": 4
+    },
+    {
+      "wall_seconds": 0.30764262203592807,
+      "verification_seconds": 0.2945260771084577,
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 393216000,
+        "matched_bytes": 0,
+        "file_list_bytes": 131052,
+        "sent_bytes": 196961148,
+        "received_bytes": 95132,
+        "regular_files_transferred": 5000
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 393,216,000 bytes\nMatched data: 0 bytes\nFile list size: 131,052\nFile list generation time: 0.066 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 196,961,148\nTotal bytes received: 95,132\n\nsent 196,961,148 bytes  received 95,132 bytes  394,112,560.00 bytes/sec\ntotal size is 393,216,015  speedup is 2.00\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 0,
+        "regular_bytes": 0
+      },
+      "verified": true,
+      "case": "cold_compressed",
+      "round": -1,
+      "order": 5
+    }
+  ],
+  "sanity_probes": {
+    "same_size_edit_original_mtime": {
+      "wall_seconds": 0.17750498198438436,
+      "verification_seconds": 0.2582034249790013,
+      "stats": {
+        "transferred_file_bytes": 3925888,
+        "literal_bytes": 3925888,
+        "matched_bytes": 0,
+        "file_list_bytes": 131058,
+        "sent_bytes": 4092605,
+        "received_bytes": 11965,
+        "regular_files_transferred": 1
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 3,925,888 bytes\nMatched data: 0 bytes\nFile list size: 131,058\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 4,092,605\nTotal bytes received: 11,965\n\nsent 4,092,605 bytes  received 11,965 bytes  8,209,140.00 bytes/sec\ntotal size is 393,216,015  speedup is 95.80\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 389290112
+      },
+      "verified": true
+    },
+    "unchanged_content_new_mtime": {
+      "wall_seconds": 0.16257018700707704,
+      "verification_seconds": 0.25580558890942484,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131064,
+        "sent_bytes": 165731,
+        "received_bytes": 19,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,064\nFile list generation time: 0.068 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,731\nTotal bytes received: 19\n\nsent 165,731 bytes  received 19 bytes  110,500.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.34\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 5000,
+        "regular_bytes": 393216000
+      },
+      "verified": true
+    },
+    "same_bytes_changed_mode": {
+      "wall_seconds": 0.16223464801441878,
+      "verification_seconds": 0.2752250840421766,
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 131056,
+        "sent_bytes": 165730,
+        "received_bytes": 26,
+        "regular_files_transferred": 0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 131,056\nFile list generation time: 0.067 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 165,730\nTotal bytes received: 26\n\nsent 165,730 bytes  received 26 bytes  331,512.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,372.26\n",
+      "stderr": "",
+      "shared_with_bases": {
+        "regular_files": 4999,
+        "regular_bytes": 393215872
+      },
+      "verified": true
+    },
+    "baseline_immutable": true
+  },
+  "scope": "worker-local scratch rsync; warm filesystem caches; no SSH or live cache",
+  "limitations": [
+    "Local transport cannot establish WAN compression savings or CAS performance.",
+    "No system caches were dropped; later cases can benefit from prior reads.",
+    "Three poor bases are synthetic equivalent hardlinked copies of one divergent tree.",
+    "Fixture preparation, verification, and inode accounting are excluded from transfer wall time.",
+    "Production SSH helper calls, freeze, submit, and container injection are not measured."
+  ],
+  "scratch_cleanup": "TemporaryDirectory removes all source and target trees on exit",
+  "source_variants_immutable": true
+}
