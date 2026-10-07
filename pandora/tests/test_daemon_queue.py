@@ -33,6 +33,7 @@ class QueueWorker(FakeWorker):
         submission = Submission('rq1')
         submission.state = 'queued'
         submission.queued = dict(PLACE)
+        submission.transfer = {'cache': 'absent', 'steps': {'rsync': 2.5}}
         return submission
 
     def status(self, run_id):
@@ -180,6 +181,8 @@ class TheWaitEndsWithoutRunning(QueueCase):
         self.assertEqual(len(meta), 1)
         self.assertEqual((meta[0]['state'], meta[0]['exit_code']), ('infra_failed', 70))
         self.assertEqual(meta[0]['refusal']['cause'], 'queue-timeout')
+        self.assertEqual(meta[0]['transfer'],
+                         {'cache': 'absent', 'steps': {'rsync': 2.5}})
         report = stats.build(self.state)
         self.assertEqual(report['worker_queue']['timeouts'], 1)
         self.assertEqual(report['worker_queue']['wait_seconds']['n'], 1)

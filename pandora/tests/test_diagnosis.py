@@ -82,6 +82,7 @@ class RecordedRun(unittest.TestCase):
     def test_refusal_and_partial_capture_survive_without_a_result(self):
         self.meta.update(phase='ship', refusal={'cause': 'worker-unreachable', 'detail': 'no route'},
                          pre_accept={'freeze': 2}, freeze_steps={'pass1.entries': 1})
+        self.meta['transfer'] = {'steps': {'probe': 3.2}}
         self.save('meta.json', self.meta)
         run = self.report()['run']
         self.assertEqual(run['phase'], 'ship')
@@ -89,6 +90,7 @@ class RecordedRun(unittest.TestCase):
         self.assertEqual(run['cause'], 'worker-unreachable')
         self.assertFalse(run['retryable'])
         self.assertEqual(run['freeze_steps'], {'pass1.entries': 1})
+        self.assertEqual(run['transfer'], {'steps': {'probe': 3.2}})
 
     def test_unknown_explicit_cause_is_not_replaced_by_engine_error(self):
         self.save('result.json', {'outcome': 'infra_failed', 'evidence': {'cause': 'future-cause'}})

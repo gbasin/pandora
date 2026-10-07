@@ -20,9 +20,11 @@ engine calls are the same conversation with the same host, and a ControlMaster
 turns the second and later round trips from ~90 ms into ~1 ms.
 """
 import os
+import re
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from ..errors import TransferError, WorkerUnreachable
@@ -264,8 +266,44 @@ def keep_stderr(path, data):
         pass
 
 
+def rsync_stats(stdout):
+    """Compact counters when this rsync supplied them; missing is unknown."""
+    labels = {
+        'sent_bytes': ('Total bytes sent',),
+        'received_bytes': ('Total bytes received',),
+        'literal_bytes': ('Literal data',),
+        'matched_bytes': ('Matched data',),
+        'transferred_file_bytes': ('Total transferred file size',),
+        'regular_files_transferred': ('Number of regular files transferred',
+                                      'Number of files transferred'),
+    }
+    result = {}
+    text = _text(stdout)
+    # A timeout can stop in the middle of a counter. Only complete lines with
+    # a complete integer (optionally grouped in thousands) are observations.
+    number = r'(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,3}(?: [0-9]{3})+)'
+    for key, spellings in labels.items():
+        for label in spellings:
+            suffix = r'(?:[ \t]+bytes)?' if key.endswith('_bytes') else ''
+            found = re.search(r'^' + re.escape(label) + r':[ \t]*(' + number + ')'
+                              + suffix + r'[ \t]*\r?\n',
+                              text, flags=re.MULTILINE)
+            if found:
+                digits = re.sub(r'[^0-9]', '', found.group(1))
+                if len(digits) > 20:
+                    # Beyond an unsigned 64-bit counter's decimal width.
+                    continue
+                try:
+                    result[key] = int(digits)
+                except ValueError:
+                    # Unusable statistics must not change a transfer verdict.
+                    continue
+                break
+    return result
+
+
 def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_send=None,
-         log=None, stderr_path=None):
+         log=None, stderr_path=None, report=None):
     """Place this input in the worker's source cache. Idempotent.
 
     `on_send` is called once, just before rsync starts, and only when there is
@@ -277,14 +315,34 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
     among them. A TransferError from rsync carries `rsync_exit` (None on a
     timeout) and `stderr`.
 
+    `report`, an optional mutable dictionary, receives phase timings and observed
+    cache, base, and rsync counters. A failed phase retains its elapsed time.
+    Missing rsync counters remain unknown rather than becoming zero.
+
     Returns {'path', 'reused', 'link_dests', 'seconds', 'files'}.
     """
     log = log or log_stderr
+    if report is not None:
+        report['files'] = len(manifest)
+        report.setdefault('steps', {})
+
+    def measured(name, operation, *args, **kwargs):
+        if report is None:
+            return operation(*args, **kwargs)
+        began = time.monotonic()
+        try:
+            return operation(*args, **kwargs)
+        finally:
+            report['steps'][name] = round(time.monotonic() - began, 6)
+
     paths = cache_paths(root, repo, input_id)
     # The collector uses the engine's admission lock too. Refresh the grace
     # period atomically with checking presence: a cache hit is a new use even
     # though no file content changes.
-    _, out, _ = link.feed(FEEDS['probe'], (root, paths['final']), timeout=60)
+    _, out, _ = measured('probe', link.feed, FEEDS['probe'],
+                         (root, paths['final']), timeout=60)
+    if report is not None and out.strip() in ('present', 'absent'):
+        report['cache'] = out.strip()
     if out.strip() == 'present':
         return {'path': paths['final'], 'reused': True, 'link_dests': [],
                 'seconds': 0.0, 'files': len(manifest)}
@@ -294,34 +352,43 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
     # against a divergent base, ~90% against the worktree's own previous tree.
     # rsync tries each --link-dest in order, so four bases cost nothing when
     # none of them matches.
-    _, listed, _ = link.feed(FEEDS['bases'], (paths['base'], paths['final']), timeout=60)
+    _, listed, _ = measured('bases', link.feed, FEEDS['bases'],
+                            (paths['base'], paths['final']), timeout=60)
     link_dests = [line.strip() for line in listed.splitlines() if line.strip()]
+    if report is not None:
+        report['base_count'] = len(link_dests)
     # Fresh worktrees have new mtimes for identical content. Match by checksum
     # and omit timestamp preservation so link-dest can reuse immutable files.
     # Checksums also catch equal-size edits whose mtime did not change.
     argv = ['rsync', '-a', '--no-times', '--checksum', '--delete',
-            '--files-from=-', '--from0', '-e', link.rsh]
+            '--files-from=-', '--from0', '--stats', '-e', link.rsh]
     for link_dest in link_dests:
         argv += ['--link-dest=' + link_dest]
     names = b'\0'.join(record['path'].encode() for record in manifest) + b'\0'
-    _, staged, _ = link.feed(FEEDS['stage'], (paths['base'], input_id), timeout=120)
+    _, staged, _ = measured('stage', link.feed, FEEDS['stage'],
+                            (paths['base'], input_id), timeout=120)
     stage = staged.rstrip('\n')
     argv += [str(worktree) + '/', '%s:%s/' % (link.host, stage)]
-    import time
     try:
         if on_send is not None:
-            on_send()
+            measured('progress', on_send)
         started = time.monotonic()
         try:
-            proc = subprocess.run(argv, input=names, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE, timeout=timeout)
+            proc = measured('rsync', subprocess.run, argv, input=names,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            timeout=timeout, env={**os.environ, 'LC_ALL': 'C'})
         except subprocess.TimeoutExpired as expired:
             # A TransferError, so the fallback policy decides: a bare
             # TimeoutExpired escaped every handler up to the connection thread.
             keep_stderr(stderr_path, expired.stderr)
+            if report is not None:
+                report['rsync'] = rsync_stats(expired.stdout)
             error = TransferError('rsync to %s timed out after %d s' % (link.host, timeout))
             error.rsync_exit, error.stderr = None, _text(expired.stderr)
             raise error from None
+        if report is not None:
+            report['rsync'] = rsync_stats(proc.stdout)
+            report['rsync_exit'] = proc.returncode
         keep_stderr(stderr_path, proc.stderr)
         if proc.returncode != 0:
             error = TransferError('rsync to %s failed (%d): %s'
@@ -331,14 +398,14 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
         # A concurrent attempt may already have published this input. Keep that
         # completed tree, then atomically point latest at it. Each attempt uses
         # a separate temporary symlink, including across different inputs.
-        link.feed(FEEDS['publish'], (stage, paths['final'], paths['latest'], root),
-                  timeout=120)
+        measured('publish', link.feed, FEEDS['publish'],
+                 (stage, paths['final'], paths['latest'], root), timeout=120)
     finally:
         # A cleanup that fails must not replace the error that brought us here:
         # the caller's fallback decision depends on which error that was. On
         # success the stage was renamed away, so a leftover is only garbage.
         try:
-            link.feed(FEEDS['clean'], (stage,), timeout=120)
+            measured('cleanup', link.feed, FEEDS['clean'], (stage,), timeout=120)
         except Exception as error:               # noqa: BLE001 - logged, never raised
             log('could not remove staging directory %s on %s: %s: %s'
                 % (stage, link.host, type(error).__name__, error))

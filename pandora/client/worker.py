@@ -28,6 +28,7 @@ them owns it: the engine's supervisor does, and the only thing that stops it is
 `cancel`.
 """
 import json
+import copy
 import os
 import shutil
 import subprocess
@@ -52,7 +53,7 @@ class Submission:
 
     def __init__(self, run_id, *, admission=None, duplicate=False, same_tree_as=None,
                  input_id='', durations=None, source=None, shipped=(), writeback=None,
-                 state='admitted', queued=None, freeze_steps=None):
+                 state='admitted', queued=None, freeze_steps=None, transfer=None):
         self.run_id = run_id
         # `queued` when the worker was full: the engine holds the row in its
         # queue (`engine.waitlist`) and nothing has been admitted, so this is
@@ -69,6 +70,7 @@ class Submission:
         self.input_id = input_id
         self.durations = durations or {}
         self.freeze_steps = freeze_steps or {}
+        self.transfer = transfer or {}
         self.source = source or {}
         # The frozen manifest's paths. Kept for the gitignored-path hint, which
         # needs to know what was *not* shipped; ~5,000 strings, held per run.
@@ -140,7 +142,7 @@ class Worker:
         `log` gets the transfer's start, end or failure as one line each, for
         the daemon's log; `transfer_stderr` is where rsync's stderr is kept.
         """
-        marks, freeze_steps = {}, {}
+        marks, freeze_steps, transfer_report = {}, {}, {}
         step = {'name': None, 'at': time.monotonic()}
 
         def enter(name):
@@ -171,7 +173,10 @@ class Worker:
 
             def on_send():
                 # One stat per file, once, and only on a cache miss.
-                shipping['line'] = sync_line(worktree, manifest)
+                total, complete = source_size(worktree, manifest)
+                if complete:
+                    transfer_report['source_bytes'] = total
+                shipping['line'] = sync_line(worktree, manifest, total=total)
                 shipping['at'] = time.monotonic()
                 if log is not None:
                     log('transfer start: input %s, %s, from %s'
@@ -179,10 +184,16 @@ class Worker:
                 if progress is not None:
                     progress(shipping['line'])
             try:
+                root_started = time.monotonic()
+                try:
+                    transfer_root = cache_root or self.root()
+                finally:
+                    transfer_report.setdefault('steps', {})['root_lookup'] = round(
+                        time.monotonic() - root_started, 6)
                 source = transfer.send(
-                    self.link, manifest, worktree=worktree, root=cache_root or self.root(),
+                    self.link, manifest, worktree=worktree, root=transfer_root,
                     repo=plan['repo'], input_id=input_id, on_send=on_send,
-                    log=log, stderr_path=transfer_stderr)
+                    log=log, stderr_path=transfer_stderr, report=transfer_report)
             except PandoraError as error:
                 if log is not None:
                     log('transfer failed: input %s, %s, rsync exit %s, after %.1f s: %s'
@@ -228,6 +239,7 @@ class Worker:
             try:
                 error.pre_accept = dict(marks)
                 error.freeze_steps = dict(freeze_steps)
+                error.transfer = copy.deepcopy(transfer_report)
             except AttributeError:
                 pass
             raise
@@ -236,6 +248,7 @@ class Worker:
                                             'detail': answer.get('admission')}))
             error.pre_accept = dict(marks)
             error.freeze_steps = dict(freeze_steps)
+            error.transfer = copy.deepcopy(transfer_report)
             raise error
         return Submission(answer['run_id'], admission=answer.get('admission'),
                           duplicate=answer.get('duplicate', False),
@@ -244,6 +257,7 @@ class Worker:
                           queued=answer.get('queued'),
                           input_id=input_id, durations=marks, source=source,
                           freeze_steps=freeze_steps,
+                          transfer=copy.deepcopy(transfer_report),
                           shipped=(record['path'] for record in manifest),
                           writeback=(writebacks.context(manifest, plan, worktree=worktree,
                                                         input_id=input_id)
@@ -480,9 +494,10 @@ def land(source, target):
     shutil.move(str(source), str(target))
 
 
-def sync_line(worktree, manifest):
-    """`syncing 4,912 files, 375 MiB`: one stat per file, only on a cache miss."""
+def source_size(worktree, manifest):
+    """Observed regular-file bytes and whether every selected file was measured."""
     total = 0
+    complete = True
     root = Path(worktree)
     for record in manifest:
         if 'link' in record:
@@ -490,7 +505,14 @@ def sync_line(worktree, manifest):
         try:
             total += (root / record['path']).stat().st_size
         except OSError:
-            continue
+            complete = False
+    return total, complete
+
+
+def sync_line(worktree, manifest, *, total=None):
+    """`syncing 4,912 files, 375 MiB`: one stat per file, only on a cache miss."""
+    if total is None:
+        total, _complete = source_size(worktree, manifest)
     return 'syncing {:,} files, {}'.format(len(manifest), size_text(total))
 
 

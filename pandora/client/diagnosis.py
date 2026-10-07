@@ -114,7 +114,8 @@ def from_run(state, run_id):
                retryable=retryable, retry_reason=retry_reason,
                implicated=area, evidence=evidence, log_tail=tail,
                pre_accept=meta.get('pre_accept') or {},
-               freeze_steps=meta.get('freeze_steps') or {})
+               freeze_steps=meta.get('freeze_steps') or {},
+               transfer=meta.get('transfer') or {})
     context = 'repo=%s job=%s lane=%s remote=%s' % tuple(
         run.get(key) or 'not recorded' for key in ('repo', 'job', 'lane', 'remote'))
     checks.append(check('recorded context', INFO, context, worktree=run['worktree'],
