@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.16](https://github.com/gbasin/pandora/compare/v0.3.15...v0.3.16) (2026-10-07)
+
+
+### Features
+
+* record source-transfer timings and rsync counters ([#239](https://github.com/gbasin/pandora/issues/239)) ([5729db5](https://github.com/gbasin/pandora/commit/5729db530faa4e274196b7f5654bb519751723da))
+
 ## [0.3.15](https://github.com/gbasin/pandora/compare/v0.3.14...v0.3.15) (2026-10-06)
 
 
