@@ -1,0 +1,64 @@
+{
+  "started_at": "2026-10-07T19:29:20.156675+00:00",
+  "base_commit": "f5518a0f1ae1c738439d12656ec1e677036f1403",
+  "command": [
+    "python3",
+    "experiments/cas-network/benchmark.py",
+    "--hybrid",
+    "--warm-only",
+    "--case",
+    "warm_unchanged",
+    "--case",
+    "small_delta",
+    "--case",
+    "tiny_large_edit",
+    "--case",
+    "full_large_rewrite",
+    "--case",
+    "mode_change",
+    "--case",
+    "new_path",
+    "--rounds",
+    "3",
+    "--out",
+    "artifacts/cas-hybrid.json"
+  ],
+  "code_sha256": {
+    "experiments/cas-network/benchmark.py": "bf5c1eee62ef5cbc942b98980c78f1d635d914a45e7d381e39458bc44d2b2e47",
+    "experiments/cas-network/remote.py": "d26d9599f4a6171f773ef8312e925e1800787c6d6e3ba814615d75fed68c6d7d",
+    "experiments/cas-poc/cas.py": "f84fbb5eecf231e499b09e609a46ed5be73cb8a26d63eb917c463d15dbefe370",
+    "experiments/transfer-profile/benchmark.py": "70d07cff61e102660a4c53d8d016b1fe094ea1c3b67b1ebdf554f695dc37ea1a",
+    "experiments/cas-network/summary.py": "2fe8b914040752572b5a0c3ff9c06e5feeb4d030299583e69ff98cc92cd27cd6"
+  },
+  "route": "Authorized SSH shell to isolated home-directory scratch; no production state changes.",
+  "finished_at": "2026-10-07T19:42:22.847541+00:00",
+  "smoke": {
+    "mib": 1,
+    "files": 103,
+    "rounds": 1,
+    "measured_samples": 30,
+    "priming_samples": 30,
+    "cleaned": true,
+    "ssh_master_closed": true
+  },
+  "validation": {
+    "focused_network_and_summary_tests": 25,
+    "ruff": "passed",
+    "shellcheck": "passed",
+    "independent_reviews": [
+      "scratch safety and immutability",
+      "CPU/I/O and transport accounting",
+      "offline report and docs"
+    ]
+  },
+  "measured_samples": 90,
+  "excluded_priming_samples": 30,
+  "raw_evidence_sha256": "493f4bdadf51b0ce714b44738e74851a76e718e8abcac68b5998594a4a7d3ddf",
+  "summary_evidence_sha256": "dc2af0dd8d5c4af773b484c5ade24a561dfbfb08b74082e2acb74cdf111bb1da",
+  "cleanup": {
+    "scratch_removed": true,
+    "ssh_master_closed": true,
+    "source_variants_immutable": true,
+    "baseline_immutable": true
+  }
+}

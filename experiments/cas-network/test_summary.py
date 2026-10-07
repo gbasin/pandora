@@ -10,11 +10,12 @@ summary = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(summary)
 
 
-def report(rounds=2):
+def report(rounds=2, *, hybrid=False):
     cases = ['cold', 'warm_unchanged']
+    methods = summary.METHODS + (summary.HYBRID_METHODS if hybrid else ())
     rows = []
     for case in cases:
-        for method in summary.METHODS:
+        for method in methods:
             for index in range(rounds):
                 rows.append({'case': case, 'method': method, 'round': index,
                              'verified': True, 'wall_seconds': 2 + index,
@@ -28,12 +29,50 @@ def report(rounds=2):
                              'stats': {'sent_bytes': 200, 'matched_bytes': None},
                              'audit': {'verified': True, 'execution_copy_seconds': .4}})
     return {'schema': 1, 'scope': 'scratch SSH comparison', 'fixture': {}, 'rounds': rounds,
-            'cases': cases, 'methods': list(summary.METHODS), 'samples': rows,
+            'cases': cases, 'methods': list(methods), 'samples': rows,
             'priming': [dict(rows[0], round=-1, wall_seconds=900)],
             'priming_rounds_excluded': 1, 'limitations': ['No production adoption.']}
 
 
 class NetworkSummary(unittest.TestCase):
+    def test_hybrid_requires_both_policies_and_a_complete_matrix(self):
+        raw = report(hybrid=True)
+        result = summary.summarize(raw)
+        self.assertEqual(result['sample_count'], 20)
+        self.assertEqual(set(result['cases']['cold']), set(summary.METHODS + summary.HYBRID_METHODS))
+        for method in summary.HYBRID_METHODS:
+            self.assertEqual(result['cases']['cold'][method]['wall_seconds']['count'], 2)
+        raw['samples'].pop()
+        with self.assertRaisesRegex(ValueError, 'every declared case/method/round'):
+            summary.summarize(raw)
+
+    def test_partial_hybrid_or_unsupported_declared_methods_are_rejected(self):
+        invalid = [summary.METHODS + summary.HYBRID_METHODS[:1],
+                   summary.METHODS + ('unreviewed',),
+                   summary.METHODS + ('unreviewed', 'cas_hybrid_rehash'),
+                   summary.HYBRID_METHODS,
+                   summary.METHODS + summary.HYBRID_METHODS + ('unreviewed',)]
+        for methods in invalid:
+            raw = report(hybrid=True)
+            raw['methods'] = list(methods)
+            with self.subTest(methods=methods), self.assertRaisesRegex(ValueError, 'methods must declare'):
+                summary.summarize(raw)
+
+    def test_original_saved_evidence_summary_is_unchanged(self):
+        evidence = Path(__file__).with_name('evidence')
+        raw = json.loads((evidence / 'mac-worker-2026-10-07.json').read_text())
+        saved = json.loads((evidence / 'mac-worker-summary-2026-10-07.json').read_text())
+        self.assertEqual(summary.summarize(raw), saved)
+
+    def test_declared_case_subset_is_complete_without_undeclared_samples(self):
+        raw = report(hybrid=True)
+        raw['cases'] = ['warm_unchanged']
+        raw['samples'] = [row for row in raw['samples'] if row['case'] == 'warm_unchanged']
+        self.assertEqual(summary.summarize(raw)['sample_count'], 10)
+        raw['samples'].append(dict(raw['samples'][0], case='cold'))
+        with self.assertRaisesRegex(ValueError, 'unexpected'):
+            summary.summarize(raw)
+
     def test_complete_matrix_has_own_denominators_and_excludes_priming(self):
         result = summary.summarize(report())
         self.assertEqual(result['sample_count'], 12)

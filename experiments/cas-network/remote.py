@@ -15,6 +15,7 @@ SPEC = importlib.util.spec_from_file_location('scratch_cas', ROOT / 'cas-poc' / 
 CAS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CAS)
 PROFILE = CAS._BENCHMARK
+METHODS = ('rsync', 'cas_trusted', 'cas_rehash', 'cas_hybrid_trusted', 'cas_hybrid_rehash')
 
 
 def checked_root(root, token):
@@ -64,7 +65,7 @@ def receiver(root, sample, argv):
     for argument in argv:
         if argument.startswith('--link-dest=') and Path(argument.split('=', 1)[1]).resolve() != root / 'baseline':
             raise ValueError('receiver link-dest must be the retained scratch baseline')
-        if argument in ('--copy-links', '--copy-dirlinks', '--keep-dirlinks'):
+        if argument in ('--copy-links', '--copy-dirlinks', '--keep-dirlinks', '--inplace', '--append', '--append-verify'):
             raise ValueError('receiver must not follow source symlinks')
     before = usage(resource.RUSAGE_CHILDREN)
     before_self = usage(resource.RUSAGE_SELF)
@@ -98,7 +99,7 @@ def action(root, name, request):
         return {'baseline_immutable': True}
     directory = sample_dir(root, request['sample'])
     if name == 'setup':
-        if request['method'] not in ('rsync', 'cas_trusted', 'cas_rehash'):
+        if request['method'] not in METHODS:
             raise ValueError('unknown transfer method')
         directory.mkdir(parents=True)
         if request['method'] != 'rsync':
@@ -109,7 +110,7 @@ def action(root, name, request):
                 blobs.mkdir(parents=True)
         return {'ready': True, 'load_average': os.getloadavg()}
     if name == 'plan':
-        if request['method'] not in ('rsync', 'cas_trusted', 'cas_rehash'):
+        if request['method'] not in METHODS:
             raise ValueError('unknown transfer method')
         stage = directory / 'stage'
         stage.mkdir()
@@ -149,7 +150,7 @@ def action(root, name, request):
                 path.unlink()
                 os.link(store.blob(record), path)
             steps['verify_install_missing'] = time.monotonic() - began
-            if state['method'] == 'cas_rehash':
+            if state['method'] in ('cas_rehash', 'cas_hybrid_rehash'):
                 began = time.monotonic()
                 for record in state['cached']:
                     if not store.known(record) or PROFILE.digest(store.blob(record)) != record['sha256']:

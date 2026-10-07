@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 METHODS = ('rsync', 'cas_trusted', 'cas_rehash')
+HYBRID_METHODS = ('cas_hybrid_trusted', 'cas_hybrid_rehash')
 TOP_METRICS = ('manifest_request_bytes', 'control_request_bytes', 'control_response_bytes',
                'missing_files', 'missing_bytes', 'verification_seconds',
                'audit_transaction_seconds')
@@ -81,17 +82,19 @@ def validate(report):
             or len(cases) != len(set(cases))):
         raise ValueError('cases must declare unique case names')
     methods = report.get('methods')
-    if (not isinstance(methods, list) or len(methods) != len(METHODS)
+    if (not isinstance(methods, list)
             or any(not isinstance(method, str) for method in methods)
-            or set(methods) != set(METHODS)):
-        raise ValueError('methods must declare rsync and both CAS integrity policies')
+            or len(methods) != len(set(methods))
+            or set(methods) not in (set(METHODS), set(METHODS + HYBRID_METHODS))):
+        raise ValueError('methods must declare the original three methods, optionally '
+                         'with both hybrid integrity policies')
     if (not isinstance(report.get('limitations', []), list)
             or any(not isinstance(value, str) for value in report.get('limitations', []))):
         raise ValueError('limitations must be a list of strings')
     rows = report.get('samples')
     if not isinstance(rows, list):
         raise ValueError('samples must be a list')
-    expected = {(case, method, index) for case in cases for method in METHODS
+    expected = {(case, method, index) for case in cases for method in methods
                 for index in range(rounds)}
     found = set()
     for row in rows:
@@ -114,6 +117,7 @@ def validate(report):
 
 def summarize(report):
     rows, cases = validate(report)
+    methods = METHODS + (HYBRID_METHODS if len(report['methods']) == 5 else ())
     groups = {}
     def observed(row):
         return {**{key: row.get(key) for key in TOP_METRICS},
@@ -125,7 +129,7 @@ def summarize(report):
              for field in metric_fields}
     for case in cases:
         groups[case] = {}
-        for method in METHODS:
+        for method in methods:
             selected = [row for row in observed_rows if row['case'] == case and row['method'] == method]
             groups[case][method] = {
                 'count': len(selected),
