@@ -98,7 +98,9 @@ class Recorded(DaemonCase):
                 mock.patch.object(attribution, 'process_table',
                                   side_effect=AssertionError('ps')):
             code, out, err = self.detach('unit')
-        self.assertEqual(code, 0, err)
+            self.assertEqual(code, 0, err)
+            code, _out, err = self.pandora('wait', out.strip())
+            self.assertEqual(code, 0, err)
 
     def test_a_malformed_submitter_is_not_stored(self):
         from pandora.client.daemon import submitted_by
