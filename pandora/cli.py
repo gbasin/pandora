@@ -700,6 +700,8 @@ def cmd_result(args):
         # are printed for one release, `same_input_as` as the alias.
         if 'same_input_as' in result and 'same_tree_as' not in result:
             result['same_tree_as'] = result['same_input_as']
+        if isinstance((meta or {}).get('transfer'), dict):
+            result['transfer'] = meta['transfer']
         print(json.dumps(result, indent=1, sort_keys=True))
         return 0
     print(render_result(args.run, result,

@@ -359,6 +359,11 @@ cause was recorded. `hint`, `cause`, `phase`, `phase_source`, `retryable`, and
 output already seen, prior attempts, placement, and cancellation still govern
 whether a retry is allowed. Saved capture timings appear as `pre_accept` and
 `freeze_steps`. A missing result is reported as metadata-only evidence.
+`transfer` contains saved client-side upload diagnostics when recorded. Its
+`steps` values are elapsed seconds for `root_lookup`, `probe`, `bases`, `stage`,
+`progress`, `rsync`, `publish`, and `cleanup`. It also includes the observed
+cache status, base count, manifest entry count, observed source bytes, and
+available rsync counters. Missing fields are unknown, not zero.
 Exit 1 means a saved failure or unreadable record. Exit 0 means no saved failure
 was identified, including a run that has not finished.
 
@@ -774,6 +779,50 @@ in seconds. `cache_setup`, `cache_save`, and `input_id` cover the remaining
 measured phases. A failed phase keeps its elapsed time. Compare these values
 with the overall freeze time before attributing a long capture to git scanning,
 file reads, or whole-machine contention. No phase timing changes the snapshot.
+
+### Source-transfer timings
+
+New remote runs save a `transfer` object in client `meta.json`. Read it with
+`pandora result <id> --json` or `pandora doctor --from-run <id> --json`.
+The complete result command adds the client record to the worker result in its
+JSON output. A refused run reports the metadata directly. The offline doctor
+places it under `run.transfer` and probes no current environment.
+
+`steps` records elapsed seconds for these operations:
+
+| Step | Measured work |
+|---|---|
+| `root_lookup` | Resolve the worker engine root, including any required SSH call. |
+| `probe` | Check this input's presence and renew its existing retention grace. |
+| `bases` | Discover retained link-dest candidates. |
+| `stage` | Create a private upload stage. |
+| `progress` | Measure source sizes and report upload progress. |
+| `rsync` | The whole rsync subprocess, including sender and receiver reads, checksums, and transport. |
+| `publish` | Publish the stage and update latest. |
+| `cleanup` | Attempt to remove the stage after success or failure. |
+
+A failed operation keeps its elapsed time. Timing alone does not establish
+success. Unreached operations are absent. An input already present has only
+root lookup and probe work, with `cache = "present"`; no rsync or base lookup
+ran. `cache = "absent"` records an observed miss. `base_count` is the number
+of discovered candidates. `files` counts manifest entries, including symlinks.
+`source_bytes` is the observed total for regular files on a miss. It is omitted
+for cache hits or an incomplete size scan. Source bytes are not network bytes.
+
+The `rsync` object contains counters emitted by that rsync implementation:
+`sent_bytes`, `received_bytes`, `literal_bytes`, `matched_bytes`,
+`transferred_file_bytes`, and `regular_files_transferred`. Unsupported or
+unreported counters are absent. Literal and matched bytes describe file data;
+transport counters include rsync protocol traffic and do not measure encrypted
+SSH wire overhead. A reported `rsync_exit` is the subprocess's observed exit
+code. A timeout can retain partial counters without claiming an exit code.
+
+Compare the substeps with overall `pre_accept.ship`. The overall duration also
+includes local setup and bookkeeping. The rsync interval does not isolate CPU,
+storage, or WAN costs. Older runs and runs submitted directly to the local lane
+have no recorded transfer data. A local fallback retains evidence from its
+failed remote transfer attempt.
+Diagnostics do not change capture identity, cache publication, or retry policy.
 
 ### Claim caches
 

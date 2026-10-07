@@ -362,6 +362,7 @@ class UploadPhases(DaemonCase):
             error = TransferError('rsync to h failed (255): unexpected end of file')
             error.pre_accept = {'freeze': 0.5, 'ship': 12.0}
             error.freeze_steps = {'pass1.entries': 0.4, 'pass2.entries': 0.1}
+            error.transfer = {'cache': 'absent', 'steps': {'probe': 0.2, 'rsync': 11.0}}
             raise error
         with mock.patch.object(FakeWorker, 'submit', slow):
             answer = self.call(['pnpm', 'surface'])
@@ -372,6 +373,8 @@ class UploadPhases(DaemonCase):
         self.assertEqual((meta['state'], meta['phase']), ('refused', 'ship'))
         self.assertEqual(meta['pre_accept'], {'freeze': 0.5, 'ship': 12.0})
         self.assertEqual(meta['freeze_steps'], {'pass1.entries': 0.4, 'pass2.entries': 0.1})
+        self.assertEqual(meta['transfer'],
+                         {'cache': 'absent', 'steps': {'probe': 0.2, 'rsync': 11.0}})
         frames = [json.loads(line) for line in (row / 'log').read_text().splitlines()]
         said = [base64.b64decode(frame['b64']) for frame in frames if frame['t'] == 'said']
         self.assertEqual(said, [b'pandora: syncing 3 files, 1 KiB\n'])
