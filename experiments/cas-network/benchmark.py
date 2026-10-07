@@ -22,6 +22,8 @@ PROFILE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PROFILE)
 CASES = ('cold', 'warm_unchanged', 'small_delta', 'tiny_large_edit')
 METHODS = ('rsync', 'cas_trusted', 'cas_rehash')
+HYBRID_METHODS = ('cas_hybrid_trusted', 'cas_hybrid_rehash')
+EXTRA_CASES = ('full_large_rewrite', 'mode_change', 'new_path')
 ALLOCATE = '''import json, os, pathlib, tempfile, uuid
 root = pathlib.Path(tempfile.mkdtemp(prefix='pandora-cas-network-', dir=pathlib.Path.home()))
 os.chmod(root, 0o700)
@@ -114,10 +116,16 @@ def code_archive():
     return buffer.getvalue()
 
 
-def rsync_send(link, rsync, source, target, records, *, sample=None, baseline=False, checksum=False):
+def rsync_send(link, rsync, source, target, records, *, sample=None, baseline=False,
+               checksum=False, hybrid=False):
     argv = [rsync, '-a', '--no-times', '--stats', '--files-from=-', '--from0', '-e', link.rsh]
     if checksum:
         argv += ['--checksum', '--delete']
+    if hybrid:
+        # Missing CAS identities must transfer even when size/mtime match.
+        # Let rsync use a separate readonly basis; never prelink old bytes into
+        # the stage or mutate a shared inode with --inplace/--append.
+        argv += ['--ignore-times', '--no-whole-file']
     if baseline:
         argv += ['--link-dest=' + link.root + '/baseline']
     if sample:
@@ -132,7 +140,7 @@ def rsync_send(link, rsync, source, target, records, *, sample=None, baseline=Fa
     return PROFILE.parse_stats(proc.stdout.decode('utf-8', 'replace'))
 
 
-def fixtures(root, mib, files):
+def fixtures(root, mib, files, *, cases=None):
     baseline = root / 'baseline'
     details = PROFILE.fixture(baseline, mib, files)
     for path in baseline.rglob('*'):
@@ -157,27 +165,67 @@ def fixtures(root, mib, files):
     os.utime(replacement, ns=(old.st_atime_ns, old.st_mtime_ns))
     os.replace(replacement, path)
     sources = {'cold': baseline, 'warm_unchanged': baseline, 'small_delta': small, 'tiny_large_edit': tiny}
+    selected = set(CASES if cases is None else cases)
+    if 'full_large_rewrite' in selected:
+        rewritten = root / 'rewritten'
+        PROFILE.clone_links(baseline, rewritten)
+        path = rewritten / 'large/075.bin'
+        PROFILE.replace_payload(path, 900075, False, mtime=path.stat().st_mtime_ns)
+        sources['full_large_rewrite'] = rewritten
+    if 'mode_change' in selected:
+        changed_mode = root / 'changed-mode'
+        PROFILE.clone_links(baseline, changed_mode)
+        path = changed_mode / 'small/00000.txt'
+        old = path.stat()
+        replacement = path.with_name(path.name + '.replacement')
+        shutil.copyfile(path, replacement)
+        replacement.chmod(0o444)
+        os.utime(replacement, ns=(old.st_atime_ns, old.st_mtime_ns))
+        os.replace(replacement, path)
+        sources['mode_change'] = changed_mode
+    if 'new_path' in selected:
+        added = root / 'added'
+        PROFILE.clone_links(baseline, added)
+        path = added / 'small/new-path.txt'
+        PROFILE.write_payload(path, 128, 800001, True)
+        path.chmod(0o444)
+        sources['new_path'] = added
     began = time.monotonic()
     manifests = {key: PROFILE.manifest(source) for key, source in sources.items()}
     details['source_capture_seconds'] = time.monotonic() - began
     details['tiny_edit_bytes'] = len(original)
-    details['tiny_edit_file_bytes'] = path.stat().st_size
+    details['tiny_edit_file_bytes'] = (tiny / 'large/075.bin').stat().st_size
     details['manifest_sha256'] = {key: hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()
                                  for key, records in manifests.items()}
     return sources, manifests, details
 
 
-def run(*, host, rounds=3, mib=375, files=5000, rsync=None, sample_timeout=600):
+def selection(*, cases=None, hybrid=False, warm_only=False):
+    selected = list(CASES if cases is None else cases)
+    if not selected or len(set(selected)) != len(selected):
+        raise ValueError('select at least one case without duplicates')
+    if any(case not in (*CASES, *EXTRA_CASES) for case in selected):
+        raise ValueError('unknown benchmark case')
+    if warm_only:
+        if cases is not None and 'cold' in selected:
+            raise ValueError('an explicit cold case conflicts with --warm-only')
+        selected = [case for case in selected if case != 'cold']
+    return selected, [*METHODS, *HYBRID_METHODS] if hybrid else list(METHODS)
+
+
+def run(*, host, rounds=3, mib=375, files=5000, rsync=None, sample_timeout=600,
+        hybrid=False, cases=None, warm_only=False):
     if rounds < 1:
         raise ValueError('rounds must be positive')
     if sample_timeout <= 0:
         raise ValueError('sample timeout must be positive')
+    selected_cases, selected_methods = selection(cases=cases, hybrid=hybrid, warm_only=warm_only)
     rsync = rsync or shutil.which('rsync')
     if not rsync:
         raise RuntimeError('rsync required')
     with tempfile.TemporaryDirectory(prefix='cas-network-src-') as local, \
             tempfile.TemporaryDirectory(prefix='cas-net-', dir='/tmp') as control:
-        sources, manifests, fixture = fixtures(Path(local), mib, files)
+        sources, manifests, fixture = fixtures(Path(local), mib, files, cases=selected_cases)
         link = Link(host, Path(control))
         cleanup = None
         try:
@@ -191,11 +239,11 @@ def run(*, host, rounds=3, mib=375, files=5000, rsync=None, sample_timeout=600):
             samples, priming = [], []
             for round_index in range(-1, rounds):
                 rotation = max(round_index, 0)
-                cases = list(CASES)
+                cases = list(selected_cases)
                 cases = cases[rotation % len(cases):] + cases[:rotation % len(cases)]
                 pairs = []
                 for case in cases:
-                    methods = list(METHODS)
+                    methods = list(selected_methods)
                     methods = methods[rotation % len(methods):] + methods[:rotation % len(methods)]
                     pairs.extend((case, method) for method in methods)
                 for position, (case, method) in enumerate(pairs):
@@ -217,8 +265,9 @@ def run(*, host, rounds=3, mib=375, files=5000, rsync=None, sample_timeout=600):
                     if method == 'rsync' or requested:
                         phase = time.monotonic()
                         stats = rsync_send(link, rsync, sources[case], planned['stage'], requested,
-                                           sample=sample, baseline=method == 'rsync' and case != 'cold',
-                                           checksum=method == 'rsync')
+                                           sample=sample,
+                                           baseline=(method == 'rsync' or method in HYBRID_METHODS) and case != 'cold',
+                                           checksum=method == 'rsync', hybrid=method in HYBRID_METHODS)
                         steps['rsync'] = time.monotonic() - phase
                     phase = time.monotonic()
                     finalized, final_request_bytes, final_response_bytes = link.call('finalize', {'sample': sample})
@@ -256,7 +305,7 @@ def run(*, host, rounds=3, mib=375, files=5000, rsync=None, sample_timeout=600):
                     checked_sources.add(source)
             cleanup, _, _ = link.call('cleanup', {})
             link.root = None
-            return {'schema': 1, 'cases': list(CASES), 'methods': list(METHODS), 'rounds': rounds,
+            return {'schema': 1, 'cases': selected_cases, 'methods': selected_methods, 'rounds': rounds,
                     'priming_rounds_excluded': 1, 'sample_timeout_seconds': sample_timeout,
                     'scope': 'actual Mac-to-worker SSH transport in private disk scratch; no production state',
                     'source_variants_immutable': True,
@@ -273,7 +322,9 @@ def run(*, host, rounds=3, mib=375, files=5000, rsync=None, sample_timeout=600):
                                     'Audit/copy is outside transfer wall and reported separately; receiver helper metrics are self-only.',
                                     'Receiver helper CPU excludes interpreter startup/imports and response serialization; full wall includes them.',
                                     'SSH server CPU and private master CPU are not attributed to individual transactions.',
-                                    'Receiver logical child I/O bytes are unknown; raw filesystem blocks are not byte throughput.']}
+                                    'Receiver logical child I/O bytes are unknown; raw filesystem blocks are not byte throughput.']
+                    + (['Measured rotations do not fully balance all five method positions; hybrid results are exploratory.']
+                       if hybrid and rounds % len(selected_methods) else [])}
         finally:
             link.deadline = None
             try:
@@ -291,10 +342,18 @@ def main(argv=None):
     parser.add_argument('--mib', type=float, default=375)
     parser.add_argument('--files', type=int, default=5000)
     parser.add_argument('--sample-timeout', type=float, default=600)
+    parser.add_argument('--hybrid', action='store_true', help='add missing-file delta CAS policies')
+    parser.add_argument('--case', action='append', choices=(*CASES, *EXTRA_CASES), help='select a case; repeat')
+    parser.add_argument('--warm-only', action='store_true', help='omit the default cold case')
     parser.add_argument('--out', type=Path, default=Path('artifacts/cas-network.json'))
     args = parser.parse_args(argv)
+    try:
+        selection(cases=args.case, hybrid=args.hybrid, warm_only=args.warm_only)
+    except ValueError as error:
+        parser.error(str(error))
     report = run(host=args.host, rounds=args.rounds, mib=args.mib, files=args.files,
-                 sample_timeout=args.sample_timeout)
+                 sample_timeout=args.sample_timeout, hybrid=args.hybrid, cases=args.case,
+                 warm_only=args.warm_only)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
 

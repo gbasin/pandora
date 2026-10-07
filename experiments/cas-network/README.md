@@ -20,6 +20,28 @@ is excluded from summaries. The remote helper is uploaded only into the
 new private scratch directory. Cleanup checks its owner marker before
 removing it. The command also closes its own SSH master connection.
 
+Add `--hybrid` to compare five methods: rsync, the two original whole-blob CAS
+policies, and `cas_hybrid_trusted` / `cas_hybrid_rehash`. The default remains
+the original three-method comparison. Select cases with repeated `--case`
+options. `--warm-only` omits the default cold case; an explicit `--case cold`
+conflicts with that option. Duplicate case selections are refused.
+
+```sh
+python3 experiments/cas-network/benchmark.py --host ubuntu@WORKER_IP \
+  --hybrid --warm-only --rounds 3 --out artifacts/cas-network.json
+python3 experiments/cas-network/benchmark.py --host ubuntu@WORKER_IP \
+  --hybrid --case full_large_rewrite --case mode_change --case new_path \
+  --rounds 3 --out artifacts/cas-network.json
+```
+
+The default cases remain `cold`, `warm_unchanged`, `small_delta`, and
+`tiny_large_edit`. The optional cases rewrite the complete large file, change
+one small file's executable mode without changing bytes, or introduce a new source path.
+They run only when selected explicitly. Each saved report declares its cases
+and methods. The offline summarizer requires every declared case, method, and
+measured round to have exactly one verified sample. It accepts the original
+three methods or all five; partial hybrid policy sets are refused.
+
 The sender captures one manifest for each source variant before measuring
 transfers. The CAS path sends that manifest to a scratch receiver. The receiver
 links known blobs and returns missing paths. The sender uploads those paths
@@ -27,6 +49,17 @@ with rsync. A final control request verifies new blobs and publishes the
 snapshot. The rehash policy also verifies reused blobs before publication.
 The trusted policy assumes the private store still contains verified,
 read-only insertions.
+
+Hybrid CAS retains the same manifest planning and integrity policies. It
+uploads only missing identities, using the read-only baseline as rsync's
+same-path `--link-dest` basis. `--ignore-times` forces those selected files to
+be transferred even when size and mtime match, and `--no-whole-file` permits
+block-delta reuse. The stage is private; the receiver never uses `--inplace`
+or append modes. Every reconstructed missing file still passes complete
+SHA256 and canonical-mode verification before blob insertion. Rehashing also
+checks reused blobs before publication. New paths without a same-path basis
+can still require full payloads. Hybrid reuse does not establish protection
+against live-worktree races, concurrent writers, or corrupted trusted storage.
 
 The rsync path uses `--checksum`, `--link-dest`, and the same publication
 boundary. Warm cases retain the same baseline content for both methods. Each measured sample

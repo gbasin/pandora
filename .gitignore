@@ -7,3 +7,4 @@ __pycache__/
 /artifacts/cas-poc.json
 /artifacts/cas-delta-probe.json
 /artifacts/cas-network.json
+/artifacts/cas-hybrid.json
