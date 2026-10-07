@@ -1,0 +1,378 @@
+{
+  "generated_at": "2026-10-07T00:48:03.091357+00:00",
+  "since": "2026-10-06T22:04:00+00:00",
+  "metadata_count": 4610,
+  "result_count": 4605,
+  "read_failures": 0,
+  "interesting_key_counts": {
+    "result.source_after": 309,
+    "result.source_before": 309
+  },
+  "repositories": {
+    "eichler": {
+      "all_retained": {
+        "freeze": {
+          "count": 4277,
+          "p50": 0.92,
+          "p95": 2.02,
+          "max": 17.0
+        },
+        "ship": {
+          "count": 4276,
+          "p50": 4.18,
+          "p95": 5.47,
+          "max": 30.86
+        },
+        "submit": {
+          "count": 4276,
+          "p50": 0.41,
+          "p95": 0.54,
+          "max": 3.81
+        },
+        "paired_count": 4276,
+        "ship_larger_than_freeze_count": 2493,
+        "sum_freeze_seconds": 4716.69,
+        "sum_ship_seconds": 12223.34,
+        "run_count": 4590,
+        "freeze_steps_count": 55,
+        "time_window": [
+          "2026-09-30T00:21:19.721566+00:00",
+          "2026-10-07T00:13:59.803595+00:00"
+        ]
+      },
+      "since_cutoff": {
+        "freeze": {
+          "count": 47,
+          "p50": 1.01,
+          "p95": 2.387,
+          "max": 4.37
+        },
+        "ship": {
+          "count": 47,
+          "p50": 4.54,
+          "p95": 5.415,
+          "max": 30.86
+        },
+        "submit": {
+          "count": 47,
+          "p50": 0.42,
+          "p95": 0.53,
+          "max": 1.57
+        },
+        "paired_count": 47,
+        "ship_larger_than_freeze_count": 27,
+        "sum_freeze_seconds": 55.91,
+        "sum_ship_seconds": 163.55,
+        "run_count": 50,
+        "freeze_steps_count": 47,
+        "time_window": [
+          "2026-10-06T22:13:09.768474+00:00",
+          "2026-10-07T00:13:59.803595+00:00"
+        ]
+      },
+      "instrumented": {
+        "freeze": {
+          "count": 55,
+          "p50": 1.0,
+          "p95": 2.383,
+          "max": 4.37
+        },
+        "ship": {
+          "count": 55,
+          "p50": 4.57,
+          "p95": 5.395,
+          "max": 30.86
+        },
+        "submit": {
+          "count": 55,
+          "p50": 0.42,
+          "p95": 0.53,
+          "max": 1.57
+        },
+        "paired_count": 55,
+        "ship_larger_than_freeze_count": 34,
+        "sum_freeze_seconds": 64.71,
+        "sum_ship_seconds": 196.43,
+        "run_count": 55,
+        "freeze_steps_count": 55,
+        "time_window": [
+          "2026-10-06T21:36:02.507166+00:00",
+          "2026-10-07T00:13:59.803595+00:00"
+        ]
+      },
+      "slow_capture_samples": [],
+      "recent_dominant_phase_counts": {
+        "index_blobs": 23,
+        "nested_worktrees": 19,
+        "cache_save": 1,
+        "entries": 3,
+        "names": 1
+      },
+      "recent_slowest_capture_samples": [
+        {
+          "id": "e22b10aefd83",
+          "repo": "eichler",
+          "job": "check",
+          "pre_accept": {
+            "freeze": 4.37,
+            "ship": 5.16,
+            "submit": 0.53
+          },
+          "started": "2026-10-06T22:25:30.991099+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.026054,
+            "nested_worktrees": 0.933347,
+            "names": 2.667432,
+            "git_status": 0.159771,
+            "index_blobs": 0.278587,
+            "entries": 0.146109,
+            "cache_save": 0.025695,
+            "input_id": 0.004798
+          },
+          "dominant_measured_phase": "names"
+        },
+        {
+          "id": "0f62517d04ad",
+          "repo": "eichler",
+          "job": "postgres",
+          "pre_accept": {
+            "freeze": 2.45,
+            "ship": 5.26,
+            "submit": 0.41
+          },
+          "started": "2026-10-06T22:13:09.769754+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.02075,
+            "nested_worktrees": 0.273253,
+            "names": 0.162861,
+            "git_status": 0.232856,
+            "index_blobs": 0.477153,
+            "entries": 1.137461,
+            "cache_save": 0.001557,
+            "input_id": 0.004844
+          },
+          "dominant_measured_phase": "entries"
+        },
+        {
+          "id": "b7c43417d926",
+          "repo": "eichler",
+          "job": "unit",
+          "pre_accept": {
+            "freeze": 2.39,
+            "ship": 5.29,
+            "submit": 0.42
+          },
+          "started": "2026-10-06T22:13:09.770536+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.030421,
+            "nested_worktrees": 0.257249,
+            "names": 0.148344,
+            "git_status": 0.233581,
+            "index_blobs": 0.342533,
+            "entries": 1.222407,
+            "cache_save": 0.004244,
+            "input_id": 0.006246
+          },
+          "dominant_measured_phase": "entries"
+        }
+      ],
+      "recent_slowest_ship_samples": [
+        {
+          "id": "10e596e2699f",
+          "repo": "eichler",
+          "job": "postgres",
+          "pre_accept": {
+            "freeze": 1.13,
+            "ship": 30.86,
+            "submit": 0.39
+          },
+          "started": "2026-10-06T23:17:27.010485+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.045454,
+            "nested_worktrees": 0.275084,
+            "names": 0.147552,
+            "git_status": 0.131466,
+            "index_blobs": 0.223548,
+            "entries": 0.171562,
+            "cache_save": 0.002303,
+            "input_id": 0.005152
+          },
+          "dominant_measured_phase": "nested_worktrees"
+        }
+      ]
+    },
+    "pandora": {
+      "all_retained": {
+        "freeze": {
+          "count": 20,
+          "p50": 0.36,
+          "p95": 0.5055,
+          "max": 0.61
+        },
+        "ship": {
+          "count": 20,
+          "p50": 2.785,
+          "p95": 3.892,
+          "max": 3.93
+        },
+        "submit": {
+          "count": 20,
+          "p50": 0.425,
+          "p95": 0.6425,
+          "max": 0.69
+        },
+        "paired_count": 20,
+        "ship_larger_than_freeze_count": 20,
+        "sum_freeze_seconds": 7.63,
+        "sum_ship_seconds": 59.5,
+        "run_count": 20,
+        "freeze_steps_count": 2,
+        "time_window": [
+          "2026-10-05T17:48:47.317564+00:00",
+          "2026-10-06T22:56:49.689807+00:00"
+        ]
+      },
+      "since_cutoff": {
+        "freeze": {
+          "count": 2,
+          "p50": 0.36,
+          "p95": 0.36,
+          "max": 0.36
+        },
+        "ship": {
+          "count": 2,
+          "p50": 2.975,
+          "p95": 3.1775,
+          "max": 3.2
+        },
+        "submit": {
+          "count": 2,
+          "p50": 0.415,
+          "p95": 0.4195,
+          "max": 0.42
+        },
+        "paired_count": 2,
+        "ship_larger_than_freeze_count": 2,
+        "sum_freeze_seconds": 0.72,
+        "sum_ship_seconds": 5.95,
+        "run_count": 2,
+        "freeze_steps_count": 2,
+        "time_window": [
+          "2026-10-06T22:12:41.438750+00:00",
+          "2026-10-06T22:56:49.689807+00:00"
+        ]
+      },
+      "instrumented": {
+        "freeze": {
+          "count": 2,
+          "p50": 0.36,
+          "p95": 0.36,
+          "max": 0.36
+        },
+        "ship": {
+          "count": 2,
+          "p50": 2.975,
+          "p95": 3.1775,
+          "max": 3.2
+        },
+        "submit": {
+          "count": 2,
+          "p50": 0.415,
+          "p95": 0.4195,
+          "max": 0.42
+        },
+        "paired_count": 2,
+        "ship_larger_than_freeze_count": 2,
+        "sum_freeze_seconds": 0.72,
+        "sum_ship_seconds": 5.95,
+        "run_count": 2,
+        "freeze_steps_count": 2,
+        "time_window": [
+          "2026-10-06T22:12:41.438750+00:00",
+          "2026-10-06T22:56:49.689807+00:00"
+        ]
+      },
+      "slow_capture_samples": [],
+      "recent_dominant_phase_counts": {
+        "index_blobs": 2
+      },
+      "recent_slowest_capture_samples": [
+        {
+          "id": "acdc7cb4fb1b",
+          "repo": "pandora",
+          "job": "suite",
+          "pre_accept": {
+            "freeze": 0.36,
+            "ship": 2.75,
+            "submit": 0.41
+          },
+          "started": "2026-10-06T22:12:41.438750+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.01254,
+            "nested_worktrees": 0.0538,
+            "names": 0.041052,
+            "git_status": 0.055699,
+            "index_blobs": 0.116389,
+            "entries": 0.039956,
+            "cache_save": 0.028688,
+            "input_id": 0.000954
+          },
+          "dominant_measured_phase": "index_blobs"
+        },
+        {
+          "id": "31a288c0445f",
+          "repo": "pandora",
+          "job": "suite",
+          "pre_accept": {
+            "freeze": 0.36,
+            "ship": 3.2,
+            "submit": 0.42
+          },
+          "started": "2026-10-06T22:56:49.689807+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.011158,
+            "nested_worktrees": 0.06544,
+            "names": 0.0422,
+            "git_status": 0.067718,
+            "index_blobs": 0.112247,
+            "entries": 0.027558,
+            "cache_save": 0.023057,
+            "input_id": 0.000933
+          },
+          "dominant_measured_phase": "index_blobs"
+        }
+      ],
+      "recent_slowest_ship_samples": [
+        {
+          "id": "31a288c0445f",
+          "repo": "pandora",
+          "job": "suite",
+          "pre_accept": {
+            "freeze": 0.36,
+            "ship": 3.2,
+            "submit": 0.42
+          },
+          "started": "2026-10-06T22:56:49.689807+00:00",
+          "phase_seconds_both_passes": {
+            "cache_setup": 0.011158,
+            "nested_worktrees": 0.06544,
+            "names": 0.0422,
+            "git_status": 0.067718,
+            "index_blobs": 0.112247,
+            "entries": 0.027558,
+            "cache_save": 0.023057,
+            "input_id": 0.000933
+          },
+          "dominant_measured_phase": "index_blobs"
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "Read metadata/result JSON only; no live logs, source files, or jobs.",
+    "Retained runs are a censored sample; timing fields are absent for many local/refused/older runs.",
+    "Quantiles use linear interpolation. Aggregate durations can include failed/retried work.",
+    "Ship includes cache probing, SSH and rsync setup/transfer; elapsed ship is not wire-byte throughput.",
+    "No retained transfer-byte/source-reuse fields found unless listed in interesting_key_counts."
+  ]
+}

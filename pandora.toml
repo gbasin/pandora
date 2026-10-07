@@ -36,5 +36,19 @@ timeout_minutes = 30
 forms = [{ prefix = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }]
 run = { argv = ["python3", "-m", "unittest", "discover", "-s", "pandora"] }
 
+# An isolated source-transfer experiment. It generates synthetic data only on
+# the worker, never reads production source caches, and returns a JSON artifact.
+[[jobs]]
+id = "transfer-profile"
+summary = "Measure scratch rsync checksum and cache reuse costs"
+where = "remote"
+size = "medium"
+args = "none"
+fallback = "refuse"
+timeout_minutes = 15
+forms = [{ prefix = ["python3", "experiments/transfer-profile/benchmark.py"] }]
+run = { argv = ["python3", "experiments/transfer-profile/benchmark.py"] }
+outputs = [{ kind = "artifacts", paths = ["artifacts/transfer-profile.json"] }]
+
 [verdicts]
 publish = true
