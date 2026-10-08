@@ -1,0 +1,1120 @@
+{
+  "rounds": 3,
+  "sample_count": 15,
+  "groups": {
+    "normal": {
+      "audit_scope": "full_source",
+      "wall_seconds": {
+        "count": 3,
+        "p50": 2.421935,
+        "p95": 2.699698,
+        "min": 2.2713357091415673,
+        "max": 2.7305609160102904
+      },
+      "sender_self": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.004143,
+          "p95": 0.004153,
+          "min": 0.00398300000000007,
+          "max": 0.004153999999999991
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.002417,
+          "p95": 0.002711,
+          "min": 0.0024039999999998507,
+          "max": 0.0027439999999998577
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "sender_children": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.084135,
+          "p95": 0.084764,
+          "min": 0.08240599999999998,
+          "max": 0.08483399999999996
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.640246,
+          "p95": 0.656478,
+          "min": 0.6094790000000003,
+          "max": 0.6582820000000003
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "receiver": {
+        "wall_seconds": {
+          "count": 3,
+          "p50": 2.116203,
+          "p95": 2.384962,
+          "min": 1.9834575860295445,
+          "max": 2.4148246131371707
+        },
+        "self": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.000186,
+            "p95": 0.00019,
+            "min": 0.00016299999999999995,
+            "max": 0.00019099999999999846
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 7e-06,
+            "min": 0.0,
+            "max": 7.999999999999978e-06
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "children": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.025217,
+            "p95": 0.026643,
+            "min": 0.016998,
+            "max": 0.026801
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 0.046645,
+            "p95": 0.052615,
+            "min": 0.04217,
+            "max": 0.053278
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "child_logical_read_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "child_logical_write_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        }
+      },
+      "stats": {
+        "sent_bytes": {
+          "count": 3,
+          "p50": 164474.0,
+          "p95": 164474.0,
+          "min": 164474,
+          "max": 164474
+        },
+        "received_bytes": {
+          "count": 3,
+          "p50": 26.0,
+          "p95": 26.0,
+          "min": 26,
+          "max": 26
+        },
+        "literal_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "matched_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "transferred_file_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "regular_files_transferred": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "file_list_bytes": {
+          "count": 3,
+          "p50": 106496.0,
+          "p95": 106496.0,
+          "min": 106496,
+          "max": 106496
+        },
+        "file_list_generation_seconds": {
+          "count": 3,
+          "p50": 1.434,
+          "p95": 1.7139,
+          "min": 1.249,
+          "max": 1.745
+        },
+        "file_list_transfer_seconds": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "dry_basis": {
+      "audit_scope": "empty_stage",
+      "wall_seconds": {
+        "count": 3,
+        "p50": 2.656704,
+        "p95": 2.890656,
+        "min": 2.329249541973695,
+        "max": 2.9166511250659823
+      },
+      "sender_self": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.003048,
+          "p95": 0.003709,
+          "min": 0.002386999999999917,
+          "max": 0.003782000000000174
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.002454,
+          "p95": 0.002836,
+          "min": 0.0020530000000000825,
+          "max": 0.002877999999999936
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "sender_children": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.08326,
+          "p95": 0.095789,
+          "min": 0.079461,
+          "max": 0.09718099999999996
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.635593,
+          "p95": 0.645552,
+          "min": 0.5996920000000001,
+          "max": 0.6466589999999997
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "receiver": {
+        "wall_seconds": {
+          "count": 3,
+          "p50": 2.203508,
+          "p95": 2.562734,
+          "min": 2.063283395022154,
+          "max": 2.6026484691537917
+        },
+        "self": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.00017,
+            "p95": 0.000183,
+            "min": 0.00016500000000000195,
+            "max": 0.00018400000000000014
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 1.1e-05,
+            "p95": 1.6e-05,
+            "min": 0.0,
+            "max": 1.7000000000000088e-05
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "children": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.017058,
+            "p95": 0.017398,
+            "min": 0.014221,
+            "max": 0.017436
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 0.023407,
+            "p95": 0.026366,
+            "min": 0.021235999999999998,
+            "max": 0.026695
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "child_logical_read_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "child_logical_write_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        }
+      },
+      "stats": {
+        "sent_bytes": {
+          "count": 3,
+          "p50": 164474.0,
+          "p95": 164474.0,
+          "min": 164470,
+          "max": 164474
+        },
+        "received_bytes": {
+          "count": 3,
+          "p50": 26.0,
+          "p95": 26.0,
+          "min": 26,
+          "max": 26
+        },
+        "literal_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "matched_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "transferred_file_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "regular_files_transferred": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "file_list_bytes": {
+          "count": 3,
+          "p50": 106496.0,
+          "p95": 106496.0,
+          "min": 106496,
+          "max": 106496
+        },
+        "file_list_generation_seconds": {
+          "count": 3,
+          "p50": 1.473,
+          "p95": 1.6674,
+          "min": 1.377,
+          "max": 1.689
+        },
+        "file_list_transfer_seconds": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "dry_no_basis": {
+      "audit_scope": "empty_stage",
+      "wall_seconds": {
+        "count": 3,
+        "p50": 2.506396,
+        "p95": 3.144611,
+        "min": 2.2443027498666197,
+        "max": 3.2155238748528063
+      },
+      "sender_self": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.003522,
+          "p95": 0.003609,
+          "min": 0.0030759999999998566,
+          "max": 0.003619000000000039
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.002342,
+          "p95": 0.00272,
+          "min": 0.002291000000000043,
+          "max": 0.002761999999999709
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "sender_children": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.08482,
+          "p95": 0.085782,
+          "min": 0.07938299999999998,
+          "max": 0.085889
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.598442,
+          "p95": 0.660783,
+          "min": 0.5969000000000007,
+          "max": 0.6677100000000005
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "receiver": {
+        "wall_seconds": {
+          "count": 3,
+          "p50": 2.226383,
+          "p95": 2.869675,
+          "min": 1.9387741161044687,
+          "max": 2.9411516778636724
+        },
+        "self": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.00016,
+            "p95": 0.00017,
+            "min": 0.0001480000000000023,
+            "max": 0.000171000000000001
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 1.9e-05,
+            "p95": 2.1e-05,
+            "min": 0.0,
+            "max": 2.099999999999975e-05
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "children": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.0022,
+            "p95": 0.002357,
+            "min": 0.0019479999999999999,
+            "max": 0.002374
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 0.001948,
+            "p95": 0.002592,
+            "min": 0.0018599999999999999,
+            "max": 0.0026639999999999997
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "child_logical_read_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "child_logical_write_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        }
+      },
+      "stats": {
+        "sent_bytes": {
+          "count": 3,
+          "p50": 179488.0,
+          "p95": 179491.6,
+          "min": 179488,
+          "max": 179492
+        },
+        "received_bytes": {
+          "count": 3,
+          "p50": 15132.0,
+          "p95": 15132.0,
+          "min": 15132,
+          "max": 15132
+        },
+        "literal_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "matched_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "transferred_file_bytes": {
+          "count": 3,
+          "p50": 393216000.0,
+          "p95": 393216000.0,
+          "min": 393216000,
+          "max": 393216000
+        },
+        "regular_files_transferred": {
+          "count": 3,
+          "p50": 5000.0,
+          "p95": 5000.0,
+          "min": 5000,
+          "max": 5000
+        },
+        "file_list_bytes": {
+          "count": 3,
+          "p50": 106496.0,
+          "p95": 106496.0,
+          "min": 106496,
+          "max": 106496
+        },
+        "file_list_generation_seconds": {
+          "count": 3,
+          "p50": 1.426,
+          "p95": 2.0938,
+          "min": 1.183,
+          "max": 2.168
+        },
+        "file_list_transfer_seconds": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "empty": {
+      "audit_scope": "empty_stage",
+      "wall_seconds": {
+        "count": 3,
+        "p50": 0.904948,
+        "p95": 0.942066,
+        "min": 0.8888979170005769,
+        "max": 0.9461907078512013
+      },
+      "sender_self": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.000304,
+          "p95": 0.000373,
+          "min": 0.0002969999999999917,
+          "max": 0.0003809999999999647
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.00093,
+          "p95": 0.001059,
+          "min": 0.0009220000000000894,
+          "max": 0.0010729999999998796
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "sender_children": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.008253,
+          "p95": 0.008256,
+          "min": 0.008132999999999946,
+          "max": 0.008256000000000041
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.006553,
+          "p95": 0.006986,
+          "min": 0.006529999999999703,
+          "max": 0.007033999999999985
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "receiver": {
+        "wall_seconds": {
+          "count": 3,
+          "p50": 0.620005,
+          "p95": 0.634853,
+          "min": 0.6155180151108652,
+          "max": 0.6365032771136612
+        },
+        "self": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.000141,
+            "p95": 0.000163,
+            "min": 0.00011199999999999752,
+            "max": 0.00016499999999999848
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 2.5e-05,
+            "min": 0.0,
+            "max": 2.8000000000000247e-05
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "children": {
+          "user_seconds": {
+            "count": 3,
+            "p50": 0.001392,
+            "p95": 0.001846,
+            "min": 0.00062,
+            "max": 0.001896
+          },
+          "system_seconds": {
+            "count": 3,
+            "p50": 0.001165,
+            "p95": 0.001384,
+            "min": 0.00017199999999999998,
+            "max": 0.001408
+          },
+          "filesystem_input_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          },
+          "filesystem_output_blocks": {
+            "count": 3,
+            "p50": 0.0,
+            "p95": 0.0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        "child_logical_read_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "child_logical_write_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        }
+      },
+      "stats": {
+        "sent_bytes": {
+          "count": 3,
+          "p50": 34.0,
+          "p95": 34.0,
+          "min": 34,
+          "max": 34
+        },
+        "received_bytes": {
+          "count": 3,
+          "p50": 19.0,
+          "p95": 19.0,
+          "min": 19,
+          "max": 19
+        },
+        "literal_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "matched_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "transferred_file_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "regular_files_transferred": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "file_list_bytes": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "file_list_generation_seconds": {
+          "count": 3,
+          "p50": 0.001,
+          "p95": 0.001,
+          "min": 0.001,
+          "max": 0.001
+        },
+        "file_list_transfer_seconds": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "ssh_true": {
+      "audit_scope": "empty_stage",
+      "wall_seconds": {
+        "count": 3,
+        "p50": 0.28545,
+        "p95": 0.305641,
+        "min": 0.24876875011250377,
+        "max": 0.3078840421512723
+      },
+      "sender_self": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.000324,
+          "p95": 0.000416,
+          "min": 0.00030700000000005723,
+          "max": 0.00042600000000003746
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.001125,
+          "p95": 0.001356,
+          "min": 0.0009099999999997443,
+          "max": 0.0013819999999999943
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "sender_children": {
+        "user_seconds": {
+          "count": 3,
+          "p50": 0.002313,
+          "p95": 0.002365,
+          "min": 0.0022600000000000398,
+          "max": 0.002370999999999901
+        },
+        "system_seconds": {
+          "count": 3,
+          "p50": 0.002492,
+          "p95": 0.003778,
+          "min": 0.0024779999999999802,
+          "max": 0.003921000000000063
+        },
+        "filesystem_input_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        },
+        "filesystem_output_blocks": {
+          "count": 3,
+          "p50": 0.0,
+          "p95": 0.0,
+          "min": 0,
+          "max": 0
+        }
+      },
+      "receiver": {
+        "wall_seconds": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "self": {
+          "user_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "system_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "filesystem_input_blocks": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "filesystem_output_blocks": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          }
+        },
+        "children": {
+          "user_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "system_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "filesystem_input_blocks": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          },
+          "filesystem_output_blocks": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "min": null,
+            "max": null
+          }
+        },
+        "child_logical_read_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "child_logical_write_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        }
+      },
+      "stats": {
+        "sent_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "received_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "literal_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "matched_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "transferred_file_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "regular_files_transferred": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "file_list_bytes": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "file_list_generation_seconds": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        },
+        "file_list_transfer_seconds": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "min": null,
+          "max": null
+        }
+      }
+    }
+  },
+  "paired_wall_differences_seconds": {
+    "normal_minus_dry_basis": {
+      "count": 3,
+      "p50": -0.18609,
+      "p95": 0.064808,
+      "min": -0.38536858186125755,
+      "max": 0.09268541587516665
+    },
+    "dry_basis_minus_dry_no_basis": {
+      "count": 3,
+      "p50": 0.410255,
+      "p95": 0.412187,
+      "min": -0.8862743328791112,
+      "max": 0.4124015411362052
+    }
+  },
+  "limitations": [
+    "Normal samples audit the full source; dry-run, empty, and SSH-only samples audit empty stages.",
+    "Paired differences compare interventions in the same round; they are not an additive CPU, checksum, or network decomposition.",
+    "Setup, planning, finalization, output audits, source capture, and untimed tracing are outside these wall timers.",
+    "CPU subsets exclude the persistent SSH master and sshd. Filesystem blocks remain native units; unavailable logical child bytes remain unknown.",
+    "Each distribution counts only its own observations. Unsupported counters are unknown, not zero.",
+    "Priming, edit-proof, and checksum-tracing probes never enter this summary. Small samples do not establish stable tails."
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "started_at": "2026-10-08T15:11:41.171236+00:00",
+  "base_commit": "479f0f5c2fe2e914ef036366648e5bfccf578380",
+  "command": [
+    "python3",
+    "experiments/rsync-diagnostic/probe.py",
+    "--rounds",
+    "3",
+    "--out",
+    "artifacts/rsync-diagnostic.json"
+  ],
+  "code_sha256": {
+    "experiments/rsync-diagnostic/probe.py": "db902067a2217f1cb32387ffaf3d4fe76937ba6afa2fd44b59ecf782d7389250",
+    "experiments/rsync-diagnostic/summary.py": "bd74fd0f7d7f3661b3be9419293b0de0a71c82347e956c184b7320d2687d9a2a",
+    "experiments/cas-network/benchmark.py": "bf5c1eee62ef5cbc942b98980c78f1d635d914a45e7d381e39458bc44d2b2e47",
+    "experiments/cas-network/remote.py": "d26d9599f4a6171f773ef8312e925e1800787c6d6e3ba814615d75fed68c6d7d",
+    "experiments/cas-poc/cas.py": "f84fbb5eecf231e499b09e609a46ed5be73cb8a26d63eb917c463d15dbefe370",
+    "experiments/transfer-profile/benchmark.py": "70d07cff61e102660a4c53d8d016b1fe094ea1c3b67b1ebdf554f695dc37ea1a"
+  },
+  "sender": {
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "python": "3.14.7"
+  },
+  "route": "Authorized SSH shell and private home-directory scratch; no production cache, daemon, or configuration changes.",
+  "finished_at": "2026-10-08T15:14:31.733874+00:00",
+  "smoke": {
+    "mib": 1,
+    "files": 103,
+    "rounds": 1,
+    "measured_samples": 5,
+    "priming_samples": 5,
+    "separate_audited_probes": 2,
+    "scratch_removed": true,
+    "master_closed": true
+  },
+  "measured_samples": 15,
+  "excluded_priming_samples": 5,
+  "separate_audited_probes": 2,
+  "raw_evidence_sha256": "2bb24daa8c660e3f955b97b8039ac0839f0754f7960b655973d91fd57211fe10",
+  "summary_evidence_sha256": "aa2d85644bea704aab5ec22bfb2384e90ded3706ac7b20278d628ea4610e3e92",
+  "validation": {
+    "focused_tests": 13,
+    "independent_reviews": [
+      "scratch safety, immutable source, audit scopes",
+      "CPU, file-list timing, paired contrasts",
+      "summary reproduction and measured-source provenance"
+    ]
+  },
+  "cleanup": {
+    "scratch_removed": true,
+    "master_closed": true,
+    "source_variants_immutable": true,
+    "baseline_immutable": true
+  }
+}

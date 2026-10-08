@@ -8,3 +8,4 @@ __pycache__/
 /artifacts/cas-delta-probe.json
 /artifacts/cas-network.json
 /artifacts/cas-hybrid.json
+/artifacts/rsync-diagnostic.json
