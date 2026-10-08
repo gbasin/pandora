@@ -1,0 +1,1971 @@
+{
+  "schema": 1,
+  "variants": [
+    "normal",
+    "dry_basis",
+    "dry_no_basis",
+    "empty",
+    "ssh_true"
+  ],
+  "rounds": 3,
+  "priming_rounds_excluded": 1,
+  "samples": [
+    {
+      "variant": "normal",
+      "wall_seconds": 2.7305609160102904,
+      "sender_children": {
+        "user_seconds": 0.08483399999999996,
+        "system_seconds": 0.6582820000000003,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.00398300000000007,
+        "system_seconds": 0.0024169999999998915,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.4148246131371707,
+        "children": {
+          "user_seconds": 0.026801,
+          "system_seconds": 0.04217,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00019099999999999846,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.745,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.745 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  47,000.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.41499912505969405,
+        "plan": 0.4139540840405971,
+        "finalize": 0.38322741677984595,
+        "audit": 1.3025133749470115
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 0.25452166702598333,
+        "execution_copy_seconds": 0.1553658409975469,
+        "execution_audit_seconds": 0.277981149032712,
+        "helper_metrics": {
+          "wall_seconds": 0.9930134820751846,
+          "self": {
+            "user_seconds": 0.481985,
+            "system_seconds": 0.27704199999999995,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 806400
+          },
+          "proc_self_io_delta": {
+            "rchar": 1180218006,
+            "wchar": 393216000,
+            "syscr": 35680,
+            "syscw": 5000,
+            "read_bytes": 0,
+            "write_bytes": 412876800,
+            "cancelled_write_bytes": 412884992
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.44873046875,
+        1.27587890625,
+        1.20166015625
+      ],
+      "verified": true,
+      "verified_full_source": true,
+      "verified_empty_stage": false,
+      "round": 0,
+      "order": 0
+    },
+    {
+      "variant": "dry_basis",
+      "wall_seconds": 2.9166511250659823,
+      "sender_children": {
+        "user_seconds": 0.08326,
+        "system_seconds": 0.6355930000000005,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.0030479999999999396,
+        "system_seconds": 0.0024540000000001783,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.6026484691537917,
+        "children": {
+          "user_seconds": 0.017058,
+          "system_seconds": 0.023406999999999997,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00017,
+          "system_seconds": 1.7000000000000088e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.689,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.689 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  47,000.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.37820608308538795,
+        "plan": 0.3995918750297278,
+        "finalize": 0.38549791695550084,
+        "audit": 0.37668104213662446
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 8.87969508767128e-05,
+        "execution_copy_seconds": 0.0002602478489279747,
+        "execution_audit_seconds": 2.9966002330183983e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.09438065206632018,
+          "self": {
+            "user_seconds": 0.000678999999999999,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.33251953125,
+        1.25439453125,
+        1.19482421875
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 0,
+      "order": 1
+    },
+    {
+      "variant": "dry_no_basis",
+      "wall_seconds": 2.506396292010322,
+      "sender_children": {
+        "user_seconds": 0.07938299999999998,
+        "system_seconds": 0.5969000000000007,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.003521999999999803,
+        "system_seconds": 0.002291000000000043,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.2263830380979925,
+        "children": {
+          "user_seconds": 0.0019479999999999999,
+          "system_seconds": 0.0019479999999999999,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.0001480000000000023,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 179488,
+        "received_bytes": 15132,
+        "regular_files_transferred": 5000,
+        "file_list_generation_seconds": 1.426,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.426 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 179,488\nTotal bytes received: 15,132\n\nsent 179,488 bytes  received 15,132 bytes  77,848.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,020.43 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.37560875015333295,
+        "plan": 0.4020152911543846,
+        "finalize": 0.39399779215455055,
+        "audit": 0.363796915858984
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 5.628610961139202e-05,
+        "execution_copy_seconds": 0.00014365999959409237,
+        "execution_audit_seconds": 1.5259021893143654e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.0993429368827492,
+          "self": {
+            "user_seconds": 0.0,
+            "system_seconds": 0.00040899999999999986,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.3056640625,
+        1.25,
+        1.193359375
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 0,
+      "order": 2
+    },
+    {
+      "variant": "empty",
+      "wall_seconds": 0.8888979170005769,
+      "sender_children": {
+        "user_seconds": 0.008132999999999946,
+        "system_seconds": 0.006553000000000253,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.0002969999999999917,
+        "system_seconds": 0.0009299999999998754,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 0.6155180151108652,
+        "children": {
+          "user_seconds": 0.001896,
+          "system_seconds": 0.00017199999999999998,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00014099999999999877,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 34,
+        "received_bytes": 19,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 0.001,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 0\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 0 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 0\nFile list generation time: 0.001 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 34\nTotal bytes received: 19\n\nsent 34 bytes  received 19 bytes  106.00 bytes/sec\ntotal size is 0  speedup is 0.00\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.39329333300702274,
+        "plan": 0.37818025005981326,
+        "finalize": 0.3908120831474662,
+        "audit": 0.375481209019199
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 4.9732858315110207e-05,
+        "execution_copy_seconds": 0.00014399993233382702,
+        "execution_audit_seconds": 1.5248078852891922e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.09506495599634945,
+          "self": {
+            "user_seconds": 0.0003849999999999999,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.361328125,
+        1.2626953125,
+        1.19775390625
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 0,
+      "order": 3
+    },
+    {
+      "variant": "ssh_true",
+      "wall_seconds": 0.2854502920527011,
+      "sender_children": {
+        "user_seconds": 0.0022600000000000398,
+        "system_seconds": 0.0024919999999992726,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.00032399999999999096,
+        "system_seconds": 0.0011250000000000426,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": null,
+      "stats": {
+        "transferred_file_bytes": null,
+        "literal_bytes": null,
+        "matched_bytes": null,
+        "file_list_bytes": null,
+        "sent_bytes": null,
+        "received_bytes": null,
+        "regular_files_transferred": null,
+        "file_list_generation_seconds": null,
+        "file_list_transfer_seconds": null
+      },
+      "stdout": "",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.364233624888584,
+        "plan": 0.36444220785051584,
+        "finalize": 0.3779769998509437,
+        "audit": 0.37567966687493026
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 5.011400207877159e-05,
+        "execution_copy_seconds": 0.0001425968948751688,
+        "execution_audit_seconds": 1.4496967196464539e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.09897984587587416,
+          "self": {
+            "user_seconds": 0.00037900000000000086,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 4096
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.361328125,
+        1.2626953125,
+        1.19775390625
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 0,
+      "order": 4
+    },
+    {
+      "variant": "dry_basis",
+      "wall_seconds": 2.329249541973695,
+      "sender_children": {
+        "user_seconds": 0.079461,
+        "system_seconds": 0.5996920000000001,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.002386999999999917,
+        "system_seconds": 0.0020530000000000825,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.063283395022154,
+        "children": {
+          "user_seconds": 0.017436,
+          "system_seconds": 0.021235999999999998,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00016500000000000195,
+          "system_seconds": 1.1000000000000159e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.377,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.377 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  65,800.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.38045045803301036,
+        "plan": 0.3650842502247542,
+        "finalize": 0.3803284168243408,
+        "audit": 0.40024599991738796
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 6.0403021052479744e-05,
+        "execution_copy_seconds": 0.0001845560036599636,
+        "execution_audit_seconds": 2.1150102838873863e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.10941792000085115,
+          "self": {
+            "user_seconds": 0.0004860000000000003,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.41259765625,
+        1.275390625,
+        1.2021484375
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 1,
+      "order": 0
+    },
+    {
+      "variant": "dry_no_basis",
+      "wall_seconds": 3.2155238748528063,
+      "sender_children": {
+        "user_seconds": 0.085889,
+        "system_seconds": 0.6677100000000005,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.003619000000000039,
+        "system_seconds": 0.002761999999999709,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.9411516778636724,
+        "children": {
+          "user_seconds": 0.002374,
+          "system_seconds": 0.0018599999999999999,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.000171000000000001,
+          "system_seconds": 1.899999999999992e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 179488,
+        "received_bytes": 15132,
+        "regular_files_transferred": 5000,
+        "file_list_generation_seconds": 2.168,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 2.168 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 179,488\nTotal bytes received: 15,132\n\nsent 179,488 bytes  received 15,132 bytes  55,605.71 bytes/sec\ntotal size is 393,216,015  speedup is 2,020.43 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.4594473750330508,
+        "plan": 0.37950091692619026,
+        "finalize": 0.3615912089589983,
+        "audit": 0.39859974989667535
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 5.045509897172451e-05,
+        "execution_copy_seconds": 0.0001577860675752163,
+        "execution_audit_seconds": 2.8162961825728416e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.11435743211768568,
+          "self": {
+            "user_seconds": 0.0004270000000000003,
+            "system_seconds": 5.400000000000023e-05,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.37939453125,
+        1.2705078125,
+        1.20068359375
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 1,
+      "order": 1
+    },
+    {
+      "variant": "empty",
+      "wall_seconds": 0.9049482091795653,
+      "sender_children": {
+        "user_seconds": 0.008252999999999844,
+        "system_seconds": 0.007033999999999985,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.000304000000000082,
+        "system_seconds": 0.0009220000000000894,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 0.6200051489286125,
+        "children": {
+          "user_seconds": 0.00062,
+          "system_seconds": 0.001408,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00011199999999999752,
+          "system_seconds": 2.8000000000000247e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 34,
+        "received_bytes": 19,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 0.001,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 0\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 0 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 0\nFile list generation time: 0.001 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 34\nTotal bytes received: 19\n\nsent 34 bytes  received 19 bytes  106.00 bytes/sec\ntotal size is 0  speedup is 0.00\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.37730733305215836,
+        "plan": 0.38248887518420815,
+        "finalize": 0.3711957079358399,
+        "audit": 0.3677493338473141
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 5.938112735748291e-05,
+        "execution_copy_seconds": 0.00017695198766887188,
+        "execution_audit_seconds": 2.1960819140076637e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.10691011813469231,
+          "self": {
+            "user_seconds": 0.000390999999999999,
+            "system_seconds": 9.699999999999986e-05,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.2685546875,
+        1.2490234375,
+        1.19384765625
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 1,
+      "order": 2
+    },
+    {
+      "variant": "ssh_true",
+      "wall_seconds": 0.3078840421512723,
+      "sender_children": {
+        "user_seconds": 0.0023130000000000095,
+        "system_seconds": 0.0024779999999999802,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.00030700000000005723,
+        "system_seconds": 0.0009099999999997443,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": null,
+      "stats": {
+        "transferred_file_bytes": null,
+        "literal_bytes": null,
+        "matched_bytes": null,
+        "file_list_bytes": null,
+        "sent_bytes": null,
+        "received_bytes": null,
+        "regular_files_transferred": null,
+        "file_list_generation_seconds": null,
+        "file_list_transfer_seconds": null
+      },
+      "stdout": "",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.4364100000821054,
+        "plan": 0.5803267089650035,
+        "finalize": 0.458393958164379,
+        "audit": 0.37588445795699954
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 6.248708814382553e-05,
+        "execution_copy_seconds": 0.00018814299255609512,
+        "execution_audit_seconds": 2.1239975467324257e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.10785410809330642,
+          "self": {
+            "user_seconds": 0.0004970000000000009,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 4096
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.2685546875,
+        1.2490234375,
+        1.19384765625
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 1,
+      "order": 3
+    },
+    {
+      "variant": "normal",
+      "wall_seconds": 2.421934957848862,
+      "sender_children": {
+        "user_seconds": 0.08413500000000007,
+        "system_seconds": 0.6402460000000003,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.004153999999999991,
+        "system_seconds": 0.0024039999999998507,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.1162027090322226,
+        "children": {
+          "user_seconds": 0.016998,
+          "system_seconds": 0.053278,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00016299999999999995,
+          "system_seconds": 7.999999999999978e-06,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.434,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.434 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  65,800.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.4358233748935163,
+        "plan": 0.40502258390188217,
+        "finalize": 0.3884846670553088,
+        "audit": 1.3589697910938412
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 0.2579329840373248,
+        "execution_copy_seconds": 0.1554439968895167,
+        "execution_audit_seconds": 0.27272211690433323,
+        "helper_metrics": {
+          "wall_seconds": 1.0687462261412293,
+          "self": {
+            "user_seconds": 0.479388,
+            "system_seconds": 0.277106,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 806400
+          },
+          "proc_self_io_delta": {
+            "rchar": 1180218006,
+            "wchar": 393216000,
+            "syscr": 35675,
+            "syscw": 5000,
+            "read_bytes": 0,
+            "write_bytes": 412876800,
+            "cancelled_write_bytes": 412884992
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.2685546875,
+        1.2490234375,
+        1.19384765625
+      ],
+      "verified": true,
+      "verified_full_source": true,
+      "verified_empty_stage": false,
+      "round": 1,
+      "order": 4
+    },
+    {
+      "variant": "dry_no_basis",
+      "wall_seconds": 2.2443027498666197,
+      "sender_children": {
+        "user_seconds": 0.08482000000000012,
+        "system_seconds": 0.5984419999999995,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.0030759999999998566,
+        "system_seconds": 0.0023420000000000663,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 1.9387741161044687,
+        "children": {
+          "user_seconds": 0.0021999999999999997,
+          "system_seconds": 0.0026639999999999997,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00016000000000000042,
+          "system_seconds": 2.099999999999975e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 179492,
+        "received_bytes": 15132,
+        "regular_files_transferred": 5000,
+        "file_list_generation_seconds": 1.183,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.183 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 179,492\nTotal bytes received: 15,132\n\nsent 179,492 bytes  received 15,132 bytes  77,849.60 bytes/sec\ntotal size is 393,216,015  speedup is 2,020.39 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.3565235829446465,
+        "plan": 0.3774984579067677,
+        "finalize": 0.35753812501206994,
+        "audit": 0.37609949987381697
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 6.691599264740944e-05,
+        "execution_copy_seconds": 0.00019783107563853264,
+        "execution_audit_seconds": 2.134009264409542e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.11188029707409441,
+          "self": {
+            "user_seconds": 0.00047599999999999726,
+            "system_seconds": 4.99999999999997e-05,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.3271484375,
+        1.26171875,
+        1.1982421875
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 2,
+      "order": 0
+    },
+    {
+      "variant": "empty",
+      "wall_seconds": 0.9461907078512013,
+      "sender_children": {
+        "user_seconds": 0.008256000000000041,
+        "system_seconds": 0.006529999999999703,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.0003809999999999647,
+        "system_seconds": 0.0010729999999998796,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 0.6365032771136612,
+        "children": {
+          "user_seconds": 0.001392,
+          "system_seconds": 0.001165,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00016499999999999848,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 34,
+        "received_bytes": 19,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 0.001,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 0\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 0 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 0\nFile list generation time: 0.001 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 34\nTotal bytes received: 19\n\nsent 34 bytes  received 19 bytes  35.33 bytes/sec\ntotal size is 0  speedup is 0.00\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.37071008305065334,
+        "plan": 0.36842358321882784,
+        "finalize": 0.451421125093475,
+        "audit": 0.3907622089609504
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 4.864088259637356e-05,
+        "execution_copy_seconds": 0.0001632259227335453,
+        "execution_audit_seconds": 1.789303496479988e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.1229488430544734,
+          "self": {
+            "user_seconds": 0.0004259999999999993,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.54150390625,
+        1.3076171875,
+        1.21337890625
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 2,
+      "order": 1
+    },
+    {
+      "variant": "ssh_true",
+      "wall_seconds": 0.24876875011250377,
+      "sender_children": {
+        "user_seconds": 0.002370999999999901,
+        "system_seconds": 0.003921000000000063,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.00042600000000003746,
+        "system_seconds": 0.0013819999999999943,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": null,
+      "stats": {
+        "transferred_file_bytes": null,
+        "literal_bytes": null,
+        "matched_bytes": null,
+        "file_list_bytes": null,
+        "sent_bytes": null,
+        "received_bytes": null,
+        "regular_files_transferred": null,
+        "file_list_generation_seconds": null,
+        "file_list_transfer_seconds": null
+      },
+      "stdout": "",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.38401716598309577,
+        "plan": 0.391384334070608,
+        "finalize": 0.371327584143728,
+        "audit": 0.3791337499860674
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 0.00010025803931057453,
+        "execution_copy_seconds": 0.00019450485706329346,
+        "execution_audit_seconds": 2.261204645037651e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.10390362911857665,
+          "self": {
+            "user_seconds": 0.000530000000000001,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 4096
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.41796875,
+        1.28564453125,
+        1.20654296875
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 2,
+      "order": 2
+    },
+    {
+      "variant": "normal",
+      "wall_seconds": 2.2713357091415673,
+      "sender_children": {
+        "user_seconds": 0.08240599999999998,
+        "system_seconds": 0.6094790000000003,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.004143000000000008,
+        "system_seconds": 0.0027439999999998577,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 1.9834575860295445,
+        "children": {
+          "user_seconds": 0.025217,
+          "system_seconds": 0.046645,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00018600000000000214,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.249,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.249 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  65,800.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.3801520839333534,
+        "plan": 0.37756058294326067,
+        "finalize": 0.3677752078510821,
+        "audit": 1.2948228330351412
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 0.2495020639616996,
+        "execution_copy_seconds": 0.15643614786677063,
+        "execution_audit_seconds": 0.27461191010661423,
+        "helper_metrics": {
+          "wall_seconds": 0.9857144148554653,
+          "self": {
+            "user_seconds": 0.4849089999999999,
+            "system_seconds": 0.266047,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 806400
+          },
+          "proc_self_io_delta": {
+            "rchar": 1180218006,
+            "wchar": 393216000,
+            "syscr": 35685,
+            "syscw": 5000,
+            "read_bytes": 0,
+            "write_bytes": 412876800,
+            "cancelled_write_bytes": 412884992
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.41796875,
+        1.28564453125,
+        1.20654296875
+      ],
+      "verified": true,
+      "verified_full_source": true,
+      "verified_empty_stage": false,
+      "round": 2,
+      "order": 3
+    },
+    {
+      "variant": "dry_basis",
+      "wall_seconds": 2.656704291002825,
+      "sender_children": {
+        "user_seconds": 0.09718099999999996,
+        "system_seconds": 0.6466589999999997,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.003782000000000174,
+        "system_seconds": 0.002877999999999936,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.203508473932743,
+        "children": {
+          "user_seconds": 0.014221,
+          "system_seconds": 0.026695,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00018400000000000014,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164470,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.473,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.473 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,470\nTotal bytes received: 26\n\nsent 164,470 bytes  received 26 bytes  65,798.40 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.43 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.3867604578845203,
+        "plan": 0.39144095894880593,
+        "finalize": 0.5452760409098119,
+        "audit": 0.5340685828123242
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 8.316594175994396e-05,
+        "execution_copy_seconds": 0.0002248920500278473,
+        "execution_audit_seconds": 2.2663036361336708e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.15073917480185628,
+          "self": {
+            "user_seconds": 0.0,
+            "system_seconds": 0.0006280000000000001,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.38427734375,
+        1.28076171875,
+        1.205078125
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": 2,
+      "order": 4
+    }
+  ],
+  "priming": [
+    {
+      "variant": "normal",
+      "wall_seconds": 2.635582417016849,
+      "sender_children": {
+        "user_seconds": 0.083615,
+        "system_seconds": 0.6422969999999999,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.002834999999999921,
+        "system_seconds": 0.002349999999999852,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.346653168089688,
+        "children": {
+          "user_seconds": 0.024548999999999998,
+          "system_seconds": 0.045397,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00016599999999999948,
+          "system_seconds": 2.8000000000000247e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.668,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.668 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  47,000.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.3713334579952061,
+        "plan": 0.3979659588076174,
+        "finalize": 0.36836370918899775,
+        "audit": 1.2717851670458913
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 0.24753047712147236,
+        "execution_copy_seconds": 0.15613527200184762,
+        "execution_audit_seconds": 0.2723795271012932,
+        "helper_metrics": {
+          "wall_seconds": 0.9789658368099481,
+          "self": {
+            "user_seconds": 0.48980399999999996,
+            "system_seconds": 0.25486899999999996,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 806400
+          },
+          "proc_self_io_delta": {
+            "rchar": 1180218006,
+            "wchar": 393216000,
+            "syscr": 35672,
+            "syscw": 5000,
+            "read_bytes": 0,
+            "write_bytes": 412876800,
+            "cancelled_write_bytes": 412884992
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.2041015625,
+        1.2216796875,
+        1.18359375
+      ],
+      "verified": true,
+      "verified_full_source": true,
+      "verified_empty_stage": false,
+      "round": -1,
+      "order": 0
+    },
+    {
+      "variant": "dry_basis",
+      "wall_seconds": 2.5121252501849085,
+      "sender_children": {
+        "user_seconds": 0.08171800000000001,
+        "system_seconds": 0.6169500000000001,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.0036609999999999143,
+        "system_seconds": 0.0023340000000002803,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.232670254074037,
+        "children": {
+          "user_seconds": 0.019459,
+          "system_seconds": 0.026233,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00021900000000000044,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 164474,
+        "received_bytes": 26,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 1.51,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.510 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  47,000.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.3554716669023037,
+        "plan": 0.4024801249615848,
+        "finalize": 0.39420625008642673,
+        "audit": 0.39143895800225437
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 5.4862815886735916e-05,
+        "execution_copy_seconds": 0.0001853378489613533,
+        "execution_audit_seconds": 2.2132182493805885e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.11066045286133885,
+          "self": {
+            "user_seconds": 0.0004430000000000024,
+            "system_seconds": 4.399999999999977e-05,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.42822265625,
+        1.26806640625,
+        1.19873046875
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": -1,
+      "order": 1
+    },
+    {
+      "variant": "dry_no_basis",
+      "wall_seconds": 2.6001120831351727,
+      "sender_children": {
+        "user_seconds": 0.081125,
+        "system_seconds": 0.5917870000000001,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.003630000000000022,
+        "system_seconds": 0.002323000000000075,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 2.314644602127373,
+        "children": {
+          "user_seconds": 0.0028699999999999997,
+          "system_seconds": 0.001254,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.00013200000000000017,
+          "system_seconds": 4.399999999999977e-05,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 393216000,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 106496,
+        "sent_bytes": 179488,
+        "received_bytes": 15132,
+        "regular_files_transferred": 5000,
+        "file_list_generation_seconds": 1.521,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of deleted files: 0\nNumber of regular files transferred: 5,000\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 393,216,000 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 1.521 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 179,488\nTotal bytes received: 15,132\n\nsent 179,488 bytes  received 15,132 bytes  77,848.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,020.43 (DRY RUN)\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.42010641703382134,
+        "plan": 0.3756050420925021,
+        "finalize": 0.37800229201093316,
+        "audit": 0.3688459158875048
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 5.633593536913395e-05,
+        "execution_copy_seconds": 0.00023613311350345612,
+        "execution_audit_seconds": 3.074784763157368e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.09657049993984401,
+          "self": {
+            "user_seconds": 0.0005809999999999982,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.3134765625,
+        1.24658203125,
+        1.19189453125
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": -1,
+      "order": 2
+    },
+    {
+      "variant": "empty",
+      "wall_seconds": 0.8804195420816541,
+      "sender_children": {
+        "user_seconds": 0.008539999999999992,
+        "system_seconds": 0.008172000000000068,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.00036599999999986643,
+        "system_seconds": 0.0010740000000000194,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": {
+        "wall_seconds": 0.5872432549949735,
+        "children": {
+          "user_seconds": 0.001365,
+          "system_seconds": 0.001124,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "self": {
+          "user_seconds": 0.0002030000000000018,
+          "system_seconds": 0.0,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 0
+        },
+        "child_logical_read_bytes": null,
+        "child_logical_write_bytes": null,
+        "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+      },
+      "stats": {
+        "transferred_file_bytes": 0,
+        "literal_bytes": 0,
+        "matched_bytes": 0,
+        "file_list_bytes": 0,
+        "sent_bytes": 34,
+        "received_bytes": 19,
+        "regular_files_transferred": 0,
+        "file_list_generation_seconds": 0.001,
+        "file_list_transfer_seconds": 0.0
+      },
+      "stdout": "\nNumber of files: 0\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 0 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 0\nFile list generation time: 0.001 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 34\nTotal bytes received: 19\n\nsent 34 bytes  received 19 bytes  106.00 bytes/sec\ntotal size is 0  speedup is 0.00\n",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.3760124580003321,
+        "plan": 0.3803277921397239,
+        "finalize": 0.379090083995834,
+        "audit": 0.39409595890901983
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 6.135506555438042e-05,
+        "execution_copy_seconds": 0.00016663293354213238,
+        "execution_audit_seconds": 1.830398105084896e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.12388739292509854,
+          "self": {
+            "user_seconds": 0.000477,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 8192
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.3134765625,
+        1.24658203125,
+        1.19189453125
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": -1,
+      "order": 3
+    },
+    {
+      "variant": "ssh_true",
+      "wall_seconds": 0.23756008292548358,
+      "sender_children": {
+        "user_seconds": 0.0023479999999999612,
+        "system_seconds": 0.0028319999999997236,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "sender_self": {
+        "user_seconds": 0.00035199999999990794,
+        "system_seconds": 0.0009250000000000647,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "receiver": null,
+      "stats": {
+        "transferred_file_bytes": null,
+        "literal_bytes": null,
+        "matched_bytes": null,
+        "file_list_bytes": null,
+        "sent_bytes": null,
+        "received_bytes": null,
+        "regular_files_transferred": null,
+        "file_list_generation_seconds": null,
+        "file_list_transfer_seconds": null
+      },
+      "stdout": "",
+      "stderr": "",
+      "outside_timer_seconds": {
+        "setup": 0.4484251660760492,
+        "plan": 0.4056754589546472,
+        "finalize": 0.3675718328449875,
+        "audit": 0.4423618749715388
+      },
+      "audit": {
+        "verified": true,
+        "output_audit_seconds": 0.00011107791215181351,
+        "execution_copy_seconds": 0.0002204731572419405,
+        "execution_audit_seconds": 1.8324004486203194e-05,
+        "helper_metrics": {
+          "wall_seconds": 0.13474292890168726,
+          "self": {
+            "user_seconds": 0.00068,
+            "system_seconds": 0.0,
+            "filesystem_input_blocks": 0,
+            "filesystem_output_blocks": 0
+          },
+          "proc_self_io_delta": {
+            "rchar": 133,
+            "wchar": 0,
+            "syscr": 4,
+            "syscw": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cancelled_write_bytes": 4096
+          },
+          "proc_io_scope": "helper process only; excludes rsync child"
+        }
+      },
+      "load_average": [
+        1.44873046875,
+        1.27587890625,
+        1.20166015625
+      ],
+      "verified": true,
+      "verified_full_source": false,
+      "verified_empty_stage": true,
+      "round": -1,
+      "order": 4
+    }
+  ],
+  "edit_probe": {
+    "variant": "normal",
+    "wall_seconds": 1.9825205421075225,
+    "sender_children": {
+      "user_seconds": 0.0749789999999999,
+      "system_seconds": 0.4932470000000002,
+      "filesystem_input_blocks": 0,
+      "filesystem_output_blocks": 0
+    },
+    "sender_self": {
+      "user_seconds": 0.0021059999999999413,
+      "system_seconds": 0.0022660000000001013,
+      "filesystem_input_blocks": 0,
+      "filesystem_output_blocks": 0
+    },
+    "receiver": {
+      "wall_seconds": 1.6558157049585134,
+      "children": {
+        "user_seconds": 0.01621,
+        "system_seconds": 0.045677999999999996,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 7672
+      },
+      "self": {
+        "user_seconds": 0.00013699999999999997,
+        "system_seconds": 3.899999999999997e-05,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "child_logical_read_bytes": null,
+      "child_logical_write_bytes": null,
+      "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+    },
+    "stats": {
+      "transferred_file_bytes": 3925888,
+      "literal_bytes": 1976,
+      "matched_bytes": 3923912,
+      "file_list_bytes": 106496,
+      "sent_bytes": 174438,
+      "received_bytes": 11972,
+      "regular_files_transferred": 1,
+      "file_list_generation_seconds": 0.809,
+      "file_list_transfer_seconds": 0.0
+    },
+    "stdout": "\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 1\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 3,925,888 bytes\nLiteral data: 1,976 bytes\nMatched data: 3,923,912 bytes\nFile list size: 106,496\nFile list generation time: 0.809 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 174,438\nTotal bytes received: 11,972\n\nsent 174,438 bytes  received 11,972 bytes  124,273.33 bytes/sec\ntotal size is 393,216,015  speedup is 2,109.41\n",
+    "stderr": "",
+    "outside_timer_seconds": {
+      "setup": 0.5330979579593986,
+      "plan": 0.49958066712133586,
+      "finalize": 0.3920060829259455,
+      "audit": 1.2611874998547137
+    },
+    "audit": {
+      "verified": true,
+      "output_audit_seconds": 0.2513627130538225,
+      "execution_copy_seconds": 0.1612733188085258,
+      "execution_audit_seconds": 0.2868918781168759,
+      "helper_metrics": {
+        "wall_seconds": 0.9813814000226557,
+        "self": {
+          "user_seconds": 0.507419,
+          "system_seconds": 0.259711,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 806400
+        },
+        "proc_self_io_delta": {
+          "rchar": 1180218007,
+          "wchar": 393216000,
+          "syscr": 35676,
+          "syscw": 5000,
+          "read_bytes": 0,
+          "write_bytes": 412876800,
+          "cancelled_write_bytes": 416813056
+        },
+        "proc_io_scope": "helper process only; excludes rsync child"
+      }
+    },
+    "load_average": [
+      1.59375,
+      1.326171875,
+      1.22021484375
+    ],
+    "verified": true,
+    "verified_full_source": true,
+    "verified_empty_stage": false
+  },
+  "debug_probe": {
+    "variant": "normal",
+    "wall_seconds": 1.831761916866526,
+    "sender_children": {
+      "user_seconds": 0.07336100000000001,
+      "system_seconds": 0.5275169999999996,
+      "filesystem_input_blocks": 0,
+      "filesystem_output_blocks": 0
+    },
+    "sender_self": {
+      "user_seconds": 0.00235799999999986,
+      "system_seconds": 0.0023010000000001085,
+      "filesystem_input_blocks": 0,
+      "filesystem_output_blocks": 0
+    },
+    "receiver": {
+      "wall_seconds": 1.5421983101405203,
+      "children": {
+        "user_seconds": 0.013597,
+        "system_seconds": 0.047067,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "self": {
+        "user_seconds": 0.0001460000000000003,
+        "system_seconds": 4.100000000000024e-05,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "child_logical_read_bytes": null,
+      "child_logical_write_bytes": null,
+      "io_scope": "waited rsync child/descendants; raw filesystem blocks, not bytes"
+    },
+    "stats": {
+      "transferred_file_bytes": 0,
+      "literal_bytes": 0,
+      "matched_bytes": 0,
+      "file_list_bytes": 106496,
+      "sent_bytes": 164474,
+      "received_bytes": 26,
+      "regular_files_transferred": 0,
+      "file_list_generation_seconds": 0.823,
+      "file_list_transfer_seconds": 0.0
+    },
+    "stdout": "cmd=ssh -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/rsync-probe-u_zwlm7f/ssh-%C -o ControlPersist=10m -o ServerAliveInterval=15 -o ServerAliveCountMax=3 machine=5.135.138.35 user=ubuntu path=/home/ubuntu/pandora-cas-network-3229_wxe/samples/debug_probe/stage/\ncmd[0]=ssh cmd[1]=-o cmd[2]=BatchMode=yes cmd[3]=-o cmd[4]=ConnectTimeout=10 cmd[5]=-o cmd[6]=ControlMaster=auto cmd[7]=-o cmd[8]=ControlPath=/tmp/rsync-probe-u_zwlm7f/ssh-%C cmd[9]=-o cmd[10]=ControlPersist=10m cmd[11]=-o cmd[12]=ServerAliveInterval=15 cmd[13]=-o cmd[14]=ServerAliveCountMax=3 cmd[15]=-l cmd[16]=ubuntu cmd[17]=5.135.138.35 cmd[18]=python3 /home/ubuntu/pandora-cas-network-3229_wxe/code/experiments/cas-network/remote.py /home/ubuntu/pandora-cas-network-3229_wxe fb64cde6af4344d0b4e89824be70bc81 receive debug_probe cmd[19]=--server cmd[20]=-ldogDpcRe.LsfxCIvu cmd[21]=--no-r cmd[22]=--delete cmd[23]=--stats cmd[24]=--link-dest cmd[25]=/home/ubuntu/pandora-cas-network-3229_wxe/baseline cmd[26]=--debug=NSTR2,CMD2 cmd[27]=. cmd[28]=/home/ubuntu/pandora-cas-network-3229_wxe/samples/debug_probe/stage/ \nopening connection using: ssh -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o \"ControlPath=/tmp/rsync-probe-u_zwlm7f/ssh-%C\" -o ControlPersist=10m -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -l ubuntu 5.135.138.35 \"python3 /home/ubuntu/pandora-cas-network-3229_wxe/code/experiments/cas-network/remote.py /home/ubuntu/pandora-cas-network-3229_wxe fb64cde6af4344d0b4e89824be70bc81 receive debug_probe\" --server -ldogDpcRe.LsfxCIvu --no-r --delete --stats --link-dest /home/ubuntu/pandora-cas-network-3229_wxe/baseline --debug=NSTR2,CMD2 . /home/ubuntu/pandora-cas-network-3229_wxe/samples/debug_probe/stage/  (29 args)\nClient checksum list (on client): xxh128 xxh3 xxh64 md5 md4 sha1\nServer checksum list (on client): xxh128 xxh3 xxh64 md5 md4 sha1 none\nClient negotiated checksum: xxh128\n\nNumber of files: 5,003 (reg: 5,000, dir: 2, link: 1)\nNumber of created files: 0\nNumber of deleted files: 0\nNumber of regular files transferred: 0\nTotal file size: 393,216,015 bytes\nTotal transferred file size: 0 bytes\nLiteral data: 0 bytes\nMatched data: 0 bytes\nFile list size: 106,496\nFile list generation time: 0.823 seconds\nFile list transfer time: 0.000 seconds\nTotal bytes sent: 164,474\nTotal bytes received: 26\n\nsent 164,474 bytes  received 26 bytes  65,800.00 bytes/sec\ntotal size is 393,216,015  speedup is 2,390.37\n",
+    "stderr": "",
+    "outside_timer_seconds": {
+      "setup": 0.39341137488372624,
+      "plan": 0.3852629167959094,
+      "finalize": 0.3613741248846054,
+      "audit": 1.318121082847938
+    },
+    "audit": {
+      "verified": true,
+      "output_audit_seconds": 0.27292904490604997,
+      "execution_copy_seconds": 0.19332726602442563,
+      "execution_audit_seconds": 0.2883843658491969,
+      "helper_metrics": {
+        "wall_seconds": 1.0498419960495085,
+        "self": {
+          "user_seconds": 0.502461,
+          "system_seconds": 0.28260799999999997,
+          "filesystem_input_blocks": 0,
+          "filesystem_output_blocks": 806400
+        },
+        "proc_self_io_delta": {
+          "rchar": 1180218008,
+          "wchar": 393216000,
+          "syscr": 35676,
+          "syscw": 5000,
+          "read_bytes": 0,
+          "write_bytes": 412876800,
+          "cancelled_write_bytes": 412884992
+        },
+        "proc_io_scope": "helper process only; excludes rsync child"
+      }
+    },
+    "load_average": [
+      1.62646484375,
+      1.33740234375,
+      1.224609375
+    ],
+    "verified": true,
+    "verified_full_source": true,
+    "verified_empty_stage": false
+  },
+  "fixture": {
+    "regular_files": 5000,
+    "manifest_paths": 5001,
+    "regular_bytes": 393216000,
+    "large_files": 100,
+    "compressible_large_files": 50,
+    "incompressible_large_files": 50,
+    "small_files": 4900,
+    "small_file_bytes": 128,
+    "symlinks": 1,
+    "executable_path": "small/00000.txt",
+    "odd_paths": [
+      "small/path with spaces.txt",
+      "small/path with\nnewline.txt"
+    ],
+    "tiny_edit_bytes": 16,
+    "tiny_edit_file_bytes": 3925888,
+    "baseline_capture_seconds": 0.5875605419278145,
+    "tiny_capture_seconds": 0.6978657501749694,
+    "source_preparation_seconds": 5.2773483749479055
+  },
+  "baseline_upload_seconds": 78.02450495795347,
+  "baseline_audit": {
+    "baseline_immutable": true,
+    "helper_metrics": {
+      "wall_seconds": 0.47833030205219984,
+      "self": {
+        "user_seconds": 0.19172599999999998,
+        "system_seconds": 0.061264,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "proc_self_io_delta": {
+        "rchar": 393785985,
+        "wchar": 0,
+        "syscr": 15381,
+        "syscw": 0,
+        "read_bytes": 0,
+        "write_bytes": 0,
+        "cancelled_write_bytes": 0
+      },
+      "proc_io_scope": "helper process only; excludes rsync child"
+    }
+  },
+  "source_variants_immutable": true,
+  "cleanup": {
+    "cleaned": true,
+    "helper_metrics": {
+      "wall_seconds": 0.15616351692005992,
+      "self": {
+        "user_seconds": 0.002414000000000001,
+        "system_seconds": 0.037127999999999994,
+        "filesystem_input_blocks": 0,
+        "filesystem_output_blocks": 0
+      },
+      "proc_self_io_delta": {
+        "rchar": 100,
+        "wchar": 0,
+        "syscr": 4,
+        "syscw": 0,
+        "read_bytes": 0,
+        "write_bytes": 0,
+        "cancelled_write_bytes": 0
+      },
+      "proc_io_scope": "helper process only; excludes rsync child"
+    }
+  },
+  "rsync": {
+    "sender_path": "/opt/homebrew/bin/rsync",
+    "sender_version": "rsync  version 3.5.1  protocol version 33\nCopyright (C) 1996-2026 by Andrew Tridgell, Wayne Davison, and others.\nWeb site: https://rsync.samba.org/\nCapabilities:\n    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,\n    socketpairs, symlinks, symtimes, hardlinks, hardlink-specials,\n    hardlink-symlinks, IPv6, atimes, batchfiles, inplace, append, ACLs,\n    xattrs, optional secluded-args, iconv, no prealloc, stop-at, crtimes, IDN\nOptimizations:\n    no SIMD-roll, no asm-roll, openssl-crypto, no asm-MD5\nChecksum list:\n    xxh128 xxh3 xxh64 (xxhash) md5 md4 sha1 none\nCompress list:\n    zstd lz4 zlibx zlib none\nDaemon auth list:\n    sha512 sha256 sha1 md5 md4\n\nrsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you\nare welcome to redistribute it under certain conditions.  See the GNU\nGeneral Public Licence for details.\n",
+    "receiver_version": "rsync  version 3.4.1  protocol version 32\nCopyright (C) 1996-2025 by Andrew Tridgell, Wayne Davison, and others.\nWeb site: https://rsync.samba.org/\nCapabilities:\n    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,\n    socketpairs, symlinks, symtimes, hardlinks, hardlink-specials,\n    hardlink-symlinks, IPv6, atimes, batchfiles, inplace, append, ACLs,\n    xattrs, optional secluded-args, iconv, prealloc, stop-at, no crtimes\nOptimizations:\n    SIMD-roll, no asm-roll, openssl-crypto, no asm-MD5\nChecksum list:\n    xxh128 xxh3 xxh64 (xxhash) md5 md4 sha1 none\nCompress list:\n    zstd lz4 zlibx zlib none\nDaemon auth list:\n    sha512 sha256 sha1 md5 md4\n\nrsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you\nare welcome to redistribute it under certain conditions.  See the GNU\nGeneral Public Licence for details.\n"
+  },
+  "receiver_filesystem": "Filesystem     Type 1K-blocks      Used Available Use% Mounted on\n/dev/nvme0n1p3 ext4 919780196 237366632 635617636  28% /\n",
+  "transport": {
+    "host": "ubuntu@5.135.138.35",
+    "startup_seconds": 1.7829090829472989,
+    "master_close": {
+      "closed": true,
+      "exit": 0
+    },
+    "policy": "one owned isolated warmed private SSH master; auto/persist10m"
+  },
+  "limitations": [
+    "Only rsync or ssh true invocation is timed; source generation/capture/upload, setup/plan/finalize/audit are excluded and reported separately.",
+    "Dry-run and empty/control variants prove empty output only, not source transfer.",
+    "Differences between dry-run variants are diagnostics, not isolated checksum CPU measurements.",
+    "Waited-child CPU excludes persistent master and SSH server CPU; receiver helper imports/startup are not attributed.",
+    "Raw filesystem blocks are not logical byte reads; filesystem caches and shared worker load are uncontrolled.",
+    "3 measured rotations only partially balance five variant positions; this is exploratory evidence.",
+    "NSTR/CMD debug is an additional untimed audited probe, never a measured sample."
+  ]
+}
