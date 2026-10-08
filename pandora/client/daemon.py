@@ -2552,6 +2552,11 @@ class Daemon:
                 return
             (run.dir / verdicts.RECORD).write_text(json.dumps(record) + '\n')
             run.note(verdicts.line(record))
+            observed = verdicts.publish_evidence(worktree, wanted.get('remote') or 'origin', result)
+            if observed is not None:
+                (run.dir / verdicts.EVIDENCE_RECORD).write_text(json.dumps(observed) + '\n')
+                run.note('test evidence ' + observed['state'] + ': ' +
+                         (observed.get('ref') or observed.get('reason') or 'unknown'))
         except Exception as error:               # noqa: BLE001 - never a verdict on the run
             try:
                 run.note('verdict not published: %s: %s' % (type(error).__name__, error))

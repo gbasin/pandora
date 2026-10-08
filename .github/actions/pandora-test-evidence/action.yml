@@ -1,0 +1,27 @@
+name: pandora-test-evidence
+description: Compare signed worker test observations after CI runs, without skipping any work.
+inputs:
+  ci_report:
+    description: Report emitted by CI's actual Vitest invocation.
+    required: true
+  repo:
+    description: Repository name from pandora.toml.
+    required: true
+  output:
+    description: Measurement JSON artifact path.
+    default: tmp/pandora-test-shadow.json
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        EVIDENCE_CI_REPORT: ${{ inputs.ci_report }}
+        EVIDENCE_REPO: ${{ inputs.repo }}
+        EVIDENCE_OUTPUT: ${{ inputs.output }}
+        EVIDENCE_HEAD: ${{ github.event.pull_request.head.sha }}
+        EVIDENCE_DEFAULT: ${{ github.event.repository.default_branch }}
+      run: |
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/test-evidence-shadow.py" \
+          --ci-report "$EVIDENCE_CI_REPORT" --repo "$EVIDENCE_REPO" \
+          --head-sha "$EVIDENCE_HEAD" --default-branch "$EVIDENCE_DEFAULT" \
+          --output "$EVIDENCE_OUTPUT"
