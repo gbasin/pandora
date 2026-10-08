@@ -183,3 +183,15 @@ class Evidence(unittest.TestCase):
         value = report()
         value['tests'][0]['duration_ms'] = 10 ** 1000
         self.assertEqual(self.save(value)[1], 'invalid_report')
+
+    def test_zero_test_ci_selection_is_an_observation_not_a_transport_failure(self):
+        value = report()
+        value['tests'] = []
+        value['modules'] = []
+        ci = self.root / 'empty-ci.json'
+        ci.write_text(json.dumps(value))
+        observed = shadow.measure(self.root, ci, repo='demo')
+        self.assertEqual(observed['reason'], 'ci_no_tests')
+        self.assertEqual(observed['required_files'], 0)
+        self.assertFalse(observed['skip_enabled'])
+        self.assertEqual(self.save(value)[1], 'invalid_report')

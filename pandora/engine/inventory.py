@@ -31,7 +31,7 @@ def identity(test):
     return tuple(values + [location['line'], location['column'], position])
 
 
-def validate(report):
+def validate(report, *, allow_empty=False):
     if not isinstance(report, dict) or report.get('kind') != KIND or type(report.get('v')) is not int or report['v'] != 1:
         raise ValueError('unsupported_report')
     if report.get('runner') != 'vitest' or not isinstance(report.get('runner_version'), str):
@@ -41,7 +41,7 @@ def validate(report):
     if not isinstance(report.get('errors'), list) or not isinstance(report.get('modules'), list):
         raise ValueError('missing_context')
     tests = report.get('tests')
-    if not isinstance(tests, list) or not tests:
+    if not isinstance(tests, list) or (not tests and not allow_empty):
         raise ValueError('empty_inventory')
     seen = set()
     for test in tests:

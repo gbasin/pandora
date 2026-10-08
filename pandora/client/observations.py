@@ -14,7 +14,7 @@ MAX_RUNS = 32
 
 
 def compare(ci, candidates, *, ci_tree):
-    validate(ci)
+    validate(ci, allow_empty=True)
     required = {identity(test): test for test in ci['tests'] if test['mode'] not in ('skip', 'todo')}
     files = {}
     for key in required:
@@ -79,7 +79,14 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
             raw_ci = stream.read(MAX_BYTES + 1)
         if len(raw_ci) > MAX_BYTES:
             raise ValueError('ci_report_too_large')
-        ci = validate(json.loads(raw_ci))
+        ci = validate(json.loads(raw_ci), allow_empty=True)
+        if not ci['tests']:
+            summary.update(reason=('ci_no_tests' if ci.get('complete') is True and
+                                  ci.get('outcome') == 'passed' and not ci['errors']
+                                  else 'ci_not_completed'), required_files=0, required_cases=0,
+                           observed_complete_files=0, matching_profile_and_tree_files=0,
+                           ci_case_duration_ms_in_observed_files=0)
+            return summary
         ci_tree = git('rev-parse', 'HEAD^{tree}')
         if head_sha:
             try:
