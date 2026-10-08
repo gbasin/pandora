@@ -91,5 +91,5 @@ def load(outputs_root, outputs, run_id):
                 'bytes': len(raw)}, None
     except FileNotFoundError:
         return None, 'report_missing'
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, OverflowError):
         return None, 'invalid_report'

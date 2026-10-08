@@ -152,7 +152,7 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
                     compare(ci, [(body, report)], ci_tree=ci_tree)
                     candidates.append((body, report))
                 except (ValueError, TypeError, KeyError, AttributeError, OSError,
-                        subprocess.SubprocessError, verdicts.Failed) as error:
+                        subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError) as error:
                     reason = str(error) if isinstance(error, ValueError) else 'artifact_unavailable'
                     summary['rejected'].append({'run_id': run_id, 'reason': reason})
                 finally:
@@ -165,6 +165,6 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
     except FileNotFoundError:
         summary['reason'] = 'ci_report_missing'
     except (ValueError, TypeError, KeyError, AttributeError, OSError,
-            subprocess.SubprocessError, verdicts.Failed):
+            subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError):
         summary['reason'] = 'measurement_unavailable'
     return summary

@@ -176,3 +176,10 @@ class Evidence(unittest.TestCase):
         self.assertEqual(measured['required_cases'], 2)
         self.assertEqual(measured['observed_complete_files'], 1)
         self.assertEqual(measured['observations'][0]['matching_passed_cases'], 2)
+
+    def test_pathological_json_and_durations_cannot_fail_the_run(self):
+        self.file.write_text('[' * 2000 + '0' + ']' * 2000)
+        self.assertEqual(test_evidence.load(self.root, self.outputs, 'r1')[1], 'invalid_report')
+        value = report()
+        value['tests'][0]['duration_ms'] = 10 ** 1000
+        self.assertEqual(self.save(value)[1], 'invalid_report')
