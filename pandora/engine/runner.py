@@ -34,7 +34,7 @@ from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, derived_cpus_per_run, gate, size_line
 from . import batches, shards as sharding
-from . import admission, history, pinning, retry, turbocache, verdict, writeback
+from . import admission, history, pinning, retry, inventory as testreports, turbocache, verdict, writeback
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
@@ -258,6 +258,9 @@ def supervise(root, run_id, *, driver=None):
 
         env = dict(plan['env'])
         env.pop('__toolchain__', None)
+        if testreports.enabled(plan['outputs']):
+            env['PANDORA_TEST_EVIDENCE'] = '/work/' + testreports.PATH
+            env['PANDORA_TEST_EVIDENCE_RUN'] = run_id
         # The repository's own environment wins over the optional cache.
         for key, value in cache_env.items():
             env.setdefault(key, value)
@@ -755,10 +758,15 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         with paths.log(run_id).open('a') as handle:
             handle.write('pandora: ' + text + '\n')
     golden, golden_pins = golden_and_pins(paths, run_id)
-    signed = verdict.decide(paths.root, row_to_dict(ledger.get(run_id)) or {},
+    row_before = row_to_dict(ledger.get(run_id)) or {}
+    report, report_reason = testreports.load(paths.outputs(run_id), row_before.get('outputs'), run_id)
+    binding = ({key: report[key] for key in ('sha256', 'bytes')} if report else None)
+    if binding is not None:
+        binding['execution_seconds'] = durations.get('execute')
+    signed = verdict.decide(paths.root, row_before,
                             outcome=outcome, tree=tree, finished=finished,
                             golden=golden, golden_pins=golden_pins, note=note,
-                            tree_failed=tree_failed)
+                            tree_failed=tree_failed, test_evidence=binding)
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt,
                         finished=finished)
@@ -816,6 +824,10 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
         'verdict': signed['verdict'],
         'verdict_skipped': signed['verdict_skipped'],
     }
+    if report is not None and signed['verdict']:
+        result['test_evidence'] = report
+    if report_reason is not None:
+        result['test_evidence_skipped'] = report_reason
     result.update(extra or {})
     # Evidence of non-determinism, recorded where both attempts can be seen.
     # Never a reason to run anything again; only a reason to say so.

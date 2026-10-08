@@ -18,6 +18,7 @@ Never raises. `publish` answers a record, `{'state', 'ref', 'reason'}`, that the
 daemon turns into one log line; a failure here is a sentence, never a verdict
 on the run.
 """
+import hashlib
 import json
 import os
 import re
@@ -158,11 +159,14 @@ def ssh_environment(worktree, *, deadline=None):
     return {'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes'}
 
 
-def build(worktree, tree, job, payload, signature, signer, *, deadline=None):
+def build(worktree, tree, job, payload, signature, signer, *, deadline=None, report=None):
     """The verdict commit's id, written into the worktree's object store."""
     blobs = {}
-    for name, text in (('payload.json', payload), ('signer', signer.rstrip('\n') + '\n'),
-                       ('verdict.sig', signature)):
+    files = [('payload.json', payload), ('signer', signer.rstrip('\n') + '\n'),
+             ('verdict.sig', signature)]
+    if report is not None:
+        files.append(('report.json', report))
+    for name, text in files:
         blobs[name] = git(worktree, 'hash-object', '-w', '--stdin', data=text.encode(),
                           deadline=deadline)
     listing = ''.join('100644 blob %s\t%s\n' % (blobs[name], name) for name in sorted(blobs))
@@ -227,3 +231,50 @@ def line(record):
     if record['state'] == 'present':
         return 'verdict published %s (already on the remote)' % record['ref']
     return 'verdict published ' + record['ref']
+
+
+EVIDENCE_PREFIX = 'refs/pandora/test-evidence'
+EVIDENCE_RECORD = 'test-evidence-publish.json'
+RUN_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z')
+
+
+def publish_evidence(worktree, remote, result):
+    """One immutable ref per report/run; existing verdict refs stay unchanged."""
+    if not isinstance(result, dict) or not result.get('test_evidence') or not result.get('verdict'):
+        return None
+    deadline = time.monotonic() + TIMEOUT
+    ref = None
+    try:
+        tree, job, payload, signature, signer = parts(result)
+        body = json.loads(payload)
+        run_id = body.get('run_id')
+        if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+            raise Failed('invalid evidence run id')
+        report = result['test_evidence'].get('report')
+        binding = body.get('test_evidence') or {}
+        if not isinstance(report, str) or len(report.encode()) > 4 * 1024 * 1024:
+            raise Failed('missing or oversized test report')
+        if (hashlib.sha256(report.encode()).hexdigest() != binding.get('sha256') or
+                len(report.encode()) != binding.get('bytes')):
+            raise Failed('test report does not match signed digest')
+        if not has_remote(worktree, remote, deadline=deadline):
+            return None
+        ref = '%s/%s/%s/%s' % (EVIDENCE_PREFIX, tree, job, run_id)
+        commit = build(worktree, tree, job, payload, signature, signer, deadline=deadline,
+                       report=report)
+        ssh = ssh_environment(worktree, deadline=deadline)
+        listed = git(worktree, 'ls-remote', '--', remote, ref, env=ssh, deadline=deadline)
+        if listed:
+            if listed.split()[0] != commit:
+                raise Failed('evidence ref already names a different report')
+            return {'state': 'present', 'ref': ref, 'commit': commit, 'reason': None}
+        try:
+            git(worktree, 'push', '--quiet', '--', remote, '%s:%s' % (commit, ref),
+                env=ssh, deadline=deadline)
+        except Failed:
+            listed = git(worktree, 'ls-remote', '--', remote, ref, env=ssh, deadline=deadline)
+            if not listed or listed.split()[0] != commit:
+                raise
+        return {'state': 'published', 'ref': ref, 'commit': commit, 'reason': None}
+    except (Failed, ValueError, TypeError, AttributeError) as error:
+        return {'state': 'failed', 'ref': ref, 'reason': str(error)}

@@ -379,3 +379,69 @@ counted.
 Run the script by hand from a checkout with push access:
 `scripts/verdict-prune.sh --dry-run`. Its options are `--remote`,
 `--max-age-days`, `--batch` and `--dry-run`.
+
+## Measure complete test executions without skipping
+
+A repository can declare `tmp/pandora-test-evidence.json` as an `artifacts`
+output for a remote job. The worker then sets `PANDORA_TEST_EVIDENCE` to that
+path in the private instance and `PANDORA_TEST_EVIDENCE_RUN` to the run id.
+The repository's runner must emit a `pandora-test-report` version 1 report.
+The Vitest adapter records project, relative file, full test name, source
+location, mode, final status, runner version, observed profile and name filter.
+Reports start incomplete. The adapter must write a final outcome and flush
+atomically. Report failures must leave the validation command unchanged.
+
+The supervisor reads only the declared artifact, with a 4 MiB limit. It
+rejects incomplete, failed, ambiguous and stale-run reports. A normal passing
+verdict can still be signed when the optional report is missing or invalid.
+The result records that condition as `test_evidence_skipped`. A valid report's
+raw-byte SHA-256 digest, byte count and supervisor execution duration are
+included in the signed verdict. The raw report is returned in `test_evidence`.
+Existing verdict payloads remain unchanged when there is no valid report.
+
+With `[verdicts] publish = true`, the client also publishes a report-bearing
+commit at `refs/pandora/test-evidence/<tree>/<job>/<run_id>`. Each commit holds
+`payload.json`, `verdict.sig`, `signer` and `report.json`. Distinct selections
+on one tree survive independently. The existing verdict ref and its verifier
+keep their current behavior. Publication is asynchronous and cannot change
+the command's exit code. Its separate record is `test-evidence-publish.json`.
+This namespace is not consumed by the skip-verdict action.
+
+Run `.github/actions/pandora-test-evidence`, pinned to a reviewed commit,
+after CI's actual Vitest invocation. Supply `ci_report` and the `repo.name`
+from `pandora.toml` as `repo`. The action writes measurement JSON to
+`tmp/pandora-test-shadow.json` by default. Put `continue-on-error: true` and
+a three-minute timeout on the step. Upload the CI report and measurement
+as an artifact. Do not use these measurements in job conditions.
+
+The measurement reads trust policy from the fetched default branch only.
+It reads up to 32 per-run refs for the source tree and `unit` job, validates
+signatures and raw report digests, and records rejected artifacts separately.
+On a pull request, lookup uses the pushed head tree while the CI report names
+the checked-out merge tree. A difference is `ci_tree_mismatch`, not a match.
+A lookup limit or transport failure appears in the report. Missing evidence
+is an observation; all CI commands still run.
+
+`observed_complete_files` counts project/file pairs whose required cases
+passed together in one complete, unfiltered worker run. It never combines
+focused passing cases into a complete file. `matching_profile_and_tree_files`
+also requires equal source trees, runner versions and recorded profiles, and
+a passing CI run. Even this field is not a skip decision: the recorded
+profile is not a complete execution-equivalence policy. Global setup,
+external services and unrecorded environment inputs can change behavior.
+Turbo, Jest and Node executions earn no coverage from a Vitest report.
+Case-duration sums are not CI wall-clock savings.
+
+For an initial sample of about 20 PRs, retain the artifacts for 14 days and
+review complete-file overlap, compatibility failures, missing reports and
+actual job timings. Stop at measurement until a separate rollout approves
+one narrow execution-equivalence policy. Existing static-task verdicts remain
+available to the existing advisory or skip action.
+
+The existing verdict pruning script does not remove this experimental
+per-run namespace. Before a long-running rollout, inspect these refs with
+`git ls-remote origin 'refs/pandora/test-evidence/*'` and add an owner-reviewed
+retention policy. Do not treat a 14-day CI artifact retention setting as Git
+ref retention. The collection and publication changes take effect after the
+owner installs a client release containing them; no daemon upgrade is part
+of a consuming repository's CI change.
