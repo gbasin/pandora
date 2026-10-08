@@ -25,7 +25,10 @@ def identity(test):
     if not isinstance(location, dict) or not all(type(location.get(key)) is int and
             location[key] > 0 for key in ('line', 'column')):
         raise ValueError('missing_location')
-    return tuple(values + [location['line'], location['column']])
+    position = test.get('collection_index')
+    if type(position) is not int or position < 0:
+        raise ValueError('missing_collection_index')
+    return tuple(values + [location['line'], location['column'], position])
 
 
 def validate(report):

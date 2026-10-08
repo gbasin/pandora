@@ -17,7 +17,7 @@ from pandora.tests.test_verdicts import make_repo, sh
 
 def report(run='r1', *, pattern=None, selected=None):
     tests = [{'project': 'alpha', 'file': 'test/example.test.ts', 'name': name,
-              'location': {'line': index + 1, 'column': 1}, 'mode': 'run',
+              'location': {'line': index + 1, 'column': 1}, 'collection_index': index, 'mode': 'run',
               'status': 'passed' if selected is None or name in selected else 'skipped',
               'duration_ms': 1.5} for index, name in enumerate(('a', 'b'))]
     return {'kind': test_evidence.KIND, 'v': 1, 'runner': 'vitest', 'runner_version': '4.1.11',
@@ -164,3 +164,15 @@ class Evidence(unittest.TestCase):
         self.assertTrue(verdict.verify(result['verdict']['payload'], result['verdict']['signature'],
                                        result['verdict']['signer']))
         self.assertEqual(result['test_evidence']['report'].encode(), output.read_bytes())
+
+    def test_identical_parameterized_titles_keep_distinct_collection_positions(self):
+        value = report()
+        value['tests'][1]['name'] = value['tests'][0]['name']
+        value['tests'][1]['location'] = value['tests'][0]['location']
+        observed, reason = self.save(value)
+        self.assertIsNone(reason)
+        body = {'tree': 'a' * 40, 'run_id': 'r1', 'test_evidence': {}}
+        measured = shadow.compare(value, [(body, value)], ci_tree='a' * 40)
+        self.assertEqual(measured['required_cases'], 2)
+        self.assertEqual(measured['observed_complete_files'], 1)
+        self.assertEqual(measured['observations'][0]['matching_passed_cases'], 2)

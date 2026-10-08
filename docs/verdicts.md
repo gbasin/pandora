@@ -387,7 +387,9 @@ output for a remote job. The worker then sets `PANDORA_TEST_EVIDENCE` to that
 path in the private instance and `PANDORA_TEST_EVIDENCE_RUN` to the run id.
 The repository's runner must emit a `pandora-test-report` version 1 report.
 The Vitest adapter records project, relative file, full test name, source
-location, mode, final status, runner version, observed profile and name filter.
+location, collection position, mode, final status, runner version, observed
+profile and name filter. Collection positions keep parameterized cases with
+identical titles and source locations distinct.
 Reports start incomplete. The adapter must write a final outcome and flush
 atomically. Report failures must leave the validation command unchanged.
 
