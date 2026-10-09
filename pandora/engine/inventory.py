@@ -14,7 +14,7 @@ def enabled(outputs):
                for output in outputs or [])
 
 
-def identity(test):
+def identity(test, *, allow_missing_location=False):
     values = [test.get(key) for key in ('project', 'file', 'name')]
     if not all(isinstance(value, str) and value for value in values):
         raise ValueError('missing_identity')
@@ -22,13 +22,28 @@ def identity(test):
     if path.is_absolute() or '..' in path.parts:
         raise ValueError('unsafe_identity')
     location = test.get('location')
-    if not isinstance(location, dict) or not all(type(location.get(key)) is int and
-            location[key] > 0 for key in ('line', 'column')):
+    missing = allow_missing_location and 'location' in test and location is None
+    if not missing and (not isinstance(location, dict) or not all(type(location.get(key)) is int and
+            location[key] > 0 for key in ('line', 'column'))):
         raise ValueError('missing_location')
     position = test.get('collection_index')
     if type(position) is not int or position < 0:
         raise ValueError('missing_collection_index')
-    return tuple(values + [location['line'], location['column'], position])
+    return tuple(values + [None if missing else location['line'],
+                           None if missing else location['column'], position])
+
+
+def identifiable_tests(report):
+    """Exclude a whole project/file when any case has no source location."""
+    files = {}
+    for test in report['tests']:
+        files.setdefault((test['project'], test['file']), []).append(test)
+    excluded = {file for file, tests in files.items() if any(test['location'] is None for test in tests)}
+    diagnostics = [{'project': project, 'file': file, 'reason': 'missing_location',
+                    'total_cases': len(files[(project, file)]),
+                    'missing_location_cases': sum(test['location'] is None for test in files[(project, file)])}
+                   for project, file in sorted(excluded)]
+    return [test for test in report['tests'] if (test['project'], test['file']) not in excluded], diagnostics
 
 
 def validate(report, *, allow_empty=False):
@@ -45,7 +60,10 @@ def validate(report, *, allow_empty=False):
         raise ValueError('empty_inventory')
     seen = set()
     for test in tests:
-        key = identity(test)
+        # Vitest can omit locations for cases registered by an imported test file.
+        # Preserve that explicit null in the signed report; comparison excludes
+        # the entire affected file. Missing fields and malformed locations fail.
+        key = identity(test, allow_missing_location=True)
         if key in seen:
             raise ValueError('ambiguous_identity')
         seen.add(key)

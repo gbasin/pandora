@@ -7,7 +7,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from ..engine.inventory import MAX_BYTES, identity, validate
+from ..engine.inventory import MAX_BYTES, identifiable_tests, identity, validate
 from . import verdicts
 
 MAX_RUNS = 32
@@ -15,7 +15,9 @@ MAX_RUNS = 32
 
 def compare(ci, candidates, *, ci_tree):
     validate(ci, allow_empty=True)
-    required = {identity(test): test for test in ci['tests'] if test['mode'] not in ('skip', 'todo')}
+    ci_tests, excluded_ci = identifiable_tests(ci)
+    all_required = [test for test in ci['tests'] if test['mode'] not in ('skip', 'todo')]
+    required = {identity(test): test for test in ci_tests if test['mode'] not in ('skip', 'todo')}
     files = {}
     for key in required:
         files.setdefault(key[:2], set()).add(key)
@@ -28,7 +30,8 @@ def compare(ci, candidates, *, ci_tree):
                 report['errors'] or any(test['status'] in ('failed', 'pending') or
                 test['mode'] == 'only' for test in report['tests'])):
             raise ValueError('report_not_passed')
-        passed = {identity(test) for test in report['tests'] if test['status'] == 'passed'}
+        worker_tests, excluded_worker = identifiable_tests(report)
+        passed = {identity(test) for test in worker_tests if test['status'] == 'passed'}
         modules = {(module['project'], module['file']) for module in report['modules']
                    if module['state'] == 'passed'}
         # Whole-file observations must come from one unfiltered execution.
@@ -50,11 +53,15 @@ def compare(ci, candidates, *, ci_tree):
             compatible_files.update(complete)
         observations.append({'run_id': body['run_id'], 'overlapping_complete_files': len(complete),
                              'matching_passed_cases': len(required.keys() & passed),
+                             'excluded_worker_files': excluded_worker,
                              'incompatibilities': reasons, 'profile_differences': profile_keys,
                              'worker_execution_seconds': body['test_evidence'].get('execution_seconds')})
     case_ms = sum(test.get('duration_ms') or 0 for key, test in required.items()
                   if key[:2] in observed_files)
-    return {'required_files': len(files), 'required_cases': len(required),
+    return {'required_files': len({(test['project'], test['file']) for test in all_required}),
+            'required_cases': len(all_required),
+            'identifiable_files': len(files), 'identifiable_cases': len(required),
+            'excluded_ci_files': excluded_ci,
             'observed_complete_files': len(observed_files),
             'matching_profile_and_tree_files': len(compatible_files),
             'ci_case_duration_ms_in_observed_files': round(case_ms, 3),
@@ -86,6 +93,11 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
                                   else 'ci_not_completed'), required_files=0, required_cases=0,
                            observed_complete_files=0, matching_profile_and_tree_files=0,
                            ci_case_duration_ms_in_observed_files=0)
+            return summary
+        # Keep counts and exclusion diagnostics even when no evidence can be fetched.
+        summary.update(compare(ci, [], ci_tree=''))
+        if summary['required_cases'] and not summary['identifiable_cases']:
+            summary['reason'] = 'ci_no_identifiable_files'
             return summary
         ci_tree = git('rev-parse', 'HEAD^{tree}')
         if head_sha:

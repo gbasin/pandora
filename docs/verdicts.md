@@ -416,6 +416,21 @@ from `pandora.toml` as `repo`. The action writes measurement JSON to
 a three-minute timeout on the step. Upload the CI report and measurement
 as an artifact. Do not use these measurements in job conditions.
 
+Vitest can emit `location: null` for tests registered by importing another test
+file. Preserve those cases in the signed report. Exclude their entire
+project/file from comparison, including cases in that file with valid locations.
+Do not use a collection position alone as a replacement identity. Missing
+location fields and malformed non-null locations still invalidate the report.
+Failed, pending and `.only` cases still prevent worker attestation, including
+cases in excluded files.
+
+The measurement records these exclusions in `excluded_ci_files` and each run's
+`excluded_worker_files`. Required counts include every selected case and file.
+The `identifiable_cases` and `identifiable_files` counts show the subset eligible
+for comparison. When every required CI file is excluded, the reason is
+`ci_no_identifiable_files`. Exclusions can reduce measured overlap. They cannot
+grant credit for a partial file or enable a skip.
+
 The measurement reads trust policy from the fetched default branch only.
 It reads up to 32 per-run refs for the source tree and `unit` job, validates
 signatures and raw report digests, and records rejected artifacts separately.
