@@ -81,6 +81,89 @@ class Evidence(unittest.TestCase):
         self.assertEqual(whole['matching_profile_and_tree_files'], 1)
         self.assertEqual(whole['ci_case_duration_ms_in_observed_files'], 3)
 
+    def test_missing_locations_exclude_whole_files_on_both_sides(self):
+        whole = report()
+        healthy = copy.deepcopy(whole)
+        for test in healthy['tests']:
+            test['file'] = 'test/healthy.test.ts'
+        healthy['modules'][0]['file'] = 'test/healthy.test.ts'
+        whole['tests'].extend(healthy['tests'])
+        whole['modules'].extend(healthy['modules'])
+        partial = copy.deepcopy(whole)
+        partial['tests'][0]['location'] = None
+        observed, reason = self.save(partial)
+        self.assertIsNone(reason)
+        self.assertEqual(observed['report'].encode(), self.file.read_bytes())
+        tree = 'a' * 40
+        body = {'tree': tree, 'run_id': 'r1', 'test_evidence': {}}
+        for ci, worker in [(partial, whole), (whole, partial), (partial, partial)]:
+            with self.subTest(ci_partial=ci is partial, worker_partial=worker is partial):
+                measured = shadow.compare(ci, [(body, worker)], ci_tree=tree)
+                self.assertEqual(measured['required_files'], 2)
+                self.assertEqual(measured['required_cases'], 4)
+                self.assertEqual(measured['observed_complete_files'], 1)
+                self.assertEqual(measured['observations'][0]['matching_passed_cases'], 2)
+                self.assertEqual(measured['ci_case_duration_ms_in_observed_files'], 3)
+                if ci is partial:
+                    self.assertEqual(measured['identifiable_files'], 1)
+                    self.assertEqual(measured['identifiable_cases'], 2)
+                    self.assertEqual(measured['excluded_ci_files'][0], {
+                        'project': 'alpha', 'file': 'test/example.test.ts',
+                        'reason': 'missing_location', 'total_cases': 2, 'missing_location_cases': 1})
+                if worker is partial:
+                    self.assertEqual(len(measured['observations'][0]['excluded_worker_files']), 1)
+
+    def test_null_locations_do_not_relax_other_validation_or_execution_rules(self):
+        value = report()
+        value['tests'][0]['location'] = None
+        for key, bad in [('location', {}), ('collection_index', -1), ('file', '../bad.ts'),
+                         ('status', 'unknown'), ('duration_ms', -1)]:
+            with self.subTest(key=key):
+                invalid = copy.deepcopy(value)
+                invalid['tests'][0][key] = bad
+                self.assertEqual(self.save(invalid)[1], 'invalid_report')
+        for key, bad in [('status', 'failed'), ('status', 'pending'), ('mode', 'only')]:
+            invalid = copy.deepcopy(value)
+            invalid['tests'][0][key] = bad
+            self.assertEqual(self.save(invalid)[1], 'report_not_passed')
+        value['tests'][0]['mode'] = 'skip'
+        value['tests'][0]['status'] = 'skipped'
+        body = {'tree': 'a' * 40, 'run_id': 'r1', 'test_evidence': {}}
+        measured = shadow.compare(report(), [(body, value)], ci_tree='a' * 40)
+        self.assertEqual(measured['observed_complete_files'], 0)
+        self.assertEqual(measured['observations'][0]['matching_passed_cases'], 0)
+
+    def test_exclusion_is_scoped_to_project_and_file(self):
+        value = report()
+        other = copy.deepcopy(value)
+        for test in other['tests']:
+            test['project'] = 'beta'
+        other['modules'][0]['project'] = 'beta'
+        value['tests'].extend(other['tests'])
+        value['modules'].extend(other['modules'])
+        value['tests'][0]['location'] = None
+        body = {'tree': 'a' * 40, 'run_id': 'r1', 'test_evidence': {}}
+        measured = shadow.compare(value, [(body, value)], ci_tree='a' * 40)
+        self.assertEqual(measured['required_files'], 2)
+        self.assertEqual(measured['identifiable_files'], 1)
+        self.assertEqual(measured['observed_complete_files'], 1)
+        self.assertEqual(measured['excluded_ci_files'][0]['project'], 'alpha')
+
+    def test_all_locationless_ci_files_report_exclusions_without_fetching(self):
+        value = report()
+        value['tests'][0]['location'] = None
+        ci = self.root / 'partial-ci.json'
+        ci.write_text(json.dumps(value))
+        with mock.patch.object(verdicts, 'git', side_effect=AssertionError('must not fetch')):
+            measured = shadow.measure(self.root, ci, repo='demo')
+        self.assertEqual(measured['reason'], 'ci_no_identifiable_files')
+        self.assertEqual(measured['required_files'], 1)
+        self.assertEqual(measured['required_cases'], 2)
+        self.assertEqual(measured['identifiable_files'], 0)
+        self.assertEqual(measured['observed_complete_files'], 0)
+        self.assertEqual(len(measured['excluded_ci_files']), 1)
+        self.assertFalse(measured['skip_enabled'])
+
     def test_tree_profile_version_and_ci_failure_are_reported_separately(self):
         body = {'tree': 'b' * 40, 'run_id': 'r1', 'test_evidence': {}}
         value = report()
@@ -107,7 +190,10 @@ class Evidence(unittest.TestCase):
         sh('git', '-C', str(repo), 'push', '-q', 'origin', 'main')
         tree = sh('git', '-C', str(repo), 'rev-parse', 'HEAD^{tree}')
         for run in ('r1', 'r2'):
-            raw = json.dumps(report(run), indent=2) + '\n'
+            inventory = report(run)
+            if run == 'r2':
+                inventory['tests'][0]['location'] = None
+            raw = json.dumps(inventory, indent=2) + '\n'
             digest = {'sha256': hashlib.sha256(raw.encode()).hexdigest(), 'bytes': len(raw.encode()),
                       'execution_seconds': 2.5}
             payload = verdict.payload(**fields(tree=tree, run_id=run, repo='demo', job='unit',
@@ -123,6 +209,9 @@ class Evidence(unittest.TestCase):
         self.assertEqual(measured['reason'], 'observed', measured)
         self.assertEqual(len(measured['observations']), 2)
         self.assertEqual(measured['observed_complete_files'], 1)
+        excluded = [entry for entry in measured['observations'] if entry['run_id'] == 'r2'][0]
+        self.assertEqual(excluded['matching_passed_cases'], 0)
+        self.assertEqual(len(excluded['excluded_worker_files']), 1)
         self.assertFalse(measured['skip_enabled'])
         result['test_evidence']['report'] += ' '
         self.assertEqual(verdicts.publish_evidence(repo, 'origin', result)['state'], 'failed')
