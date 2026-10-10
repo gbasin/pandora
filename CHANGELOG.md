@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.17](https://github.com/gbasin/pandora/compare/v0.3.16...v0.3.17) (2026-10-09)
+
+
+### Features
+
+* measure signed worker test observations without skipping CI ([2867111](https://github.com/gbasin/pandora/commit/2867111b999249ac099347cdaa27f51a25af36be))
+* publish signed test observations without enabling CI skips ([b36d612](https://github.com/gbasin/pandora/commit/b36d612f24f0aa29f8b41ec037c055ab86fb1570))
+
+
+### Bug Fixes
+
+* contain pathological observation report parsing ([6031af8](https://github.com/gbasin/pandora/commit/6031af8f8caae7056ea99b01f0d56a31015b5654))
+* distinguish empty CI selections from missing observations ([dee263f](https://github.com/gbasin/pandora/commit/dee263f0b06bea1b78be93daef64edac72d0dddc))
+* distinguish repeated parameterized cases by collection position ([2929330](https://github.com/gbasin/pandora/commit/2929330c874cf866513628c92f1d87b4e4b4283c))
+* retain observations when imported tests lack locations ([94322d4](https://github.com/gbasin/pandora/commit/94322d42219a1456b7ce9f0ee10623aa479fa36c))
+* retain test observations when imported cases lack locations ([a5f6875](https://github.com/gbasin/pandora/commit/a5f6875a26d72785b0881133d76cf469962f7c73))
+
 ## [0.3.16](https://github.com/gbasin/pandora/compare/v0.3.15...v0.3.16) (2026-10-07)
 
 
