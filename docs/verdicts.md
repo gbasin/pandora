@@ -462,3 +462,54 @@ retention policy. Do not treat a 14-day CI artifact retention setting as Git
 ref retention. The collection and publication changes take effect after the
 owner installs a client release containing them; no daemon upgrade is part
 of a consuming repository's CI change.
+
+
+## Selective PR unit reuse
+
+The `.github/actions/pandora-unit-reuse` action plans exclusions before tests.
+It is separate from measurement and does not consume measurement counts. Pin
+the action to a reviewed commit. Give the step `continue-on-error: true` and
+a three-minute timeout. Keep the original test command as the fallback.
+
+The repository supplies a collection script. It writes a bounded
+`pandora-test-collection` v1 inventory to `tmp/pandora-unit-collection.json`.
+The inventory includes the checked-out tree, complete case identities,
+`complete: true`, collection errors, and the same profile as execution reports.
+Its outcome is `collected`, never `passed`. Run collection in a separate
+process. Vitest 4.1 collection changes selection state and initializes global
+setup. Do not collect projects with setup hooks or external dependencies.
+
+The verifier fetches `.github/pandora/unit-reuse.json` and allowed signers from
+the default branch. The policy has `schema: 1`, an `enabled` kill switch, and
+`portable_files`. Each entry supplies `project`, `file`,
+`portability: "linux-node-isolated-v1"`, `guard_paths`, and a `guard_objects`
+map of each path to its audited Git object hash. Include the file,
+its transitive source and fixture inputs, runner/reporter code, toolchain,
+configs and lockfile in the guards. Each guard's Git object in CI and on the
+default branch must match its pinned audited hash. A merge alone does not
+renew the audit. Review portability again before updating the policy hashes.
+
+This first portability policy permits different Linux kernels and worker
+counts for audited isolated Node tests with no setup hooks. It does not
+permit arbitrary environmental differences. Profiles must include a `reuse`
+contract with `version: 1`, runtime/environment inputs, `root_global_setup`,
+and per-project effective configuration. Compare only the executed project.
+Old reports without this contract cannot authorize a skip. Invocation
+selection must be exactly `name_pattern: null, reuse_safe_args: true`. The
+repository adapter must mark unsupported overrides and line/name/tag filters
+as ineligible without changing what the agent runs.
+
+Every collected case must pass in one signed, complete, unfiltered execution
+on the exact CI tree. Case identity sets must match exactly. Missing locations,
+skipped cases, `.only`, collection errors and incomplete modules disqualify
+the file. Do not combine focused executions. Exclusions apply only when they
+cannot remove another project's execution of the same path.
+
+The plan writes `tree`, `skip_files`, `eligible_files`, diagnostics and `canary`
+to `tmp/pandora-unit-reuse.json`. The repository runner must validate the plan
+and tree before applying literal file exclusions to its original selection.
+Missing, invalid or incompatible evidence means no exclusions. Keep Turbo,
+coverage and merge-queue executions intact. Every tenth workflow run retains
+the eligible inventory but performs the normal tests as a canary. Upload
+collection, plan and actual execution reports, and measure elapsed test time
+including the preflight overhead before expanding the allowlist.
