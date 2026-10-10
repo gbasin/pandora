@@ -1,4 +1,4 @@
-"""Read worker observations after CI executes. No output can authorize a skip."""
+"""Signed evidence fetching and post-test observations. Measurements never authorize skips."""
 import hashlib
 import json
 import re
@@ -69,6 +69,88 @@ def compare(ci, candidates, *, ci_tree):
             'observations': observations}
 
 
+def validate_passed(report):
+    validate(report)
+    if (report.get('complete') is not True or report.get('outcome') != 'passed' or
+            report['errors'] or any(test['status'] in ('failed', 'pending') or
+            test['mode'] == 'only' for test in report['tests'])):
+        raise ValueError('report_not_passed')
+
+
+def verified_candidates(worktree, *, repo, job, lookup_tree, default_branch, deadline, summary,
+                        signers='.github/pandora/allowed_signers'):
+    """Fetch bounded evidence authenticated by the default branch's signer policy."""
+    git = lambda *args: verdicts.git(worktree, *args, deadline=deadline)
+    trusted_ref = 'refs/remotes/origin/pandora-evidence-default'
+    git('fetch', '--quiet', '--no-tags', '--depth=1', 'origin',
+        '+refs/heads/%s:%s' % (default_branch, trusted_ref))
+    # Public trust policy is always from the default branch, never PR content.
+    allowed = git('show', trusted_ref + ':' + signers)
+    if not allowed or len(allowed) > 65536:
+        raise ValueError('signers_unavailable')
+    prefix = '%s/%s/%s/' % (verdicts.EVIDENCE_PREFIX, lookup_tree, job)
+    listing = git('ls-remote', '--', 'origin', prefix + '*')
+    refs = sorted(line.split()[1] for line in listing.splitlines() if len(line.split()) == 2)
+    summary['available_runs'] = len(refs)
+    summary['runs_truncated'] = len(refs) > MAX_RUNS
+    candidates = []
+    with tempfile.TemporaryDirectory(prefix='pandora-evidence-') as folder:
+        trust = Path(folder) / 'allowed_signers'
+        trust.write_text(allowed + '\n')
+        for index, ref in enumerate(refs[:MAX_RUNS]):
+            run_id = ref.removeprefix(prefix)
+            if not ref.startswith(prefix) or not verdicts.RUN_ID.fullmatch(run_id):
+                summary['rejected'].append({'reason': 'invalid_ref'})
+                continue
+            try:
+                local = 'refs/pandora-shadow/%d' % index
+                git('fetch', '--quiet', '--no-tags', '--depth=1', 'origin', '+' + ref + ':' + local)
+                content = {}
+                for name, limit in [('payload.json', 65536), ('verdict.sig', 16384), ('report.json', MAX_BYTES)]:
+                    if int(git('cat-file', '-s', local + ':' + name)) > limit:
+                        raise ValueError('artifact_too_large')
+                    content[name] = git('show', local + ':' + name)
+                # git() strips outer whitespace; published payload is canonical JSON.
+                payload = content['payload.json']
+                signature = Path(folder) / 'verdict.sig'
+                signature.write_text(content['verdict.sig'] + '\n')
+                verified = subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(trust),
+                                          '-I', 'pandora-verdict', '-n', 'pandora-verdict',
+                                          '-s', str(signature)], input=payload.encode(),
+                                          capture_output=True, timeout=10)
+                if verified.returncode:
+                    raise ValueError('bad_signature')
+                body = json.loads(payload)
+                if (body.get('kind') != 'pandora-verdict' or type(body.get('v')) is not int or
+                        body['v'] != 1 or body.get('outcome') != 'passed' or
+                        body.get('tree') != lookup_tree or body.get('job') != job or
+                        body.get('repo') != repo or body.get('run_id') != run_id):
+                    raise ValueError('verdict_context_mismatch')
+                binding = body.get('test_evidence') or {}
+                # Report bytes must survive exactly. The text helper above strips,
+                # so get the blob with a byte-preserving subprocess for the digest.
+                raw = subprocess.run(['git', '-C', str(worktree), 'show', local + ':report.json'],
+                                     check=True, capture_output=True, timeout=10).stdout
+                if len(raw) != binding.get('bytes') or hashlib.sha256(raw).hexdigest() != binding.get('sha256'):
+                    raise ValueError('report_digest_mismatch')
+                report = validate(json.loads(raw))
+                if report.get('worker_run') != run_id:
+                    raise ValueError('report_run_mismatch')
+                # Validate each candidate alone so a bad artifact does not hide good runs.
+                validate_passed(report)
+                candidates.append((body, report))
+            except (ValueError, TypeError, KeyError, AttributeError, OSError,
+                    subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError) as error:
+                reason = str(error) if isinstance(error, ValueError) else 'artifact_unavailable'
+                summary['rejected'].append({'run_id': run_id, 'reason': reason})
+            finally:
+                try:
+                    git('update-ref', '-d', local)
+                except verdicts.Failed:
+                    pass
+    return candidates, trusted_ref
+
+
 def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branch='main',
             signers='.github/pandora/allowed_signers'):
     summary = {'schema': 1, 'mode': 'measurement_only', 'skip_enabled': False,
@@ -112,73 +194,8 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
                        source_relation='same_tree' if ci_tree == lookup_tree else 'head_observation_vs_ci_merge')
         if not verdicts.TREE.fullmatch(lookup_tree):
             raise ValueError('bad_tree')
-        trusted_ref = 'refs/remotes/origin/pandora-evidence-default'
-        git('fetch', '--quiet', '--no-tags', '--depth=1', 'origin',
-            '+refs/heads/%s:%s' % (default_branch, trusted_ref))
-        # Public trust policy is always from the default branch, never PR content.
-        allowed = git('show', trusted_ref + ':' + signers)
-        if not allowed or len(allowed) > 65536:
-            raise ValueError('signers_unavailable')
-        prefix = '%s/%s/%s/' % (verdicts.EVIDENCE_PREFIX, lookup_tree, job)
-        listing = git('ls-remote', '--', 'origin', prefix + '*')
-        refs = sorted(line.split()[1] for line in listing.splitlines() if len(line.split()) == 2)
-        summary['available_runs'] = len(refs)
-        summary['runs_truncated'] = len(refs) > MAX_RUNS
-        candidates = []
-        with tempfile.TemporaryDirectory(prefix='pandora-evidence-') as folder:
-            trust = Path(folder) / 'allowed_signers'
-            trust.write_text(allowed + '\n')
-            for index, ref in enumerate(refs[:MAX_RUNS]):
-                run_id = ref.removeprefix(prefix)
-                if not ref.startswith(prefix) or not verdicts.RUN_ID.fullmatch(run_id):
-                    summary['rejected'].append({'reason': 'invalid_ref'})
-                    continue
-                try:
-                    local = 'refs/pandora-shadow/%d' % index
-                    git('fetch', '--quiet', '--no-tags', '--depth=1', 'origin', '+' + ref + ':' + local)
-                    content = {}
-                    for name, limit in [('payload.json', 65536), ('verdict.sig', 16384), ('report.json', MAX_BYTES)]:
-                        if int(git('cat-file', '-s', local + ':' + name)) > limit:
-                            raise ValueError('artifact_too_large')
-                        content[name] = git('show', local + ':' + name)
-                    # git() strips outer whitespace; published payload is canonical JSON.
-                    payload = content['payload.json']
-                    signature = Path(folder) / 'verdict.sig'
-                    signature.write_text(content['verdict.sig'] + '\n')
-                    verified = subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(trust),
-                                              '-I', 'pandora-verdict', '-n', 'pandora-verdict',
-                                              '-s', str(signature)], input=payload.encode(),
-                                              capture_output=True, timeout=10)
-                    if verified.returncode:
-                        raise ValueError('bad_signature')
-                    body = json.loads(payload)
-                    if (body.get('kind') != 'pandora-verdict' or type(body.get('v')) is not int or
-                            body['v'] != 1 or body.get('outcome') != 'passed' or
-                            body.get('tree') != lookup_tree or body.get('job') != job or
-                            body.get('repo') != repo or body.get('run_id') != run_id):
-                        raise ValueError('verdict_context_mismatch')
-                    binding = body.get('test_evidence') or {}
-                    # Report bytes must survive exactly. The text helper above strips,
-                    # so get the blob with a byte-preserving subprocess for the digest.
-                    raw = subprocess.run(['git', '-C', str(worktree), 'show', local + ':report.json'],
-                                         check=True, capture_output=True, timeout=10).stdout
-                    if len(raw) != binding.get('bytes') or hashlib.sha256(raw).hexdigest() != binding.get('sha256'):
-                        raise ValueError('report_digest_mismatch')
-                    report = validate(json.loads(raw))
-                    if report.get('worker_run') != run_id:
-                        raise ValueError('report_run_mismatch')
-                    # Validate each candidate alone so a bad artifact does not hide good runs.
-                    compare(ci, [(body, report)], ci_tree=ci_tree)
-                    candidates.append((body, report))
-                except (ValueError, TypeError, KeyError, AttributeError, OSError,
-                        subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError) as error:
-                    reason = str(error) if isinstance(error, ValueError) else 'artifact_unavailable'
-                    summary['rejected'].append({'run_id': run_id, 'reason': reason})
-                finally:
-                    try:
-                        git('update-ref', '-d', local)
-                    except verdicts.Failed:
-                        pass
+        candidates, _ = verified_candidates(worktree, repo=repo, job=job,
+            lookup_tree=lookup_tree, default_branch=default_branch, deadline=deadline, summary=summary, signers=signers)
         summary.update(compare(ci, candidates, ci_tree=ci_tree))
         summary['reason'] = 'observed' if candidates else 'no_verified_evidence'
     except FileNotFoundError:

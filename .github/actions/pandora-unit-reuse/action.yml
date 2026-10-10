@@ -1,0 +1,36 @@
+name: pandora-unit-reuse
+description: Verify signed complete-file evidence before PR tests; failures run tests normally.
+inputs:
+  collection:
+    description: Repository-owned collection script.
+    default: tools/validation/collect-unit-reuse.mjs
+  repo:
+    description: Repository name from pandora.toml.
+    required: true
+  output:
+    description: Verified exclusion plan.
+    default: tmp/pandora-unit-reuse.json
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        REUSE_COLLECTOR: ${{ inputs.collection }}
+        REUSE_REPO: ${{ inputs.repo }}
+        REUSE_OUTPUT: ${{ inputs.output }}
+        REUSE_EVENT: ${{ github.event_name }}
+        REUSE_NUMBER: ${{ github.run_number }}
+        REUSE_DEFAULT: ${{ github.event.repository.default_branch }}
+      run: |
+        mkdir -p tmp
+        rm -f "$REUSE_OUTPUT" tmp/pandora-unit-collection.json
+        # Collection is isolated from the actual invocation: Vitest mutates
+        # selection state during collection. An error leaves no exclusion plan.
+        if timeout 60s node "$REUSE_COLLECTOR"; then
+          python3 "$GITHUB_ACTION_PATH/../../../scripts/test-evidence-plan.py" \
+            --collection tmp/pandora-unit-collection.json --repo "$REUSE_REPO" \
+            --event "$REUSE_EVENT" --run-number "$REUSE_NUMBER" \
+            --default-branch "$REUSE_DEFAULT" --output "$REUSE_OUTPUT"
+        else
+          echo 'Pandora unit collection unavailable; running normal CI selection.'
+        fi
