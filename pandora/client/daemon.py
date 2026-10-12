@@ -2548,10 +2548,9 @@ class Daemon:
             return
         try:
             record = verdicts.publish(worktree, wanted.get('remote') or 'origin', result)
-            if record is None:
-                return
-            (run.dir / verdicts.RECORD).write_text(json.dumps(record) + '\n')
-            run.note(verdicts.line(record))
+            if record is not None:
+                (run.dir / verdicts.RECORD).write_text(json.dumps(record) + '\n')
+                run.note(verdicts.line(record))
             observed = verdicts.publish_evidence(worktree, wanted.get('remote') or 'origin', result)
             if observed is not None:
                 (run.dir / verdicts.EVIDENCE_RECORD).write_text(json.dumps(observed) + '\n')

@@ -526,3 +526,31 @@ for its second parent's tree. `evidence_tree_mismatch` means evidence refs exist
 for that PR-head tree, while none exist for the required merge tree. Those refs
 are diagnostic only: they are not verified or accepted as evidence for the
 merge. `lookup_tree`, `head_tree`, and `head_available_refs` explain the miss.
+
+## Signed suite observations
+
+Static planned Playwright fanout can publish a `pandora-suite-observation`
+report in the existing immutable test-evidence refs. Its signature envelope
+has kind `pandora-suite-verdict`. Existing skip verifiers reject that kind.
+The client does not publish it as a whole-run verdict.
+
+The engine requires a typed `pandora-playwright-plan` and typed
+`pandora-playwright-report` shard reports. It checks the full listed inventory
+against the partition, then checks every shard's selected IDs and complete
+attempt outcomes. Missing, duplicate, foreign or malformed IDs prevent signing.
+Retries, skips and expected failures remain explicit observations.
+
+The engine measures each submitted Git tree before grafting generated files.
+It binds that tree separately from the plan and build digests. Every child
+must name the same source, input, repository, job, selection, build and observed
+execution profile. Actual child golden pins are included in the report.
+Collisions, infrastructure shard retries, queue fanout and writeback jobs are
+not supported by this signing path. An observation failure does not change
+what the test command returns.
+
+Runtime provenance may be incomplete. For example, a reporter can describe its
+Node version and worker settings without measuring browser binaries or fonts.
+Such omissions remain explicit. A signed observation records what ran. It
+never authorizes a CI skip, including across different source trees. Reviewed
+suite-input manifests, complete runtime comparisons and canary checks are
+required before a future verifier can grant that authority.

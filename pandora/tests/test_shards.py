@@ -370,7 +370,7 @@ class FanoutHarness(unittest.TestCase):
     OUTPUTS = [{'kind': 'artifacts', 'paths': ['apps/desk/test-results']}]
 
     def parent(self, *, want=None, keep_going=False, args=('desk',), outputs=None,
-               source_path='/src'):
+               source_path='/src', synthetic_git=False):
         self.ledger.claim('req', 'p1', repo='demo', job='surface', input_id='i',
                           source_path=source_path, argv=['node', 'runner.mjs', 'run', 'desk',
                                                          '--no-build'],
@@ -386,7 +386,8 @@ class FanoutHarness(unittest.TestCase):
              'keep_going': keep_going}))
         (attempt / 'request.json').write_text(json.dumps(
             {'request_id': 'req', 'input_id': 'i', 'source_path': source_path,
-             'plan': {'repo': 'demo', 'job': 'surface', 'timeout_minutes': 45}}))
+             'plan': {'repo': 'demo', 'job': 'surface', 'timeout_minutes': 45,
+                      'git': 'synthetic' if synthetic_git else None}}))
         self.ledger.update('p1', state='admitted', reservation_mib=0, ceiling_mib=0)
         return fanout.supervise_parent(self.root, 'p1', driver=self.driver)
 
