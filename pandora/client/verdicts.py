@@ -199,6 +199,8 @@ def publish(worktree, remote, result):
     ref = None
     try:
         tree, job, payload, signature, signer = parts(result)
+        if json.loads(payload).get('kind') == 'pandora-suite-verdict':
+            return None
         ref = ref_for(tree, job)
         commit = build(worktree, tree, job, payload, signature, signer, deadline=deadline)
         ssh = ssh_environment(worktree, deadline=deadline)

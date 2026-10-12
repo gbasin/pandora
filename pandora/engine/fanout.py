@@ -40,7 +40,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import admission, batches, history, retry, runner, waitlist, writeback
+from . import admission, batches, history, retry, runner, suite, waitlist, writeback
 from . import shards as sharding
 from .ledger import Ledger, row_to_dict
 from .scheduler import Scheduler, gate
@@ -162,6 +162,27 @@ def supervise_parent(root, run_id, *, driver=None):
     extra = {'role': 'parent', 'shards': evidence.get('shards', []),
              'verification': evidence.get('verification'),
              'collisions': evidence.get('collisions', [])}
+    suite_report = None
+    if outcome == 'passed' and config['plan']:
+        try:
+            if (config['strategy'] == 'queue' or evidence.get('collisions') or
+                    children.get('retries') or writeback.patterns_of(plan['outputs'])):
+                raise ValueError('unsupported_suite_aggregate')
+            plan_report, plan_digest = suite.read(plan_document(paths, plan_result),
+                                                  paths.outputs(plan_result['run_id']))
+            # Older and unrelated fanout reporters retain their existing behavior.
+            if plan_report.get('kind') == 'pandora-playwright-plan':
+                observations = []
+                for index, child in sorted(children['runs'].items()):
+                    child_result = children['results'][index]
+                    report_path = find_report(paths, child, config, index=index, total=total)
+                    document, digest = suite.read(report_path, paths.outputs(child))
+                    _, pins = runner.golden_and_pins(paths, child)
+                    observations.append((child_result, document, digest, pins))
+                suite_report = suite.assemble(plan, plan_result, plan_report, observations,
+                                              plan_digest=plan_digest)
+        except Exception as error:  # noqa: BLE001 - observations cannot fail a run
+            evidence['suite_observation_unavailable'] = str(error)[:120]
     if writeback.patterns_of(plan['outputs']):
         extra['writeback'] = propose(paths, plan, run_id, children, outcome, evidence)
         if not extra['writeback']['complete'] and outcome == 'passed':
@@ -169,7 +190,8 @@ def supervise_parent(root, run_id, *, driver=None):
     result = runner.write_result(
         paths, ledger, run_id, outcome=outcome, layer=layer, exit_code=exit_code,
         peak_mib=evidence.get('peak_mib', 0), durations=durations, evidence=evidence,
-        receipt={'clean': True, 'note': 'a parent owns no instance'}, extra=extra)
+        receipt={'clean': True, 'note': 'a parent owns no instance'}, extra=extra,
+        suite_report=suite_report)
     if evidence.get('collisions') and result['cli_exit'] == 0:
         result['cli_exit'] = COLLISION_EXIT
         runner.write_json(paths.result(run_id), result)

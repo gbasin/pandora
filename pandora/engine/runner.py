@@ -34,7 +34,7 @@ from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, derived_cpus_per_run, gate, size_line
 from . import batches, shards as sharding
-from . import admission, history, pinning, retry, inventory as testreports, turbocache, verdict, writeback
+from . import admission, history, pinning, retry, inventory as testreports, suite, turbocache, verdict, writeback
 
 RESULT_VERSION = 2
 # Which layer reached the verdict. A reader who only trusts `passed` still wants
@@ -208,14 +208,6 @@ def supervise(root, run_id, *, driver=None):
         durations['inject'] = round(
             driver.inject(instance.name, row['source_path'], '/work', method='device-rsync'), 2)
         marks = time.monotonic()
-        # A shard mounts what its parent's plan built, on top of the source it
-        # shares with its siblings. It is injected after the source rsync, not
-        # before, because that rsync runs with --delete.
-        graft = attempt / 'planout'
-        if graft.is_dir():
-            durations['graft'] = round(
-                driver.inject(instance.name, graft, '/work', method='device-rsync-over'), 2)
-            marks = time.monotonic()
         # Before the cache and before the command: the repository is part of
         # the source, and a job that declared it must never start without it.
         if submitted.get('git') == 'synthetic':
@@ -228,6 +220,13 @@ def supervise(root, run_id, *, driver=None):
             if not tree:
                 note('synthetic git tree not computed (%s); the run goes on, unsigned'
                      % tree_failed)
+        # Measure source before grafting generated plan/build files. A shard
+        # must name the submitted tree, not a tree containing its plan JSON.
+        graft = attempt / 'planout'
+        if graft.is_dir():
+            durations['graft'] = round(
+                driver.inject(instance.name, graft, '/work', method='device-rsync-over'), 2)
+            marks = time.monotonic()
         # turbo's remote cache, served by this worker on the runs' bridge
         # (`turbocache`). Probed, never required: a run the cache cannot serve
         # is slower, not wrong, so the reason goes in the log and the evidence.
@@ -750,7 +749,8 @@ def queue_session(paths, ledger, run_id, plan, driver, instance, *, env, limits,
 
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
-                 durations, evidence, receipt, extra=None, tree=None, tree_failed=None):
+                 durations, evidence, receipt, extra=None, tree=None, tree_failed=None,
+                 suite_report=None):
     # Signed before the row says `finished`, not after: a client reads the
     # result as soon as the row is finished, and signing calls `ssh-keygen`.
     finished = time.time()
@@ -767,6 +767,17 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
                             outcome=outcome, tree=tree, finished=finished,
                             golden=golden, golden_pins=golden_pins, note=note,
                             tree_failed=tree_failed, test_evidence=binding)
+    if suite_report is not None:
+        try:
+            if outcome != 'passed' or row_before.get('role') != 'parent':
+                raise ValueError('suite_parent_not_passed')
+            signature, report = suite.sign(paths.root, row_before, suite_report,
+                finished=finished, golden=golden, golden_pins=golden_pins)
+            signed = {'tree': suite_report['source_tree'], 'verdict': signature,
+                      'verdict_skipped': None}
+        except Exception as error:  # noqa: BLE001 - observations cannot fail a run
+            report = None
+            signed['verdict_skipped'] = 'suite_not_signed:%s' % str(error)[:120]
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt,
                         finished=finished)
