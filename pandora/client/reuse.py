@@ -91,7 +91,7 @@ def select(collection, candidates, allowed, *, tree):
 
 def plan(worktree, collection_path, *, repo, default_branch='main', event='', run_number=0):
     result = {'schema': 1, 'reason': 'reuse_unavailable', 'tree': '', 'skip_files': [],
-              'eligible_files': [], 'rejected': [], 'canary': False}
+              'eligible_files': [], 'rejected': [], 'guard_mismatches': [], 'canary': False}
     deadline = time.monotonic() + 90
     git = lambda *args: verdicts.git(worktree, *args, deadline=deadline)
     try:
@@ -114,6 +114,19 @@ def plan(worktree, collection_path, *, repo, default_branch='main', event='', ru
             return result
         candidates, trusted = observations.verified_candidates(worktree, repo=repo, job='unit',
             lookup_tree=tree, default_branch=default_branch, deadline=deadline, summary=result)
+        result['lookup_tree'] = tree
+        if result.get('available_runs') == 0:
+            # Diagnose PR-head evidence without ever authorizing a different tree.
+            try:
+                head_tree = git('rev-parse', 'HEAD^2^{tree}')
+                if verdicts.TREE.fullmatch(head_tree) and head_tree != tree:
+                    prefix = '%s/%s/unit/' % (verdicts.EVIDENCE_PREFIX, head_tree)
+                    listing = git('ls-remote', '--', 'origin', prefix + '*')
+                    result['head_tree'] = head_tree
+                    result['head_available_refs'] = sum(
+                        len(line.split()) == 2 for line in listing.splitlines())
+            except verdicts.Failed:
+                pass
         text = git('show', trusted + ':' + POLICY)
         if len(text) > 65536:
             raise ValueError('policy_too_large')
@@ -140,10 +153,13 @@ def plan(worktree, collection_path, *, repo, default_branch='main', event='', ru
                 expected = objects.get(path)
                 if not isinstance(expected, str) or not verdicts.TREE.fullmatch(expected):
                     raise ValueError('invalid_guard_object')
-                if (git('rev-parse', 'HEAD:' + path) != expected or
-                        git('rev-parse', trusted + ':' + path) != expected):
-                    unchanged = False
-                    break
+                for source, ref in [('head', 'HEAD'), ('default_branch', trusted)]:
+                    actual = git('rev-parse', ref + ':' + path)
+                    if actual != expected:
+                        unchanged = False
+                        result['guard_mismatches'].append({
+                            'project': project, 'file': file, 'path': path,
+                            'source': source, 'expected': expected, 'actual': actual})
             if unchanged:
                 allowed.add((project, file))
         matches = select(collection, candidates, allowed, tree=tree)
@@ -151,7 +167,15 @@ def plan(worktree, collection_path, *, repo, default_branch='main', event='', ru
         result['canary'] = bool(run_number and run_number % 10 == 0)
         if not result['canary']:
             result['skip_files'] = [m['file'] for m in matches]
-        result['reason'] = 'canary_run' if result['canary'] else 'verified' if matches else 'no_eligible_evidence'
+        if matches:
+            result['reason'] = 'canary_run' if result['canary'] else 'verified'
+        elif result['guard_mismatches']:
+            result['reason'] = 'audit_inputs_changed'
+        elif result.get('available_runs') == 0:
+            result['reason'] = ('evidence_tree_mismatch' if result.get('head_available_refs')
+                                else 'no_signed_evidence')
+        else:
+            result['reason'] = 'no_matching_evidence' if candidates else 'evidence_rejected'
     except (ValueError, TypeError, KeyError, AttributeError, OSError,
             verdicts.Failed, RecursionError, OverflowError):
         # Never leave a partially authorized plan behind on a transport/policy error.

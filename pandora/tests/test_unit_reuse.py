@@ -188,7 +188,11 @@ class SignedPlan(unittest.TestCase):
         tree = self.git('rev-parse', 'HEAD^{tree}')
         self.manifest.write_text(json.dumps(collection(tree)))
         self.publish(tree)
-        self.assertEqual(self.plan()['skip_files'], [])
+        result = self.plan()
+        self.assertEqual(result['skip_files'], [])
+        self.assertEqual(result['reason'], 'audit_inputs_changed')
+        self.assertEqual([(m['path'], m['source']) for m in result['guard_mismatches']],
+                         [('file.txt', 'head')])
 
     def test_default_branch_guard_changes_require_a_new_audited_object(self):
         (self.repo / 'file.txt').write_text('changed on main without policy review\n')
@@ -196,7 +200,11 @@ class SignedPlan(unittest.TestCase):
         tree = self.git('rev-parse', 'HEAD^{tree}')
         self.manifest.write_text(json.dumps(collection(tree)))
         self.publish(tree)
-        self.assertEqual(self.plan()['skip_files'], [])
+        result = self.plan()
+        self.assertEqual(result['skip_files'], [])
+        self.assertEqual(result['reason'], 'audit_inputs_changed')
+        self.assertEqual({m['source'] for m in result['guard_mismatches']},
+                         {'head', 'default_branch'})
         policy = json.loads(self.policy.read_text())
         policy['portable_files'][0]['guard_objects']['file.txt'] = self.git('rev-parse', 'HEAD:file.txt')
         self.policy.write_text(json.dumps(policy))
@@ -205,6 +213,38 @@ class SignedPlan(unittest.TestCase):
         self.manifest.write_text(json.dumps(collection(tree)))
         self.publish(tree)
         self.assertEqual(self.plan()['skip_files'], ['test/example.test.ts'])
+
+    def test_missing_evidence_reports_the_exact_lookup_tree(self):
+        (self.repo / 'unrelated.txt').write_text('not a guarded input\n')
+        self.commit()
+        tree = self.git('rev-parse', 'HEAD^{tree}')
+        self.manifest.write_text(json.dumps(collection(tree)))
+        result = self.plan()
+        self.assertEqual(result['reason'], 'no_signed_evidence')
+        self.assertEqual(result['lookup_tree'], tree)
+        self.assertEqual(result['available_runs'], 0)
+        self.assertEqual(result['skip_files'], [])
+
+    def test_head_evidence_is_diagnosed_but_never_authorizes_a_merge_tree(self):
+        self.git('checkout', '-qb', 'feature')
+        (self.repo / 'feature.txt').write_text('feature\n')
+        self.commit()
+        head_tree = self.git('rev-parse', 'HEAD^{tree}')
+        self.publish(head_tree)
+        self.git('checkout', '-q', 'main')
+        (self.repo / 'main-only.txt').write_text('base moved\n')
+        self.commit(push=True)
+        self.git('-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false',
+                 'merge', '--no-ff', 'feature', '-m', 'CI merge')
+        tree = self.git('rev-parse', 'HEAD^{tree}')
+        self.manifest.write_text(json.dumps(collection(tree)))
+        result = self.plan()
+        self.assertEqual(result['reason'], 'evidence_tree_mismatch')
+        self.assertEqual(result['lookup_tree'], tree)
+        self.assertEqual(result['head_tree'], head_tree)
+        self.assertEqual(result['head_available_refs'], 1)
+        self.assertEqual(result['available_runs'], 0)
+        self.assertEqual(result['skip_files'], [])
 
     def test_tree_drift_missing_or_bad_collection_and_non_pr_run_normally(self):
         self.manifest.write_text('{broken')
