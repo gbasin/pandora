@@ -513,3 +513,16 @@ coverage and merge-queue executions intact. Every tenth workflow run retains
 the eligible inventory but performs the normal tests as a canary. Upload
 collection, plan and actual execution reports, and measure elapsed test time
 including the preflight overhead before expanding the allowlist.
+
+The plan distinguishes missing exact-tree evidence (`no_signed_evidence`),
+changed audit inputs (`audit_inputs_changed`), rejected signed artifacts
+(`evidence_rejected`), and verified reports that do not match the collection
+(`no_matching_evidence`). `guard_mismatches` lists the affected paths, their
+expected and actual objects, and whether the change is at the PR tree or on the
+default branch.
+
+When the checked-out PR merge has no evidence, the verifier can inspect refs
+for its second parent's tree. `evidence_tree_mismatch` means evidence refs exist
+for that PR-head tree, while none exist for the required merge tree. Those refs
+are diagnostic only: they are not verified or accepted as evidence for the
+merge. `lookup_tree`, `head_tree`, and `head_available_refs` explain the miss.
