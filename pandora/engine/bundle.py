@@ -45,6 +45,7 @@ MEMBERS = (
     'engine/turbocache.py',
     'engine/verdict.py',
     'engine/inventory.py',
+    'engine/suite.py',
     'engine/waitlist.py',
     'engine/writeback.py',
     'executor/__init__.py',

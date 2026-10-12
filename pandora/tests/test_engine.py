@@ -294,6 +294,8 @@ class SuperviseTest(unittest.TestCase):
         self.assertEqual(result['outcome'], 'passed')
         self.assertIsNone(result['tree'])
         self.assertEqual(result['verdict_skipped'], 'tree_failed:lfs_pointers')
+        self.assertIn('synthetic git tree not computed (lfs_pointers)',
+                      self.paths.log('r1').read_text())
 
     def test_shards_measure_source_before_grafting_generated_build_and_plan_files(self):
         self.request(git='synthetic')
@@ -313,9 +315,6 @@ class SuperviseTest(unittest.TestCase):
         driver.inject, driver.synthetic_git = recorded_inject, recorded_git
         self.run_with(driver)
         self.assertEqual(order[:3], ['device-rsync', 'source-tree', 'device-rsync-over'])
-        self.assertIn('synthetic git tree not computed (lfs_pointers)',
-                      self.paths.log('r1').read_text())
-
     def test_a_job_that_does_not_declare_git_pays_nothing(self):
         self.request(git='none')
         driver = FakeDriver()
