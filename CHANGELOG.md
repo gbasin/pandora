@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.18](https://github.com/gbasin/pandora/compare/v0.3.17...v0.3.18) (2026-10-12)
+
+
+### Features
+
+* sign typed observations for planned browser suites ([#253](https://github.com/gbasin/pandora/issues/253)) ([ee0bf70](https://github.com/gbasin/pandora/commit/ee0bf7098c06df1375cf6ac123227d3a45fd8e02))
+
 ## [0.3.17](https://github.com/gbasin/pandora/compare/v0.3.16...v0.3.17) (2026-10-09)
 
 
