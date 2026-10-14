@@ -55,7 +55,8 @@ def writes_back(plan):
 def why_not_local(job, plan=None):
     """The reason a job's run step cannot run on this Mac, or None.
 
-    A sharded job is a fan-out across worker instances. With a `plan` step, the
+    A reviewed `local` command supplies an independent local execution path.
+    Without one, a sharded job is a fan-out across worker instances. With a `plan` step, the
     run argv is written against what that step built on the worker (acme's
     surface runner is `run ... --no-build`), so running it here would test
     nothing that was built; without one, "the whole suite in one process on this
@@ -69,6 +70,8 @@ def why_not_local(job, plan=None):
     check at all, which is write-back in name only. `plan` carries the intent;
     callers without one get only the job-level checks.
     """
+    if job.get('local') and (plan is None or plan.get('local_run')):
+        return None
     if job.get('shards'):
         return ('jobs.%s is sharded across worker instances%s, so it cannot run in the '
                 'local lane' % (job['id'], ' and its run step uses what the worker\'s plan '
@@ -77,6 +80,18 @@ def why_not_local(job, plan=None):
         return ('jobs.%s is asked to write files back, and write-back happens only on the '
                 'worker, so it cannot run in the local lane' % job['id'])
     return None
+
+
+def local_plan(plan):
+    """Use the repository's reviewed local command, never the remote shard template."""
+    result = dict(plan, where='local')
+    if plan.get('local_run'):
+        result.update(plan['local_run'])
+        result['shards'] = None
+        result['writeback'] = False
+        result['outputs'] = [output for output in plan['outputs']
+                             if output['kind'] != 'writeback']
+    return result
 
 
 def why_not_remote(job):
@@ -120,7 +135,7 @@ def decide(job, plan, override):
                       ' As a last resort, PANDORA_OFF=1 runs it here with no Pandora at all, '
                       'outside the queue.')
             raise refuse('%s. Drop --local/PANDORA_WHERE.%s' % (problem, advice))
-        plan = dict(plan, where='local')
+        plan = local_plan(plan)
     elif changed and where == 'remote':
         problem = why_not_remote(job)
         if problem:

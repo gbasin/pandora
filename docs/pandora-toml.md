@@ -383,3 +383,27 @@ Every refusal exits 64 before the validator, the freeze or the queue.
 | not claimed | either | Runs unchanged, and is counted in `pandora stats`. |
 | any, daemon not running | `remote` | 70. |
 | any | anything but `local` or `remote` | 64. |
+
+### A separate local command
+
+A remote job may declare `local` with the same `argv`, `cwd`, `env`, and `unset`
+fields as `run`. The local command must forward `{args}` when `run` does.
+Use this when the worker command depends on a shard plan or prebuilt outputs:
+
+```toml
+local = { argv = ["node", "tools/surface-runner.mjs", "run", "{args}"] }
+```
+
+`PANDORA_WHERE=local` uses this command in the local admission queue. It does
+not run the worker's shard plan or add shard flags. Explicit local updates
+write files in place. They do not use transactional worker write-back and do
+not produce a signed worker verdict. Automatic fallback still refuses updates.
+A permitted pre-accept fallback also uses this command. An uncertain worker
+submission never falls back, and explicit remote placement never falls back.
+Without a local declaration, sharded jobs and local updates remain refused.
+`PANDORA_OFF=1` runs the original command directly, without Pandora admission.
+
+Older clients reject the `local` key. Do not add it to a consuming repository
+until all installed clients support this field. Release and upgrade the client
+before enabling the declaration. A machine without Pandora runs its ordinary
+commands directly.

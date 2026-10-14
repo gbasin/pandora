@@ -478,7 +478,7 @@ JOB_REQUIRED = {'id', 'forms', 'run'}
 JOB_OPTIONAL = {'summary', 'tool', 'size', 'args', 'options', 'value_flags', 'reject',
                 'outputs', 'fallback', 'on_extra', 'usage', 'reject_if_set',
                 'timeout_minutes', 'validate', 'where', 'singleton', 'shards',
-                'cancel', 'drift', 'git'}
+                'cancel', 'drift', 'git', 'local'}
 
 
 def _job(value, index, warnings):
@@ -497,6 +497,10 @@ def _job(value, index, warnings):
         raise ConfigError(where + ".run.argv uses {args} but the job declares args = 'none'")
     if args != 'none' and run['args_at'] is None:
         raise ConfigError(where + ".run.argv must place {args} when the job forwards arguments")
+
+    local = _run(value['local'], where + '.local') if 'local' in value else None
+    if local and ((args == 'none') != (local['args_at'] is None)):
+        raise ConfigError(where + '.local.argv must forward {args} exactly when the job does')
 
     job = {
         'id': job_id,
@@ -532,6 +536,7 @@ def _job(value, index, warnings):
         'forms': [_form(item, '%s.forms[%d]' % (where, position))
                   for position, item in enumerate(value['forms'])],
         'run': run,
+        'local': local,
         'validate': _validate(value['validate'], where + '.validate') if 'validate' in value else None,
         'shards': _shards(value['shards'], where + '.shards') if 'shards' in value else None,
         'outputs': [_output(item, '%s.outputs[%d]' % (where, position))
@@ -543,6 +548,8 @@ def _job(value, index, warnings):
                     else {'action': 'reject', 'message': None},
         'usage': _str(value['usage'], where + '.usage') if 'usage' in value else None,
     }
+    if local and job['where'] != 'remote':
+        raise ConfigError(where + '.local is a separate command for a remote job only')
     if not job['forms']:
         raise ConfigError(where + '.forms must not be empty')
     if job['shards'] and job['where'] == 'local':
