@@ -21,7 +21,7 @@ class SourceIntegrityTests(unittest.TestCase):
             inventory = input_inventory(root, tree)
 
             def verify():
-                return subprocess.check_output([sys.executable, '-c', SCRIPT, folder],
+                return subprocess.check_output([sys.executable, '-I', '-c', SCRIPT, folder],
                                                input=json.dumps(inventory).encode()).strip()
             self.assertEqual(verify(), b'verified')
             file.write_text('mutated')
@@ -55,7 +55,7 @@ class SourceIntegrityTests(unittest.TestCase):
             tree = subprocess.check_output(['git', '-C', folder, 'write-tree']).decode().strip()
             inventory = input_inventory(root, tree)
             file.write_bytes(data)
-            argv = [sys.executable, '-c', SCRIPT, folder]
+            argv = [sys.executable, '-I', '-c', SCRIPT, folder]
             context = json.dumps(inventory).encode()
             self.assertEqual(subprocess.check_output(argv, input=context).strip(), b'verified')
             file.write_bytes(b'changed data')
@@ -83,7 +83,7 @@ class SourceIntegrityTests(unittest.TestCase):
             object_path.chmod(0o644)
             object_path.write_bytes(zlib.compress(b'blob ' + str(len(forged)).encode() + b'\0' + forged))
             file.write_bytes(changed)
-            result = subprocess.check_output([sys.executable, '-c', SCRIPT, folder],
+            result = subprocess.check_output([sys.executable, '-I', '-c', SCRIPT, folder],
                                              input=json.dumps(inventory).encode()).strip()
             self.assertEqual(result, b'unverified')
 
@@ -91,5 +91,19 @@ class SourceIntegrityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / 'tmp').symlink_to(root)
-            proc = subprocess.run([sys.executable, '-c', CLEAR_SCRIPT, folder], capture_output=True)
+            proc = subprocess.run([sys.executable, '-I', '-c', CLEAR_SCRIPT, folder], capture_output=True)
             self.assertNotEqual(proc.returncode, 0)
+
+    def test_driver_guest_python_ignores_planted_imports(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from pandora.executor.incus import IncusDriver
+        driver = IncusDriver(sudo=False)
+        with patch('pandora.executor.incus.subprocess.run', return_value=SimpleNamespace(stdout=b'verified')) as execute:
+            self.assertTrue(driver.source_integrity('clone', '/work', {}))
+            self.assertIn(['python3', '-I', '-c'], [execute.call_args.args[0][index:index + 3]
+                                                   for index in range(len(execute.call_args.args[0]))])
+        with patch('pandora.executor.incus.run', return_value=(0, 'cleared', '')) as execute:
+            self.assertTrue(driver.clear_execution_report('clone', '/work'))
+            self.assertIn(['python3', '-I', '-c'], [execute.call_args.args[0][index:index + 3]
+                                                   for index in range(len(execute.call_args.args[0]))])

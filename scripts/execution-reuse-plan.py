@@ -2,19 +2,21 @@
 """Authenticate immutable execution evidence and emit a fail-closed unit plan."""
 import argparse
 import hashlib
+import fnmatch
 import json
 import re
 import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pandora.client import execution_reuse as reuse, verdicts  # noqa: E402
 
 MAX_BYTES = 4 * 1024 * 1024
-MAX_RUNS = 32
+MAX_RUNS = 128
 MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 CONTEXT = ('golden', 'golden_pins', 'env_digest', 'cwd')
 
@@ -163,9 +165,69 @@ def effective_policy(policy, request):
     return result
 
 
+def execution_policy(policy, worker_toml, current_inventory, blob):
+    """Reconstruct the exact approved golden using immutable current lockfiles."""
+    from pandora.config.loader import worker_table
+    from pandora.engine.pinning import LOCKFILES, LOCKFILE_PATTERNS, golden_pins
+    from pandora.engine.runner import toolchain_of
+    from pandora.errors import ConfigError
+
+    basis = policy.get('execution_context_basis')
+    if (not isinstance(basis, dict) or set(basis) != {'image', 'lockfiles', 'env_digest', 'cwd'} or
+            not isinstance(basis['image'], str) or not re.fullmatch(r'[0-9a-f]{64}', basis['image']) or
+            not isinstance(basis['lockfiles'], list) or
+            not all(isinstance(name, str) for name in basis['lockfiles']) or
+            len(set(basis['lockfiles'])) != len(basis['lockfiles']) or
+            not isinstance(basis['env_digest'], str) or not basis['env_digest'] or
+            not isinstance(basis['cwd'], str) or
+            'pandora.toml' not in policy.get('trusted_adapter_paths', [])):
+        raise ValueError('invalid_execution_context_basis')
+    found = {name for name in current_inventory if '/' not in name and
+             (name in LOCKFILES or any(fnmatch.fnmatchcase(name, pattern) for pattern in LOCKFILE_PATTERNS))}
+    if found != set(basis['lockfiles']):
+        raise ValueError('lockfile_set_mismatch')
+    inputs = policy.get('inputs', {})
+    hashes = {}
+    for name in sorted(found):
+        entry = current_inventory[name]
+        if (entry[:2] not in (['100644', 'blob'], ['100755', 'blob']) or
+                not (inputs.get('root') is True or name in inputs.get('paths', []))):
+            raise ValueError('lockfile_not_bound_regular_input')
+        hashes[name] = hashlib.sha256(blob(name)).hexdigest()
+    try:
+        worker = worker_table(tomllib.loads(worker_toml)['worker'])
+    except (ConfigError, KeyError, TypeError, ValueError):
+        raise ValueError('invalid_trusted_worker_recipe') from None
+    worker['pins'] = {'base_image': basis['image'],
+                      **{'lockfile:' + name: digest for name, digest in hashes.items()}}
+    result = dict(policy)
+    result['execution_context'] = {'golden': toolchain_of(worker).fingerprint(),
+                                   'golden_pins': golden_pins(worker),
+                                   'env_digest': basis['env_digest'], 'cwd': basis['cwd']}
+    return result
+
+
+def candidate_refs(listing, jobs, tree):
+    """Filter exact namespaces before applying the bounded lookup budget."""
+    refs = set()
+    prefix = verdicts.EXECUTION_PREFIX + '/'
+    for line in listing.splitlines():
+        columns = line.split()
+        if len(columns) != 2 or not columns[1].startswith(prefix):
+            continue
+        ref = columns[1]
+        parts = ref[len(prefix):].split('/')
+        if (len(parts) == 3 and verdicts.TREE.fullmatch(parts[0]) and
+                parts[1] in jobs and verdicts.RUN_ID.fullmatch(parts[2])):
+            refs.add(ref)
+    return sorted(refs, key=lambda ref: (not ref.startswith(prefix + tree + '/'), ref))
+
+
 def plan(worktree, collection, *, default_branch, event, run_number, force_full=False):
     result = {'schema': 1, 'reusable': False, 'skip_units': [], 'remaining_units': [],
-              'reason': 'reuse_unavailable', 'rejected': [], 'runs': [], 'coverage': {}}
+              'reason': 'reuse_unavailable', 'rejected': [], 'runs': [], 'coverage': {},
+              'eligible_units': [], 'diagnostics': []}
+    canary = False
     deadline = time.monotonic() + 90
     git = lambda *args: verdicts.git(worktree, *args, deadline=deadline)
     try:
@@ -181,10 +243,10 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
                 type(run_number) is not int or run_number <= 0):
             result['reason'] = 'force_full'
             return result
-        canary = force_full or run_number % 10 == 0
-        if canary:
-            result['reason'] = 'canary' if not force_full else 'force_full'
+        if force_full:
+            result['reason'] = 'force_full'
             return result
+        canary = run_number % 10 == 0
         tree = git('rev-parse', 'HEAD^{tree}')
         if request.get('source_tree') != tree:
             raise ValueError('collection_tree_mismatch')
@@ -212,16 +274,25 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
         trusted_tree = git('rev-parse', trusted + '^{tree}')
         trusted_inventory = reuse.input_inventory(worktree, trusted_tree)['entries']
         current_inventory = reuse.input_inventory(worktree, tree)['entries']
+        if 'execution_context_basis' in policy:
+            def blob(path):
+                identity = tree + ':' + path
+                if int(git('cat-file', '-s', identity)) > 64 * 1024 * 1024:
+                    raise ValueError('lockfile_too_large')
+                return subprocess.run(['git', '-C', str(worktree), 'show', identity],
+                    check=True, capture_output=True, timeout=10).stdout
+            policy = execution_policy(policy, git('show', trusted + ':pandora.toml'), current_inventory, blob)
         patterns = [verdicts.EXECUTION_PREFIX + '/*/' + job + '/*' for job in sorted(jobs)]
         listing = git('ls-remote', '--', 'origin', *patterns)
-        refs = sorted(line.split()[1] for line in listing.splitlines() if len(line.split()) == 2)
+        refs = candidate_refs(listing, jobs, tree)
         result['available_runs'] = len(refs)
         result['runs_truncated'] = len(refs) > MAX_RUNS
         skip = set()
+        eligible = set()
         with tempfile.TemporaryDirectory(prefix='pandora-execution-') as folder:
             trust = Path(folder) / 'allowed_signers'
             trust.write_text(allowed + '\n')
-            for index, ref in enumerate(refs[-MAX_RUNS:]):
+            for index, ref in enumerate(refs[:MAX_RUNS]):
                 local = 'refs/pandora-execution-ci/%d' % index
                 try:
                     parts = ref.removeprefix(verdicts.EXECUTION_PREFIX + '/').split('/')
@@ -263,9 +334,11 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
                         if engine not in policy.get('approved_engines', []):
                             raise ValueError('engine_mismatch')
                         candidate_request['engine_identity'] = engine
-                    decision = reuse.evaluate(evidence, candidate_request, policy, manifest=manifest, now=time.time())
+                    decision = reuse.evaluate(evidence, candidate_request, policy, manifest=manifest,
+                                              now=time.time(), canary=canary)
                     result['runs'].append({'run_id': run_id, 'reason': decision['reason'],
-                                           'skip_units': decision['skip_units']})
+                                           'skip_units': decision['skip_units'], 'eligible_units': decision['eligible_units']})
+                    eligible.update(decision['eligible_units'])
                     coverage = evidence.get('coverage')
                     if isinstance(coverage, dict):
                         for identity in decision['skip_units']:
@@ -282,10 +355,13 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
                     except verdicts.Failed:
                         pass
         result.update(skip_units=sorted(skip), remaining_units=sorted(set(wanted) - skip),
-                      reusable=bool(skip), reason='match' if skip else 'no_verified_evidence')
+                      reusable=bool(skip), eligible_units=sorted(eligible),
+                      reason='canary' if canary else ('match' if skip else 'no_verified_evidence'))
     except (ValueError, KeyError, TypeError, AttributeError, OSError,
             subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError) as error:
-        result['reason'] = str(error) if isinstance(error, ValueError) else 'reuse_unavailable'
+        reason = str(error) if isinstance(error, ValueError) else 'reuse_unavailable'
+        result['reason'] = 'canary' if canary else reason
+        result['diagnostics'].append(reason)
     return result
 
 

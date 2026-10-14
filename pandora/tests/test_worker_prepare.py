@@ -141,6 +141,15 @@ class PrepareRunnerTest(unittest.TestCase):
         self.assertNotIn('PANDORA_EXECUTION_RUN', driver.prep_call[3])
         self.assertEqual(driver.env['PANDORA_EXECUTION_RUN'], 'r1')
 
+    def test_missing_optional_execution_report_preserves_passing_command(self):
+        from pandora.engine import execution_report
+        self.ledger.update('r1', outputs=[{'kind': 'artifacts', 'paths': [execution_report.PATH]}])
+        result = self.run_with(RecordingDriver())
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertEqual(result['cli_exit'], 0)
+        self.assertEqual(result['evidence']['collected'], {execution_report.PATH: 'missing'})
+        self.assertIsNone(result.get('test_evidence'))
+
     def test_failed_preparation_stops_the_job_and_explains_the_exit(self):
         driver = RecordingDriver(prep_outcome='failed', prep_exit=17)
         result = self.run_with(driver)

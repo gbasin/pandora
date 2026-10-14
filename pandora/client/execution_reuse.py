@@ -33,9 +33,10 @@ def input_manifest(worktree, tree, spec):
     """
     if not isinstance(tree, str) or not OID.fullmatch(tree):
         raise ValueError('invalid_tree')
-    if not isinstance(spec, dict) or set(spec) != {'root', 'paths', 'directories'}:
+    if not isinstance(spec, dict) or (not {'root', 'paths', 'directories'} <= set(spec) or
+            set(spec) - {'root', 'paths', 'directories', 'bind_root_entries'}):
         raise ValueError('invalid_input_spec')
-    if type(spec['root']) is not bool:
+    if type(spec['root']) is not bool or type(spec.get('bind_root_entries', False)) is not bool:
         raise ValueError('invalid_input_spec')
     for key in ('paths', 'directories'):
         if not isinstance(spec[key], list) or len(set(spec[key])) != len(spec[key]):
@@ -110,8 +111,9 @@ def attested_manifest(attestation, tree, spec):
 
 
 def manifest_from_entries(entries, spec):
-    if (not isinstance(spec, dict) or set(spec) != {'root', 'paths', 'directories'}
-            or type(spec['root']) is not bool):
+    if (not isinstance(spec, dict) or (not {'root', 'paths', 'directories'} <= set(spec) or
+            set(spec) - {'root', 'paths', 'directories', 'bind_root_entries'})
+            or type(spec['root']) is not bool or type(spec.get('bind_root_entries', False)) is not bool):
         raise ValueError('invalid_input_spec')
     for key in ('paths', 'directories'):
         if not isinstance(spec[key], list) or len(set(spec[key])) != len(spec[key]):
@@ -145,6 +147,8 @@ def manifest_from_entries(entries, spec):
     if any(value and value[1] == 'commit' for value in selected.values()):
         raise ValueError('unsupported_gitlink')
     result = {'spec': spec, 'entries': selected, 'directories': directories}
+    if spec.get('bind_root_entries') is True:
+        result['root_entries'] = {name: value[:2] for name, value in entries.items() if '/' not in name}
     return hashlib.sha256(canonical(result)).hexdigest()
 
 

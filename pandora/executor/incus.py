@@ -620,14 +620,14 @@ rm -rf "$2"
 
     def source_integrity(self, name, dest, inventory):
         from pandora.engine.source_integrity import SCRIPT
-        proc = subprocess.run(self.base + ['exec', name, '--', 'python3', '-c', SCRIPT, dest],
+        proc = subprocess.run(self.base + ['exec', name, '--', 'python3', '-I', '-c', SCRIPT, dest],
                               input=json.dumps(inventory).encode(), stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=120, check=True)
         return proc.stdout.strip() == b'verified'
 
     def clear_execution_report(self, name, dest):
         from pandora.engine.source_integrity import CLEAR_SCRIPT
-        _, out, _ = run(self.base + ['exec', name, '--', 'python3', '-c', CLEAR_SCRIPT, dest], timeout=30)
+        _, out, _ = run(self.base + ['exec', name, '--', 'python3', '-I', '-c', CLEAR_SCRIPT, dest], timeout=30)
         return out.strip() == 'cleared'
 
     def input_inventory(self, name, dest, tree):

@@ -64,19 +64,32 @@ class ExecutionPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'report_context_conflict'):
             self.auth(body, raw, policy)
 
-    def test_canaries_cover_both_pr_and_queue_and_never_fetch(self):
+    def test_canaries_keep_all_work_and_explicit_overrides_never_fetch(self):
         with tempfile.TemporaryDirectory() as directory:
             collection = Path(directory) / 'request.json'
             collection.write_text(json.dumps({'units': [{'id': 'whole-file'}]}))
-            with patch.object(planner.verdicts, 'git', side_effect=AssertionError('must not fetch')):
+            with patch.object(planner.verdicts, 'git', side_effect=planner.verdicts.Failed('unavailable')):
                 for event in ('pull_request', 'merge_group'):
                     result = planner.plan(directory, collection, default_branch='main', event=event, run_number=10)
                     self.assertEqual(result['reason'], 'canary')
                     self.assertEqual(result['remaining_units'], ['whole-file'])
                     self.assertFalse(result['skip_units'])
-                result = planner.plan(directory, collection, default_branch='main', event='push', run_number=1)
-                self.assertEqual(result['remaining_units'], ['whole-file'])
-                self.assertFalse(result['reusable'])
+            with patch.object(planner.verdicts, 'git', side_effect=AssertionError('must not fetch')):
+                for event, force in (('push', False), ('pull_request', True)):
+                    result = planner.plan(directory, collection, default_branch='main', event=event,
+                                          run_number=1, force_full=force)
+                    self.assertEqual(result['remaining_units'], ['whole-file'])
+                    self.assertFalse(result['reusable'])
+
+    def test_exact_job_filter_precedes_cap_and_request_tree_is_first(self):
+        prefix = planner.verdicts.EXECUTION_PREFIX
+        tree = 'a' * 40
+        matching = '%s/%s/unit/run1' % (prefix, tree)
+        broad = ['hash %s/%s/native-unit/run%d' % (prefix, 'b' * 40, index)
+                 for index in range(planner.MAX_RUNS + 10)]
+        unrelated = 'hash %s/%s/unit/run2' % (prefix, 'c' * 40)
+        selected = planner.candidate_refs('\n'.join(broad + [unrelated, 'hash ' + matching]), {'unit': {}}, tree)
+        self.assertEqual(selected, [matching, unrelated.removeprefix('hash ')])
 
     def test_literal_command_units_reject_flags_globs_and_untracked_paths(self):
         command = {'prefix': ['pnpm', 'native'], 'suffix': [], 'unit_arguments': True}
@@ -175,7 +188,7 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
     def git(self, *argv, data=None):
         return self.command('git', '-C', str(self.work), *argv, data=data)
 
-    def publish(self, *, engine=None, config='config-digest', corrupt_signature=False, absent_source=False, changed_adapter=False, worker_job='native-unit'):
+    def publish(self, *, engine=None, config='config-digest', corrupt_signature=False, absent_source=False, changed_adapter=False, worker_job='native-unit', context=None):
         import time
         evidence = {'schema': 1, 'family': 'native', 'check_id': 'native-agent',
                     'runtime': {'executor': {'image': 'fixed'}, 'config': config}, 'selection': {},
@@ -194,7 +207,7 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
         body = {'kind': 'pandora-verdict', 'v': 1, 'outcome': 'passed', 'repo': 'repo',
                 'tree': source, 'job': worker_job, 'run_id': 'run1',
                 'engine': engine or self.engine, 'finished': time.time(), 'source_integrity': True,
-                'argv': ['pnpm', 'native'], **self.policy['execution_context'],
+                'argv': ['pnpm', 'native'], **(context or self.policy['execution_context']),
                 'input_inventory': inventory,
                 # A normal inventory exceeds the previous 64KiB envelope limit.
                 'padding': 'x' * 70000,
@@ -301,3 +314,68 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
         self.assertEqual(result['skip_units'], ['test.py'], result)
         self.assertEqual(result['available_runs'], 2)
         self.assertEqual(len(result['runs']), 2)
+
+    def test_canary_retains_authenticated_eligibility_without_skip_or_coverage(self):
+        self.publish()
+        for event in ('pull_request', 'merge_group'):
+            result = planner.plan(self.work, self.collection, default_branch='main', event=event, run_number=10)
+            self.assertEqual(result['reason'], 'canary')
+            self.assertEqual(result['eligible_units'], ['test.py'], result)
+            self.assertEqual(result['remaining_units'], ['test.py'])
+            self.assertFalse(result['reusable'])
+            self.assertEqual(result['skip_units'], [])
+            self.assertEqual(result['coverage'], {})
+
+    def test_lockfile_renewal_reconstructs_golden_without_policy_edits(self):
+        self.work.joinpath('pandora.toml').write_text('[worker]\nbase_image = "images:ubuntu/26.04"\n')
+        self.work.joinpath('pnpm-lock.yaml').write_text('lock v1\n')
+        self.policy.pop('execution_context')
+        self.policy['execution_context_basis'] = {'image': 'a' * 64, 'lockfiles': ['pnpm-lock.yaml'],
+                                                   'env_digest': 'env', 'cwd': ''}
+        self.policy['trusted_adapter_paths'].append('pandora.toml')
+        self.policy['required_paths'].append('pandora.toml')
+        self.policy['inputs']['paths'].extend(['pandora.toml', 'pnpm-lock.yaml'])
+        self.work.joinpath('.github/pandora/execution-reuse.json').write_text(
+            json.dumps({'checks': {'native-agent': self.policy}}))
+        self.git('add', '.')
+        self.git('commit', '--quiet', '-m', 'approve golden basis')
+        self.git('push', '--quiet', 'origin', 'main')
+        self.tree = self.git('rev-parse', 'HEAD^{tree}').decode().strip()
+        self.request['source_tree'] = self.tree
+        self.collection.write_text(json.dumps(self.request))
+
+        def context():
+            inventory = planner.reuse.input_inventory(self.work, self.tree)['entries']
+            return planner.execution_policy(self.policy, self.work.joinpath('pandora.toml').read_text(),
+                inventory, lambda path: self.git('show', self.tree + ':' + path))['execution_context']
+
+        original = context()
+        self.publish(context=original)
+        self.assertEqual(self.decide()['skip_units'], ['test.py'])
+        self.work.joinpath('pnpm-lock.yaml').write_text('lock v2\n')
+        self.git('add', 'pnpm-lock.yaml')
+        self.git('commit', '--quiet', '-m', 'update dependencies')
+        self.tree = self.git('rev-parse', 'HEAD^{tree}').decode().strip()
+        self.request['source_tree'] = self.tree
+        self.collection.write_text(json.dumps(self.request))
+        result = self.decide()
+        self.assertEqual(result['skip_units'], [])
+        self.assertEqual(result['rejected'][0]['reason'], 'execution_context_mismatch')
+        current = context()
+        self.assertNotEqual(original['golden'], current['golden'])
+        self.publish(context=current)
+        result = self.decide()
+        self.assertEqual(result['skip_units'], ['test.py'], result)
+        self.assertEqual(len(result['runs']), 1)
+
+    def test_golden_basis_rejects_unknown_lockfiles_and_unprotected_recipe(self):
+        basis = {'image': 'a' * 64, 'lockfiles': [], 'env_digest': 'env', 'cwd': ''}
+        policy = {'execution_context_basis': basis, 'trusted_adapter_paths': ['pandora.toml'],
+                  'inputs': {'root': False, 'paths': ['pnpm-lock.yaml']}}
+        inventory = {'pnpm-lock.yaml': ['100644', 'blob', 'b' * 40]}
+        with self.assertRaisesRegex(ValueError, 'lockfile_set_mismatch'):
+            planner.execution_policy(policy, '[worker]\nbase_image="image"\n', inventory, lambda _: b'lock')
+        basis['lockfiles'] = ['pnpm-lock.yaml']
+        policy['trusted_adapter_paths'] = []
+        with self.assertRaisesRegex(ValueError, 'invalid_execution_context_basis'):
+            planner.execution_policy(policy, '[worker]\nbase_image="image"\n', inventory, lambda _: b'lock')

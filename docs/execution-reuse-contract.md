@@ -199,14 +199,35 @@ units. A complete unit's coverage comes from one receipt. The verifier never
 combines incomplete coverage fragments. Journey consumers validate that
 coverage together with their executed remainder before global fan-in.
 
+Lookup filters exact approved job namespaces before applying its cap and
+prioritizes receipts for the requested CI tree.
+
 Only pull request and merge queue events permit reuse. Every tenth workflow
 run and explicit `force_full` execute the original selection. Canary plans
-contain no skip authority or reused coverage. Merge queue requests bind the
+contain no skip authority or reused coverage. They retain authenticated
+eligibility diagnostics for comparison with the full execution. Merge queue requests bind the
 actual checked-out queue tree.
 
 Preparation receives no report path or run identity. After preparation, the
 engine removes any prior generic report before executing the command. Cleanup
 or source integrity failures preserve test execution and suppress generic
 report authorization. Payloads are bounded at 8 MiB and reports at 4 MiB;
-bounded lookup considers at most 32 immutable receipts. Truncation can miss a
+bounded lookup considers at most 128 immutable receipts. Truncation can miss a
 reuse opportunity but cannot authorize extra work to be skipped.
+
+
+Scoped inputs may opt into `bind_root_entries: true`. This adds the root-level
+names, modes, and object types to the manifest without adding excluded file
+contents. A new automatic configuration file or a changed root entry invalidates
+reuse. Editing an excluded existing documentation file does not. Existing
+input specifications retain their original behavior.
+
+Instead of fixed golden values, a policy may supply `execution_context_basis`
+with `image` (an approved resolved Incus fingerprint), `lockfiles` (the exact
+recognized root lockfile set), `env_digest`, and `cwd`. The verifier reads the
+worker recipe from trusted main and hashes immutable current lockfile blobs to
+reconstruct the same toolchain fingerprint and golden pins as the engine.
+`pandora.toml` must belong to protected proof code. Every lockfile must be a
+regular file bound by the input scope. Changed dependency locks invalidate old
+receipts but a matching new receipt needs no policy hash renewal. New image pins
+and worker recipe changes still require review on the default branch.

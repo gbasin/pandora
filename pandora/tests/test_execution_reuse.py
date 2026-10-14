@@ -229,6 +229,27 @@ class ExecutionReuseTests(unittest.TestCase):
         self.policy['required_paths'].append('outside')
         self.assertEqual(self.decision()['reason'], 'missing_producer_config_inputs')
 
+    def test_root_entry_binding_tracks_names_and_modes_but_not_excluded_contents(self):
+        spec = dict(self.spec, bind_root_entries=True)
+        original = self.manifest(self.tree, spec)
+        (self.root / 'README.md').write_text('documentation')
+        with_readme = self.snapshot()
+        self.assertNotEqual(original, self.manifest(with_readme, spec))
+        (self.root / 'README.md').write_text('different documentation')
+        changed_readme = self.snapshot()
+        self.assertEqual(self.manifest(with_readme, spec), self.manifest(changed_readme, spec))
+        self.assertEqual(self.manifest(self.tree, self.spec), self.manifest(changed_readme, self.spec))
+        (self.root / 'README.md').chmod(0o755)
+        changed_mode = self.snapshot()
+        self.assertNotEqual(self.manifest(changed_readme, spec), self.manifest(changed_mode, spec))
+        (self.root / 'new.config.js').write_text('automatic config')
+        new_config = self.snapshot()
+        self.assertNotEqual(self.manifest(changed_mode, spec), self.manifest(new_config, spec))
+        attestation = input_inventory(self.root, new_config)
+        self.assertEqual(attested_manifest(attestation, new_config, spec), self.manifest(new_config, spec))
+        with self.assertRaisesRegex(ValueError, 'invalid_input_spec'):
+            self.manifest(new_config, dict(self.spec, bind_root_entries=1))
+
 
 if __name__ == '__main__':
     unittest.main()
