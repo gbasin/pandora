@@ -33,7 +33,7 @@ from ..executor.interface import (CloneFailed, DestroyIncomplete, ExecutionFaile
 from .ledger import Ledger, row_to_dict
 from .result import facts_from_result, hint_named
 from .scheduler import Scheduler, derived_cpus_per_run, gate, size_line
-from . import batches, shards as sharding
+from . import batches, execution_report, shards as sharding
 from . import admission, history, pinning, retry, inventory as testreports, suite, turbocache, verdict, writeback
 
 RESULT_VERSION = 2
@@ -220,6 +220,11 @@ def supervise(root, run_id, *, driver=None):
             if not tree:
                 note('synthetic git tree not computed (%s); the run goes on, unsigned'
                      % tree_failed)
+        if tree and hasattr(driver, 'input_inventory'):
+            try:
+                evidence['input_inventory'] = driver.input_inventory(instance.name, '/work', tree)
+            except Exception as error:  # noqa: BLE001 - missing attestation disables reuse
+                evidence['input_inventory_unavailable'] = type(error).__name__
         # Measure source before grafting generated plan/build files. A shard
         # must name the submitted tree, not a tree containing its plan JSON.
         graft = attempt / 'planout'
@@ -260,6 +265,9 @@ def supervise(root, run_id, *, driver=None):
         if testreports.enabled(plan['outputs']):
             env['PANDORA_TEST_EVIDENCE'] = '/work/' + testreports.PATH
             env['PANDORA_TEST_EVIDENCE_RUN'] = run_id
+        if execution_report.enabled(plan['outputs']):
+            env['PANDORA_EXECUTION_REPORT'] = '/work/' + execution_report.PATH
+            env['PANDORA_EXECUTION_RUN'] = run_id
         # The repository's own environment wins over the optional cache.
         for key, value in cache_env.items():
             env.setdefault(key, value)
@@ -273,7 +281,8 @@ def supervise(root, run_id, *, driver=None):
                 prep = Result(exit_code=-9, outcome='cancelled', seconds=0, usage=Usage())
             else:
                 preparing_clone = True
-                prep = driver.execute(instance, ['bash', '-c', prepare_command], env=env,
+                prep = driver.execute(instance, ['bash', '-c', prepare_command],
+                                      env=execution_report.prepare_environment(env),
                                       cwd='/work', limits=prep_limits,
                                       on_log=log_handle.write, on_tick=tick)
                 preparing_clone = False
@@ -300,6 +309,12 @@ def supervise(root, run_id, *, driver=None):
         limits = hint_now(paths, limits)
         ledger.update(run_id, cpus_hint=limits.cpus_hint)
         note(running_line(ledger, row, limits.cpus_hint))
+        if execution_report.enabled(plan['outputs']):
+            evidence['execution_report_cleared'] = execution_report.fresh_output(driver, instance)
+            evidence['source_integrity'] = execution_report.source_integrity(
+                driver, instance, evidence.get('input_inventory'))
+            if not evidence['execution_report_cleared'] or not evidence['source_integrity']:
+                note('generic execution reuse unavailable: report cleanup or source integrity unproven')
         queue_marker = attempt / 'batchqueue.json'
         if queue_marker.is_file():
             # A queue-fed shard is a session: claim a batch, run it, pull its
@@ -313,11 +328,14 @@ def supervise(root, run_id, *, driver=None):
                                     cwd=remote_cwd(plan['cwd']),
                                     limits=limits, on_log=log_handle.write,
                                     on_tick=tick)
+        if execution_report.enabled(plan['outputs']):
+            evidence['source_integrity'] = (evidence.get('source_integrity') is True and
+                execution_report.source_integrity(driver, instance, evidence.get('input_inventory')))
         durations['execute'] = round(result.seconds, 2)
         marks = time.monotonic()
         peak_mib = max(peak_mib, (result.usage.memory_peak or 0) // 1048576)
         evidence.update({key: value for key, value in result.evidence.items()
-                         if key != 'samples'})
+                         if key not in ('samples', 'input_inventory', 'source_integrity', 'execution_report_cleared')})
         evidence['samples'] = result.evidence.get('samples', [])[-8:]
         exit_code = result.exit_code
         outcome, layer = {
@@ -760,13 +778,20 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
     golden, golden_pins = golden_and_pins(paths, run_id)
     row_before = row_to_dict(ledger.get(run_id)) or {}
     report, report_reason = testreports.load(paths.outputs(run_id), row_before.get('outputs'), run_id)
+    if execution_report.enabled(row_before.get('outputs')):
+        if evidence.get('execution_report_cleared') is True and evidence.get('source_integrity') is True:
+            report, report_reason = execution_report.load(paths.outputs(run_id), row_before.get('outputs'), run_id)
+        else:
+            report, report_reason = None, 'execution_source_or_freshness_unproven'
     binding = ({key: report[key] for key in ('sha256', 'bytes')} if report else None)
     if binding is not None:
         binding['execution_seconds'] = durations.get('execute')
     signed = verdict.decide(paths.root, row_before,
                             outcome=outcome, tree=tree, finished=finished,
                             golden=golden, golden_pins=golden_pins, note=note,
-                            tree_failed=tree_failed, test_evidence=binding)
+                            tree_failed=tree_failed, test_evidence=binding,
+                            input_inventory=evidence.get('input_inventory'),
+                            source_integrity=evidence.get('source_integrity'))
     if suite_report is not None:
         try:
             if outcome != 'passed' or row_before.get('role') != 'parent':

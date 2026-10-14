@@ -113,6 +113,43 @@ class PrepareRunnerTest(unittest.TestCase):
         self.assertIn('dependency output', self.paths.log('r1').read_text())
         self.assertEqual(driver.destroyed, ['run-r1'])
 
+    def test_generic_report_is_cleared_after_preparation_and_source_checked_twice(self):
+        from pandora.engine import execution_report
+        outputs = [{'kind': 'artifacts', 'paths': [execution_report.PATH]}]
+        self.ledger.update('r1', outputs=outputs)
+        self.paths.attempt('r1').joinpath('request.json').write_text(json.dumps({'plan': dict(PLAN, git='synthetic')}))
+
+        class ProofDriver(RecordingDriver):
+            def input_inventory(self, name, dest, tree):
+                return {'source_tree': tree}
+
+            def clear_execution_report(self, name, dest):
+                self.events.append('clear')
+                return True
+
+            def source_integrity(self, name, dest, inventory):
+                self.events.append('verify')
+                return True
+
+        driver = ProofDriver()
+        result = self.run_with(driver)
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertEqual(driver.events, ['inject', 'harden', 'prepare', 'clear', 'verify', 'job', 'verify'])
+        self.assertTrue(result['evidence']['source_integrity'])
+        self.assertTrue(result['evidence']['execution_report_cleared'])
+        self.assertNotIn('PANDORA_EXECUTION_REPORT', driver.prep_call[3])
+        self.assertNotIn('PANDORA_EXECUTION_RUN', driver.prep_call[3])
+        self.assertEqual(driver.env['PANDORA_EXECUTION_RUN'], 'r1')
+
+    def test_missing_optional_execution_report_preserves_passing_command(self):
+        from pandora.engine import execution_report
+        self.ledger.update('r1', outputs=[{'kind': 'artifacts', 'paths': [execution_report.PATH]}])
+        result = self.run_with(RecordingDriver())
+        self.assertEqual(result['outcome'], 'passed')
+        self.assertEqual(result['cli_exit'], 0)
+        self.assertEqual(result['evidence']['collected'], {execution_report.PATH: 'missing'})
+        self.assertIsNone(result.get('test_evidence'))
+
     def test_failed_preparation_stops_the_job_and_explains_the_exit(self):
         driver = RecordingDriver(prep_outcome='failed', prep_exit=17)
         result = self.run_with(driver)

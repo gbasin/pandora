@@ -135,7 +135,7 @@ def env_digest(env):
 
 
 def payload(*, argv, cwd, engine, env_digest, finished, golden, input_id, job, outcome,
-            repo, run_id, tree, golden_pins=None, test_evidence=None):
+            repo, run_id, tree, golden_pins=None, test_evidence=None, input_inventory=None, source_integrity=None):
     """The canonical payload bytes: sorted keys, no spaces, UTF-8, no newline.
 
     `golden` is the pinned fingerprint in `golden-<fingerprint>`; `golden_pins`
@@ -149,6 +149,10 @@ def payload(*, argv, cwd, engine, env_digest, finished, golden, input_id, job, o
                       'repo': repo, 'run_id': run_id, 'tree': tree, 'v': VERSION}
     if test_evidence is not None:
         body['test_evidence'] = test_evidence
+    if input_inventory is not None:
+        body['input_inventory'] = input_inventory
+    if source_integrity is not None:
+        body['source_integrity'] = source_integrity is True
     return canonical(body)
 
 
@@ -365,7 +369,7 @@ def skip_reason(*, outcome, role, ready, tree, drift='', tree_failed=None):
 
 
 def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, drift=None,
-           note=None, golden_pins=None, tree_failed=None, test_evidence=None):
+           note=None, golden_pins=None, tree_failed=None, test_evidence=None, input_inventory=None, source_integrity=None):
     """The three result fields: `tree`, `verdict`, `verdict_skipped`.
 
     `row` is the attempt's ledger row as a dictionary. `ready` is the worker's
@@ -400,7 +404,8 @@ def decide(engine_root, row, *, outcome, tree, finished, golden, ready=None, dri
                        golden=golden, golden_pins=golden_pins,
                        input_id=row['input_id'], job=row['job'],
                        outcome=outcome, repo=row['repo'], run_id=row['run_id'], tree=tree,
-                       test_evidence=test_evidence)
+                       test_evidence=test_evidence, input_inventory=input_inventory,
+                       source_integrity=source_integrity)
         answer['verdict'] = sign(engine_root, data)
     except SignFailed as error:
         answer['verdict_skipped'] = 'sign_failed:%s' % error

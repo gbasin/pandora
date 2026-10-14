@@ -67,6 +67,12 @@ class PayloadTest(unittest.TestCase):
              '"repo":"pandora","run_id":"r1","tree":"%s","v":1}'
              % ('e' * 64, 'a' * 64, 'b' * 64, 'f' * 64, TREE)).encode())
 
+    def test_input_inventory_is_bound_inside_signed_payload(self):
+        attestation = {'v': 1, 'source_tree': TREE, 'entries': {}, 'sha256': 'a' * 64}
+        data = verdict.payload(**fields(input_inventory=attestation))
+        self.assertEqual(json.loads(data)['input_inventory'], attestation)
+        self.assertNotIn('input_inventory', json.loads(verdict.payload(**fields())))
+
     def test_the_env_digest_is_sha256_of_the_canonical_mapping(self):
         self.assertEqual(verdict.env_digest({}),
                          '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a')

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pandora.client.execution_reuse import evaluate, input_manifest
+from pandora.client.execution_reuse import attested_manifest, evaluate, input_inventory, input_manifest
 
 
 class ExecutionReuseTests(unittest.TestCase):
@@ -47,6 +47,26 @@ class ExecutionReuseTests(unittest.TestCase):
     def decision(self, **kwargs):
         return evaluate(self.evidence, self.request, self.policy, manifest=self.manifest,
                         now=110, **kwargs)
+
+    def test_engine_attestation_matches_immutable_tree_reader(self):
+        attestation = input_inventory(self.root, self.tree)
+        for spec in (self.spec, {'root': True, 'paths': [], 'directories': []}):
+            self.assertEqual(attested_manifest(attestation, self.tree, spec),
+                             input_manifest(self.root, self.tree, spec))
+        # The source object need not be accessible to the authenticated reader.
+        self.assertEqual(attested_manifest(attestation, self.tree, self.spec),
+                         self.evidence['input_manifest'])
+
+    def test_attestation_tampering_and_context_mismatch_fail_closed(self):
+        attestation = input_inventory(self.root, self.tree)
+        altered = copy.deepcopy(attestation)
+        altered['entries']['src/a.py'][2] = 'a' * 40
+        with self.assertRaises(ValueError):
+            attested_manifest(altered, self.tree, self.spec)
+        with self.assertRaises(ValueError):
+            attested_manifest(attestation, 'a' * 40, self.spec)
+        with self.assertRaises(ValueError):
+            attested_manifest(attestation, self.tree, dict(self.spec, paths=['../secret']))
 
     def test_all_families_use_same_contract(self):
         for family in ('unit', 'surface', 'journey', 'arc', 'node', 'native', 'static'):
@@ -208,6 +228,27 @@ class ExecutionReuseTests(unittest.TestCase):
     def test_policy_requires_producer_config_closure(self):
         self.policy['required_paths'].append('outside')
         self.assertEqual(self.decision()['reason'], 'missing_producer_config_inputs')
+
+    def test_root_entry_binding_tracks_names_and_modes_but_not_excluded_contents(self):
+        spec = dict(self.spec, bind_root_entries=True)
+        original = self.manifest(self.tree, spec)
+        (self.root / 'README.md').write_text('documentation')
+        with_readme = self.snapshot()
+        self.assertNotEqual(original, self.manifest(with_readme, spec))
+        (self.root / 'README.md').write_text('different documentation')
+        changed_readme = self.snapshot()
+        self.assertEqual(self.manifest(with_readme, spec), self.manifest(changed_readme, spec))
+        self.assertEqual(self.manifest(self.tree, self.spec), self.manifest(changed_readme, self.spec))
+        (self.root / 'README.md').chmod(0o755)
+        changed_mode = self.snapshot()
+        self.assertNotEqual(self.manifest(changed_readme, spec), self.manifest(changed_mode, spec))
+        (self.root / 'new.config.js').write_text('automatic config')
+        new_config = self.snapshot()
+        self.assertNotEqual(self.manifest(changed_mode, spec), self.manifest(new_config, spec))
+        attestation = input_inventory(self.root, new_config)
+        self.assertEqual(attested_manifest(attestation, new_config, spec), self.manifest(new_config, spec))
+        with self.assertRaisesRegex(ValueError, 'invalid_input_spec'):
+            self.manifest(new_config, dict(self.spec, bind_root_entries=1))
 
 
 if __name__ == '__main__':

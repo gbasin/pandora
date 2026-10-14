@@ -33,9 +33,10 @@ def input_manifest(worktree, tree, spec):
     """
     if not isinstance(tree, str) or not OID.fullmatch(tree):
         raise ValueError('invalid_tree')
-    if not isinstance(spec, dict) or set(spec) != {'root', 'paths', 'directories'}:
+    if not isinstance(spec, dict) or (not {'root', 'paths', 'directories'} <= set(spec) or
+            set(spec) - {'root', 'paths', 'directories', 'bind_root_entries'}):
         raise ValueError('invalid_input_spec')
-    if type(spec['root']) is not bool:
+    if type(spec['root']) is not bool or type(spec.get('bind_root_entries', False)) is not bool:
         raise ValueError('invalid_input_spec')
     for key in ('paths', 'directories'):
         if not isinstance(spec[key], list) or len(set(spec[key])) != len(spec[key]):
@@ -50,14 +51,75 @@ def input_manifest(worktree, tree, spec):
     proc = subprocess.run(['git', '-C', str(worktree), 'ls-tree', '-r', '-t', '-z', tree],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
                           check=True)
+    entries = parse_inventory(proc.stdout)
+    return manifest_from_entries(entries, spec)
+
+
+def parse_inventory(raw):
+    """Parse bounded engine/Git ls-tree bytes without lossy filename decoding."""
+    if len(raw) > 8 * 1024 * 1024:
+        raise ValueError('input_inventory_too_large')
     entries = {}
-    for raw in proc.stdout.split(b'\0'):
-        if not raw:
+    for row in raw.split(b'\0'):
+        if not row:
             continue
-        metadata, name = raw.split(b'\t', 1)
+        metadata, name = row.split(b'\t', 1)
         mode, kind, oid = metadata.decode('ascii').split()
         name = name.decode('utf-8', 'strict')
+        _path(name)
+        if name in entries:
+            raise ValueError('duplicate_inventory_path')
+        if ((mode, kind) not in {('100644', 'blob'), ('100755', 'blob'),
+                               ('120000', 'blob'), ('040000', 'tree'), ('160000', 'commit')}
+                or not OID.fullmatch(oid)):
+            raise ValueError('invalid_inventory_entry')
         entries[name] = [mode, kind, oid]
+    return entries
+
+
+def inventory(tree, raw):
+    if not isinstance(tree, str) or not OID.fullmatch(tree):
+        raise ValueError('invalid_tree')
+    entries = parse_inventory(raw)
+    return {'v': 1, 'source_tree': tree, 'entries': entries,
+            'sha256': hashlib.sha256(canonical(entries)).hexdigest()}
+
+
+def input_inventory(worktree, tree):
+    # input_manifest validates the source identity as an actual tree.
+    input_manifest(worktree, tree, {'root': False, 'paths': [], 'directories': []})
+    raw = subprocess.check_output(['git', '-C', str(worktree), 'ls-tree', '-r', '-t', '-z', tree], timeout=30)
+    return inventory(tree, raw)
+
+
+def attested_manifest(attestation, tree, spec):
+    """Only call with an engine-authenticated inventory, never report assertions."""
+    if (not isinstance(attestation, dict) or set(attestation) != {'v', 'source_tree', 'entries', 'sha256'}
+            or type(attestation['v']) is not int or attestation['v'] != 1
+            or attestation['source_tree'] != tree or not isinstance(attestation['entries'], dict)):
+        raise ValueError('invalid_input_attestation')
+    entries = attestation['entries']
+    raw = b''
+    for name, value in entries.items():
+        if not isinstance(value, list) or len(value) != 3 or not all(isinstance(x, str) for x in value):
+            raise ValueError('invalid_inventory_entry')
+        raw += ('%s %s %s\t%s' % (*value, name)).encode() + b'\0'
+    verified = inventory(tree, raw)
+    if verified['sha256'] != attestation['sha256']:
+        raise ValueError('input_attestation_digest_mismatch')
+    return manifest_from_entries(entries, spec)
+
+
+def manifest_from_entries(entries, spec):
+    if (not isinstance(spec, dict) or (not {'root', 'paths', 'directories'} <= set(spec) or
+            set(spec) - {'root', 'paths', 'directories', 'bind_root_entries'})
+            or type(spec['root']) is not bool or type(spec.get('bind_root_entries', False)) is not bool):
+        raise ValueError('invalid_input_spec')
+    for key in ('paths', 'directories'):
+        if not isinstance(spec[key], list) or len(set(spec[key])) != len(spec[key]):
+            raise ValueError('invalid_input_spec')
+        for path in spec[key]:
+            _path(path)
     for path in spec['paths'] + spec['directories']:
         parts = path.split('/')
         for length in range(1, len(parts)):
@@ -85,6 +147,8 @@ def input_manifest(worktree, tree, spec):
     if any(value and value[1] == 'commit' for value in selected.values()):
         raise ValueError('unsupported_gitlink')
     result = {'spec': spec, 'entries': selected, 'directories': directories}
+    if spec.get('bind_root_entries') is True:
+        result['root_entries'] = {name: value[:2] for name, value in entries.items() if '/' not in name}
     return hashlib.sha256(canonical(result)).hexdigest()
 
 
