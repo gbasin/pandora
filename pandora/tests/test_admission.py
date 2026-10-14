@@ -128,6 +128,7 @@ class CeilingAndReservationSplit(unittest.TestCase):
 class StoreHistory(unittest.TestCase):
     def setUp(self):
         self.store = Store()
+        self.addCleanup(self.store.close)
 
     def test_peaks_come_back_newest_first(self):
         for peak in (100, 200, 300):
@@ -165,6 +166,7 @@ class StoreHistory(unittest.TestCase):
 class Admit(unittest.TestCase):
     def setUp(self):
         self.admission = Admission(budget_mib=12288)
+        self.addCleanup(self.admission.store.close)
 
     def learn(self, peaks, repo='acme', job='journey'):
         for peak in peaks:
@@ -198,6 +200,7 @@ class Admit(unittest.TestCase):
 
     def test_slot_limit_refuses_before_memory_does(self):
         admission = Admission(budget_mib=100000, max_running=2)
+        self.addCleanup(admission.store.close)
         admission.store.record('acme', 'journey', 100, 'ok')
         admission.store.record('acme', 'journey', 100, 'ok')
         admission.store.record('acme', 'journey', 100, 'ok')

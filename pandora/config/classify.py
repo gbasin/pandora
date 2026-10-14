@@ -211,6 +211,12 @@ def build_plan(config, job, forwarded, chosen, caller_env=None, guarded=()):
             tail.append(option['name'])
     argv = _splice(job['run']['argv'], job['run']['args_at'], tail)
     env, unset = environment(config, job, caller_env)
+    local_run = None
+    if job.get('local'):
+        local_job = dict(job, run=job['local'])
+        local_env, local_unset = environment(config, local_job, caller_env)
+        local_run = {'argv': _splice(job['local']['argv'], job['local']['args_at'], tail),
+                     'cwd': job['local']['cwd'], 'env': local_env, 'env_unset': local_unset}
     positional = _positional(forwarded, guarded)
     outputs = []
     for output in job['outputs']:
@@ -239,6 +245,7 @@ def build_plan(config, job, forwarded, chosen, caller_env=None, guarded=()):
         'args': list(forwarded),
         'options': options,
         'argv': argv,
+        'local_run': local_run,
         'cwd': job['run']['cwd'],
         'env': env,
         'env_unset': unset,

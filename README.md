@@ -46,8 +46,9 @@ What happens to `pnpm check` in a repository whose `pandora.toml` declares a
    arguments unchanged.
 2. The daemon matches the command to the `check` job in this worktree's
    `pandora.toml`. The job declares `where = "remote"`. `PANDORA_WHERE=local`
-   or `PANDORA_WHERE=remote` overrides that for one run, and exits 64 when the
-   job cannot run there. The job's declared preflight, a command that
+   or `PANDORA_WHERE=remote` overrides that for one run. A declared `local`
+   command supplies the local execution path for worker-only templates. The
+   override exits 64 when the job has no supported execution path there. The job's declared preflight, a command that
    rejects bad arguments in milliseconds, runs in the worktree before anything
    ships. A refusal exits with the validator's own code and message. A
    validator that times out is skipped.
