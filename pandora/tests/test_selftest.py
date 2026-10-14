@@ -630,7 +630,8 @@ class Publication(DaemonCase):
         self.result = {'outcome': 'passed', 'cli_exit': 0, 'tree': self.TREE,
                        'verdict': None, 'verdict_skipped': 'worker_not_ready'}
         result, run_dir = self.submit()
-        self.refused('the scratch origin holds ' + self.ref, result, run_dir)
+        self.refused('the scratch origin holds ', result, run_dir)
+        self.assertIn(self.ref, selftest.published_refs(self.origin))
 
     def test_an_engine_before_verdicts_checks_nothing(self):
         self.assertIsNone(self.check({'outcome': 'passed'}, self.root))
