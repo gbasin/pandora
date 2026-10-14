@@ -280,3 +280,67 @@ def publish_evidence(worktree, remote, result):
         return {'state': 'published', 'ref': ref, 'commit': commit, 'reason': None}
     except (Failed, ValueError, TypeError, AttributeError) as error:
         return {'state': 'failed', 'ref': ref, 'reason': str(error)}
+
+
+EXECUTION_PREFIX = 'refs/pandora/executions'
+EXECUTION_RECORD = 'execution-publish.json'
+
+
+def publish_execution(worktree, remote, result):
+    """Retain each signed whole-command run, independent of the first verdict ref.
+
+    Publication transports the worker signature; consumers must verify it using
+    their trusted keys. A supplied report is included only when its bytes match
+    the digest in that signed payload.
+    """
+    if not isinstance(result, dict) or not result.get('verdict'):
+        return None
+    deadline = time.monotonic() + TIMEOUT
+    ref = None
+    try:
+        tree, job, payload, signature, signer = parts(result)
+        body = json.loads(payload)
+        if body.get('kind') == 'pandora-suite-verdict':
+            return None
+        if body.get('kind') != 'pandora-verdict':
+            raise Failed('the payload is not a whole-command verdict')
+        run_id = body.get('run_id')
+        if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+            raise Failed('invalid execution run id')
+        if len(job) > 80:
+            raise Failed('invalid execution job')
+        report = None
+        artifact = result.get('test_evidence')
+        if artifact is not None:
+            candidate = artifact.get('report') if isinstance(artifact, dict) else None
+            binding = body.get('test_evidence')
+            if (not isinstance(candidate, str) or not isinstance(binding, dict) or
+                    len(candidate.encode()) > 4 * 1024 * 1024 or
+                    hashlib.sha256(candidate.encode()).hexdigest() != binding.get('sha256') or
+                    len(candidate.encode()) != binding.get('bytes')):
+                raise Failed('test report does not match signed digest')
+            report = candidate
+        if not has_remote(worktree, remote, deadline=deadline):
+            return None
+        ref = '%s/%s/%s/%s' % (EXECUTION_PREFIX, tree, job, run_id)
+        commit = build(worktree, tree, job, payload, signature, signer, deadline=deadline,
+                       report=report)
+        ssh = ssh_environment(worktree, deadline=deadline)
+        listed = git(worktree, 'ls-remote', '--', remote, ref, env=ssh, deadline=deadline)
+        if listed:
+            if listed.split()[0] != commit:
+                raise Failed('execution ref already names a different verdict')
+            return present(ref, listed)
+        try:
+            git(worktree, 'push', '--quiet', '--', remote, '%s:%s' % (commit, ref),
+                env=ssh, deadline=deadline)
+        except Failed as pushed:
+            listed = git(worktree, 'ls-remote', '--', remote, ref, env=ssh, deadline=deadline)
+            if listed and listed.split()[0] == commit:
+                return present(ref, listed)
+            if listed:
+                raise Failed('execution ref already names a different verdict') from None
+            raise pushed from None
+        return {'state': 'published', 'ref': ref, 'commit': commit, 'reason': None}
+    except (Failed, ValueError, TypeError, AttributeError) as error:
+        return {'state': 'failed', 'ref': ref, 'reason': str(error)}

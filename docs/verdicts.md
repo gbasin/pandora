@@ -401,6 +401,22 @@ raw-byte SHA-256 digest, byte count and supervisor execution duration are
 included in the signed verdict. The raw report is returned in `test_evidence`.
 Existing verdict payloads remain unchanged when there is no valid report.
 
+With `[verdicts] publish = true`, every signed ordinary whole-command run also
+gets an immutable ref at `refs/pandora/executions/<tree>/<job>/<run_id>`. This
+includes runs without a test report. The commit holds the original
+`payload.json`, `verdict.sig` and `signer`, plus `report.json` when its bytes
+match the signed digest. Different argv selections for one tree and job remain
+available separately. Typed suite envelopes use the test-evidence path below.
+The legacy `refs/pandora/verdicts/<tree>/<job>` still keeps its first verdict.
+Consumers must verify each signature and match the signed command inputs before
+using an execution as evidence. Publication does not establish a new skip rule.
+
+Execution publication has its own `execution-publish.json` record and log line.
+The publication channels fail independently and cannot change the command's
+exit code. Repeating publication of identical content reports `present`; a run
+ref that already names different content fails without replacing that content.
+The existing verdict pruning command does not prune execution refs.
+
 With `[verdicts] publish = true`, the client also publishes a report-bearing
 commit at `refs/pandora/test-evidence/<tree>/<job>/<run_id>`. Each commit holds
 `payload.json`, `verdict.sig`, `signer` and `report.json`. Distinct selections

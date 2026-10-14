@@ -367,6 +367,77 @@ def verdict_threads():
                     time.sleep(0.01)
 
 
+class ExecutionPublish(unittest.TestCase):
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.root = Path(home.name)
+        self.repo = make_repo(self.root)
+
+    def test_distinct_selections_retained_and_same_content_present(self):
+        records = []
+        for run_id, argv in [('r1', ['lint', 'a']), ('r2', ['lint', 'b'])]:
+            result = signed(run_id=run_id)
+            body = json.loads(result['verdict']['payload'])
+            body['argv'] = argv
+            result['verdict']['payload'] = canonical(body)
+            records.append(verdicts.publish_execution(self.repo, 'origin', result))
+            self.assertEqual(records[-1]['state'], 'published', records[-1])
+            self.assertEqual(verdicts.publish_execution(self.repo, 'origin', result)['state'],
+                             'present')
+            # Legacy publication continues to keep the first verdict.
+            verdicts.publish(self.repo, 'origin', result)
+        self.assertNotEqual(records[0]['commit'], records[1]['commit'])
+        refs = sh('git', '-C', str(self.root / 'origin.git'), 'for-each-ref',
+                  '--format=%(refname)', verdicts.EXECUTION_PREFIX).splitlines()
+        self.assertEqual(len(refs), 2)
+        first = sh('git', '-C', str(self.root / 'origin.git'), 'show',
+                   records[0]['ref'] + ':payload.json')
+        self.assertEqual(json.loads(first)['argv'], ['lint', 'a'])
+
+    def test_collision_preserves_original(self):
+        first = verdicts.publish_execution(self.repo, 'origin', signed())
+        changed = signed()
+        changed['verdict']['signature'] += 'different'
+        record = verdicts.publish_execution(self.repo, 'origin', changed)
+        self.assertEqual(record['state'], 'failed')
+        self.assertIn('different verdict', record['reason'])
+        self.assertEqual(sh('git', '-C', str(self.root / 'origin.git'), 'rev-parse',
+                            first['ref']), first['commit'])
+
+    def test_unsigned_suite_and_unsafe_names(self):
+        self.assertIsNone(verdicts.publish_execution(self.repo, 'origin', {}))
+        missing = signed()
+        missing['verdict']['signature'] = ''
+        self.assertEqual(verdicts.publish_execution(self.repo, 'origin', missing)['state'], 'failed')
+        suite = signed()
+        body = json.loads(suite['verdict']['payload'])
+        body['kind'] = 'pandora-suite-verdict'
+        suite['verdict']['payload'] = canonical(body)
+        self.assertIsNone(verdicts.publish_execution(self.repo, 'origin', suite))
+        for run_id in ('../main', 'x' * 81, ''):
+            self.assertEqual(verdicts.publish_execution(self.repo, 'origin',
+                                                       signed(run_id=run_id))['state'], 'failed')
+        self.assertEqual(verdicts.publish_execution(self.repo, 'origin',
+                                                   signed(job='a' * 81))['state'], 'failed')
+
+    def test_bound_report_only(self):
+        import hashlib
+        result = signed()
+        raw = '{"tests": []}'
+        body = json.loads(result['verdict']['payload'])
+        body['test_evidence'] = {'sha256': hashlib.sha256(raw.encode()).hexdigest(),
+                                 'bytes': len(raw.encode())}
+        result['verdict']['payload'] = canonical(body)
+        result['test_evidence'] = {'report': raw}
+        record = verdicts.publish_execution(self.repo, 'origin', result)
+        self.assertEqual(record['state'], 'published', record)
+        self.assertEqual(sh('git', '-C', str(self.root / 'origin.git'), 'show',
+                            record['ref'] + ':report.json'), raw)
+        result['test_evidence']['report'] += ' '
+        self.assertEqual(verdicts.publish_execution(self.repo, 'origin', result)['state'], 'failed')
+
+
 class DaemonHook(DaemonCase):
     """`deliver` starts the push after the exit, and the exit never depends on it."""
 
@@ -408,6 +479,18 @@ class DaemonHook(DaemonCase):
                 lines.append(base64.b64decode(frame['b64']).decode())
         return ''.join(lines), kinds
 
+    def test_legacy_exception_does_not_suppress_execution_and_retry(self):
+        self.opt_in()
+        with mock.patch.object(verdicts, 'publish', side_effect=RuntimeError('boom')):
+            answer, run_dir = self.run_unit()
+        self.assertEqual(answer.exit, 0)
+        record = json.loads((run_dir / verdicts.EXECUTION_RECORD).read_text())
+        self.assertEqual(record['state'], 'published')
+        run = next(iter(self.daemon.runs.values()))
+        self.daemon.publish_verdict_now(run, {'name': 'demo'}, self.result)
+        record = json.loads((run_dir / verdicts.EXECUTION_RECORD).read_text())
+        self.assertEqual(record['state'], 'present')
+
     def test_published_after_the_exit_frame(self):
         self.opt_in()
         answer, run_dir = self.run_unit()
@@ -415,7 +498,7 @@ class DaemonHook(DaemonCase):
         self.assertNotIn(b'verdict', answer.err)
         text, kinds = self.log_lines(run_dir)
         self.assertIn('pandora: verdict published refs/pandora/verdicts/%s/unit\n' % TREE, text)
-        self.assertEqual(kinds[-2:], ['exit', 'log'])
+        self.assertEqual(kinds[-3:], ['exit', 'log', 'log'])
         record = json.loads((run_dir / verdicts.RECORD).read_text())
         self.assertEqual(record['state'], 'published')
         self.assertEqual(json.loads((run_dir / 'result.json').read_text())['verdict'],

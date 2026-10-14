@@ -2546,21 +2546,29 @@ class Daemon:
             return
         if not wanted.get('publish'):
             return
-        try:
-            record = verdicts.publish(worktree, wanted.get('remote') or 'origin', result)
-            if record is not None:
-                (run.dir / verdicts.RECORD).write_text(json.dumps(record) + '\n')
-                run.note(verdicts.line(record))
-            observed = verdicts.publish_evidence(worktree, wanted.get('remote') or 'origin', result)
-            if observed is not None:
-                (run.dir / verdicts.EVIDENCE_RECORD).write_text(json.dumps(observed) + '\n')
-                run.note('test evidence ' + observed['state'] + ': ' +
-                         (observed.get('ref') or observed.get('reason') or 'unknown'))
-        except Exception as error:               # noqa: BLE001 - never a verdict on the run
+        remote = wanted.get('remote') or 'origin'
+        # Each channel records and retries independently. Failure in the legacy
+        # publication or its record must not suppress per-run retention.
+        publishers = (
+            (verdicts.publish, verdicts.RECORD, 'verdict'),
+            (verdicts.publish_execution, verdicts.EXECUTION_RECORD, 'execution'),
+            (verdicts.publish_evidence, verdicts.EVIDENCE_RECORD, 'test evidence'),
+        )
+        for publish, filename, label in publishers:
             try:
-                run.note('verdict not published: %s: %s' % (type(error).__name__, error))
-            except OSError:
-                pass
+                record = publish(worktree, remote, result)
+                if record is not None:
+                    (run.dir / filename).write_text(json.dumps(record) + '\n')
+                    if label == 'verdict':
+                        run.note(verdicts.line(record))
+                    else:
+                        run.note(label + ' ' + record['state'] + ': ' +
+                                 (record.get('reason') or record.get('ref') or 'unknown'))
+            except Exception as error:           # noqa: BLE001 - never a verdict on the run
+                try:
+                    run.note('%s not published: %s: %s' % (label, type(error).__name__, error))
+                except OSError:
+                    pass
 
     def write_back(self, run, worker, result):
         """Publish a `--update` run's proposal, or say why not. None for other runs.
