@@ -3,7 +3,7 @@ import unittest
 import tomllib
 
 from pandora.client import placement
-from pandora.errors import Refused
+from pandora.errors import Refused, ConfigError
 from pandora.tests.test_placement import PlacementCase, CONFIG, RecordingWorker
 from pandora.tests.test_fallback import FakeWorker
 from pandora.errors import WorkerUnreachable
@@ -31,7 +31,7 @@ base_image = "images:ubuntu/26.04"
 '''))
 
     def test_mapped_local_uses_complete_command(self):
-        config = self.config('local = { argv = ["node", "runner.mjs", "run", "{args}"], env = { LOCAL = "1" } }\n')
+        config = self.config('local = { argv = ["node", "runner.mjs", "run", "{args}"], env = { LOCAL = "1" }, cwd = "scripts", unset = ["REMOTE"] }\n')
         verdict = classify.classify(config, ['pnpm', 'surface', 'desk', '--grep', 'case'])
         job = config['jobs']['surface']
         decision = placement.decide(job, verdict['plan'], 'local')
@@ -39,6 +39,8 @@ base_image = "images:ubuntu/26.04"
         self.assertEqual(plan['argv'], ['node', 'runner.mjs', 'run', 'desk', '--grep', 'case'])
         self.assertIsNone(plan['shards'])
         self.assertEqual(plan['env'], {'LOCAL': '1'})
+        self.assertEqual(plan['cwd'], 'scripts')
+        self.assertEqual(plan['env_unset'], ['REMOTE'])
         self.assertEqual(placement.local_plan(verdict['plan']), plan)
 
     def test_explicit_update_is_in_place_but_automatic_fallback_refuses(self):
@@ -56,6 +58,14 @@ base_image = "images:ubuntu/26.04"
         self.assertEqual(fallback.decide(cause='worker-down', writeback=True,
                                         declared={'action': 'local', 'on': ['worker-down']})['action'], 'refuse')
 
+    def test_invalid_local_commands_are_refused_at_load(self):
+        with self.assertRaises(ConfigError):
+            self.config('where = "local"\nlocal = { argv = ["node", "runner.mjs", "{args}"] }\n')
+        with self.assertRaises(ConfigError):
+            self.config('local = { argv = ["node", "runner.mjs"] }\n')
+        with self.assertRaises(ConfigError):
+            self.config('local = { argv = ["node", "runner.mjs", "{args}", "--shard={i}/{n}"] }\n')
+
     def test_unmapped_shards_fail_closed(self):
         config = self.config()
         verdict = classify.classify(config, ['pnpm', 'surface', 'desk'])
@@ -66,7 +76,7 @@ base_image = "images:ubuntu/26.04"
 class MappedDaemon(PlacementCase):
     def setUp(self):
         super().setUp()
-        local = 'local = { argv = ["sh", "-c", "echo $LOCAL $* > %(marker)s", "--", "{args}"], env = { LOCAL = "mapped" } }\n'
+        local = 'local = { argv = ["sh", "-c", "echo $LOCAL $* >> %(marker)s", "--", "{args}"], env = { LOCAL = "mapped" } }\n'
         text = CONFIG % {'marker': self.marker}
         text = text.replace('[jobs.shards]', (local % {'marker': self.marker}) + '[jobs.shards]')
         (self.repo / 'pandora.toml').write_text(text)
@@ -74,12 +84,19 @@ class MappedDaemon(PlacementCase):
     def test_explicit_local_never_submits_worker_plan(self):
         answer = self.place(['pnpm', 'surface', 'desk'], 'local')
         self.assertEqual(answer.exit, 0, answer.error)
-        self.assertEqual(self.marker.read_text().strip(), 'mapped desk')
+        self.assertEqual(self.marker.read_text().splitlines(), ['mapped desk'])
         self.assertEqual(RecordingWorker.plans, [])
 
     def test_worker_unreachable_uses_mapped_local_command_once(self):
         FakeWorker.raises = WorkerUnreachable('no worker')
         answer = self.call(['pnpm', 'surface', 'desk'])
         self.assertEqual(answer.exit, 0, answer.error)
-        self.assertEqual(self.marker.read_text().strip(), 'mapped desk')
+        self.assertEqual(self.marker.read_text().splitlines(), ['mapped desk'])
         self.assertEqual(answer.accepted['lane'], 'local')
+
+    def test_explicit_remote_with_mapping_never_falls_back(self):
+        FakeWorker.raises = WorkerUnreachable('no worker')
+        answer = self.place(['pnpm', 'surface', 'desk'], 'remote')
+        self.assertEqual(answer.exit, 70, answer.error)
+        self.assertFalse(self.marker.exists())
+        self.assertIsNone(answer.accepted)

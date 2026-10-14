@@ -664,7 +664,7 @@ class ProgressLines(DaemonCase):
 
 class LocalQueueLine(unittest.TestCase):
     def test_a_wait_is_said_once_with_its_estimate(self):
-        lane = budget(max_running=1)
+        lane = budget(self, max_running=1)
         lane.estimate = lambda: 40.0
         lane.reserve('a', repo='demo', job='unit', worktree='/tmp/a', singleton=False)
         self.assertTrue(lane.admit('a', repo='demo', job='unit')['admitted'])
@@ -675,7 +675,7 @@ class LocalQueueLine(unittest.TestCase):
         self.assertEqual(said, ['queued behind 1 run, ~40 s'])
 
     def test_the_repeat_is_once_a_minute_and_carries_no_estimate(self):
-        lane = budget()
+        lane = budget(self)
         said = []
         at = lane.say_queued(said.append, None)
         self.assertEqual(lane.say_queued(said.append, at), at)

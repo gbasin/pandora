@@ -131,6 +131,7 @@ cancel gives CLI exit 130. The clone is destroyed after either result.
 | `args` | `none` (default), `required` or `optional`. `on_extra = { action = "local" }` lets extra arguments fall out of the claim instead of being refused. A refusal exits 1. |
 | `validate` | `{ argv, timeout_ms, cwd, env }`: the repository's own pre-flight check, run in the worktree before anything is frozen or queued. `timeout_ms` defaults to 5000, range 50 to 60000. Exit 0 means "I would run this". Anything else is the repository's refusal, shown as is, with the validator's own exit code. |
 | `run` | `{ argv, env, unset, cwd }`: the command. `{args}` places the caller's arguments. `cwd` applies to local runs only. A remote run always starts in `/work`, the worktree root. |
+| `local` | Optional `{ argv, env, unset, cwd }` for a remote job: a complete local command for explicit local placement and permitted fallback. Its environment replaces `run.env` and `run.unset`, while retaining the repository base environment. |
 | `outputs` | Entries `{ kind, paths, requires_option }`. `kind` is `artifacts` (remote paths brought home), `writeback` (files an armed option may rewrite, described below) or `evidence` (local jobs only: paths the receipt records as present or absent). A `writeback` output must name a `requires_option` that a `writeback = true` option sets. A path may carry `{argN}`, the Nth positional argument of the command being claimed, so `test:surface <app>` can declare `apps/{arg1}/test-results`; a command that does not supply the argument is refused, and a declared path the run did not produce is reported missing rather than ignored. |
 | `options` | `{ name, sets, forward, writeback }`. `writeback = true` arms the job's `writeback` outputs when the option is typed. Acme's `--update` is one. |
 | `value_flags` | Flags whose value is not a path, so the subdirectory rule does not check it. |
@@ -387,7 +388,8 @@ Every refusal exits 64 before the validator, the freeze or the queue.
 ### A separate local command
 
 A remote job may declare `local` with the same `argv`, `cwd`, `env`, and `unset`
-fields as `run`. The local command must forward `{args}` when `run` does.
+fields as `run`. Its argv, cwd, env, and unset replace the corresponding
+`run` fields; only the repository base environment is shared. The local command must forward `{args}` when `run` does.
 Use this when the worker command depends on a shard plan or prebuilt outputs:
 
 ```toml

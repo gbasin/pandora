@@ -64,11 +64,13 @@ def why_not_local(job, plan=None):
     already refuses `shards` with `where = "local"`, and an override must not be
     a way around a rule the configuration itself cannot state.
 
-    A run that writes back is refused for the same shape of reason: the
+    Without a reviewed local command, a run that writes back is refused: the
     proposal, the staleness check and the conflict report are the engine's, and
     a local run has none of them -- it would write the files in place with no
     check at all, which is write-back in name only. `plan` carries the intent;
-    callers without one get only the job-level checks.
+    callers without one get only the job-level checks. A mapped explicit local
+    update instead writes in place by the caller's choice, without transactional
+    worker write-back. Automatic update fallback remains refused.
     """
     if job.get('local') and (plan is None or plan.get('local_run')):
         return None
