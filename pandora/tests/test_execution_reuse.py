@@ -32,7 +32,7 @@ class ExecutionReuseTests(unittest.TestCase):
         self.evidence['units'] = [{'id': identity, 'complete': True, 'outcome': 'passed',
                                   'attempts': [{'ordinal': 0, 'outcome': 'passed'}]}
                                  for identity in ('file-a', 'file-b')]
-        self.policy = {'schema': 1, 'repo': 'owner/repo', 'family': 'unit', 'check_id': 'check',
+        self.policy = {'schema': 1, 'enabled': True, 'repo': 'owner/repo', 'family': 'unit', 'check_id': 'check',
                        'inputs': self.spec, 'required_paths': ['adapter.py', 'config.json'],
                        'runtime': self.request['runtime'], 'approved_engines': ['a' * 64],
                        'max_age_seconds': 60}
@@ -68,9 +68,7 @@ class ExecutionReuseTests(unittest.TestCase):
         mutations = [lambda: (self.root / 'absent').write_text('new'),
                      lambda: (self.root / 'src/new').write_text('new'),
                      lambda: (self.root / 'src/a.py').unlink(),
-                     lambda: (self.root / 'src/a.py').chmod(0o755),
-                     lambda: ((self.root / 'src/a.py').unlink(),
-                              (self.root / 'src/a.py').symlink_to('../config.json'))]
+                     lambda: (self.root / 'src/a.py').chmod(0o755)]
         for mutate in mutations:
             with self.subTest(mutation=mutate):
                 self.git('read-tree', self.tree)
@@ -139,6 +137,47 @@ class ExecutionReuseTests(unittest.TestCase):
             spec = {'root': False, 'paths': [path], 'directories': []}
             with self.assertRaises(ValueError):
                 self.manifest(self.tree, spec)
+
+    def test_disabled_policy_and_override_types(self):
+        for enabled in (None, False, 1):
+            self.policy['enabled'] = enabled
+            self.assertEqual(self.decision()['reason'], 'policy_disabled')
+        self.policy['enabled'] = True
+        for flag in ('canary', 'force_full'):
+            self.assertEqual(self.decision(**{flag: 'false'})['reason'], 'invalid_execution_override')
+
+    def test_input_path_kinds_and_gitlinks(self):
+        for spec, reason in [({'root': False, 'paths': ['src'], 'directories': []},
+                              'file_input_is_directory'),
+                             ({'root': False, 'paths': [], 'directories': ['adapter.py']},
+                              'directory_input_not_directory')]:
+            with self.assertRaisesRegex(ValueError, reason):
+                self.manifest(self.tree, spec)
+        # Gitlinks can name arbitrary objects; their source is outside this tree.
+        self.git('update-index', '--add', '--cacheinfo', '160000,' + self.tree + ',vendor')
+        gitlink_tree = self.git('write-tree')
+        with self.assertRaisesRegex(ValueError, 'directory_input_not_directory'):
+            self.manifest(gitlink_tree, {'root': False, 'paths': [], 'directories': ['vendor']})
+        with self.assertRaisesRegex(ValueError, 'unsupported_gitlink'):
+            self.manifest(gitlink_tree, {'root': False, 'paths': ['vendor'], 'directories': []})
+
+    def test_selected_symlinks_fail_closed(self):
+        (self.root / 'src/link').symlink_to('../config.json')
+        tree = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'unsupported_selected_symlink'):
+            self.manifest(tree, self.spec)
+        self.request['source_tree'] = tree
+        self.assertEqual(self.decision()['reason'], 'unsupported_selected_symlink')
+        with self.assertRaisesRegex(ValueError, 'unsupported_selected_symlink'):
+            self.manifest(tree, {'root': True, 'paths': [], 'directories': []})
+        with self.assertRaisesRegex(ValueError, 'input_ancestor_not_directory'):
+            self.manifest(tree, {'root': False, 'paths': ['src/link/absent'], 'directories': []})
+
+    def test_source_must_be_tree_object(self):
+        commit = self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                          'commit-tree', self.tree, '-m', 'test')
+        with self.assertRaisesRegex(ValueError, 'source_identity_not_tree'):
+            self.manifest(commit, self.spec)
 
     def test_policy_requires_producer_config_closure(self):
         self.policy['required_paths'].append('outside')

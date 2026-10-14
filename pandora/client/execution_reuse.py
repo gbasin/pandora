@@ -28,7 +28,7 @@ def input_manifest(worktree, tree, spec):
     """Read exact Git tree objects; never follow symlinks or inspect checkout files.
 
     Root closure covers every tracked entry. Scoped closure records absence,
-    file modes and recursive directory membership. Gitlinks fail closed because
+    file modes and recursive directory membership. Selected symlinks and gitlinks fail closed because
     their contents are not available in this repository's tree.
     """
     if not isinstance(tree, str) or not OID.fullmatch(tree):
@@ -42,7 +42,12 @@ def input_manifest(worktree, tree, spec):
             raise ValueError('invalid_input_spec')
         for path in spec[key]:
             _path(path)
-    proc = subprocess.run(['git', '-C', str(worktree), 'ls-tree', '-r', '-z', tree],
+    kind = subprocess.run(['git', '-C', str(worktree), 'cat-file', '-t', tree],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+                          check=True).stdout.strip()
+    if kind != b'tree':
+        raise ValueError('source_identity_not_tree')
+    proc = subprocess.run(['git', '-C', str(worktree), 'ls-tree', '-r', '-t', '-z', tree],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
                           check=True)
     entries = {}
@@ -53,16 +58,30 @@ def input_manifest(worktree, tree, spec):
         mode, kind, oid = metadata.decode('ascii').split()
         name = name.decode('utf-8', 'strict')
         entries[name] = [mode, kind, oid]
+    for path in spec['paths'] + spec['directories']:
+        parts = path.split('/')
+        for length in range(1, len(parts)):
+            ancestor = entries.get('/'.join(parts[:length]))
+            if ancestor and ancestor[1] != 'tree':
+                raise ValueError('input_ancestor_not_directory')
     selected = entries if spec['root'] else {}
     selected = dict(selected)
     for path in spec['paths']:
-        selected[path] = entries.get(path)
+        entry = entries.get(path)
+        if entry and entry[1] == 'tree':
+            raise ValueError('file_input_is_directory')
+        selected[path] = entry
     directories = {}
     for path in spec['directories']:
+        entry = entries.get(path)
+        if entry and entry[1] != 'tree':
+            raise ValueError('directory_input_not_directory')
         members = {name: value for name, value in entries.items() if name.startswith(path + '/')}
         # An empty Git directory does not exist; distinguish a file at this path.
         directories[path] = {'entry': entries.get(path), 'members': members}
         selected.update(members)
+    if any(value and value[0] == '120000' for value in selected.values()):
+        raise ValueError('unsupported_selected_symlink')
     if any(value and value[1] == 'commit' for value in selected.values()):
         raise ValueError('unsupported_gitlink')
     result = {'spec': spec, 'entries': selected, 'directories': directories}
@@ -95,18 +114,24 @@ def evaluate(evidence, request, policy, *, manifest, now, force_full=False, cana
     """Return eligibility separately from skip candidates; malformed input fails closed.
 
     `manifest(tree, spec)` must read immutable Git trees. `evidence` is the
-    authenticated, digest-bound report, not arbitrary unverified client input.
+    authenticated envelope context merged with its digest-bound report. Engine,
+    repository, source tree and completion time come from the envelope, never
+    from producer-supplied report fields. The caller rejects conflicting values.
     Policy comes from trusted main; never from the candidate branch.
     """
     result = {'reusable': False, 'whole_complete': False, 'eligible_units': [],
               'remaining_units': [], 'skip_units': [], 'reason': 'reuse_unavailable',
               'diagnostics': []}
     try:
+        if type(force_full) is not bool or type(canary) is not bool:
+            raise ValueError('invalid_execution_override')
         if type(now) not in (int, float) or not math.isfinite(now):
             raise ValueError('invalid_time')
         for value in (evidence, request, policy):
             if not isinstance(value, dict) or type(value.get('schema')) is not int or value['schema'] != 1:
                 raise ValueError('unsupported_schema')
+        if policy.get('enabled') is not True:
+            raise ValueError('policy_disabled')
         for value in (evidence, request):
             tree = value.get('source_tree')
             if not isinstance(tree, str) or not OID.fullmatch(tree):

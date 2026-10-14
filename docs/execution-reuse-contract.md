@@ -6,7 +6,10 @@ remain unchanged. Unit, surface, journey, arc, Node, native, and static adapters
 can use this contract once their execution evidence meets its requirements.
 
 The caller authenticates the signed envelope and verifies its report digest
-before passing the bound evidence report to `evaluate`. The caller reads policy
+before passing evidence to `evaluate`. It constructs evidence from authoritative
+signed envelope context plus the digest-bound report. Repository, source tree,
+engine identity and completion time come from the engine envelope. Producer
+report fields cannot override them. The caller rejects conflicting values. The caller reads policy
 from trusted main, independently of the candidate branch. The function does not
 verify signatures or establish that its arguments are trusted.
 
@@ -14,7 +17,8 @@ verify signatures or establish that its arguments are trusted.
 
 Evidence and request name `repo`, `family`, `check_id`, `source_tree`,
 `engine_identity`, `runtime`, `selection`, and `units`. Policy names the same
-repository, family and check. The approved engine identity is a measured SHA-256
+repository, family and check. Policy must explicitly set `enabled: true`;
+missing or disabled policies grant no reuse. The approved engine identity is a measured SHA-256
 bundle identity. Evidence, request and trusted policy must agree on runtime.
 Evidence and request must agree on engine identity, and policy must approve it.
 Runtime objects compare as exact canonical JSON. There is no implicit OS,
@@ -60,9 +64,15 @@ input scope. This structural check does not replace review of completeness.
 
 `input_manifest(worktree, tree, spec)` reads immutable Git tree objects. It
 records missing paths, recursive directory membership, file modes, blob object
-identities and symlink blobs. Added or removed files in a selected directory
+identities. Source identities must name Git tree objects, not commits. A file
+input naming a directory, or a directory input naming a file or gitlink, fails
+closed. A missing path remains an explicit input. Added or removed files in a selected directory
 change its manifest. Gitlinks fail closed because the repository tree does not
-contain their source contents. Unsafe paths fail closed. Files ignored by Git,
+contain their source contents. This first version also rejects selected
+symlinks, including symlink ancestors of selected paths. Symlink targets can
+introduce inputs outside the reviewed closure. A future adapter must prove
+target closure before authorizing these inputs. Full root policies on trees
+containing symlinks therefore produce no reuse candidates. Unsafe paths fail closed. Files ignored by Git,
 untracked generated inputs and external state require separate measured runtime
 identities or an adapter that records them before reuse is enabled.
 
@@ -84,7 +94,7 @@ execution. `whole_complete` reports whether all requested units match.
 `skip_units` and `reusable` are the execution candidates and permission signal.
 Any malformed or incompatible context returns no skip candidates.
 
-`canary=True` or `force_full=True` retains eligibility diagnostics but returns
+Both override arguments require actual booleans. `canary=True` or `force_full=True` retains eligibility diagnostics but returns
 no skip candidates. Full canaries must bypass all reuse wiring. Merge queue
 callers collect the requested execution for the actual queue tree and apply the
 same input comparison. No PR-head shortcut authorizes a different queue tree.
