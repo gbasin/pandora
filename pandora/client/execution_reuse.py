@@ -123,6 +123,10 @@ def evaluate(evidence, request, policy, *, manifest, now, force_full=False, cana
               'remaining_units': [], 'skip_units': [], 'reason': 'reuse_unavailable',
               'diagnostics': []}
     try:
+        # Execution remains required even when policy or evidence is unusable.
+        # Establish the requested work before checking reuse prerequisites.
+        wanted = _units(request.get('units'))
+        result['remaining_units'] = sorted(wanted)
         if type(force_full) is not bool or type(canary) is not bool:
             raise ValueError('invalid_execution_override')
         if type(now) not in (int, float) or not math.isfinite(now):
@@ -136,8 +140,6 @@ def evaluate(evidence, request, policy, *, manifest, now, force_full=False, cana
             tree = value.get('source_tree')
             if not isinstance(tree, str) or not OID.fullmatch(tree):
                 raise ValueError('invalid_tree')
-        wanted = _units(request.get('units'))
-        result['remaining_units'] = sorted(wanted)
         observed = _units(evidence.get('units'), evidence=True)
         for key in ('repo', 'check_id', 'family'):
             value = request.get(key)

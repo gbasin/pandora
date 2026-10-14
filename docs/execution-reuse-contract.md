@@ -101,6 +101,10 @@ complete matching units. `remaining_units` lists requested units that need
 execution. `whole_complete` reports whether all requested units match.
 `skip_units` and `reusable` are the execution candidates and permission signal.
 Any malformed or incompatible context returns no skip candidates.
+When request units are valid, failed reuse checks preserve every requested unit
+in `remaining_units`. If the request units themselves are malformed, the caller
+must use its original execution plan; an empty result is not proof that no work
+is required.
 
 Both override arguments require actual booleans. `canary=True` or `force_full=True` retains eligibility diagnostics but returns
 no skip candidates. `remaining_units` then contains every requested unit,

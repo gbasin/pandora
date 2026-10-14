@@ -55,6 +55,23 @@ class ExecutionReuseTests(unittest.TestCase):
             self.assertTrue(self.decision()['whole_complete'])
             self.assertEqual(self.decision()['skip_units'], ['file-a', 'file-b'])
 
+    def test_early_reuse_failure_preserves_requested_execution(self):
+        for field, value in [('schema', 2), ('enabled', False)]:
+            with self.subTest(field=field):
+                policy = dict(self.policy, **{field: value})
+                result = evaluate(self.evidence, self.request, policy,
+                                  manifest=self.manifest, now=110)
+                self.assertEqual(result['remaining_units'], ['file-a', 'file-b'])
+                self.assertEqual(result['skip_units'], [])
+                self.assertFalse(result['reusable'])
+        for kwargs in ({'now': float('nan')}, {'now': 110, 'force_full': 1}):
+            result = evaluate(self.evidence, self.request, self.policy,
+                              manifest=self.manifest, **kwargs)
+            self.assertEqual(result['remaining_units'], ['file-a', 'file-b'])
+            self.assertEqual(result['skip_units'], [])
+        self.request['source_tree'] = 'invalid'
+        self.assertEqual(self.decision()['remaining_units'], ['file-a', 'file-b'])
+
     def test_cross_tree_unrelated_change(self):
         (self.root / 'unrelated').write_text('new')
         self.request['source_tree'] = self.snapshot()
