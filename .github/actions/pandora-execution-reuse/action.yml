@@ -1,0 +1,31 @@
+name: pandora-execution-reuse
+description: Authenticate complete execution units against policy from the default branch.
+inputs:
+  collection:
+    description: Adapter-collected execution request for the checked-out CI tree.
+    required: true
+  output:
+    description: Verified remaining-unit plan read by the execution adapter.
+    default: tmp/pandora-execution-reuse.json
+  force_full:
+    description: Run the complete original selection.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        REUSE_COLLECTION: ${{ inputs.collection }}
+        REUSE_OUTPUT: ${{ inputs.output }}
+        REUSE_FORCE: ${{ inputs.force_full }}
+        REUSE_EVENT: ${{ github.event_name }}
+        REUSE_NUMBER: ${{ github.run_number }}
+        REUSE_DEFAULT: ${{ github.event.repository.default_branch }}
+      run: |
+        rm -f "$REUSE_OUTPUT"
+        force=()
+        if [ "$REUSE_FORCE" != false ]; then force=(--force-full); fi
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/execution-reuse-plan.py" \
+          --collection "$REUSE_COLLECTION" --output "$REUSE_OUTPUT" \
+          --event "$REUSE_EVENT" --run-number "$REUSE_NUMBER" \
+          --default-branch "$REUSE_DEFAULT" "${force[@]}"

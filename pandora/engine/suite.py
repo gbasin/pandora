@@ -33,6 +33,7 @@ def assemble(parent, plan_result, plan_report, children, *, plan_digest):
     grafting. Incomplete runtime provenance remains explicit in observations.
     """
     tree = plan_result.get('tree')
+    input_inventory = (plan_result.get('evidence') or {}).get('input_inventory')
     if (parent.get('role') != 'parent' or not isinstance(tree, str) or
             not TREE.fullmatch(tree) or plan_result.get('role') != 'plan' or
             plan_result.get('parent') != parent['run_id'] or
@@ -84,6 +85,8 @@ def assemble(parent, plan_result, plan_report, children, *, plan_digest):
                 report.get('shard') != '%d/%d' % (index, total) or
                 {key: report.get(key) for key in selection} != selection):
             raise ValueError('suite_child_report_mismatch')
+        if input_inventory is not None and (result.get('evidence') or {}).get('input_inventory') != input_inventory:
+            raise ValueError('suite_input_inventory_mismatch')
         current_profile = {'execution': report.get('profile'), 'golden_pins': golden_pins}
         if not isinstance(current_profile['execution'], dict) or not golden_pins:
             raise ValueError('missing_suite_profile')
@@ -128,7 +131,7 @@ def assemble(parent, plan_result, plan_report, children, *, plan_digest):
         raise ValueError('suite_plan_context_mismatch')
     return {'kind': KIND, 'v': 1, 'runner': 'playwright', 'worker_run': parent['run_id'],
             'source_tree': tree, 'input_id': parent['input_id'], 'selection': selection,
-            'profile': profile, 'plan_sha256': plan_digest, 'build': build,
+            'profile': profile, 'input_inventory': input_inventory, 'plan_sha256': plan_digest, 'build': build,
             'planned': required, 'tests': sorted(tests, key=lambda test: test['id']),
             'children': sorted(provenance, key=lambda child: child['shard']),
             'complete': True, 'outcome': 'passed', 'authorizes_reuse': False}
@@ -174,7 +177,8 @@ def sign(root, parent, report, *, finished, golden, golden_pins):
         engine=verdict.engine_id(), env_digest=verdict.env_digest(parent.get('env')),
         finished=finished, golden=golden, golden_pins=golden_pins,
         input_id=parent['input_id'], job=parent['job'], outcome='passed',
-        repo=parent['repo'], run_id=parent['run_id'], tree=report['source_tree']))
+        repo=parent['repo'], run_id=parent['run_id'], tree=report['source_tree'],
+        input_inventory=report.get('input_inventory')))
     payload.update(kind=VERDICT_KIND,
                    test_evidence={key: artifact[key] for key in ('sha256', 'bytes')})
     return verdict.sign(root, verdict.canonical(payload)), artifact

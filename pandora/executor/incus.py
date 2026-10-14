@@ -618,6 +618,26 @@ git commit -q --no-verify --allow-empty -m "$3"
 rm -rf "$2"
 """
 
+    def source_integrity(self, name, dest, inventory):
+        from pandora.engine.source_integrity import SCRIPT
+        proc = subprocess.run(self.base + ['exec', name, '--', 'python3', '-c', SCRIPT, dest],
+                              input=json.dumps(inventory).encode(), stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=120, check=True)
+        return proc.stdout.strip() == b'verified'
+
+    def clear_execution_report(self, name, dest):
+        from pandora.engine.source_integrity import CLEAR_SCRIPT
+        _, out, _ = run(self.base + ['exec', name, '--', 'python3', '-c', CLEAR_SCRIPT, dest], timeout=30)
+        return out.strip() == 'cleared'
+
+    def input_inventory(self, name, dest, tree):
+        """Measure immutable source objects before repository code executes."""
+        from pandora.client.execution_reuse import inventory
+        proc = subprocess.run(self.base + ['exec', name, '--', 'git', '-C', dest,
+                              'ls-tree', '-r', '-t', '-z', tree],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, check=True)
+        return inventory(tree, proc.stdout)
+
     def synthetic_git(self, name, dest, marks, message):
         """Make `dest` a one-commit repository whose index is the caller's tracked set.
 

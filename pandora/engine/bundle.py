@@ -25,6 +25,8 @@ PACKAGE = 'pandora'
 MEMBERS = (
     '__init__.py',
     'errors.py',
+    'client/__init__.py',
+    'client/execution_reuse.py',
     'exits.py',
     # The `[worker]` schema the `golden` verb checks a request against.
     'config/__init__.py',
@@ -45,6 +47,8 @@ MEMBERS = (
     'engine/turbocache.py',
     'engine/verdict.py',
     'engine/inventory.py',
+    'engine/execution_report.py',
+    'engine/source_integrity.py',
     'engine/suite.py',
     'engine/waitlist.py',
     'engine/writeback.py',
