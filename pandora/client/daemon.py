@@ -2105,7 +2105,7 @@ class Daemon:
             % (origin.id if origin is not None else '-', cause, detail))
         try:
             self.tell(conn, '%s (%s); %s' % (cause, detail, verdict['reason']))
-            self.serve_local(conn, reader, request, repo, job, plan, worktree=worktree,
+            self.serve_local(conn, reader, request, repo, job, placement.local_plan(plan), worktree=worktree,
                              reason='fallback:' + cause, checked=checked, origin=origin)
         finally:
             if origin is not None and not origin.done.is_set():

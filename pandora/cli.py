@@ -1087,7 +1087,7 @@ def main(argv=None):
                      help='print the run id once accepted and return')
     side = run.add_mutually_exclusive_group()
     side.add_argument('--local', dest='where', action='store_const', const='local',
-                      help='run it in the local lane, whatever the job says')
+                      help='run in the local lane; use jobs.local when declared')
     side.add_argument('--remote', dest='where', action='store_const', const='remote',
                       help='run it on the worker, whatever the job says')
     run.add_argument('argv', nargs=argparse.REMAINDER)

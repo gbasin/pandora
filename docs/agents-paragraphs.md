@@ -153,3 +153,7 @@ command the verdict covers, and `origin/main` with the default branch.
 > includes untracked files, and CI checks the tree of the merge commit it
 > builds. So the verdict counts only when your branch already contains
 > `origin/main` and the pushed commit holds exactly the files the run saw.
+
+A job may declare a separate `local` command for `PANDORA_WHERE=local` and
+permitted pre-accept fallback. It runs in the local queue and produces no signed
+worker verdict. `PANDORA_OFF=1` runs the original command directly.

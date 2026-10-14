@@ -51,11 +51,13 @@ class FakeRun:
         return b''.join(chunk for _which, chunk in self.chunks).decode()
 
 
-def budget(gate=None, **config):
+def budget(testcase, gate=None, **config):
     settings = {'budget_mib': 4096, 'max_running': 4, 'one_active_per_worktree': True}
     settings.update(config)
-    return Budget(settings, store=Store(':memory:'),
+    pool = Budget(settings, store=Store(':memory:'),
                   gate=gate if gate is not None else Gate({'enabled': False}))
+    testcase.addCleanup(pool.close)
+    return pool
 
 
 class Fake:
@@ -79,7 +81,7 @@ def healthy(**extra):
 
 class BudgetRules(unittest.TestCase):
     def test_one_active_per_worktree_refuses_rather_than_queues(self):
-        pool = budget()
+        pool = budget(self)
         pool.reserve('a', repo='acme', job='check', worktree='.', singleton=False)
         with self.assertRaises(Busy) as caught:
             pool.reserve('b', repo='acme', job='unit', worktree='.', singleton=False)
@@ -87,18 +89,18 @@ class BudgetRules(unittest.TestCase):
         self.assertIn('a', str(caught.exception))
 
     def test_the_rule_is_configurable_off(self):
-        pool = budget(one_active_per_worktree=False)
+        pool = budget(self, one_active_per_worktree=False)
         pool.reserve('a', repo='acme', job='check', worktree='.', singleton=False)
         pool.reserve('b', repo='acme', job='unit', worktree='.', singleton=False)
 
     def test_two_worktrees_are_independent(self):
-        pool = budget()
+        pool = budget(self)
         with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two:
             pool.reserve('a', repo='acme', job='check', worktree=one, singleton=False)
             pool.reserve('b', repo='acme', job='check', worktree=two, singleton=False)
 
     def test_a_singleton_owns_the_machine(self):
-        pool = budget()
+        pool = budget(self)
         with tempfile.TemporaryDirectory() as one, tempfile.TemporaryDirectory() as two:
             pool.reserve('a', repo='acme', job='dev-stack', worktree=one, singleton=True)
             with self.assertRaises(Busy) as caught:
@@ -106,7 +108,7 @@ class BudgetRules(unittest.TestCase):
         self.assertIn('pandora cancel a', str(caught.exception))
 
     def test_a_singleton_does_not_take_its_worktrees_slot(self):
-        pool = budget()
+        pool = budget(self)
         pool.reserve('stack', repo='acme', job='dev-stack', worktree='.', singleton=True)
         pool.reserve('a', repo='acme', job='check', worktree='.', singleton=False)
         with self.assertRaises(Busy) as caught:
@@ -120,14 +122,14 @@ class BudgetRules(unittest.TestCase):
             pool.reserve('d', repo='acme', job='unit', worktree='.', singleton=False)
 
     def test_releasing_frees_both_holds(self):
-        pool = budget()
+        pool = budget(self)
         pool.reserve('a', repo='acme', job='dev-stack', worktree='.', singleton=True)
         pool.admit('a', repo='acme', job='dev-stack')
         pool.finish('a', 100, 'ok')
         pool.reserve('b', repo='acme', job='dev-stack', worktree='.', singleton=True)
 
     def test_a_stopping_daemon_closes_the_store_and_admits_nothing_more(self):
-        pool = budget()
+        pool = budget(self)
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         pool.admit('a', repo='acme', job='check')
         pool.reserve('b', repo='acme', job='unit', worktree='/b', singleton=False)
@@ -147,14 +149,14 @@ class BudgetRules(unittest.TestCase):
     def test_a_cold_job_reserves_its_whole_class_and_a_second_waits(self):
         # A cold `medium` reserves its whole 4096 MiB ceiling, so a 4096 MiB
         # budget holds exactly one of them and the second has to wait.
-        pool = budget(budget_mib=4096)
+        pool = budget(self, budget_mib=4096)
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         pool.reserve('b', repo='acme', job='check', worktree='/b', singleton=False)
         self.assertIsNotNone(pool.admit('a', repo='acme', job='check'))
         self.assertIsNone(pool.admit('b', repo='acme', job='check', timeout=0.2))
 
     def test_a_release_wakes_the_waiter(self):
-        pool = budget(budget_mib=4096)
+        pool = budget(self, budget_mib=4096)
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         pool.reserve('b', repo='acme', job='check', worktree='/b', singleton=False)
         pool.admit('a', repo='acme', job='check')
@@ -175,7 +177,7 @@ class BudgetRules(unittest.TestCase):
         self.assertEqual(local.budget_from({'budget_mib': 777}), 777)
 
     def test_the_declared_size_class_is_the_ceiling(self):
-        pool = budget()
+        pool = budget(self)
         pool.reserve('a', repo='acme', job='validate-node', worktree='/a',
                      singleton=False, size='small')
         admitted = pool.admit('a', repo='acme', job='validate-node')
@@ -184,14 +186,14 @@ class BudgetRules(unittest.TestCase):
         self.assertEqual(admitted['reservation_mib'], 1024)
 
     def test_a_job_that_can_never_fit_is_refused_rather_than_queued(self):
-        pool = budget(budget_mib=1024)
+        pool = budget(self, budget_mib=1024)
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         with self.assertRaises(Busy) as caught:
             pool.admit('a', repo='acme', job='check')
         self.assertIn('budget_mib', str(caught.exception))
 
     def test_a_canceled_wait_is_not_an_admission(self):
-        pool = budget(budget_mib=4096)
+        pool = budget(self, budget_mib=4096)
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         pool.reserve('b', repo='acme', job='check', worktree='/b', singleton=False)
         pool.admit('a', repo='acme', job='check')
@@ -243,7 +245,7 @@ class PauseGate(unittest.TestCase):
 
     def test_a_pause_that_clears_admits_the_waiting_job(self):
         reader = Fake(healthy(psi_full_avg10=50.0), healthy())
-        pool = budget(gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 30}, reader=reader))
+        pool = budget(self, gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 30}, reader=reader))
         notes = []
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         admitted = pool.admit('a', repo='acme', job='check', poll=0.01, note=notes.append)
@@ -252,7 +254,7 @@ class PauseGate(unittest.TestCase):
         self.assertTrue(any('resumed' in note for note in notes), notes)
 
     def test_a_pause_that_never_clears_refuses_rather_than_running_anyway(self):
-        pool = budget(gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 0.2},
+        pool = budget(self, gate=Gate({'sample_seconds': 0, 'max_wait_seconds': 0.2},
                                 reader=Fake(healthy(psi_full_avg10=50.0))))
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         with self.assertRaises(Paused) as caught:
@@ -265,7 +267,7 @@ class PauseGate(unittest.TestCase):
     def test_the_counters_are_what_pandora_stats_prints(self):
         gate = Gate({'sample_seconds': 0, 'max_wait_seconds': 0.1},
                     reader=Fake(healthy(psi_full_avg10=50.0)))
-        pool = budget(gate=gate)
+        pool = budget(self, gate=gate)
         pool.reserve('a', repo='acme', job='check', worktree='/a', singleton=False)
         with self.assertRaises(Paused):
             pool.admit('a', repo='acme', job='check', poll=0.01)
@@ -549,7 +551,7 @@ class ExecutorEndToEnd(unittest.TestCase):
         worktree = worktree or self.root
         if drift_job is not None:
             plan['drift'] = drift_job
-        pool = budget()
+        pool = budget(self)
         executor = LocalExecutor(pool, drift=drift)
         run = FakeRun(self.root / 'run', run_id)
         run.dir.mkdir(parents=True, exist_ok=True)
@@ -650,7 +652,7 @@ class ExecutorEndToEnd(unittest.TestCase):
         self.assertEqual(result['cancel'], {'signal': 'SIGINT', 'grace_ms': 240000})
 
     def test_a_canceled_run_exits_130_and_releases_its_holds(self):
-        pool = budget()
+        pool = budget(self)
         executor = LocalExecutor(pool, drift='off')
         run = FakeRun(self.root / 'run')
         run.dir.mkdir(parents=True, exist_ok=True)

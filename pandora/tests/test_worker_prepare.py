@@ -160,7 +160,7 @@ class LocalLaneTest(unittest.TestCase):
             root = Path(tmp)
             run = FakeRun(root / 'run')
             run.dir.mkdir()
-            pool = budget()
+            pool = budget(self)
             self.addCleanup(pool.admission.store.close)
             pool.reserve(run.id, repo='demo', job='suite', worktree=root, singleton=False)
             admission = pool.admit(run.id, repo='demo', job='suite')
