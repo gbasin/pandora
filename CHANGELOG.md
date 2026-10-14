@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.19](https://github.com/gbasin/pandora/compare/v0.3.18...v0.3.19) (2026-10-14)
+
+
+### Features
+
+* retain executions and add shared reuse matching ([#255](https://github.com/gbasin/pandora/issues/255)) ([dea8acc](https://github.com/gbasin/pandora/commit/dea8accb6f840fdd4496cae27aaf316b2ebd2607))
+* support separate local commands for remote jobs ([#256](https://github.com/gbasin/pandora/issues/256)) ([9a3c86a](https://github.com/gbasin/pandora/commit/9a3c86a2adbfa96961274aefb171d2aab4d2cd13))
+
 ## [0.3.18](https://github.com/gbasin/pandora/compare/v0.3.17...v0.3.18) (2026-10-12)
 
 
