@@ -378,7 +378,19 @@ counted.
 
 Run the script by hand from a checkout with push access:
 `scripts/verdict-prune.sh --dry-run`. Its options are `--remote`,
-`--max-age-days`, `--batch` and `--dry-run`.
+`--max-age-days`, `--batch`, `--namespace` and `--dry-run`. The namespace
+defaults to `verdicts`. To retain execution refs for 30 days, first run
+`scripts/verdict-prune.sh --namespace executions --max-age-days 30 --dry-run`.
+Review the listed refs. Then run the same command without `--dry-run` from an
+owner-controlled retention job. The existing reusable pruning workflow keeps
+its verdict-only default.
+
+Execution pruning requires a valid tree, bounded job and run id in each ref.
+The payload must name that same tree, job and run, have kind `pandora-verdict`,
+and contain a finite numeric `finished` time. Unreadable or mismatched payloads
+are retained. Pruning reads the signed payload bytes for age; it does not verify
+signatures or decide whether evidence is reusable. Other namespaces remain
+untouched.
 
 ## Measure complete test executions without skipping
 
@@ -400,6 +412,23 @@ The result records that condition as `test_evidence_skipped`. A valid report's
 raw-byte SHA-256 digest, byte count and supervisor execution duration are
 included in the signed verdict. The raw report is returned in `test_evidence`.
 Existing verdict payloads remain unchanged when there is no valid report.
+
+With `[verdicts] publish = true`, every signed ordinary whole-command run also
+gets an immutable ref at `refs/pandora/executions/<tree>/<job>/<run_id>`. This
+includes runs without a test report. The commit holds the original
+`payload.json`, `verdict.sig` and `signer`, plus `report.json` when its bytes
+match the signed digest. Different argv selections for one tree and job remain
+available separately. Typed suite envelopes use the test-evidence path below.
+The legacy `refs/pandora/verdicts/<tree>/<job>` still keeps its first verdict.
+Consumers must verify each signature and match the signed command inputs before
+using an execution as evidence. Publication does not establish a new skip rule.
+
+Execution publication has its own `execution-publish.json` record and log line.
+The publication channels fail independently and cannot change the command's
+exit code. Repeating publication of identical content reports `present`; a run
+ref that already names different content fails without replacing that content.
+Use the explicit execution namespace option described under Pruning to
+apply an owner-controlled retention policy to these refs.
 
 With `[verdicts] publish = true`, the client also publishes a report-bearing
 commit at `refs/pandora/test-evidence/<tree>/<job>/<run_id>`. Each commit holds

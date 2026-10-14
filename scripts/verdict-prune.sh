@@ -2,7 +2,7 @@
 # Delete Pandora verdict refs older than a threshold from a remote.
 #
 #   scripts/verdict-prune.sh [--remote origin] [--max-age-days 30]
-#       [--batch 100] [--dry-run] [--now <epoch seconds>]
+#       [--batch 100] [--namespace verdicts|executions] [--dry-run] [--now <epoch seconds>]
 #
 # Run from a git checkout whose remote may push. The reusable workflow
 # .github/workflows/verdict-prune.yml runs it weekly for a consuming
@@ -13,7 +13,8 @@
 # commit is dated `@1 +0000` so the same verdict always makes the same commit,
 # and a remote keeps no reflog we could read.
 #
-# The script lists refs/pandora/verdicts/* with `git ls-remote`, fetches them
+# The script lists the chosen namespace (verdicts by default) with
+# `git ls-remote`, fetches those refs
 # all with one `git fetch` into a private namespace (refs/pandora-prune/*),
 # and reads every payload with one `git cat-file --batch`. One round trip and
 # one process serve every ref; a verdict commit holds three small blobs, so
@@ -40,6 +41,7 @@ max_age_days=30
 batch=100
 dry_run=false
 now=''
+namespace=verdicts
 scratch=refs/pandora-prune/
 
 die() {
@@ -49,6 +51,7 @@ die() {
 
 while [ $# -gt 0 ]; do
     case $1 in
+        --namespace) namespace=${2-}; shift 2 || die 2 'bad arguments' ;;
         --remote) remote=${2-}; shift 2 || die 2 'bad arguments' ;;
         --max-age-days) max_age_days=${2-}; shift 2 || die 2 'bad arguments' ;;
         --batch) batch=${2-}; shift 2 || die 2 'bad arguments' ;;
@@ -57,6 +60,11 @@ while [ $# -gt 0 ]; do
         *) die 2 "unknown argument: $1" ;;
     esac
 done
+
+case $namespace in
+    verdicts | executions) prefix=refs/pandora/$namespace ;;
+    *) die 2 "--namespace must be verdicts or executions: $namespace" ;;
+esac
 
 # 0 would delete every verdict, so the floor is 1.
 [[ $max_age_days =~ ^[1-9][0-9]*$ ]] || die 2 "--max-age-days must be a whole number of at least 1: $max_age_days"
@@ -73,7 +81,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-listing=$(git ls-remote --refs "$remote" 'refs/pandora/verdicts/*') \
+listing=$(git ls-remote --refs "$remote" "$prefix/*") \
     || die 1 "git ls-remote $remote failed"
 if [ -z "$listing" ]; then
     echo "pandora verdict prune: no verdict refs on $remote"
@@ -82,7 +90,7 @@ fi
 
 cleanup
 git fetch --quiet --no-tags --no-write-fetch-head "$remote" \
-    "+refs/pandora/verdicts/*:${scratch}*" || die 1 "git fetch $remote failed"
+    "+$prefix/*:${scratch}*" || die 1 "git fetch $remote failed"
 
 # Lines out: "delete <oid> <ref>", "keep <oid> <ref>" or "unreadable <oid> <ref>".
 # The listing goes in on stdin: one environment string is capped at 128 KiB on
@@ -91,12 +99,17 @@ prog='
 import json, math, re, subprocess, sys
 
 now, days = int(sys.argv[1]), int(sys.argv[2])
+namespace = sys.argv[3]
+prefix = "refs/pandora/" + namespace
+shape = re.escape(prefix) + r"/((?:[0-9a-f]{40}|[0-9a-f]{64}))/([a-z][a-z0-9-]*)"
+if namespace == "executions":
+    shape += r"/([A-Za-z0-9][A-Za-z0-9_-]{0,79})"
 limit = days * 86400
 refs = []
 for line in sys.stdin.read().splitlines():
     oid, _, ref = line.partition("\t")
     if re.fullmatch(r"[0-9a-f]{40}([0-9a-f]{24})?", oid) and \
-            re.fullmatch(r"refs/pandora/verdicts/[0-9a-f]{40,64}/[a-z][a-z0-9-]*", ref):
+            re.fullmatch(shape, ref):
         refs.append((oid, ref))
 query = "".join("%s:payload.json\n" % oid for oid, _ in refs).encode()
 out = subprocess.run(["git", "cat-file", "--batch"], input=query,
@@ -118,7 +131,14 @@ for oid, ref in refs:
         pos += size + 1
         if header[1] == b"blob":
             try:
-                finished = json.loads(body.decode("utf-8")).get("finished")
+                payload = json.loads(body.decode("utf-8"))
+                finished = payload.get("finished")
+                if namespace == "executions":
+                    tree, job, run_id = re.fullmatch(shape, ref).groups()
+                    if (len(job) > 80 or payload.get("kind") != "pandora-verdict" or
+                            payload.get("tree") != tree or payload.get("job") != job or
+                            payload.get("run_id") != run_id):
+                        finished = None
             except (ValueError, AttributeError):
                 finished = None
     elif len(header) != 2:
@@ -132,7 +152,7 @@ for oid, ref in refs:
 if pos != len(out):
     sys.exit("git cat-file --batch printed more than was asked")
 '
-decisions=$(printf '%s\n' "$listing" | python3 -c "$prog" "$now" "$max_age_days") \
+decisions=$(printf '%s\n' "$listing" | python3 -c "$prog" "$now" "$max_age_days" "$namespace") \
     || die 1 'reading the payloads failed'
 
 total=0 kept=0 unreadable=0 old=0 deleted=0 changed=0 failed=0
@@ -150,7 +170,7 @@ flush() {
     while IFS=$'\t' read -r flag spec summary; do
         # ":<ref>" for a delete sent, "(delete):<ref>" for one rejected here.
         case $spec in
-            :refs/pandora/verdicts/* | '(delete):refs/pandora/verdicts/'*) ref=${spec#*:} ;;
+            ":$prefix/"* | "(delete):$prefix/"*) ref=${spec#*:} ;;
             *) continue ;;
         esac
         reported=$((reported + 1))
