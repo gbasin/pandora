@@ -311,7 +311,7 @@ def publish_execution(worktree, remote, result):
             raise Failed('invalid execution job')
         report = None
         artifact = result.get('test_evidence')
-        if artifact is not None:
+        if artifact is not None or body.get('test_evidence') is not None:
             candidate = artifact.get('report') if isinstance(artifact, dict) else None
             binding = body.get('test_evidence')
             if (not isinstance(candidate, str) or not isinstance(binding, dict) or

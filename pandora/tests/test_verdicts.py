@@ -429,6 +429,7 @@ class ExecutionPublish(unittest.TestCase):
         body['test_evidence'] = {'sha256': hashlib.sha256(raw.encode()).hexdigest(),
                                  'bytes': len(raw.encode())}
         result['verdict']['payload'] = canonical(body)
+        self.assertEqual(verdicts.publish_execution(self.repo, 'origin', result)['state'], 'failed')
         result['test_evidence'] = {'report': raw}
         record = verdicts.publish_execution(self.repo, 'origin', result)
         self.assertEqual(record['state'], 'published', record)

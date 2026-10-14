@@ -221,6 +221,31 @@ class VerdictPruneTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertLessEqual({other, odd, 'refs/heads/main'}, self.remote_refs())
 
+    def test_execution_namespace_validates_bindings_and_preserves_other_refs(self):
+        def execution(tree, run_id, **fields):
+            payload = {'kind': 'pandora-verdict', 'tree': tree, 'job': 'unit',
+                       'run_id': run_id, 'finished': NOW - 90 * DAY, **fields}
+            return self.publish(payload=json.dumps(payload),
+                                ref='refs/pandora/executions/%s/unit/%s' % (tree, run_id))
+        old = execution('a' * 40, 'r1')
+        wrong = execution('b' * 40, 'r2', job='other')
+        missing = execution('c' * 40, 'r3', finished=None)
+        suite = execution('d' * 40, 'r4', kind='pandora-suite-verdict')
+        malformed = self.publish(finished=90 * DAY,
+                                 ref='refs/pandora/executions/not-a-tree/unit/r5')
+        long_job = self.publish(finished=90 * DAY,
+                                ref='refs/pandora/executions/%s/%s/r6' % ('e' * 40, 'a' * 81))
+        legacy = self.publish(finished=90 * DAY)
+        evidence = self.publish(finished=90 * DAY,
+                                ref='refs/pandora/test-evidence/%s/unit/r7' % ('f' * 40))
+        self.assertEqual(self.prune('--namespace', 'executions', '--dry-run').returncode, 0)
+        self.assertIn(old, self.remote_refs())
+        done = self.prune('--namespace', 'executions')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn(old, self.remote_refs())
+        self.assertLessEqual({wrong, missing, suite, malformed, long_job, legacy, evidence},
+                             self.remote_refs())
+
     def test_a_dry_run_deletes_nothing(self):
         old = self.publish(finished=90 * DAY)
         done = self.prune('--dry-run')
@@ -243,7 +268,7 @@ class VerdictPruneTest(unittest.TestCase):
         old = self.publish(finished=90 * DAY)
         for args in (['--max-age-days', 'ten'], ['--max-age-days', '0'],
                      ['--max-age-days', '00'], ['--batch', '0'], ['--remote', '-x'],
-                     ['--bogus']):
+                     ['--namespace', 'test-evidence'], ['--namespace', '../heads'], ['--bogus']):
             done = self.prune(*args)
             self.assertEqual(done.returncode, 2, args)
         self.assertIn(old, self.remote_refs())
