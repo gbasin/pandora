@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.20](https://github.com/gbasin/pandora/compare/v0.3.19...v0.3.20) (2026-10-14)
+
+
+### Features
+
+* verify complete execution units for selective CI reuse ([#258](https://github.com/gbasin/pandora/issues/258)) ([1bbc242](https://github.com/gbasin/pandora/commit/1bbc242d2f19c69aab1cbb6a946e5f40dbdbb6dc))
+
 ## [0.3.19](https://github.com/gbasin/pandora/compare/v0.3.18...v0.3.19) (2026-10-14)
 
 
