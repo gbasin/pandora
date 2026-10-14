@@ -114,7 +114,7 @@ class ExecutionReuseTests(unittest.TestCase):
             self.assertFalse(result['reusable'])
 
     def test_malformed_and_context(self):
-        mutations = [('schema', True), ('family', 'unknown'), ('engine_identity', 'b' * 64),
+        mutations = [('schema', True), ('source_tree', '../bad'), ('family', 'unknown'), ('engine_identity', 'b' * 64),
                      ('runtime', {'node': '23'}), ('finished', 111), ('finished', 0),
                      ('input_manifest', 'wrong'), ('units', [{'id': 'a'}, {'id': 'a'}]),
                      ('selection', {'flags': ['only']})]

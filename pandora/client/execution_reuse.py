@@ -107,6 +107,10 @@ def evaluate(evidence, request, policy, *, manifest, now, force_full=False, cana
         for value in (evidence, request, policy):
             if not isinstance(value, dict) or type(value.get('schema')) is not int or value['schema'] != 1:
                 raise ValueError('unsupported_schema')
+        for value in (evidence, request):
+            tree = value.get('source_tree')
+            if not isinstance(tree, str) or not OID.fullmatch(tree):
+                raise ValueError('invalid_tree')
         wanted = _units(request.get('units'))
         result['remaining_units'] = sorted(wanted)
         observed = _units(evidence.get('units'), evidence=True)
