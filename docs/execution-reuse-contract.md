@@ -4,6 +4,11 @@
 not publish new receipts or skip CI checks. Existing unit and suite protocols
 remain unchanged. Unit, surface, journey, arc, Node, native, and static adapters
 can use this contract once their execution evidence meets its requirements.
+These families are contract vocabulary, not operational integrations. Existing
+receipts do not carry this new input specification and manifest binding.
+Synthetic source Git objects can also be absent from GitHub. Missing objects
+or manifest bindings must fail closed. Engine-attested complete input manifests
+and reviewed producer adapters are required before actual rollout.
 
 The caller authenticates the signed envelope and verifies its report digest
 before passing evidence to `evaluate`. It constructs evidence from authoritative
@@ -21,6 +26,9 @@ repository, family and check. Policy must explicitly set `enabled: true`;
 missing or disabled policies grant no reuse. The approved engine identity is a measured SHA-256
 bundle identity. Evidence, request and trusted policy must agree on runtime.
 Evidence and request must agree on engine identity, and policy must approve it.
+Unit IDs express the requested execution scope. `selection` records semantic
+selection context and must match exactly, including name, line or tag filters.
+Independent-unit policy permits different unit sets, not different filters.
 Runtime objects compare as exact canonical JSON. There is no implicit OS,
 worker-count, toolchain, environment or service equivalence.
 
@@ -95,6 +103,7 @@ execution. `whole_complete` reports whether all requested units match.
 Any malformed or incompatible context returns no skip candidates.
 
 Both override arguments require actual booleans. `canary=True` or `force_full=True` retains eligibility diagnostics but returns
-no skip candidates. Full canaries must bypass all reuse wiring. Merge queue
+no skip candidates. `remaining_units` then contains every requested unit,
+because all require execution even when eligibility diagnostics match. Full canaries must bypass all reuse wiring. Merge queue
 callers collect the requested execution for the actual queue tree and apply the
 same input comparison. No PR-head shortcut authorizes a different queue tree.

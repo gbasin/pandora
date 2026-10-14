@@ -205,6 +205,7 @@ def evaluate(evidence, request, policy, *, manifest, now, force_full=False, cana
                       remaining_units=sorted(set(wanted) - set(eligible)),
                       whole_complete=len(eligible) == len(wanted))
         if canary or force_full:
+            result['remaining_units'] = sorted(wanted)
             result['reason'] = 'canary' if canary else 'force_full'
             result['diagnostics'].append('eligible evidence retained; execution required')
         else:

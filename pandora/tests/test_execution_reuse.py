@@ -109,7 +109,16 @@ class ExecutionReuseTests(unittest.TestCase):
             self.assertTrue(result['whole_complete'])
             self.assertEqual(result['eligible_units'], ['file-a', 'file-b'])
             self.assertEqual(result['skip_units'], [])
+            self.assertEqual(result['remaining_units'], ['file-a', 'file-b'])
             self.assertFalse(result['reusable'])
+        self.policy['granularity'] = 'independent-unit'
+        self.evidence['units'] = self.evidence['units'][:1]
+        for option in ('canary', 'force_full'):
+            result = self.decision(**{option: True})
+            self.assertEqual(result['eligible_units'], ['file-a'])
+            self.assertFalse(result['whole_complete'])
+            self.assertEqual(result['remaining_units'], ['file-a', 'file-b'])
+            self.assertEqual(result['skip_units'], [])
 
     def test_malformed_and_context(self):
         mutations = [('schema', True), ('source_tree', '../bad'), ('family', 'unknown'), ('engine_identity', 'b' * 64),
