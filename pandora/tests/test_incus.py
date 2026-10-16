@@ -3,8 +3,10 @@
 The parts that are subprocesses are tested on the worker by `canary.py`.
 """
 import json
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import tempfile
+import threading
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -58,6 +60,56 @@ system_usec 16018286
 
 
 class GoldenIdentity(unittest.TestCase):
+    def test_concurrent_warm_prepares_retry_the_identity_etag_conflict(self):
+        # Model incus config set's GET/config-patch/ETag-checked PUT. Both
+        # preparations read revision zero before either commits its update.
+        barrier = threading.Barrier(2)
+        lock = threading.Lock()
+        config = {'user.unrelated': 'keep'}
+        revision, reads, conflicts = 0, 0, 0
+
+        def incus(*args, **kwargs):
+            nonlocal revision, reads, conflicts
+            if args[:2] == ('config', 'get'):
+                with lock:
+                    return 0, config.get(args[3], ''), ''
+            self.assertEqual(args[:2], ('config', 'set'))
+            with lock:
+                etag, writable = revision, dict(config)
+                reads += 1
+                synchronize = reads <= 2
+            if synchronize:
+                barrier.wait(timeout=5)
+            key, _, value = args[3].partition('=')
+            writable[key] = value
+            with lock:
+                if etag != revision:
+                    conflicts += 1
+                    return 1, '', 'Error: ETag does not match\n'
+                config.clear()
+                config.update(writable)
+                revision += 1
+            return 0, '', ''
+
+        toolchain = Toolchain(source_id='shared', pins=(('base_image', 'abc'),))
+        drivers = [IncusDriver(root='/tmp/pandora-identity-test') for _ in range(2)]
+        for driver in drivers:
+            driver.exists = driver.warm = lambda name: True
+            driver.volume_bytes = lambda name: 0
+            driver.incus = incus
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(driver.prepare, toolchain) for driver in drivers]
+            errors = [str(future.exception()) for future in futures if future.exception()]
+        self.assertEqual(errors, [], 'both warm preparations must survive the CAS conflict')
+        self.assertEqual(conflicts, 1)
+        self.assertEqual(reads, 3)
+        self.assertEqual(revision, 2)
+        self.assertTrue(all(future.result().reused for future in futures))
+        self.assertEqual(config['user.unrelated'], 'keep')
+        identity = json.loads(config[incus_driver.GOLDEN_IDENTITY])
+        self.assertEqual(identity['fingerprint'], toolchain.fingerprint())
+        self.assertEqual(identity['pins'], {'base_image': 'abc'})
+
     def test_reusing_a_warm_golden_records_identity_outside_attempt_directories(self):
         driver = IncusDriver(root='/tmp/pandora-identity-test')
         driver.exists = lambda name: True
@@ -86,9 +138,36 @@ class GoldenIdentity(unittest.TestCase):
     def test_a_failed_identity_write_refuses_the_prepare(self):
         driver = IncusDriver(root='/tmp/pandora-identity-test')
         driver.exists = driver.warm = lambda name: True
-        driver.incus = lambda *args, **kwargs: (1, '', 'permission denied')
-        with self.assertRaises(incus_driver.PrepareFailed):
-            driver.prepare(Toolchain())
+        driver.incus = unittest.mock.Mock(return_value=(1, '', 'permission denied'))
+        with unittest.mock.patch.object(incus_driver.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(incus_driver.PrepareFailed, 'permission denied'):
+                driver.prepare(Toolchain())
+        self.assertEqual(driver.incus.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_persistent_identity_conflicts_are_bounded(self):
+        driver = IncusDriver(root='/tmp/pandora-identity-test')
+        driver.exists = driver.warm = lambda name: True
+        driver.incus = unittest.mock.Mock(return_value=(1, '', 'ETag does not match'))
+        with unittest.mock.patch.object(incus_driver.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(incus_driver.PrepareFailed, 'ETag does not match'):
+                driver.prepare(Toolchain())
+        self.assertEqual(driver.incus.call_count, 5)
+        self.assertEqual(sleep.call_count, 4)
+
+    def test_identity_retry_refreshes_last_use_and_stops_on_other_errors(self):
+        driver = IncusDriver(root='/tmp/pandora-identity-test')
+        driver.incus = unittest.mock.Mock(side_effect=[
+            (1, '', 'Error: ETag does not match'),
+            (1, '', 'permission denied'),
+        ])
+        with unittest.mock.patch.object(incus_driver.time, 'sleep'), \
+                unittest.mock.patch.object(incus_driver.time, 'time', side_effect=[100, 101]):
+            with self.assertRaisesRegex(incus_driver.PrepareFailed, 'permission denied'):
+                driver.remember_golden('golden-test', Toolchain())
+        writes = [json.loads(call.args[3].partition('=')[2])
+                  for call in driver.incus.call_args_list]
+        self.assertEqual([value['last_used'] for value in writes], [100, 101])
 
 
 class ParseCgroup(unittest.TestCase):
