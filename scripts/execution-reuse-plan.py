@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Authenticate immutable execution evidence and emit a fail-closed unit plan."""
 import argparse
+from collections import Counter
 import hashlib
 import fnmatch
 import json
@@ -365,6 +366,21 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
     return result
 
 
+def diagnostic_summary(result):
+    """Keep existing decisions intact; expose aggregate evidence and miss counts."""
+    return {
+        'available_runs': result.get('available_runs'),
+        'runs_truncated': result.get('runs_truncated', False),
+        'evaluated_runs': len(result['runs']),
+        'eligible_units': len(result['eligible_units']),
+        'reused_units': len(result['skip_units']),
+        'remaining_units': len(result['remaining_units']),
+        'rejections': dict(sorted(Counter(row['reason'] for row in result['rejected']).items())),
+        'decisions': dict(sorted(Counter(row['reason'] for row in result['runs']).items())),
+        'diagnostics': result['diagnostics'],
+    }
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--collection', required=True)
@@ -380,3 +396,5 @@ if __name__ == '__main__':
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + '\n')
     print('Pandora execution reuse: %s; %d whole units reused.' % (result['reason'], len(result['skip_units'])))
+
+    print('Pandora execution diagnostics: ' + json.dumps(diagnostic_summary(result), sort_keys=True))

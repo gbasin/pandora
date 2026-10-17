@@ -284,3 +284,34 @@ class Evidence(unittest.TestCase):
         self.assertEqual(observed['required_files'], 0)
         self.assertFalse(observed['skip_enabled'])
         self.assertEqual(self.save(value)[1], 'invalid_report')
+
+    def test_full_ci_report_can_exceed_worker_limit_and_use_checkout_tree(self):
+        ci = self.root / 'full-ci.json'
+        ci.write_text(json.dumps(report()) + ' ' * test_evidence.MAX_BYTES)
+        tree = 'a' * 40
+        with mock.patch.object(verdicts, 'git', return_value=tree) as git, \
+                mock.patch.object(shadow, 'verified_candidates', return_value=([], 'trusted')) as candidates:
+            result = shadow.measure(self.root, ci, repo='demo', head_sha='')
+        self.assertEqual(result['reason'], 'no_verified_evidence')
+        self.assertEqual(result['required_cases'], 2)
+        self.assertEqual(result['source_relation'], 'same_tree')
+        self.assertEqual(candidates.call_args.kwargs['lookup_tree'], tree)
+        self.assertEqual(git.call_args.args[1:], ('rev-parse', 'HEAD^{tree}'))
+        self.assertFalse(result['skip_enabled'])
+        # The broader CI bound must not expand worker evidence acceptance.
+        self.file.write_bytes(ci.read_bytes())
+        self.assertEqual(test_evidence.load(self.root, self.outputs, 'r1')[1], 'report_too_large')
+
+    def test_measurement_reports_size_and_validation_errors_without_raw_contents(self):
+        ci = self.root / 'ci.json'
+        with mock.patch.object(verdicts, 'git', side_effect=AssertionError('must not fetch')):
+            ci.write_bytes(b'x' * (shadow.MAX_CI_BYTES + 1))
+            self.assertEqual(shadow.measure(self.root, ci, repo='demo')['reason'], 'ci_report_too_large')
+            ci.write_text('{private report contents')
+            result = shadow.measure(self.root, ci, repo='demo')
+            self.assertEqual(result['reason'], 'invalid_ci_report')
+            self.assertNotIn('private', json.dumps(result))
+            value = report()
+            value['tests'][0]['location'] = {}
+            ci.write_text(json.dumps(value))
+            self.assertEqual(shadow.measure(self.root, ci, repo='demo')['reason'], 'missing_location')

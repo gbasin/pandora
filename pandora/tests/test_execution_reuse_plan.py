@@ -14,6 +14,23 @@ spec.loader.exec_module(planner)
 
 
 class ExecutionPlanTests(unittest.TestCase):
+    def test_diagnostics_distinguish_missing_rejected_and_incompatible_evidence(self):
+        result = {'runs': [{'reason': 'inputs_changed'}, {'reason': 'runtime_mismatch'}],
+                  'rejected': [{'reason': 'bad_signature', 'ref': 'private-ref'}],
+                  'available_runs': 3, 'runs_truncated': False, 'eligible_units': [],
+                  'skip_units': [], 'remaining_units': ['one'], 'diagnostics': []}
+        before = json.dumps(result, sort_keys=True)
+        summary = planner.diagnostic_summary(result)
+        self.assertEqual(summary['rejections'], {'bad_signature': 1})
+        self.assertEqual(summary['decisions'], {'inputs_changed': 1, 'runtime_mismatch': 1})
+        self.assertEqual(summary['evaluated_runs'], 2)
+        self.assertNotIn('private-ref', json.dumps(summary))
+        self.assertEqual(json.dumps(result, sort_keys=True), before)
+        result.update(runs=[], rejected=[], available_runs=0)
+        self.assertEqual(planner.diagnostic_summary(result)['available_runs'], 0)
+        del result['available_runs']
+        self.assertIsNone(planner.diagnostic_summary(result)['available_runs'])
+
     def fixture(self):
         report = {'kind': 'pandora-execution-report', 'schema': 1, 'worker_run': 'run1',
                   'execution': {'schema': 1, 'complete': True, 'outcome': 'passed'}}
