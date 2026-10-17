@@ -11,6 +11,8 @@ from ..engine.inventory import MAX_BYTES, identifiable_tests, identity, validate
 from . import verdicts
 
 MAX_RUNS = 32
+# Full CI inventories combine many worker-sized selections.
+MAX_CI_BYTES = 16 * 1024 * 1024
 
 
 def compare(ci, candidates, *, ci_tree):
@@ -165,8 +167,8 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
         if head_sha and not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', head_sha):
             raise ValueError('bad_input')
         with Path(ci_report).open('rb') as stream:
-            raw_ci = stream.read(MAX_BYTES + 1)
-        if len(raw_ci) > MAX_BYTES:
+            raw_ci = stream.read(MAX_CI_BYTES + 1)
+        if len(raw_ci) > MAX_CI_BYTES:
             raise ValueError('ci_report_too_large')
         ci = validate(json.loads(raw_ci), allow_empty=True)
         if not ci['tests']:
@@ -200,7 +202,12 @@ def measure(worktree, ci_report, *, repo, job='unit', head_sha='', default_branc
         summary['reason'] = 'observed' if candidates else 'no_verified_evidence'
     except FileNotFoundError:
         summary['reason'] = 'ci_report_missing'
-    except (ValueError, TypeError, KeyError, AttributeError, OSError,
-            subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError):
+    except ValueError as error:
+        # Only emit symbolic validation codes, never report contents or Git output.
+        code = str(error)
+        summary['reason'] = code if re.fullmatch(r'[a-z][a-z_]{0,63}', code) else 'invalid_ci_report'
+    except (TypeError, KeyError, AttributeError, OSError,
+            subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError) as error:
         summary['reason'] = 'measurement_unavailable'
+        summary['error_type'] = type(error).__name__
     return summary

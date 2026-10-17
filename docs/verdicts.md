@@ -445,6 +445,19 @@ from `pandora.toml` as `repo`. The action writes measurement JSON to
 a three-minute timeout on the step. Upload the CI report and measurement
 as an artifact. Do not use these measurements in job conditions.
 
+The action uses the PR head for pull requests and the merge-group head for
+merge queues. Full CI reports have a 16 MiB limit; signed worker reports keep
+their 4 MiB limit. Oversized CI reports report `ci_report_too_large` instead of
+an unknown measurement failure. Other validation failures report a symbolic
+reason without report contents.
+
+Execution reuse prints a separate `Pandora execution diagnostics` JSON line.
+It counts available and evaluated runs, rejection and mismatch reasons, eligible
+units, reused units, and remaining units. An unknown available-run count is
+`null`, not zero. Use these diagnostics to distinguish absent evidence from
+rejected or incompatible evidence. Canary eligibility is not saved work.
+
+
 Vitest can emit `location: null` for tests registered by importing another test
 file. Preserve those cases in the signed report. Exclude their entire
 project/file from comparison, including cases in that file with valid locations.
