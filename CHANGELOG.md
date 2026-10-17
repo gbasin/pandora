@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.21](https://github.com/gbasin/pandora/compare/v0.3.20...v0.3.21) (2026-10-17)
+
+
+### Bug Fixes
+
+* restore full CI observations and expose reuse diagnostics ([#261](https://github.com/gbasin/pandora/issues/261)) ([9a898e2](https://github.com/gbasin/pandora/commit/9a898e2ffe2ed7421c2bb977db57aaebc8fac976))
+
 ## [0.3.20](https://github.com/gbasin/pandora/compare/v0.3.19...v0.3.20) (2026-10-14)
 
 
