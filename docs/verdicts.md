@@ -457,6 +457,16 @@ units, reused units, and remaining units. An unknown available-run count is
 `null`, not zero. Use these diagnostics to distinguish absent evidence from
 rejected or incompatible evidence. Canary eligibility is not saved work.
 
+`context_mismatches` counts differing context fields, including
+`golden_pins.image`, `golden_pins.lockfiles`, and `env_digest`. It does not print
+their values. One rejected run can differ in several fields.
+`missing_artifacts` counts absent files in fetched records, such as
+`report.json`; these records receive `artifact_missing`. Fetch or read failures
+still receive `artifact_unavailable`. `adapter_mismatches` counts the first
+rejected trusted adapter path per run. Diagnostics stop at the first rejection
+gate, so resolving one mismatch can expose another. These details do not change
+reuse decisions.
+
 
 Vitest can emit `location: null` for tests registered by importing another test
 file. Preserve those cases in the signed report. Exclude their entire

@@ -22,6 +22,25 @@ MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 CONTEXT = ('golden', 'golden_pins', 'env_digest', 'cwd')
 
 
+class Rejection(ValueError):
+    """Structured diagnostics without exposing signed values or changing gates."""
+
+    def __init__(self, reason, **details):
+        super().__init__(reason)
+        self.details = details
+
+
+def context_mismatches(context, body):
+    fields = [key for key in CONTEXT
+              if key not in body or reuse.canonical(context[key]) != reuse.canonical(body[key])]
+    if 'golden_pins' in fields:
+        expected, actual = context['golden_pins'], body.get('golden_pins')
+        if isinstance(expected, dict) and isinstance(actual, dict):
+            fields.extend('golden_pins.' + key for key in ('image', 'lockfiles')
+                          if reuse.canonical(expected.get(key)) != reuse.canonical(actual.get(key)))
+    return fields
+
+
 def validate_command(argv, command, evidence, inventory, inputs):
     if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
         raise ValueError('invalid_command')
@@ -99,10 +118,11 @@ def authenticate(payload, raw, *, repo, tree, job, run_id, policy):
             binding['bytes'] != len(raw) or binding.get('sha256') != hashlib.sha256(raw).hexdigest()):
         raise ValueError('report_digest_mismatch')
     context = policy.get('execution_context')
-    if (not isinstance(context, dict) or set(context) != set(CONTEXT) or
-            any(key not in body or reuse.canonical(context[key]) != reuse.canonical(body[key])
-                for key in CONTEXT)):
+    if not isinstance(context, dict) or set(context) != set(CONTEXT):
         raise ValueError('execution_context_mismatch')
+    mismatches = context_mismatches(context, body)
+    if mismatches:
+        raise Rejection('execution_context_mismatch', mismatch_fields=mismatches)
     report = json.loads(raw)
     if (report.get('kind') != 'pandora-execution-report' or type(report.get('schema')) is not int or
             report['schema'] != 1 or report.get('worker_run') != run_id):
@@ -140,7 +160,7 @@ def verify_adapters(body, policy, trusted_inventory, current_inventory):
         if (not scoped or not isinstance(trusted, list) or len(trusted) != 3 or
                 (trusted[0], trusted[1]) not in {('100644', 'blob'), ('100755', 'blob'), ('040000', 'tree')} or
                 entries.get(path) != trusted or current_inventory.get(path) != trusted):
-            raise ValueError('adapter_not_from_trusted_main')
+            raise Rejection('adapter_not_from_trusted_main', adapter_path=path)
 
 
 def effective_policy(policy, request):
@@ -303,6 +323,11 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
                     source, job, run_id = parts
                     candidate_policy = dict(policy, command=jobs[job]['command'])
                     git('fetch', '--quiet', '--no-tags', '--depth=1', 'origin', '+' + ref + ':' + local)
+                    names = set(git('ls-tree', '--name-only', local).splitlines())
+                    missing = [name for name in ('payload.json', 'verdict.sig', 'report.json')
+                               if name not in names]
+                    if missing:
+                        raise Rejection('artifact_missing', missing_artifacts=missing)
                     content = {}
                     for name, limit in [('payload.json', MAX_PAYLOAD_BYTES), ('verdict.sig', 16384), ('report.json', MAX_BYTES)]:
                         if int(git('cat-file', '-s', local + ':' + name)) > limit:
@@ -348,8 +373,11 @@ def plan(worktree, collection, *, default_branch, event, run_number, force_full=
                     skip.update(decision['skip_units'])
                 except (ValueError, KeyError, TypeError, AttributeError, OSError,
                         subprocess.SubprocessError, verdicts.Failed, RecursionError, OverflowError) as error:
-                    result['rejected'].append({'ref': ref, 'reason': str(error) if isinstance(error, ValueError)
-                                              else 'artifact_unavailable'})
+                    rejection = {'ref': ref, 'reason': str(error) if isinstance(error, ValueError)
+                                 else 'artifact_unavailable'}
+                    if isinstance(error, Rejection):
+                        rejection.update(error.details)
+                    result['rejected'].append(rejection)
                 finally:
                     try:
                         git('update-ref', '-d', local)
@@ -376,6 +404,12 @@ def diagnostic_summary(result):
         'reused_units': len(result['skip_units']),
         'remaining_units': len(result['remaining_units']),
         'rejections': dict(sorted(Counter(row['reason'] for row in result['rejected']).items())),
+        'context_mismatches': dict(sorted(Counter(field for row in result['rejected']
+            for field in row.get('mismatch_fields', [])).items())),
+        'missing_artifacts': dict(sorted(Counter(name for row in result['rejected']
+            for name in row.get('missing_artifacts', [])).items())),
+        'adapter_mismatches': dict(sorted(Counter(row['adapter_path'] for row in result['rejected']
+            if 'adapter_path' in row).items())),
         'decisions': dict(sorted(Counter(row['reason'] for row in result['runs']).items())),
         'diagnostics': result['diagnostics'],
     }
