@@ -72,6 +72,18 @@ class ExecutionPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'execution_context_mismatch'):
             self.auth(body, raw, policy)
 
+    def test_context_diagnostics_name_dimensions_without_values(self):
+        body, raw, policy = self.fixture()
+        policy['execution_context']['golden_pins'] = {'image': 'approved', 'lockfiles': {'lock': 'old'}}
+        body['golden_pins'] = {'image': 'new', 'lockfiles': {'lock': 'new'}}
+        body['env_digest'] = 'private-value'
+        with self.assertRaises(planner.Rejection) as raised:
+            self.auth(body, raw, policy)
+        self.assertEqual(str(raised.exception), 'execution_context_mismatch')
+        self.assertEqual(raised.exception.details['mismatch_fields'],
+                         ['golden_pins', 'env_digest', 'golden_pins.image', 'golden_pins.lockfiles'])
+        self.assertNotIn('private-value', json.dumps(raised.exception.details))
+
     def test_report_cannot_override_engine_context(self):
         body, raw, policy = self.fixture()
         report = json.loads(raw)
@@ -205,7 +217,7 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
     def git(self, *argv, data=None):
         return self.command('git', '-C', str(self.work), *argv, data=data)
 
-    def publish(self, *, engine=None, config='config-digest', corrupt_signature=False, absent_source=False, changed_adapter=False, worker_job='native-unit', context=None):
+    def publish(self, *, engine=None, config='config-digest', corrupt_signature=False, absent_source=False, changed_adapter=False, worker_job='native-unit', context=None, omit_report=False):
         import time
         evidence = {'schema': 1, 'family': 'native', 'check_id': 'native-agent',
                     'runtime': {'executor': {'image': 'fixed'}, 'config': config}, 'selection': {},
@@ -229,6 +241,8 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
                 # A normal inventory exceeds the previous 64KiB envelope limit.
                 'padding': 'x' * 70000,
                 'test_evidence': {'bytes': len(raw.encode()), 'sha256': hashlib.sha256(raw.encode()).hexdigest()}}
+        if omit_report:
+            body.pop('test_evidence')
         payload = planner.reuse.canonical(body)
         signature_file = self.root / 'payload'
         signature_file.with_suffix('.sig').unlink(missing_ok=True)
@@ -238,7 +252,7 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
         if corrupt_signature:
             signature = 'invalid signature\n'
         commit = planner.verdicts.build(self.work, self.tree, 'native-unit', payload.decode(), signature,
-                                        self.key.with_suffix('.pub').read_text(), report=raw)
+                                        self.key.with_suffix('.pub').read_text(), report=None if omit_report else raw)
         ref = '%s/%s/%s/run1' % (planner.verdicts.EXECUTION_PREFIX, source, worker_job)
         self.git('push', '--quiet', 'origin', commit + ':' + ref)
 
@@ -252,6 +266,14 @@ class ExecutionPlanIntegrationTests(unittest.TestCase):
         self.assertEqual(result['remaining_units'], [])
         self.assertIsNone(result['request']['engine_identity'])
         self.assertEqual(result['coverage'], {'test.py': {'observed': ['stage1']}})
+
+    def test_receipt_without_report_is_distinguished_from_fetch_failure(self):
+        self.publish(omit_report=True)
+        result = self.decide()
+        self.assertEqual(result['skip_units'], [])
+        self.assertEqual(result['remaining_units'], ['test.py'])
+        self.assertEqual(result['rejected'][0]['reason'], 'artifact_missing')
+        self.assertEqual(planner.diagnostic_summary(result)['missing_artifacts'], {'report.json': 1})
 
     def test_absent_synthetic_source_uses_only_signed_inventory(self):
         self.publish(absent_source=True)
