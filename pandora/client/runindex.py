@@ -9,8 +9,10 @@ Two things that view does not cover are here:
   directories' dates: the birth time, which is when the run started, or on a
   platform without one the mtime at first sight. One clock for every row
   keeps the order stable. A finished row never changes again (a closed row
-  stays closed, #98), so its payload is kept once read, and `result.json` is
-  re-read only when its size or date changes. `stats` reads only the rows in
+  stays closed, #98), so its metadata is kept once read. Only compact stats inputs from
+  `result.json` are cached, with entry and encoded-byte caps; full evidence
+  is released after each read. Cached summaries are invalidated when the
+  result file changes. `stats` reads only the rows in
   its window. The directory is listed again only when its own mtime says an
   entry came or went.
 * **Retention.** Finished run directories older than `[client] keep_runs_days`
@@ -35,10 +37,15 @@ import time
 import uuid
 from pathlib import Path
 
+from .stats import result_summary
+
 LIVE = ('queued', 'running')
 DEFAULT_KEEP_DAYS = 7
 PRUNE_EVERY = 3600.0
 TRASH = 'runs-trash'
+# Cache the newest summaries in the requested window, not full result files.
+RESULT_CACHE_ENTRIES = 4096
+RESULT_CACHE_BYTES = 8 * 1024 * 1024
 
 
 def read_json(path):
@@ -62,7 +69,8 @@ class RunIndex:
         self.lock = threading.Lock()
         self.dates = {}          # run id -> its directory's date (`born`)
         self.rows = {}             # run id -> payload, finished rows only
-        self.results = {}          # run id -> ((mtime_ns, size), result), for stats
+        self.results = {}          # run id -> (file stamp, stats summary, encoded bytes)
+        self.result_bytes = 0
         self.listed = None         # the runs directory's mtime_ns at the last listing
 
     # -- keeping it current -------------------------------------------------
@@ -124,7 +132,12 @@ class RunIndex:
     def drop(self, run_id):
         self.dates.pop(run_id, None)
         self.rows.pop(run_id, None)
-        self.results.pop(run_id, None)
+        self.drop_result(run_id)
+
+    def drop_result(self, run_id):
+        cached = self.results.pop(run_id, None)
+        if cached is not None:
+            self.result_bytes -= cached[2]
 
     # -- reading ------------------------------------------------------------
 
@@ -156,33 +169,54 @@ class RunIndex:
         return order
 
     def result(self, run_id):
-        """The row's `result.json`, re-read only when its size or date changed (`pandora resolve`)."""
+        """The full result for non-stats callers, without retaining its evidence."""
+        return self.read(self.runs / run_id / 'result.json')
+
+    def stats_result(self, run_id, *, cache=True):
+        """A compact stats input, invalidated when the result file changes."""
         path = self.runs / run_id / 'result.json'
         try:
             stat = path.stat()
         except OSError:
-            return None
+            with self.lock:
+                self.drop_result(run_id)
+            return {}
         stamp = (stat.st_mtime_ns, stat.st_size)
         with self.lock:
             known = self.results.get(run_id)
-        if known is not None and known[0] == stamp:
-            return known[1]
-        value = self.read(path)
+            if known is not None and known[0] == stamp:
+                return known[1]
+            self.drop_result(run_id)
+        value = result_summary(self.result(run_id))
+        size = len(json.dumps(value).encode('utf-8'))
         with self.lock:
-            self.results[run_id] = (stamp, value)
+            # A concurrent prune may have forgotten this run during the read.
+            if cache and run_id in self.dates:
+                self.drop_result(run_id)
+                if (len(self.results) < RESULT_CACHE_ENTRIES
+                        and self.result_bytes + size <= RESULT_CACHE_BYTES):
+                    self.results[run_id] = (stamp, value, size)
+                    self.result_bytes += size
         return value
 
     def history(self, since=None):
-        """(meta, result) pairs for `pandora stats`, newest first, reading only the window."""
-        pairs = []
-        for run_id in self.newest(since):
+        """Yield (meta, stats summary) pairs, keeping only the newest cache entries.
+
+        A full scan beyond the cap must not evict every hit for the next scan,
+        as an LRU would. Older rows are streamed without cache admission.
+        """
+        order = self.newest(since)
+        cacheable = set(order[:RESULT_CACHE_ENTRIES])
+        with self.lock:
+            for run_id in set(self.results) - cacheable:
+                self.drop_result(run_id)
+        for run_id in order:
             meta = self.row(run_id)
             if meta is None:
                 continue
             if since is not None and (meta.get('started') or 0) < since:
                 continue
-            pairs.append((meta, self.result(run_id) or {}))
-        return pairs
+            yield meta, self.stats_result(run_id, cache=run_id in cacheable)
 
     def oldest(self):
         """The earliest start time among the rows on disk, or None."""
