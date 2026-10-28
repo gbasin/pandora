@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.21](https://github.com/gbasin/pandora/compare/v0.3.20...v0.3.21) (2026-10-28)
+
+
+### Bug Fixes
+
+* bound stats result retention and stream history ([#264](https://github.com/gbasin/pandora/issues/264)) ([ebc2ba1](https://github.com/gbasin/pandora/commit/ebc2ba14eff711180a9375793d652eea850b09a7))
+* explain execution reuse rejection details ([#263](https://github.com/gbasin/pandora/issues/263)) ([c8d4d32](https://github.com/gbasin/pandora/commit/c8d4d32c99877fe725e76ed356ea7a52cd97dbe1))
+* restore full CI observations and expose reuse diagnostics ([#261](https://github.com/gbasin/pandora/issues/261)) ([9a898e2](https://github.com/gbasin/pandora/commit/9a898e2ffe2ed7421c2bb977db57aaebc8fac976))
+
 ## [0.3.20](https://github.com/gbasin/pandora/compare/v0.3.19...v0.3.20) (2026-10-14)
 
 
