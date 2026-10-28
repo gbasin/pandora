@@ -1,0 +1,38 @@
+name: stats memory proof
+
+on:
+  pull_request:
+    paths:
+      - pandora/client/runindex.py
+      - pandora/client/stats.py
+      - pandora/tests/test_runindex.py
+      - scripts/stats-memory-proof.py
+      - .github/workflows/stats-memory.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Measure the PR revision, not a moving synthetic merge commit.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Compare CLI and daemon memory against the pre-fix negative control
+        run: python3 scripts/stats-memory-proof.py --output artifacts/stats-memory.json
+      - name: Attach raw measurements and report parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stats-memory-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/stats-memory.json
+          if-no-files-found: error
+          retention-days: 90

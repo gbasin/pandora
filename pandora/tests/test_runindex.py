@@ -94,6 +94,86 @@ class TheIndex(unittest.TestCase):
         (self.runs / 'a').rmdir()
         self.assertEqual(index.newest(), [])
 
+    def result_file(self, run_id='a', **result):
+        folder = write_row(self.runs, run_id)
+        path = folder / 'result.json'
+        path.write_text(json.dumps(result))
+        return path
+
+    def test_stats_retains_no_full_evidence_and_full_result_stays_available(self):
+        detail = 'observation' * 100_000
+        self.result_file(input_id='source', outcome='passed',
+                         test_evidence={'tests': detail}, verdict={'tests': detail},
+                         evidence={'cause': 'queue-timeout', 'tests': detail},
+                         attempts=[{'cause': 'worker-lost', 'log': detail}],
+                         flaky={'order': ['failed', 'passed'], 'shards': [detail, detail]})
+        index = runindex.RunIndex(self.runs)
+        report = stats.build(self.state, runs=index.history())
+        self.assertEqual(report['worker_queue']['timeouts'], 1)
+        self.assertEqual(report['retries']['causes'], {'worker-lost': 1})
+        self.assertEqual(report['flaky'], {'pairs': 1, 'shard_pairs': 2})
+        self.assertLess(len(json.dumps(index.results)), 1000)
+        self.assertEqual(index.result('a')['input_id'], 'source')
+        self.assertEqual(index.result('a')['test_evidence']['tests'], detail)
+
+    def test_changed_missing_and_repaired_result_invalidate_summary(self):
+        path = self.result_file(outcome='passed')
+        index = runindex.RunIndex(self.runs)
+
+        def outcome():
+            return stats.build(self.state, runs=index.history())['by_job'][0]['outcome']
+
+        self.assertEqual(outcome(), 'passed')
+        path.write_text(json.dumps({'outcome': 'command_failed'}))
+        self.assertEqual(outcome(), 'command_failed')
+        path.unlink()
+        self.assertEqual(outcome(), 'passed')  # meta state, not the cached failure
+        self.assertEqual(index.result_bytes, 0)
+        path.write_text('{broken')
+        self.assertEqual(outcome(), 'passed')
+        path.write_text(json.dumps({'outcome': 'oom'}))
+        self.assertEqual(outcome(), 'oom')
+        index.forget('a')
+        self.assertEqual(index.results, {})
+        self.assertEqual(index.result_bytes, 0)
+
+    def test_beyond_capacity_keeps_newest_hits_instead_of_thrashing(self):
+        for n in range(6):
+            self.result_file(str(n), outcome='passed')
+        counting = Counting()
+        index = runindex.RunIndex(self.runs, read=counting)
+        with mock.patch.object(runindex, 'RESULT_CACHE_ENTRIES', 3):
+            first = stats.build(self.state, runs=index.history())
+            self.assertEqual(set(index.results), set(index.newest()[:3]))
+            counting.paths.clear()
+            self.assertEqual(stats.build(self.state, runs=index.history()), first)
+            self.assertEqual(len(counting.paths), 3)  # only uncached older results
+            self.assertEqual(len(index.results), 3)
+
+    def test_byte_cap_does_not_change_report_and_oversize_result_is_not_cached(self):
+        self.result_file(outcome='passed', hint_rule='large-rule' * 1000)
+        index = runindex.RunIndex(self.runs)
+        with mock.patch.object(runindex, 'RESULT_CACHE_BYTES', 128):
+            self.assertEqual(stats.build(self.state, runs=index.history()),
+                             stats.build(self.state))
+        self.assertEqual(index.results, {})
+        self.assertEqual(index.result_bytes, 0)
+
+    def test_prune_during_result_read_cannot_resurrect_cached_data(self):
+        self.result_file(outcome='passed')
+        index = runindex.RunIndex(self.runs)
+
+        def read(path):
+            value = runindex.read_json(path)
+            if path.name == 'result.json':
+                index.forget('a')
+            return value
+
+        index.read = read
+        self.assertEqual(stats.build(self.state, runs=index.history())['runs'], 1)
+        self.assertEqual(index.results, {})
+        self.assertEqual(index.result_bytes, 0)
+
 
 class Pruning(unittest.TestCase):
     def setUp(self):
@@ -196,7 +276,7 @@ class Stats(unittest.TestCase):
     def test_a_window_reads_only_its_rows(self):
         counting = Counting()
         index = runindex.RunIndex(self.runs, read=counting)
-        pairs = index.history(since=time.time() - 10.5 * 3600)
+        pairs = list(index.history(since=time.time() - 10.5 * 3600))
         self.assertEqual(len(pairs), 10)
         opened = counting.paths
         self.assertLessEqual(len(opened), 2 * 10 + 2, opened)

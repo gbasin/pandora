@@ -68,8 +68,31 @@ def read_json(path):
         return None
 
 
+def result_summary(result):
+    """Only stats inputs, never test observations, verdicts, or retry payloads.
+
+    Keep missing duration keys missing: an absent execute time falls back to
+    local wall time. A nonempty attempts list must still override meta attempts.
+    """
+    if not isinstance(result, dict):
+        return {}
+    summary = {key: result[key] for key in
+               ('outcome', 'lane', 'wall_seconds', 'drifted', 'drift', 'hint_rule')
+               if key in result}
+    durations = result.get('durations') or {}
+    summary['durations'] = {key: durations[key] for key in ('execute', 'queue')
+                            if key in durations}
+    summary['evidence'] = {'cause': (result.get('evidence') or {}).get('cause')}
+    attempts = result.get('attempts') or []
+    summary['attempts'] = [{'cause': attempts[0].get('cause')}] if attempts else []
+    flaky = result.get('flaky') or {}
+    summary['flaky'] = {'order': bool(flaky.get('order')),
+                        'shard_count': len(flaky.get('shards') or [])}
+    return summary
+
+
 def read_runs(state, since=None):
-    """Every run in the window, as (meta, result) pairs. Newest first.
+    """Every run in the window, as (meta, stats summary) pairs. Newest first.
 
     `result.json` is read only for runs inside the window, so a state directory
     with a year of history costs one `stat` per run outside it.
@@ -85,9 +108,10 @@ def read_runs(state, since=None):
             continue
         if since is not None and (meta.get('started') or 0) < since:
             continue
-        rows.append((meta, read_json(meta_path.parent / 'result.json') or {}))
+        rows.append((meta, meta_path.parent / 'result.json'))
     rows.sort(key=lambda pair: pair[0].get('started', 0), reverse=True)
-    return rows
+    for meta, path in rows:
+        yield meta, result_summary(read_json(path))
 
 
 def read_passthrough(state, since=None):
@@ -125,15 +149,12 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     """The whole report, as one dictionary. `--json` prints exactly this.
 
     `runs`, from the daemon's index (`RunIndex.history`), is the window's
-    (meta, result) pairs without reading every row; without it, the rows are
+    (meta, stats summary) pairs without reading every row; without it, the rows are
     read from disk. `retention` is {'keep_days', 'oldest'}: runs older than
     `[client] keep_runs_days` are removed, so no window sees past them.
     """
     if runs is None:
         runs = read_runs(state, since)
-    else:
-        # The remote half of a fallback is counted by its local run (`read_runs`).
-        runs = [(meta, result) for meta, result in runs if meta.get('state') != 'fell_back']
     passthrough = read_passthrough(state, since)
     by_job, waits, executes = {}, {'local': [], 'remote': []}, {}
     fallbacks, drift = {}, {'warned': 0, 'failed': 0}
@@ -144,8 +165,14 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     # configuration bug, and nobody sees it unless it is counted.
     hints = {}
     queued, queue_timeouts = [], 0
-    overrides = overrides_from(runs, passthrough)
+    overrides = overrides_from((), passthrough)
+    count = 0
     for meta, result in runs:
+        # The remote half of a fallback is counted by its local run.
+        if meta.get('state') == 'fell_back':
+            continue
+        count += 1
+        count_override(overrides, meta)
         lane = meta.get('lane') or 'remote'
         job = meta.get('job') or '(unclassified)'
         outcome = result.get('outcome') or meta.get('state') or 'unknown'
@@ -184,7 +211,7 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
         # counts pairs.
         if pair.get('order'):
             flaky['pairs'] += 1
-        flaky['shard_pairs'] += len(pair.get('shards') or [])
+        flaky['shard_pairs'] += pair.get('shard_count', 0)
         rule = result.get('hint_rule') or meta.get('hint_rule')
         if rule:
             entry = hints.setdefault(rule, {'count': 0, 'jobs': set()})
@@ -193,7 +220,7 @@ def build(state, *, since=None, worker=None, pause=None, local=None, window=None
     return {
         'window': window or ('all' if since is None else None),
         'since': since,
-        'runs': len(runs),
+        'runs': count,
         'by_job': [{'job': job, 'lane': lane, 'outcome': outcome, 'count': count}
                    for (job, lane, outcome), count in
                    sorted(by_job.items(), key=lambda item: (-item[1], item[0]))],
@@ -268,16 +295,20 @@ def overrides_from(runs, passthrough):
     """
     out = {where: {'asked': 0, 'moved': 0, 'unclaimed': 0} for where in ('local', 'remote')}
     for meta, _result in runs:
-        record = meta.get('placement') or {}
-        if record.get('override') in out:
-            out[record['override']]['asked'] += 1
-            if record.get('overridden'):
-                out[record['override']]['moved'] += 1
+        count_override(out, meta)
     for row in passthrough:
         # PANDORA_OFF outranks PANDORA_WHERE: that row is a bypass, not an override.
         if row.get('override') in out and row.get('reason') != 'off':
             out[row['override']]['unclaimed'] += 1
     return out
+
+
+def count_override(out, meta):
+    record = meta.get('placement') or {}
+    if record.get('override') in out:
+        out[record['override']]['asked'] += 1
+        if record.get('overridden'):
+            out[record['override']]['moved'] += 1
 
 
 def passthrough_summary(rows):
