@@ -507,6 +507,27 @@ Where the name shows:
 
 ## Maintenance
 
+Finished attempt directories have separate retention from golden images. Use
+`pandora worker retain --keep 604800 --keep-failed 604800` to keep seven days
+of successful and failed runs. It scans all attempts and preserves ledger rows
+and live runs; deletion errors fail the command instead of reporting success.
+
+`pandora worker expire-queued` closes overdue single-run queue entries using
+the normal `queue-timeout` result, even when their detached waiters died. It
+holds the admission lock and does not touch admitted runs or parent-owned
+shards.
+
+For unattended maintenance, run `scripts/install-worker-maintenance.sh BUNDLE
+ENGINE_ROOT` on the Linux worker as its worker user. `BUNDLE` must be a verified
+shipped engine bundle from this version or newer. This installs two systemd
+user timers: seven-day retention daily at 03:30 UTC, and overdue queue expiry
+every five minutes. The worker user needs linger enabled, as provisioning does.
+The services pin that bundle so older clients cannot change maintenance code;
+rerun the installer with a newer bundle to update it. Logs and failures are in
+`journalctl --user -u pandora-retain -u pandora-expire-queued`. To disable them,
+run `systemctl --user disable --now pandora-retain.timer pandora-expire-queued.timer`.
+These timers do not change golden GC or require restarting the engine.
+
 Sweep leaked instances, leaked volumes and old goldens once a week. Read the
 dry run first.
 

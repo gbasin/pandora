@@ -645,6 +645,10 @@ def cmd_reconcile(args):
     return emit({'ok': True, **runner.reconcile(args.root)})
 
 
+def cmd_expire_queued(args):
+    return emit({'ok': True, 'expired': waitlist.expire_overdue(args.root)})
+
+
 def cmd_retain(args):
     return emit({'ok': True, **runner.retain(args.root, keep_seconds=args.keep,
                                              keep_failed_seconds=args.keep_failed)})
@@ -845,6 +849,7 @@ def main(argv=None):
                         help="where the worker's own state.json lives")
     health.set_defaults(func=cmd_health)
     sub.add_parser('reconcile').set_defaults(func=cmd_reconcile)
+    sub.add_parser('expire-queued').set_defaults(func=cmd_expire_queued)
     retain = sub.add_parser('retain')
     retain.add_argument('--keep', type=int, default=86400)
     retain.add_argument('--keep-failed', type=int, default=86400)

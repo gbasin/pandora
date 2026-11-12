@@ -313,6 +313,41 @@ class TheBound(Engine):
         self.assertIn('in the worker queue, its bound', self.paths.log(queued).read_text())
 
 
+class PeriodicQueueExpiry(Engine):
+    def test_dead_waiter_expires_without_restarting_the_worker(self):
+        running = self.submit('a:suite', size='large')['run_id']
+        queued = self.submit('b:suite')['run_id']
+        ledger = self.ledger()
+        ledger.update(queued, queue_deadline=time.time() - 1, waiter_pid=99999999)
+        result = self.call('expire-queued')
+        self.assertEqual(result['expired'], [queued])
+        self.assertEqual(self.row(queued)['outcome'], 'infra_failed')
+        evidence = json.loads(self.paths.result(queued).read_text())['evidence']
+        self.assertEqual(evidence['cause'], 'queue-timeout')
+        self.assertEqual(self.row(running)['state'], 'admitted')
+        self.assertEqual(self.call('expire-queued')['expired'], [])
+        self.assertEqual(self.wait(queued), 'finished')
+
+    def test_fresh_queue_and_shards_are_left_to_their_owners(self):
+        self.submit('a:suite', size='large')
+        queued = self.submit('b:suite')['run_id']
+        ledger = self.ledger()
+        claim(ledger, request_id='shard', run_id='shard', role='shard', parent='parent')
+        ledger.update('shard', queued_at=1, queue_deadline=2)
+        self.assertEqual(self.call('expire-queued')['expired'], [])
+        self.assertEqual(self.row(queued)['state'], 'queued')
+        self.assertEqual(self.row('shard')['state'], 'queued')
+
+    def test_admission_wins_before_the_sweep_acquires_the_gate(self):
+        running = self.submit('a:suite', size='large')['run_id']
+        queued = self.submit('b:suite')['run_id']
+        self.finish(running)
+        self.assertEqual(self.wait(queued), 'admitted')
+        self.ledger().update(queued, queue_deadline=time.time() - 1)
+        self.assertEqual(self.call('expire-queued')['expired'], [])
+        self.assertEqual(self.row(queued)['state'], 'admitted')
+
+
 class ReconcileKeepsTheQueue(Engine):
     def test_a_waiting_shard_gets_no_waiter_and_is_admitted_once(self):
         from pandora.engine import fanout

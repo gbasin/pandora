@@ -500,6 +500,24 @@ class RetentionTest(unittest.TestCase):
             self.assertTrue(paths.attempt('new').is_dir())
             self.assertFalse(paths.attempt('old').is_dir())
 
+    def test_retention_reaches_beyond_the_latest_ten_thousand_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = runner.Paths(Path(tmp)).ensure()
+            ledger = Ledger(paths.ledger)
+            self.addCleanup(ledger.close)
+            claim(ledger, request_id='old', run_id='old')
+            ledger.finish('old', outcome='passed', exit_code=0)
+            ledger.update('old', created=1, finished=2)
+            paths.attempt('old').mkdir()
+            # Rows are enough to push the old directory out of recent(10000).
+            ledger.db.execute('BEGIN')
+            for i in range(10000):
+                claim(ledger, request_id='new-%d' % i, run_id='new-%d' % i)
+            ledger.db.execute('COMMIT')
+            answer = runner.retain(paths.root)
+            self.assertEqual(answer['removed'], ['old'])
+            self.assertIsNotNone(ledger.get('old'))
+
     def snapshot(self, paths, repo, name, *, age):
         import os
         directory = paths.src / repo / name

@@ -206,6 +206,38 @@ def expire(paths, ledger, scheduler, run_id, *, now=None, capacity=None):
         receipt={'clean': True, 'note': 'no instance was created'})
 
 
+def expire_overdue(root):
+    """Expire bounded single runs even if their detached waiter died.
+
+    The gate serializes this with admission and cancellation. An admitted run
+    or a child owned by a parent is never this sweep's to finish.
+    """
+    paths = runner.Paths(root).ensure()
+    ledger = Ledger(paths.ledger)
+    store = admission.Store(str(paths.peaks))
+    expired = []
+    try:
+        with gate(paths.root):
+            now = time.time()
+            scheduler = Scheduler(ledger, store, budget_mib=runner.budget_of(paths),
+                                  max_running=runner.max_running_of(paths)[0],
+                                  cpus_per_run=runner.cpus_per_run_of(paths)[0])
+            for row in ledger.live():
+                if (row['state'] != 'queued' or (row['role'] or 'single') != 'single'
+                        or row['parent'] or row['instance'] or row['supervisor_pid']
+                        or not row['queue_deadline'] or row['queue_deadline'] >= now):
+                    continue
+                if row['cancel_requested']:
+                    withdraw(paths, ledger, row['run_id'], 'canceled while queued; nothing ran')
+                else:
+                    expire(paths, ledger, scheduler, row['run_id'], now=now)
+                expired.append(row['run_id'])
+    finally:
+        store.close()
+        ledger.close()
+    return expired
+
+
 def note(paths, run_id, text):
     try:
         with paths.log(run_id).open('a') as handle:
