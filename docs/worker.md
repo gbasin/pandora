@@ -518,7 +518,8 @@ holds the admission lock and does not touch admitted runs or parent-owned
 shards.
 
 For unattended maintenance, run `scripts/install-worker-maintenance.sh BUNDLE
-ENGINE_ROOT` on the Linux worker as its worker user. `BUNDLE` must be a verified
+ENGINE_ROOT` on the Linux worker as its worker user. Both paths must be absolute.
+`BUNDLE` must be a verified
 shipped engine bundle from this version or newer. This installs two systemd
 user timers: seven-day retention daily at 03:30 UTC, and overdue queue expiry
 every five minutes. The worker user needs linger enabled, as provisioning does.

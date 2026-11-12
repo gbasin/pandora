@@ -3,9 +3,11 @@
 set -eu
 bundle=${1:?usage: install-worker-maintenance.sh BUNDLE [ENGINE_ROOT]}
 engine_root=${2:-"$HOME/pandora-engine"}
+case "$bundle" in /*) ;; *) echo 'bundle path must be absolute' >&2; exit 64;; esac
+case "$engine_root" in /*) ;; *) echo 'engine root must be absolute' >&2; exit 64;; esac
 case "$bundle:$engine_root" in *[!a-zA-Z0-9_./:-]*) echo 'unsupported characters in paths' >&2; exit 64;; esac
 [ -f "$bundle/pandora/.bundle" ] || { echo 'not a verified engine bundle' >&2; exit 64; }
-PYTHONPATH="$bundle" python3 -m pandora.engine.service expire-queued --help >/dev/null
+(cd "$bundle" && PYTHONPATH="$bundle" /usr/bin/python3 -m pandora.engine.service expire-queued --help >/dev/null)
 units="$HOME/.config/systemd/user"
 mkdir -p "$units"
 for action in retain expire-queued; do
