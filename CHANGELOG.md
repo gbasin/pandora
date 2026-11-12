@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.22](https://github.com/gbasin/pandora/compare/v0.3.21...v0.3.22) (2026-11-12)
+
+
+### Bug Fixes
+
+* retain all finished runs and expire orphaned queue entries ([#265](https://github.com/gbasin/pandora/issues/265)) ([e185519](https://github.com/gbasin/pandora/commit/e185519422d5f8eb62e13561d99fd4bcc5f30e9e))
+
 ## [0.3.21](https://github.com/gbasin/pandora/compare/v0.3.20...v0.3.21) (2026-10-28)
 
 
