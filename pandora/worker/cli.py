@@ -319,7 +319,10 @@ def cmd_engine(args):
     host, engine_root, control = target(args)
     remote = Remote(host, control_dir=control, engine_root=engine_root)
     try:
-        answer = remote.engine([args.action], timeout=args.timeout)
+        argv = [args.action]
+        if args.action == 'retain':
+            argv += ['--keep', str(args.keep), '--keep-failed', str(args.keep_failed)]
+        answer = remote.engine(argv, timeout=args.timeout)
     finally:
         remote.close()
     print(json.dumps(answer, indent=1, sort_keys=True))
@@ -454,11 +457,15 @@ def add_parser(sub):
     node.set_defaults(func=cmd_pins)
 
     for name, help_text in (('reconcile', 'adopt or fail runs after a worker service restart'),
+                            ('expire-queued', 'expire overdue queued runs whose waiters may have died'),
                             ('retain', 'delete old attempt directories and collect unused source snapshots'),
                             ('stats', 'the scheduler picture and outcome counts')):
         node = actions.add_parser(name, help=help_text)
         node.add_argument('--timeout', type=int, default=300)
         node.add_argument('--versions', default=None)
+        if name == 'retain':
+            node.add_argument('--keep', type=int, default=86400, help='successful run retention in seconds')
+            node.add_argument('--keep-failed', type=int, default=86400, help='failed run retention in seconds')
         node.set_defaults(func=cmd_engine)
     return worker
 

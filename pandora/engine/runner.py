@@ -1138,14 +1138,16 @@ def retain(root, *, keep_seconds=86400, keep_failed_seconds=86400):
     removed, kept = [], []
     cutoff = time.time() - keep_seconds
     failed_cutoff = time.time() - keep_failed_seconds
-    for row in ledger.recent(limit=10000):
+    rows = ledger.db.execute(
+        "SELECT run_id, state, outcome, finished, created FROM attempts WHERE state='finished'")
+    for row in rows:
         directory = paths.attempt(row['run_id'])
         if not directory.is_dir() or row['state'] != 'finished':
             continue
         finished = row['finished'] or row['created']
         limit = failed_cutoff if row['outcome'] != 'passed' else cutoff
         if finished < limit:
-            shutil.rmtree(directory, ignore_errors=True)
+            shutil.rmtree(directory)
             removed.append(row['run_id'])
         else:
             kept.append(row['run_id'])
