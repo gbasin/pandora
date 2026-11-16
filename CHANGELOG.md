@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.23](https://github.com/gbasin/pandora/compare/v0.3.22...v0.3.23) (2026-11-16)
+
+
+### Bug Fixes
+
+* keep worker health probes lightweight and schedule source cleanup separately ([#267](https://github.com/gbasin/pandora/issues/267)) ([bd55182](https://github.com/gbasin/pandora/commit/bd551820ef163b3f1a6f3b00565e660e7db762c6))
+
 ## [0.3.22](https://github.com/gbasin/pandora/compare/v0.3.21...v0.3.22) (2026-11-12)
 
 
