@@ -177,7 +177,9 @@ Worker health polls allow 5 seconds each for disk headroom and the container
 listing, within the client's 20-second health-call timeout. One failed poll
 keeps the previous reading and its original timestamp. Two consecutive failed
 polls mark the worker down; any successful response resets the count. A slow
-poll alone therefore does not immediately trigger local fallback.
+poll alone therefore does not immediately trigger local fallback. After a
+daemon restart, cached worker health starts as unknown until fresh probes
+establish it; a cached down result cannot immediately trigger local fallback.
 
 `pandora/client/settings.py` documents every key. Remove `[worker] budget_mib`,
 `[client] max_wait_seconds`, `[client] fallback_slots`,

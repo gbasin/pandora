@@ -22,8 +22,10 @@ refuse anything. `down` means two consecutive probes failed to answer. Only
 `down` changes what the fallback path does. One missed probe keeps the last
 reading without refreshing its timestamp.
 
-A state older than `stale_after` is treated as `unknown` rather than as its last
-value: a daemon that has been asleep since yesterday knows nothing about now.
+After a restart, cached facts remain available but reachability starts as
+`unknown`: the old daemon's failed probe must not route new requests locally
+before this daemon has asked the worker. A state older than `stale_after` is
+also treated as `unknown` rather than as its last value.
 """
 import json
 import subprocess
@@ -221,6 +223,7 @@ class Monitor:
         for key in self.current:
             if key in saved:
                 self.current[key] = saved[key]
+        self.current['worker'] = 'unknown'
 
     def _save(self, item):
         if self.store is None:
