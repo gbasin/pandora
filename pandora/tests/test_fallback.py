@@ -1398,6 +1398,39 @@ if __name__ == '__main__':
 class WorkerKnownDown(DaemonCase):
     """The health poll's one job: a known-down worker costs no SSH timeout."""
 
+    def test_cached_down_does_not_fall_back_while_first_probe_is_pending(self):
+        from pandora.client.health import Monitor
+        self.daemon.health.stop()
+        store = self.state / 'worker-health.json'
+        store.write_text(json.dumps({'worker': 'down', 'at': time.time(),
+                                     'reason': 'the previous daemon timed out'}))
+        self.daemon.health = Monitor(self.daemon.any_worker, store=store,
+                                     notify_enabled=False)
+        started, release = threading.Event(), threading.Event()
+        original = FakeWorker.health
+
+        def blocked(worker, **kwargs):
+            started.set()
+            if not release.wait(10):
+                raise TimeoutError('test did not release the first probe')
+            return original(worker, **kwargs)
+
+        with mock.patch.object(FakeWorker, 'health', blocked):
+            self.daemon.health.start()
+            try:
+                self.assertTrue(started.wait(5), 'first health probe started')
+                answer = self.call(['pnpm', 'unit'])
+                self.assertEqual(answer.exit, 0, answer.error)
+                meta = json.loads((self.state / 'runs' / answer.accepted['run'] /
+                                   'meta.json').read_text())
+                self.assertEqual(meta['lane'], 'remote')
+                self.assertFalse(self.marker.exists(), 'no local command ran')
+                self.assertFalse(any('fallback' in note or 'falls back' in note
+                                     for note in answer.notices), answer.notices)
+            finally:
+                release.set()
+                self.daemon.health.stop()
+
     def test_a_known_down_worker_falls_back_without_submitting(self):
         FakeWorker.health_raises = WorkerUnreachable('ssh: connect timed out')
         self.daemon.health.poll()

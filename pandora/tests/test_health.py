@@ -271,7 +271,7 @@ class Transitions(unittest.TestCase):
 
 
 class Store(unittest.TestCase):
-    def test_a_reading_survives_a_daemon_restart(self):
+    def test_cached_down_is_unknown_until_a_fresh_probe_answers(self):
         with tempfile.TemporaryDirectory() as home:
             store = Path(home) / 'worker-health.json'
             clock = Clock()
@@ -281,9 +281,44 @@ class Store(unittest.TestCase):
             saved = json.loads(store.read_text())
             self.assertEqual(saved['worker'], 'down')
             again, _, notes = monitor(answer(), clock=clock, store=store)
-            self.assertTrue(again.known_down(), 'loaded from disk before any poll')
+            self.assertFalse(again.known_down())
+            self.assertEqual(again.state()['worker'], 'unknown')
+            self.assertEqual(again.state()['at'], saved['at'])
+            self.assertEqual(again.state()['reason'], saved['reason'])
             again.poll()
+            self.assertEqual(again.state()['worker'], 'reachable')
             self.assertEqual([t for t, _ in notes], ['pandora: worker back'])
+
+    def test_cached_down_still_needs_two_new_failed_probes(self):
+        with tempfile.TemporaryDirectory() as home:
+            store = Path(home) / 'worker-health.json'
+            store.write_text(json.dumps({'worker': 'down', 'at': 1000,
+                                         'reason': 'old timeout'}))
+            mon, _, _ = monitor(PandoraError('new timeout'), store=store)
+            self.assertEqual(mon.poll()['worker'], 'unknown')
+            self.assertFalse(mon.known_down())
+            self.assertEqual(mon.poll()['worker'], 'down')
+            self.assertEqual(mon.state()['reason'], 'new timeout')
+
+    def test_cached_reachable_still_announces_down_after_two_new_failures(self):
+        with tempfile.TemporaryDirectory() as home:
+            store = Path(home) / 'worker-health.json'
+            store.write_text(json.dumps({'worker': 'reachable', 'at': 1000}))
+            mon, _, notes = monitor(PandoraError('new timeout'), store=store)
+            mon.poll()
+            self.assertEqual(notes, [])
+            mon.poll()
+            self.assertEqual([t for t, _ in notes], ['pandora: worker down'])
+
+    def test_cached_degraded_does_not_announce_the_same_problem_again(self):
+        with tempfile.TemporaryDirectory() as home:
+            store = Path(home) / 'worker-health.json'
+            store.write_text(json.dumps({'worker': 'degraded', 'at': 1000,
+                                         'reason': 'still initializing'}))
+            mon, _, notes = monitor(answer(ok=False, reason='still initializing'),
+                                     store=store)
+            self.assertEqual(mon.poll()['worker'], 'degraded')
+            self.assertEqual(notes, [])
 
     def test_an_unwritable_store_is_not_fatal(self):
         mon, _, _ = monitor(answer(), store='/nonexistent/dir/health.json')
