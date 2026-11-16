@@ -1,9 +1,12 @@
 """The worker monitor: what a poll records, what a transition announces, and
 what a stale reading is allowed to claim."""
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from pandora.client import health
 from pandora.errors import PandoraError
@@ -66,6 +69,7 @@ class Polling(unittest.TestCase):
 
     def test_no_answer_is_down(self):
         mon, _, _ = monitor(PandoraError('ssh: connect timed out'))
+        self.assertEqual(mon.poll()['worker'], 'unknown')
         state = mon.poll()
         self.assertEqual(state['worker'], 'down')
         self.assertIn('timed out', state['reason'])
@@ -73,17 +77,83 @@ class Polling(unittest.TestCase):
 
     def test_an_unexpected_exception_is_down_never_a_crash(self):
         mon, _, _ = monitor(RuntimeError('boom'))
+        self.assertEqual(mon.poll()['worker'], 'unknown')
         self.assertEqual(mon.poll()['worker'], 'down')
 
     def test_a_pool_below_its_floor_reads_as_such(self):
         mon, _, _ = monitor(answer(ok=False, capacity={'ok': False, 'free_gib': 1.0}))
         self.assertEqual(mon.poll()['disk'], 'below floor')
 
+    def test_one_timeout_keeps_the_previous_reading_without_refreshing_it(self):
+        clock = Clock()
+        mon, worker, notes = monitor(answer(), clock=clock)
+        good = mon.poll()
+        clock.at += 60
+        worker.reply = subprocess.TimeoutExpired('ssh health', 20)
+        state = mon.poll()
+        self.assertEqual(state['worker'], 'reachable')
+        self.assertEqual(state['at'], good['at'])
+        self.assertEqual(state['age_seconds'], 60)
+        self.assertFalse(mon.known_down())
+        self.assertEqual(notes, [])
+        self.assertEqual(mon.poll()['worker'], 'down')
+        self.assertEqual([t for t, _ in notes], ['pandora: worker down'])
+
+    def test_an_answer_between_failures_resets_the_count_even_when_degraded(self):
+        mon, worker, _ = monitor(answer())
+        mon.poll()
+        worker.reply = PandoraError('slow')
+        mon.poll()
+        worker.reply = answer(ok=False, reason='canary failed')
+        mon.poll()
+        worker.reply = PandoraError('slow again')
+        self.assertEqual(mon.poll()['worker'], 'degraded')
+        self.assertFalse(mon.known_down())
+        self.assertEqual(mon.poll()['worker'], 'down')
+        worker.reply = answer()
+        self.assertEqual(mon.poll()['worker'], 'reachable')
+
+
+class EngineProbe(unittest.TestCase):
+    def probe(self, *, listing_error=None, capacity_error=None):
+        from pandora.engine import service, runner
+        with tempfile.TemporaryDirectory() as home:
+            driver = mock.Mock()
+            driver.instances.return_value = [{'name': 'golden-a'}]
+            driver.instances.side_effect = listing_error
+            driver.capacity.return_value = {'ok': True, 'free_gib': 100}
+            driver.capacity.side_effect = capacity_error
+            with mock.patch('pandora.executor.incus.IncusDriver', return_value=driver), \
+                    mock.patch.object(runner, 'gc_sources') as collect, \
+                    mock.patch.object(service, 'emit', side_effect=lambda value: value):
+                result = service.cmd_health(SimpleNamespace(root=home, worker_root=home))
+            collect.assert_not_called()
+            driver.capacity.assert_called_once_with(floor_gib=4, timeout=5)
+            driver.instances.assert_called_once_with(check=True, timeout=5)
+            return result
+
+    def test_health_bounds_external_checks_and_does_no_cleanup(self):
+        result = self.probe()
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['goldens'], ['golden-a'])
+        self.assertIsNone(result['src_removed'])
+
+    def test_a_slow_listing_returns_degraded_instead_of_hanging(self):
+        result = self.probe(listing_error=subprocess.TimeoutExpired('incus list', 5))
+        self.assertFalse(result['ok'])
+        self.assertIn('goldens unreadable', result['reason'])
+
+    def test_slow_disk_check_reports_unmeasured_and_still_answers(self):
+        result = self.probe(capacity_error=subprocess.TimeoutExpired('btrfs', 5))
+        self.assertFalse(result['capacity']['measured'])
+        self.assertTrue(result['ok'])
+
 
 class Staleness(unittest.TestCase):
     def test_a_reading_older_than_the_stale_window_is_unknown(self):
         clock = Clock()
         mon, _, _ = monitor(PandoraError('gone'), clock=clock, interval=60)
+        mon.poll()
         mon.poll()
         self.assertTrue(mon.known_down())
         clock.at += 60 * health.STALE_FACTOR + 1
@@ -161,6 +231,7 @@ class Transitions(unittest.TestCase):
         mon.poll()
         worker.reply = PandoraError('gone')
         mon.poll()
+        mon.poll()
         worker.reply = answer(ok=False, reason='still reimaging')
         mon.poll()
         self.assertEqual([t for t, _ in notes],
@@ -195,6 +266,7 @@ class Transitions(unittest.TestCase):
         mon.poll()
         mon.open_worker = lambda: Worker(PandoraError('x'))
         mon.poll()
+        mon.poll()
         self.assertEqual(calls, [{'enabled': False}])
 
 
@@ -204,6 +276,7 @@ class Store(unittest.TestCase):
             store = Path(home) / 'worker-health.json'
             clock = Clock()
             mon, _, _ = monitor(PandoraError('gone'), clock=clock, store=store)
+            mon.poll()
             mon.poll()
             saved = json.loads(store.read_text())
             self.assertEqual(saved['worker'], 'down')

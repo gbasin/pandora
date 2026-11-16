@@ -393,7 +393,7 @@ class IncusDriver(Executor):
                 found[parts[3]] = (int(parts[1]), int(parts[2]))
         return found
 
-    def pool_usage(self):
+    def pool_usage(self, *, timeout=120):
         """Total, used and free bytes of the pool, read from btrfs itself.
 
         `df` on a btrfs filesystem reports allocation, not what is available to
@@ -402,7 +402,7 @@ class IncusDriver(Executor):
         start another run".
         """
         rc, out, _ = run(['sudo', 'btrfs', 'filesystem', 'usage', '--raw', self.pool_mount()],
-                         check=False, timeout=120)
+                         check=False, timeout=timeout)
         total = used = free = 0
         for line in out.splitlines():
             text = line.strip()
@@ -435,7 +435,7 @@ class IncusDriver(Executor):
         lock, so the timeout is short: a hung call fails the move, not admission."""
         self.incus('config', 'set', name, 'limits.cpu=%s' % cpus, timeout=10)
 
-    def capacity(self, floor_gib=0):
+    def capacity(self, floor_gib=0, *, timeout=None):
         """May the box take another run? The engine's admission hook.
 
         Memory admission has a ledger to reason with; disk has none, because a
@@ -443,7 +443,7 @@ class IncusDriver(Executor):
         nothing cleverer: below it, new runs are refused with the arithmetic in
         the refusal, and the runs already going are left alone to finish.
         """
-        usage = self.pool_usage()
+        usage = self.pool_usage(**({'timeout': timeout} if timeout is not None else {}))
         if not usage.get('ok'):
             # Unreadable headroom is not a refusal: a pool that cannot be
             # measured would otherwise stop every run on the worker, which is a
@@ -459,7 +459,7 @@ class IncusDriver(Executor):
                                 % (self.pool, usage['free_gib'], floor_gib))
         return answer
 
-    def instances(self, *, check=False):
+    def instances(self, *, check=False, timeout=180):
         """[{name, state, created}] for every instance in the project.
 
         By default a failed listing reads as an empty project, which is the
@@ -468,7 +468,7 @@ class IncusDriver(Executor):
         gc can tell "no instances" from "could not look" (#88).
         """
         rc, out, err = self.incus('list', '--format', 'csv', '-c', 'nsD', check=False,
-                                  timeout=180)
+                                  timeout=timeout)
         rows = []
         if rc != 0:
             if check:

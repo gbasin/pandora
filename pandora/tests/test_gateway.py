@@ -141,7 +141,7 @@ class RefusedShapes(unittest.TestCase):
             'pandora.engine.service --root %s submit' % (ER, ER, ER)))
 
     def test_admin_verbs_are_not_for_user_keys(self):
-        for verb in ('retain', 'cache-clear', 'canary', 'supervise'):
+        for verb in ('retain', 'gc-sources', 'cache-clear', 'canary', 'supervise'):
             command = ('cd %s && PYTHONPATH=%s python3 -m pandora.engine.service '
                        '--root %s %s' % (BUNDLE, BUNDLE, ER, verb))
             with self.subTest(verb=verb):

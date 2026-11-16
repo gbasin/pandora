@@ -1401,6 +1401,7 @@ class WorkerKnownDown(DaemonCase):
     def test_a_known_down_worker_falls_back_without_submitting(self):
         FakeWorker.health_raises = WorkerUnreachable('ssh: connect timed out')
         self.daemon.health.poll()
+        self.daemon.health.poll()
         self.assertTrue(self.daemon.health.known_down())
         FakeWorker.raises = AssertionError('submit must not be called for a known-down worker')
         started = time.monotonic()
@@ -1415,6 +1416,7 @@ class WorkerKnownDown(DaemonCase):
 
     def test_ps_carries_the_worker_state(self):
         FakeWorker.health_raises = WorkerUnreachable('gone')
+        self.daemon.health.poll()
         self.daemon.health.poll()
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect(str(self.daemon.socket_path))

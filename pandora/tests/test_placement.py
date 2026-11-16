@@ -236,6 +236,7 @@ class RemoteOverride(PlacementCase):
     def test_a_worker_known_down_is_the_same_error_without_submitting(self):
         FakeWorker.health_raises = WorkerUnreachable('gone')
         self.daemon.health.poll()
+        self.daemon.health.poll()
         answer = self.place(['pnpm', 'node'], 'remote')
         self.assertEqual((answer.error['code'], answer.exit), ('placement-unavailable', 70))
         self.assertEqual(RecordingWorker.plans, [])

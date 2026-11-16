@@ -554,6 +554,29 @@ class RetentionTest(unittest.TestCase):
             for name in ('s4', 's5', 's6'):
                 self.assertFalse(dirs[name].exists(), name)
 
+    def test_gc_sources_command_keeps_live_sources_and_attempt_directories(self):
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = runner.Paths(Path(tmp)).ensure()
+            ledger = Ledger(paths.ledger)
+            live = self.snapshot(paths, 'repo', 'live', age=8000)
+            fresh = self.snapshot(paths, 'repo', 'fresh', age=10)
+            spare = [self.snapshot(paths, 'repo', 'spare-%d' % n, age=7200 + n * 60)
+                     for n in range(5)]
+            claim(ledger, run_id='live-run', input_id='live', source_path=str(live))
+            paths.attempt('live-run').mkdir(parents=True)
+            ledger.close()
+            result = subprocess.run(
+                [sys.executable, '-m', 'pandora.engine.service', '--root', str(paths.root),
+                 'gc-sources'], capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(result.stdout)['src_removed'], ['spare-4'])
+            self.assertTrue(live.is_dir())
+            self.assertTrue(fresh.is_dir())
+            self.assertTrue(paths.attempt('live-run').is_dir())
+            self.assertTrue(all(path.is_dir() for path in spare[:4]))
+            self.assertFalse(spare[4].exists())
+
     def test_source_gc_reaps_orphaned_staging(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = runner.Paths(Path(tmp)).ensure()
@@ -566,18 +589,6 @@ class RetentionTest(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(new.is_dir())
 
-    def test_source_gc_throttle_stamp(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = runner.Paths(Path(tmp)).ensure()
-            ledger = Ledger(paths.ledger)
-            # one more than `keep` spares, so exactly the oldest is collected
-            for n in range(5):
-                self.snapshot(paths, 'repo', 'victim-%d' % n, age=7200 + n * 60)
-            first = runner.maybe_gc_sources(paths, ledger)
-            second = runner.maybe_gc_sources(paths, ledger)
-            ledger.close()
-            self.assertEqual(first, ['victim-4'])
-            self.assertIsNone(second)
 
 
 class SourceConfinementTest(unittest.TestCase):
