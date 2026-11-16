@@ -22,6 +22,7 @@ would make a 0.06 s clone unmeasurable.
     stats     scheduler picture plus outcome counts
     health    the cheap one the client polls: reachable, disk, canary, drift
     reconcile after a restart: adopt or fail, never fabricate
+    gc-sources collect unused source snapshots
     retain    delete old attempt directories
     canary    the worker's own health gate
     cache-stats   the turbo remote cache: bytes, entries, what the server counted
@@ -642,6 +643,14 @@ def cmd_expire_queued(args):
     return emit({'ok': True, 'expired': waitlist.expire_overdue(args.root)})
 
 
+def cmd_gc_sources(args):
+    paths, ledger = open_ledger(args.root)
+    try:
+        return emit({'ok': True, 'src_removed': runner.gc_sources(paths, ledger)})
+    finally:
+        ledger.close()
+
+
 def cmd_retain(args):
     return emit({'ok': True, **runner.retain(args.root, keep_seconds=args.keep,
                                              keep_failed_seconds=args.keep_failed)})
@@ -843,6 +852,7 @@ def main(argv=None):
     health.set_defaults(func=cmd_health)
     sub.add_parser('reconcile').set_defaults(func=cmd_reconcile)
     sub.add_parser('expire-queued').set_defaults(func=cmd_expire_queued)
+    sub.add_parser('gc-sources').set_defaults(func=cmd_gc_sources)
     retain = sub.add_parser('retain')
     retain.add_argument('--keep', type=int, default=86400)
     retain.add_argument('--keep-failed', type=int, default=86400)

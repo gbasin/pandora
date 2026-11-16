@@ -988,9 +988,9 @@ Sizes that matter:
   to 2.3 GiB in one afternoon. The worker now deletes a snapshot that no live
   run needs, that is not the `latest` link-dest base, and that is older than
   an hour. It keeps the newest 4 such snapshots per repository. It runs this
-  collection during `pandora worker retain`, which the worker maintenance
-  timer runs daily. Health polls never collect sources. `pandora worker gc`
-  does not collect them either.
+  collection every five minutes when the worker maintenance timers are
+  installed, through `pandora worker gc-sources`. `pandora worker retain`
+  also collects sources. Health polls and `pandora worker gc` do not.
 * The turbo cache is bounded at 4 GiB. Acme's `check` uses under 1 MiB of it (0.6 MiB measured).
 
 Known caveats:

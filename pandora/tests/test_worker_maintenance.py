@@ -75,5 +75,24 @@ class WorkerMaintenanceInstallerTest(unittest.TestCase):
         self.assertIn('WorkingDirectory=' + str(self.bundle), unit)
         self.assertIn('ExecStart=/usr/bin/python3 ', unit)
         self.assertIn('--root ' + str(self.root / 'engine'), unit)
-        self.assertIn('enable --now pandora-retain.timer pandora-expire-queued.timer',
+        self.assertIn('enable --now pandora-retain.timer pandora-expire-queued.timer pandora-gc-sources.timer',
                       self.log.read_text())
+
+    def test_source_collection_is_scheduled_separately_every_five_minutes(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        units = self.home / '.config/systemd/user'
+        service = (units / 'pandora-gc-sources.service').read_text()
+        timer = (units / 'pandora-gc-sources.timer').read_text()
+        self.assertIn('--root %s gc-sources' % (self.root / 'engine'), service)
+        self.assertIn('WorkingDirectory=' + str(self.bundle), service)
+        self.assertIn('OnUnitActiveSec=5min', timer)
+        self.assertIn('OnCalendar=*-*-* 03:30:00 UTC',
+                      (units / 'pandora-retain.timer').read_text())
+
+    def test_old_bundle_without_source_collection_is_rejected_before_writes(self):
+        (self.bundle / 'pandora/engine/service.py').write_text(
+            "import sys\nraise SystemExit(2 if 'gc-sources' in sys.argv else 0)\n")
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_untouched()

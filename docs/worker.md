@@ -421,8 +421,8 @@ refuses everything else with `pandora-gateway: refused as <name>: <reason>`:
   or above `<engine_root>/keys`, and no option that follows symlinks
   ([Verdicts](#verdicts)).
 
-`gc`, `canary`, `ready`, `retain`, `cache-clear` and a bare shell are refused
-on a `user` key. An admitted command runs with `PANDORA_GATEWAY_CLIENT` set to
+`gc`, `gc-sources`, `canary`, `ready`, `retain`, `cache-clear` and a bare shell
+are refused on a `user` key. An admitted command runs with `PANDORA_GATEWAY_CLIENT` set to
 the key's name, and the engine trusts that pin over whatever the request
 claimed — so a gatewayed client cannot speak as another client, whatever code
 it runs.
@@ -520,13 +520,18 @@ shards.
 For unattended maintenance, run `scripts/install-worker-maintenance.sh BUNDLE
 ENGINE_ROOT` on the Linux worker as its worker user. Both paths must be absolute.
 `BUNDLE` must be a verified
-shipped engine bundle from this version or newer. This installs two systemd
-user timers: seven-day retention daily at 03:30 UTC, and overdue queue expiry
-every five minutes. The worker user needs linger enabled, as provisioning does.
+shipped engine bundle from this version or newer. This installs three systemd
+user timers: seven-day retention daily at 03:30 UTC, overdue queue expiry
+every five minutes, and source snapshot collection every five minutes. Source
+collection runs separately from health checks and preserves live, fresh, and
+recent reusable snapshots. Run `pandora worker gc-sources` to collect manually.
+The worker user needs linger enabled, as provisioning does. Install these timers
+before upgrading clients that previously collected sources during health polls;
+without the timers, source collection requires a manual `gc-sources` or `retain`.
 The services pin that bundle so older clients cannot change maintenance code;
 rerun the installer with a newer bundle to update it. Logs and failures are in
-`journalctl --user -u pandora-retain -u pandora-expire-queued`. To disable them,
-run `systemctl --user disable --now pandora-retain.timer pandora-expire-queued.timer`.
+`journalctl --user -u pandora-retain -u pandora-expire-queued -u pandora-gc-sources`. To disable them,
+run `systemctl --user disable --now pandora-retain.timer pandora-expire-queued.timer pandora-gc-sources.timer`.
 These timers do not change golden GC or require restarting the engine.
 
 Sweep leaked instances, leaked volumes and old goldens once a week. Read the
@@ -595,6 +600,7 @@ The other worker verbs:
 | `pandora worker goldens` | Each golden: repository, referenced and exclusive bytes, pinned or not, last use. |
 | `pandora worker pins --toolchain F [--source D]` | The golden a routed run of toolchain `F` over source `D` would use: its name, the recipe fingerprint, the image and lockfile pins, and the service images' registry digests, which are not pinned. See [Goldens](#goldens). |
 | `pandora worker reconcile` | Adopt or fail runs whose supervisor is gone after the worker service restarts. |
+| `pandora worker gc-sources` | Collect unused source snapshots without deleting attempt directories. |
 | `pandora worker retain` | Delete old attempt directories and unreferenced source snapshots. |
 | `pandora worker stats` | The worker's scheduler picture and outcome counts. |
 | `pandora cache stats`, `pandora cache clear [--repo R]` | The worker's turbo remote cache, served on the runs' bridge. |

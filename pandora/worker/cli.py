@@ -459,6 +459,7 @@ def add_parser(sub):
     for name, help_text in (('reconcile', 'adopt or fail runs after a worker service restart'),
                             ('expire-queued', 'expire overdue queued runs whose waiters may have died'),
                             ('retain', 'delete old attempt directories and collect unused source snapshots'),
+                            ('gc-sources', 'collect unused source snapshots without retaining attempts'),
                             ('stats', 'the scheduler picture and outcome counts')):
         node = actions.add_parser(name, help=help_text)
         node.add_argument('--timeout', type=int, default=300)
