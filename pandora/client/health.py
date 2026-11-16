@@ -22,10 +22,10 @@ refuse anything. `down` means two consecutive probes failed to answer. Only
 `down` changes what the fallback path does. One missed probe keeps the last
 reading without refreshing its timestamp.
 
-After a restart, cached facts remain available but reachability starts as
-`unknown`: the old daemon's failed probe must not route new requests locally
-before this daemon has asked the worker. A state older than `stale_after` is
-also treated as `unknown` rather than as its last value.
+After a restart, cached facts remain available for diagnostics and transition
+notifications. A cached `down` result reads as `unknown` until this daemon has
+two failed probes: the old daemon's failure must not route new requests locally.
+A state older than `stale_after` also reads as `unknown`.
 """
 import json
 import subprocess
@@ -103,13 +103,13 @@ class Monitor:
     # -- reading -----------------------------------------------------------
 
     def state(self):
-        """The cached picture, with `worker` degraded to `unknown` when stale."""
+        """The cached picture; stale or unconfirmed down readings are unknown."""
         with self.lock:
             item = dict(self.current)
         age = self.clock() - (item.get('at') or 0)
         item['age_seconds'] = round(age, 1)
         item['stale'] = item['worker'] != 'unknown' and age > self.interval * STALE_FACTOR
-        if item['stale']:
+        if item['stale'] or (item['worker'] == 'down' and self.failures < 2):
             item['worker'] = 'unknown'
         return item
 
@@ -223,7 +223,6 @@ class Monitor:
         for key in self.current:
             if key in saved:
                 self.current[key] = saved[key]
-        self.current['worker'] = 'unknown'
 
     def _save(self, item):
         if self.store is None:
