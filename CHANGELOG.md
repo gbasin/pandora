@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.24](https://github.com/gbasin/pandora/compare/v0.3.23...v0.3.24) (2026-11-16)
+
+
+### Bug Fixes
+
+* recheck cached worker health after daemon restart ([#269](https://github.com/gbasin/pandora/issues/269)) ([e23047e](https://github.com/gbasin/pandora/commit/e23047e461a51cc5ccbb23ecfafd1d091fa3cdd1))
+
 ## [0.3.23](https://github.com/gbasin/pandora/compare/v0.3.22...v0.3.23) (2026-11-16)
 
 
