@@ -173,6 +173,12 @@ The optional keys and their defaults:
 | | `queue_timeout_seconds` | `0` | 0 waits for the budget as long as it takes. A nonzero bound ends a waiting run with exit 75, and nothing runs. |
 | `[local.pause]` | `enabled`, `sample_seconds`, `swap_growth_mib_per_minute`, `psi_full_avg10`, `free_percent`, `load_per_cpu`, `max_wait_seconds` | `true`, 3, 256, 20.0, 5.0, 8.0, 300 | The gate that stops new local jobs on a Mac under memory pressure. A job held past `max_wait_seconds` exits 70 and never runs. |
 
+Worker health polls allow 5 seconds each for disk headroom and the container
+listing, within the client's 20-second health-call timeout. One failed poll
+keeps the previous reading and its original timestamp. Two consecutive failed
+polls mark the worker down; any successful response resets the count. A slow
+poll alone therefore does not immediately trigger local fallback.
+
 `pandora/client/settings.py` documents every key. Remove `[worker] budget_mib`,
 `[client] max_wait_seconds`, `[client] fallback_slots`,
 `[client] fallback_wait_seconds`, and the `[backend]` table from older
@@ -982,8 +988,9 @@ Sizes that matter:
   to 2.3 GiB in one afternoon. The worker now deletes a snapshot that no live
   run needs, that is not the `latest` link-dest base, and that is older than
   an hour. It keeps the newest 4 such snapshots per repository. It runs this
-  collection at most every 5 minutes on the health poll, and `pandora worker
-  retain` runs it too. `pandora worker gc` does not.
+  collection during `pandora worker retain`, which the worker maintenance
+  timer runs daily. Health polls never collect sources. `pandora worker gc`
+  does not collect them either.
 * The turbo cache is bounded at 4 GiB. Acme's `check` uses under 1 MiB of it (0.6 MiB measured).
 
 Known caveats:

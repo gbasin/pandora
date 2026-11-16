@@ -566,18 +566,6 @@ class RetentionTest(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(new.is_dir())
 
-    def test_source_gc_throttle_stamp(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = runner.Paths(Path(tmp)).ensure()
-            ledger = Ledger(paths.ledger)
-            # one more than `keep` spares, so exactly the oldest is collected
-            for n in range(5):
-                self.snapshot(paths, 'repo', 'victim-%d' % n, age=7200 + n * 60)
-            first = runner.maybe_gc_sources(paths, ledger)
-            second = runner.maybe_gc_sources(paths, ledger)
-            ledger.close()
-            self.assertEqual(first, ['victim-4'])
-            self.assertIsNone(second)
 
 
 class SourceConfinementTest(unittest.TestCase):

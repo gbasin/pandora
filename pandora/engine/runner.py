@@ -1011,7 +1011,7 @@ def max_running_of(paths, threads=None):
     return derived_max_running(threads), 'threads %d / 2' % threads
 
 
-def disk_headroom(paths, driver=None):
+def disk_headroom(paths, driver=None, *, timeout=None):
     """Whether the pool has room for another run. See `IncusDriver.capacity`.
 
     Memory admission has a ledger to reason with; disk has none, so this is a
@@ -1023,7 +1023,8 @@ def disk_headroom(paths, driver=None):
     if not floor.isdigit():
         floor = read_text(Path(paths.root) / 'disk_floor') or '4'
     return (driver or IncusDriver(root=paths.root)).capacity(
-        floor_gib=int(floor) if floor.isdigit() else 4)
+        floor_gib=int(floor) if floor.isdigit() else 4,
+        **({'timeout': timeout} if timeout is not None else {}))
 
 
 def read_text(path):
@@ -1216,28 +1217,6 @@ def _gc_sources_locked(paths, ledger, *, grace_seconds, keep, ship_timeout, now)
             shutil.rmtree(entry, ignore_errors=True)
             removed.append(entry.name)
     return removed
-
-
-def maybe_gc_sources(paths, ledger, *, interval_seconds=300):
-    """`gc_sources`, throttled by a stamp file for the per-minute health call.
-
-    Returns the removed list when a pass ran, else None. A pass that fails
-    touches the stamp anyway: a flapping collector must not turn the health
-    call slow every minute -- the next poll retries after the same interval.
-    """
-    stamp = paths.root / 'src-gc.stamp'
-    try:
-        if time.time() - stamp.stat().st_mtime < interval_seconds:
-            return None
-    except OSError:
-        pass
-    try:
-        return gc_sources(paths, ledger)
-    finally:
-        try:
-            stamp.touch()
-        except OSError:
-            pass
 
 
 def stop_group(pid):

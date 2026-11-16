@@ -493,6 +493,8 @@ class AgainstARealDaemon(DaemonCase):
         from pandora.tests.test_fallback import FakeWorker
         FakeWorker.health_raises = WorkerUnreachable('no route')
         self.daemon.health.poll()
+        self.assertFalse(self.daemon.health.known_down())
+        self.daemon.health.poll()
         _item, pong = doctor.check_daemon(self.daemon.socket_path, None)
         item = doctor.check_worker(pong, self.state)
         self.assertEqual(item['status'], 'fail')

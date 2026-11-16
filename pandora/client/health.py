@@ -18,9 +18,9 @@ else it is a log line, because `osascript` is not a portable idea.
 said it was fit. `degraded` means it answered and said it was not -- a failed
 canary, a pool below its floor, a drifted kernel -- which is a worker that may
 still be perfectly able to run the job in front of it, so it is not a reason to
-refuse anything. `down` means it did not answer. Only `down` changes what the
-fallback path does, because only `down` is a fact about whether a submission can
-succeed at all.
+refuse anything. `down` means two consecutive probes failed to answer. Only
+`down` changes what the fallback path does. One missed probe keeps the last
+reading without refreshing its timestamp.
 
 A state older than `stale_after` is treated as `unknown` rather than as its last
 value: a daemon that has been asleep since yesterday knows nothing about now.
@@ -95,6 +95,7 @@ class Monitor:
                         'disk': None, 'free_gib': None, 'floor_gib': None, 'goldens': 0,
                         'ready': None, 'kernel_drift': False,
                         'host': None, 'health': None, 'polls': 0}
+        self.failures = 0
         self._load()
 
     # -- reading -----------------------------------------------------------
@@ -122,9 +123,10 @@ class Monitor:
             worker = self.open_worker()
             answer = worker.health()
         except PandoraError as error:
-            return self.record('down', reason=str(error)[:300])
+            return self.failed(str(error)[:300])
         except Exception as error:                    # noqa: BLE001 - a probe, never a crash
-            return self.record('down', reason='%s: %s' % (type(error).__name__, error))
+            return self.failed('%s: %s' % (type(error).__name__, error))
+        self.failures = 0
         capacity = answer.get('capacity') or {}
         disk = ('below floor' if not capacity.get('ok')
                 else ('%.1f GiB free' % capacity['free_gib'] if 'free_gib' in capacity
@@ -139,6 +141,19 @@ class Monitor:
                            ready=answer.get('state'),
                            kernel_drift=bool(answer.get('kernel_drift')),
                            health=answer)
+
+    def failed(self, reason):
+        """One missed poll does not make a busy worker unavailable.
+
+        Keep the previous reading and its timestamp on the first failure. It
+        still ages normally; a failed probe is not fresh evidence of health.
+        Any answer resets the count, including an explicitly degraded answer.
+        """
+        self.failures += 1
+        if self.failures < 2:
+            self.log('worker health probe failed once: %s' % reason)
+            return self.state()
+        return self.record('down', reason=reason)
 
     def record(self, worker, **fields):
         """Install a reading and announce whatever changed with it."""
