@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import io
 import json
+import math
 import os
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -215,6 +216,12 @@ def receive(paths, ledger, run_id, raw, policy):
                 raise ValueError('Overflow outputs exceed expanded limit')
             files[name] = tar.extractfile(member).read()
     result = json.loads(files['result.json'])
+    if not isinstance(result, dict):
+        raise ValueError('Overflow result must be an object')
+    if result.get('receipt') is not None and not isinstance(result['receipt'], dict):
+        raise ValueError('Overflow receipt must be an object')
+    if result.get('verdict') is not None and not isinstance(result['verdict'], dict):
+        raise ValueError('Overflow verdict must be an object')
     for key in ('run_id', 'request_id', 'input_id', 'repo', 'job', 'reservation_mib',
                 'ceiling_mib', 'cpus_hint', 'client'):
         if result.get(key) != row[key]:
@@ -224,6 +231,13 @@ def receive(paths, ledger, run_id, raw, policy):
     if result['outcome'] not in ('passed', 'command_failed', 'oom', 'timed_out', 'cancelled', 'infra_failed'):
         raise ValueError('Invalid overflow outcome')
     observed = result.get('observed_exit')
+    if observed is not None and (type(observed) is not int or not -(2**63) <= observed < 2**63):
+        raise ValueError('Overflow observed exit must be an integer')
+    for key in ('peak_mib', 'finished'):
+        value = result.get(key)
+        if value is not None and (type(value) not in (int, float)
+                                  or not -1e18 < value < 1e18 or not math.isfinite(value)):
+            raise ValueError('Overflow ' + key + ' must be a finite number')
     if (result['outcome'] == 'passed' and (type(observed) is not int or observed != 0)
             or result['outcome'] == 'command_failed' and (type(observed) is not int or observed == 0)):
         raise ValueError('Overflow outcome contradicts observed command exit')
@@ -236,9 +250,13 @@ def receive(paths, ledger, run_id, raw, policy):
     if signature:
         signer = policy.get('signer')
         if (not signer or signature.get('signer') != signer
+                or not isinstance(signature.get('payload'), str)
+                or not isinstance(signature.get('signature'), str)
                 or not verdict.verify(signature['payload'], signature['signature'], signer)):
             raise ValueError('Unexpected or invalid overflow signer')
         signed = json.loads(signature['payload'])
+        if not isinstance(signed, dict):
+            raise ValueError('Overflow signed payload must be an object')
         for key in ('run_id', 'input_id', 'repo', 'job', 'outcome', 'tree', 'argv'):
             if signed.get(key) != result.get(key):
                 raise ValueError('Overflow signature does not bind result')
@@ -323,7 +341,7 @@ def supervise(root, run_id, *, broker=None, sleep=time.sleep):
                             and time.time() >= (row['queue_deadline'] or float('inf'))):
                         durable_json(failure,{'cause':'overflow-dispatch-timeout'})
                         continue
-                    if state.get('result_ready'):
+                    if state.get('result_ready') and not failure.exists():
                         data = broker.call(run_id, 'result')
                         with gate(paths.root):
                             try:

@@ -199,6 +199,49 @@ class OverflowRouting(unittest.TestCase):
         self.assertIn('cancel',calls);self.assertIn('ack',calls)
         self.assertEqual(self.ledger.get('r-original')['destination'],'boat')
 
+    def test_malformed_result_fences_before_terminal_settlement(self):
+        self.claim();calls = []
+        raw = packed({'result.json':b'[]'})
+        class Fake:
+            canceled = False
+            def call(inner, run_id, action='', **kwargs):
+                calls.append(action)
+                if action == 'cancel':inner.canceled = True;return b'{}'
+                if action == 'ack':
+                    self.assertTrue(inner.canceled)
+                    self.assertEqual(self.ledger.get(run_id)['state'],'finished')
+                    return b'{}'
+                if action == 'result':return raw
+                return self.state(terminal=inner.canceled,result_ready=True)
+        result = overflow.supervise(self.paths.root,'r-original',broker=Fake(),sleep=lambda _:None)
+        self.assertEqual(result['outcome'],'infra_failed')
+        self.assertLess(calls.index('cancel'),calls.index('ack'))
+        self.assertEqual(calls.count('result'),1)
+        self.assertEqual(json.loads((self.attempt / 'overflow-failure.json').read_text()),
+                         {'cause':'overflow-result-rejected'})
+
+    def test_malformed_receipt_and_verdict_are_rejected(self):
+        self.claim()
+        for field in ('receipt','verdict'):
+            for value in ([],True,'invalid'):
+                with self.subTest(field=field,value=value):
+                    result = self.result();result[field] = value
+                    with self.assertRaises(ValueError):
+                        overflow.receive(self.paths,self.ledger,'r-original',self.blob(result),self.policy)
+
+    def test_malformed_result_scalars_are_rejected_before_publication(self):
+        self.claim()
+        for field in ('observed_exit','peak_mib','finished'):
+            values = ([],{},True,'invalid',float('inf'),float('nan'),10**100,-10**100)
+            for value in values:
+                with self.subTest(field=field,value=value):
+                    result = self.result();result.update(outcome='infra_failed',cli_exit=70)
+                    result[field] = value
+                    with self.assertRaises(ValueError):
+                        overflow.receive(self.paths,self.ledger,'r-original',self.blob(result),self.policy)
+                    self.assertFalse(self.paths.result('r-original').exists())
+                    self.assertNotEqual(self.ledger.get('r-original')['state'],'finished')
+
     def test_missing_finished_result_is_recollected_before_ack(self):
         self.claim();raw = self.blob()
         overflow.receive(self.paths,self.ledger,'r-original',raw,self.policy)
