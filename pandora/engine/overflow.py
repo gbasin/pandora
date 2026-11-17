@@ -148,6 +148,7 @@ class Broker:
             url += '/' + action
         request = urllib.request.Request(url, data=body, method=method,
             headers={'Authorization': 'Bearer ' + Path(self.policy['token_file']).read_text().strip(),
+                     'User-Agent': 'pandora-overflow/1',
                      'Content-Type': 'application/octet-stream',
                      'X-Pandora-Identity':self.identity})
         with urllib.request.urlopen(request, timeout=120) as response:
