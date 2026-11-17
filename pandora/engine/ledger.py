@@ -110,7 +110,10 @@ ADDED = (('role', "TEXT NOT NULL DEFAULT 'single'"),
          # chosen on physical-core boundaries. NULL when the run was pinned by
          # count, which is every run before #201 and any run on a host whose
          # topology could not be read. Live rows' lists spread the next run.
-         ('cpuset', 'TEXT'))
+         ('cpuset', 'TEXT'),
+         # Sticky execution ownership. NULL is the original local worker path;
+         # Boat ownership is never cleared, even after an uncertain submission.
+         ('destination', 'TEXT'))
 
 # A parent holds the fan-out and runs nothing itself; `plan` is the build-once
 # attempt a tier-2 parent runs before there are any shards to dispatch.
@@ -154,6 +157,14 @@ class Ledger:
                     if 'duplicate column' not in str(error):
                         raise
         self.db.execute('CREATE INDEX IF NOT EXISTS attempts_parent ON attempts(parent)')
+        self.db.executescript('''
+            CREATE TABLE IF NOT EXISTS overflow_settlements(run_id TEXT PRIMARY KEY);
+            CREATE TRIGGER IF NOT EXISTS overflow_requires_settlement
+            BEFORE UPDATE OF state,outcome,exit_code ON attempts
+            WHEN OLD.destination='boat' AND NEW.state='finished'
+                 AND NOT EXISTS(SELECT 1 FROM overflow_settlements WHERE run_id=OLD.run_id)
+            BEGIN SELECT RAISE(ABORT,'Boat settlement requires the overflow relay'); END;
+        ''')
 
     def close(self):
         self.db.close()
@@ -220,14 +231,29 @@ class Ledger:
         return self.get(run_id)
 
     def finish(self, run_id, *, outcome, exit_code, peak_mib=None, durations=None,
-               evidence=None, receipt=None, finished=None):
+               evidence=None, receipt=None, finished=None, overflow=False):
         if outcome not in OUTCOMES:
             raise StaleRun('unknown outcome %r' % outcome)
-        return self.update(run_id, state='finished', outcome=outcome, exit_code=exit_code,
+        fields = dict(state='finished', outcome=outcome, exit_code=exit_code,
                            peak_mib=peak_mib, finished=finished or now(),
                            durations=durations if durations is not None else {},
                            evidence=evidence if evidence is not None else {},
                            receipt=receipt)
+        if not overflow:
+            return self.update(run_id, **fields)
+        # A stale engine bundle's reconciler must not fabricate supervisor-gone
+        # for a remote attempt. The permit exists only in this transaction, so
+        # old writers cannot race a later local completion over the relay.
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            self.db.execute('INSERT INTO overflow_settlements VALUES(?)',(run_id,))
+            row = self.update(run_id, **fields)
+            self.db.execute('DELETE FROM overflow_settlements WHERE run_id=?',(run_id,))
+            self.db.execute('COMMIT')
+            return row
+        except BaseException:
+            self.db.execute('ROLLBACK')
+            raise
 
     def request_cancel(self, run_id):
         row = self.get(run_id)

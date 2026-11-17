@@ -13,8 +13,8 @@ Two things that view does not cover are here:
   `result.json` are cached, with entry and encoded-byte caps; full evidence
   is released after each read. Cached summaries are invalidated when the
   result file changes. `stats` reads only the rows in
-  its window. The directory is listed again only when its own mtime says an
-  entry came or went.
+  its window. Each refresh lists directory names, without rereading cached
+  metadata. A directory timestamp can stay unchanged across rapid entry changes.
 * **Retention.** Finished run directories older than `[client] keep_runs_days`
   (default 7; 0 keeps everything) are removed at start and every hour. Never a
   live row, never a row younger than the retention by any of its dates, never
@@ -71,18 +71,16 @@ class RunIndex:
         self.rows = {}             # run id -> payload, finished rows only
         self.results = {}          # run id -> (file stamp, stats summary, encoded bytes)
         self.result_bytes = 0
-        self.listed = None         # the runs directory's mtime_ns at the last listing
 
     # -- keeping it current -------------------------------------------------
 
     def refresh(self):
-        """List the directory again when an entry came or went since the last listing."""
-        try:
-            stamp = self.runs.stat().st_mtime_ns
-        except OSError:
-            return
-        if stamp == self.listed:
-            return
+        """Refresh names even when filesystem timestamps coalesce entry changes.
+
+        Listing names is cheap compared with reading every run's JSON. Keep
+        payload caching, but never treat an unchanged mtime as proof that the
+        directory still has the same entries.
+        """
         found = {}
         try:
             with os.scandir(self.runs) as entries:
@@ -100,7 +98,6 @@ class RunIndex:
                         self.dates[name] = born(entry.stat(follow_symlinks=False))
                     except OSError:
                         continue
-            self.listed = stamp
 
     def learn(self, payload):
         """A row as it was just saved or read: its start time, and the payload once finished."""

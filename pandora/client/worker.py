@@ -210,7 +210,8 @@ class Worker:
             enter('submit')
             request = {'request_id': request_id, 'input_id': input_id,
                        'source_path': source['path'], 'plan': plan,
-                       'manifest_files': len(manifest), 'dropped': len(dropped)}
+                       'manifest_files': len(manifest), 'dropped': len(dropped),
+                       'manifest': manifest}
             if self.client:
                 request['client'] = self.client
             if plan.get('git') == 'synthetic':

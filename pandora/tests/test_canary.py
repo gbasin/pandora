@@ -6,6 +6,9 @@ it proves is the one a routed run would build, and the journey it runs is the
 journey job's own argv.
 """
 import copy
+import os
+import shlex
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -244,6 +247,41 @@ class CanaryRun(unittest.TestCase):
     def targets(self, source):
         return enrolled.canary_targets([('acme', self.config)], engine_root='/e',
                                        source=source)
+
+    def test_quota_error_before_dd_summary_is_not_discarded(self):
+        # GNU dd reports a refused write before the records/byte summaries.
+        # Execute the actual probe shell rather than mocking its final output.
+        bindir = self.root / 'bin'
+        bindir.mkdir()
+        dd = bindir / 'dd'
+        folder = self.root
+
+        class RealProbe(FakeDriver):
+            def sh(self, name, script, check=False, timeout=None):
+                if 'dd if=' not in script:
+                    return super().sh(name, script, check=check, timeout=timeout)
+                script = script.replace('/work/.pandora-quota-probe',
+                                        shlex.quote(str(folder / 'probe')))
+                proc = subprocess.run(['sh', '-c', script], capture_output=True, text=True,
+                                      env={**os.environ, 'PATH': str(bindir) + os.pathsep
+                                           + os.environ.get('PATH', '')}, timeout=10)
+                return proc.returncode, proc.stdout, proc.stderr
+
+        for error, refused in (('Disk quota exceeded', True),
+                               ('No space left on device', True),
+                               ('Permission denied', False)):
+            with self.subTest(error=error):
+                dd.write_text('#!/bin/sh\n' + "printf '%s\\n' "
+                              + shlex.quote('dd: error writing: ' + error)
+                              + " '1920+0 records out' '2013954048 bytes copied' >&2\nexit 1\n")
+                dd.chmod(0o755)
+                driver = RealProbe(built={'golden-' + enrolled.fingerprint_of(self.config)})
+                verdict = canary.run(self.root, targets=self.targets(self.missing), driver=driver)
+                self.assertEqual(verdict['ok'], refused, verdict['reason'])
+                row = next(r for r in verdict['checks']
+                           if r['check'] == 'disk quota refuses an over-limit write')
+                self.assertEqual(row['ok'], refused)
+                self.assertIn(error, row['detail'])
 
     def test_an_absent_source_and_no_golden_says_the_first_run_has_not_happened(self):
         driver = FakeDriver()

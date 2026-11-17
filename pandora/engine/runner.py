@@ -19,6 +19,7 @@ Two properties this file exists to hold:
   it; only `cancel` does.
 """
 import dataclasses
+from contextlib import closing
 import json
 import os
 import signal
@@ -111,6 +112,14 @@ class Paths:
 
 def supervise(root, run_id, *, driver=None):
     """Run one admitted attempt to a receipt. Returns the result dictionary."""
+    # Check ownership before constructing an Incus driver or touching the host.
+    paths = Paths(root).ensure()
+    with closing(Ledger(paths.ledger)) as owned:
+        row = owned.get(run_id)
+        remote = row is not None and row['destination'] == 'boat'
+    if remote:
+        from .overflow import supervise as supervise_overflow
+        return supervise_overflow(root, run_id)
     paths = Paths(root).ensure()
     ledger = Ledger(paths.ledger)
     row = ledger.get(run_id)
@@ -768,7 +777,7 @@ def queue_session(paths, ledger, run_id, plan, driver, instance, *, env, limits,
 
 def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
                  durations, evidence, receipt, extra=None, tree=None, tree_failed=None,
-                 suite_report=None):
+                 suite_report=None, overflow=False):
     # Signed before the row says `finished`, not after: a client reads the
     # result as soon as the row is finished, and signing calls `ssh-keygen`.
     finished = time.time()
@@ -805,7 +814,7 @@ def write_result(paths, ledger, run_id, *, outcome, layer, exit_code, peak_mib,
             signed['verdict_skipped'] = 'suite_not_signed:%s' % str(error)[:120]
     row = ledger.finish(run_id, outcome=outcome, exit_code=exit_code, peak_mib=peak_mib,
                         durations=durations, evidence=evidence, receipt=receipt,
-                        finished=finished)
+                        finished=finished, overflow=overflow)
     item = row_to_dict(row)
     result = {
         'version': RESULT_VERSION,
@@ -1049,11 +1058,17 @@ def detach(root, run_id, verb, *, python=None):
     attempt = paths.attempt(run_id)
     attempt.mkdir(parents=True, exist_ok=True)
     stderr = (attempt / ('supervisor.err' if verb == 'supervise' else verb + '.err')).open('a')
+    attribution = []
+    if verb == 'wait':
+        with closing(Ledger(paths.ledger)) as ledger:
+            row = ledger.get(run_id)
+            if row is not None and row['client']:
+                attribution = ['--client', row['client']]
     proc = subprocess.Popen(
         # `--root` is a parser-level option, so it must precede the subcommand;
         # after it, argparse hands the whole thing to the subparser and refuses.
         [python or 'python3', '-m', 'pandora.engine.service',
-         '--root', str(paths.root), verb, '--run', run_id],
+         '--root', str(paths.root), verb, '--run', run_id, *attribution],
         stdin=subprocess.DEVNULL, stdout=stderr, stderr=stderr,
         start_new_session=True, cwd=str(Path(__file__).resolve().parents[2]))
     stderr.close()
@@ -1075,6 +1090,15 @@ def reconcile(root, *, driver=None):
     for row in ledger.live():
         pid = row['supervisor_pid']
         if pid and alive(pid):
+            adopted.append(row['run_id'])
+            continue
+        if row['destination'] == 'boat':
+            # The remote command may still be running. Only its durable broker
+            # may settle it; a missing local relay is never supervisor-gone.
+            with gate(paths.root):
+                current = ledger.get(row['run_id'])
+                if current['state'] != 'finished':
+                    ledger.update(row['run_id'], supervisor_pid=spawn(paths.root, row['run_id']))
             adopted.append(row['run_id'])
             continue
         if (row['state'] == 'queued' and row['queued_at'] and not pid
@@ -1114,6 +1138,13 @@ def reconcile(root, *, driver=None):
                      durations=row_to_dict(row)['durations'], evidence=evidence,
                      receipt=receipt)
         failed.append(row['run_id'])
+    for row in ledger.db.execute("SELECT * FROM attempts WHERE state='finished' AND destination='boat'"):
+        if ((paths.attempt(row['run_id']) / 'overflow-policy.json').is_file()
+                and ((paths.attempt(row['run_id']) / 'overflow-ack.pending').exists()
+                or not paths.result(row['run_id']).is_file())
+                and not (row['supervisor_pid'] and alive(row['supervisor_pid']))):
+            ledger.update(row['run_id'], supervisor_pid=spawn(paths.root, row['run_id']))
+            adopted.append(row['run_id'])
     ledger.close()
     return {'adopted': adopted, 'infra_failed': failed}
 
@@ -1144,6 +1175,9 @@ def retain(root, *, keep_seconds=86400, keep_failed_seconds=86400):
     for row in rows:
         directory = paths.attempt(row['run_id'])
         if not directory.is_dir() or row['state'] != 'finished':
+            continue
+        if (directory / 'overflow-ack.pending').exists():
+            kept.append(row['run_id'])
             continue
         finished = row['finished'] or row['created']
         limit = failed_cutoff if row['outcome'] != 'passed' else cutoff

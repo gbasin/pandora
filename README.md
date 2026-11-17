@@ -175,6 +175,8 @@ repository's own agent instructions: [docs/agents-paragraphs.md](docs/agents-par
   `pandora.toml` the contract.
 * [docs/worker-rebuild.md](docs/worker-rebuild.md): the full procedure to
   rebuild a worker, with cut-over and upgrade cadence.
+* [docs/boat-overflow.md](docs/boat-overflow.md): opt-in overflow, frozen size limits,
+  durable recovery and shared-pool worker requirements.
 
 ## Operating limits
 
