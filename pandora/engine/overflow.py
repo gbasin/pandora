@@ -358,11 +358,16 @@ def supervise(root, run_id, *, broker=None, sleep=time.sleep):
                         (paths.attempt(run_id) / 'overflow-ack.pending').unlink(missing_ok=True)
                         return result
                     if state.get('terminal'):
+                        evidence = {'cause': 'overflow-no-result', 'broker': state}
+                        if failure.exists():
+                            recorded = json.loads(failure.read_text())
+                            if recorded.get('cause') == 'overflow-dispatch-timeout':
+                                evidence['cause'] = recorded['cause']
                         durable_bytes(paths.attempt(run_id) / 'overflow-ack.pending',b'')
                         failed_result = runner.write_result(paths, ledger, run_id,
                             outcome='cancelled' if row['cancel_requested'] else 'infra_failed',
                             layer='engine', exit_code=None, peak_mib=0, durations={},
-                            evidence={'cause': 'overflow-no-result', 'broker': state}, receipt=None,overflow=True)
+                            evidence=evidence, receipt=None,overflow=True)
                         durable_json(paths.result(run_id),failed_result)
                         continue
                     log = broker.call(run_id, 'log')

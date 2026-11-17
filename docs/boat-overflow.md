@@ -71,6 +71,10 @@ signature, then fsyncs files before publishing completion and acknowledging
 custody. Missing or invalid evidence never fabricates a pass. Cancel requests
 survive relay failure and are routed to the same durable lease.
 
+If the dispatch wait expires, Pandora reports a Boat VM timeout and exits 70.
+It skips artifact retrieval and says no tests ran only when the broker confirms
+the task was never dispatched.
+
 The broker keeps source until primary acknowledgement and keeps acknowledged
 results/logs for seven days. Identity tombstones remain. Primary retention keeps
 unacknowledged custody records and reconciliation repairs a missing local result

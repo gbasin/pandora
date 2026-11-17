@@ -2477,17 +2477,31 @@ class Daemon:
     def deliver(self, run, repo, plan, result):
         """Bring outputs back, report what is missing, then exit as the run did."""
         worker = self.worker_for(repo)
-        try:
-            collected = worker.collect(
-                run.remote, plan, worktree=run.worktree(),
-                declared=(result.get('evidence') or {}).get('collected'),
-                staging=run.dir / 'outputs-incoming')
-        except (TransferError, WorkerUnreachable, OSError) as error:
-            run.note('could not bring outputs back: %s' % error)
+        evidence = result.get('evidence') or {}
+        if evidence.get('cause') == 'overflow-dispatch-timeout':
+            if result['outcome'] == 'infra_failed':
+                result['hint'] = 'Timed out waiting for a Boat VM.'
+                if (evidence.get('broker') or {}).get('dispatched') is False:
+                    result['hint'] += ' No tests ran.'
+                result['hint_rule'] = evidence['cause']
+            # A timed-out relay never imports artifacts, even if dispatch raced
+            # the cancellation. There is no primary-side directory to fetch.
             collected = {'paths': [path for output in plan.get('outputs') or []
                                    if output.get('kind') == 'artifacts'
                                    for path in output['paths']],
-                         'fetched': False, 'missing': []}
+                         'fetched': False, 'missing': [], 'skipped': 'overflow-dispatch-timeout'}
+        else:
+            try:
+                collected = worker.collect(
+                    run.remote, plan, worktree=run.worktree(),
+                    declared=evidence.get('collected'),
+                    staging=run.dir / 'outputs-incoming')
+            except (TransferError, WorkerUnreachable, OSError) as error:
+                run.note('could not bring outputs back: %s' % error)
+                collected = {'paths': [path for output in plan.get('outputs') or []
+                                       if output.get('kind') == 'artifacts'
+                                       for path in output['paths']],
+                             'fetched': False, 'missing': []}
         for path in collected.get('missing', []):
             # `missing` is a verdict of its own. It is not zero failures.
             run.note('declared output %s is missing from the run' % path)

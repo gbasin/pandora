@@ -1474,6 +1474,30 @@ class WorkerKnownDown(DaemonCase):
 class Hints(DaemonCase):
     """The last line a caller sees names the next action, and only from evidence."""
 
+    def test_a_boat_dispatch_timeout_reports_evidence_and_skips_artifact_fetch(self):
+        config = self.repo / 'pandora.toml'
+        config.write_text(config.read_text().replace(
+            'id = "unit"', 'id = "unit"\noutputs = [{ kind = "artifacts", paths = ["out"] }]'))
+        for broker in ({'dispatched': False}, {'dispatched': True}, {}):
+            with self.subTest(broker=broker):
+                cause = 'overflow-dispatch-timeout'
+                remote = {'outcome': 'infra_failed', 'cli_exit': 70,
+                          'evidence': {'cause': cause, 'broker': broker}}
+                with mock.patch.object(FakeWorker, 'follow', return_value=(remote, 0)), \
+                        mock.patch.object(FakeWorker, 'collect') as collect:
+                    answer = self.call(['pnpm', 'unit'])
+                collect.assert_not_called()
+                self.assertEqual(answer.exit, 70)
+                hint = 'Timed out waiting for a Boat VM.'
+                if broker.get('dispatched') is False:
+                    hint += ' No tests ran.'
+                self.assertEqual(answer.err.rstrip().splitlines()[-1],
+                                 ('pandora: hint: ' + hint).encode())
+                result = self.result_of(answer.accepted['run'])
+                self.assertEqual(result['hint_rule'], cause)
+                self.assertEqual(result['outputs'], {'paths': ['out'], 'fetched': False,
+                                                     'missing': [], 'skipped': cause})
+
     def test_an_oom_result_carries_the_engines_hint_to_the_caller(self):
         original = FakeWorker.follow
         FakeWorker.follow = lambda self, run_id, **k: (

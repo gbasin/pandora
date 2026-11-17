@@ -63,6 +63,8 @@ CAUSES = {
     # queues and expires would only join the same full queue again.
     'queue-timeout': (False, 'the worker queue did not admit it within its bound, and a '
                              'retry joins the same queue'),
+    'overflow-dispatch-timeout': (False, 'the Boat dispatch wait expired, and a retry '
+                                         'joins the same queue'),
     # The daemon's own, not the engine's: the worker stopped answering while the
     # run was going, so the run may still be executing, and a resubmission would
     # run it twice.
