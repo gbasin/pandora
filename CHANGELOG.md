@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.25](https://github.com/gbasin/pandora/compare/v0.3.24...v0.3.25) (2026-11-17)
+
+
+### Features
+
+* route eligible queued jobs through Boat overflow ([#271](https://github.com/gbasin/pandora/issues/271)) ([beda1b2](https://github.com/gbasin/pandora/commit/beda1b21b65f1e56cfed8a628b8b81d182f72100))
+
 ## [0.3.24](https://github.com/gbasin/pandora/compare/v0.3.23...v0.3.24) (2026-11-16)
 
 
