@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.27](https://github.com/gbasin/pandora/compare/v0.3.26...v0.3.27) (2026-11-17)
+
+
+### Bug Fixes
+
+* report Boat dispatch timeouts ([#276](https://github.com/gbasin/pandora/issues/276)) ([6b65d20](https://github.com/gbasin/pandora/commit/6b65d201b3b6fa36c357333cd03b2b405df6de08))
+
 ## [0.3.26](https://github.com/gbasin/pandora/compare/v0.3.25...v0.3.26) (2026-11-17)
 
 
