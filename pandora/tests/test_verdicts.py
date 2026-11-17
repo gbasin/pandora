@@ -466,7 +466,19 @@ class DaemonHook(DaemonCase):
         toml.write_text(toml.read_text() + text)
 
     def run_unit(self):
-        answer = self.call(['unit'])
+        # The exit frame precedes publish_verdict. Waiting only for currently
+        # visible verdict threads can miss a publisher not yet created, letting
+        # the next subtest rewrite its configuration before it reads it.
+        published = threading.Event()
+        publish = self.daemon.publish_verdict
+        def settled(*args):
+            try:
+                return publish(*args)
+            finally:
+                published.set()
+        with mock.patch.object(self.daemon, 'publish_verdict', side_effect=settled):
+            answer = self.call(['unit'])
+            self.assertTrue(published.wait(10), 'delivery did not schedule verdict publication')
         verdict_threads()
         [run_dir] = list((self.state / 'runs').iterdir())
         return answer, run_dir
