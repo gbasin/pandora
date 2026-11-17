@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.26](https://github.com/gbasin/pandora/compare/v0.3.25...v0.3.26) (2026-11-17)
+
+
+### Bug Fixes
+
+* identify overflow requests to the public broker ([#274](https://github.com/gbasin/pandora/issues/274)) ([0ce3889](https://github.com/gbasin/pandora/commit/0ce3889d3094b931249806a8f2ab7847efeb303a))
+
 ## [0.3.25](https://github.com/gbasin/pandora/compare/v0.3.24...v0.3.25) (2026-11-17)
 
 
