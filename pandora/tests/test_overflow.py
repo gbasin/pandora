@@ -199,6 +199,35 @@ class OverflowRouting(unittest.TestCase):
         self.assertIn('cancel',calls);self.assertIn('ack',calls)
         self.assertEqual(self.ledger.get('r-original')['destination'],'boat')
 
+    def test_dispatch_timeout_preserves_terminal_broker_evidence(self):
+        self.claim()
+        self.ledger.update('r-original', queue_deadline=0.1)
+        calls = []
+
+        class Fake:
+            canceled = False
+
+            def call(inner, run_id, action='', **kwargs):
+                calls.append(action)
+                if action == 'cancel':
+                    inner.canceled = True
+                    return b'{}'
+                if action == 'ack':
+                    return b'{}'
+                if action:
+                    self.fail('unexpected broker action: ' + action)
+                return self.state(phase='canceled' if inner.canceled else 'waiting',
+                                  terminal=inner.canceled, result_ready=False,
+                                  dispatched=False)
+
+        result = overflow.supervise(self.paths.root, 'r-original', broker=Fake(),
+                                    sleep=lambda _: None)
+        self.assertEqual(result['outcome'], 'infra_failed')
+        self.assertEqual(result['cli_exit'], 70)
+        self.assertEqual(result['evidence']['cause'], 'overflow-dispatch-timeout')
+        self.assertIs(result['evidence']['broker']['dispatched'], False)
+        self.assertEqual(calls, ['', 'cancel', '', 'ack'])
+
     def test_malformed_result_fences_before_terminal_settlement(self):
         self.claim();calls = []
         raw = packed({'result.json':b'[]'})

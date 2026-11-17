@@ -24,6 +24,7 @@ AREAS = {
     'shard-failed': (None, 'shard results and their recorded causes'),
     'admission-timeout': ('admission', 'worker capacity and admission wait'),
     'queue-timeout': ('queue', 'worker queue and wait bound'),
+    'overflow-dispatch-timeout': ('queue', 'Boat dispatch and wait bound'),
     'disk-floor': ('admission', 'worker free disk floor'),
     'admission-refused': ('admission', 'worker memory budget and occupied slots'),
     'worker-lost': (None, 'worker connection; execution may still be active'),
