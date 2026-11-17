@@ -77,6 +77,10 @@ def config(paths):
         raise ValueError('Invalid overflow queue age')
     if type(data.get('max_claims',2)) is not int or not 1 <= data.get('max_claims',2) <= 16:
         raise ValueError('Invalid maximum outstanding overflow claims')
+    cold = data.get('cold_sizes',{})
+    if (not isinstance(cold,dict) or any(key not in allowed or not isinstance(value,str) or value not in admission.CLASSES
+                                      for key,value in cold.items())):
+        raise ValueError('Cold size floors must name allowlisted jobs and known size classes')
     token = Path(data['token_file'])
     if not token.is_absolute() or not token.read_text().strip():
         raise ValueError('Overflow requires an absolute, nonempty token file')
@@ -113,6 +117,14 @@ def claim_if_eligible(paths, ledger, row, *, now=None):
                               cpus_per_run=runner.cpus_per_run_of(paths)[0])
         reservation, ceiling, size, _ = scheduler.reservation(row['repo'], row['job'], plan['size'])
         cpus = scheduler.cpus_hint()
+    cold_size = settings.get('cold_sizes',{}).get(f"{row['repo']}:{row['job']}")
+    if cold_size and admission.ceiling_for(cold_size) > ceiling:
+        size = cold_size
+        ceiling = admission.ceiling_for(size)
+        # A warm OVH observation does not reserve a smaller cold Boat footprint.
+        # The primary chooses this explicit floor before claiming destination;
+        # the worker still receives immutable limits and never enlarges them.
+        reservation = ceiling
     if ceiling > 12288 or cpus > 8:
         return False
     # Pin the entire operator policy with the attempt. Changes to the default

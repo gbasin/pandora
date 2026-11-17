@@ -268,3 +268,24 @@ class OverflowRouting(unittest.TestCase):
              patch.object(runner,'spawn',return_value=123):
             self.assertEqual(waitlist.wait(self.paths.root,'r-original',clock=lambda:120),'admitted')
         self.assertIsNone(self.ledger.get('r-original')['destination'])
+
+    def test_cold_floor_is_chosen_on_primary_and_never_shrinks_existing_ceiling(self):
+        with (self.paths.root / 'overflow.toml').open('a') as f:
+            f.write('\n[cold_sizes]\n"demo:suite"="large"\n')
+        self.assertTrue(self.claim())
+        row = self.ledger.get('r-original')
+        self.assertEqual(row['size_declared'],'medium')
+        self.assertEqual(row['size_class'],'large')
+        self.assertEqual(row['reservation_mib'],8192)
+        self.assertEqual(row['ceiling_mib'],8192)
+        packet = overflow.packet_of(self.paths,row)
+        self.assertEqual(packet['limits']['ceiling_mib'],8192)
+        self.assertEqual(packet['request']['plan']['size'],'medium')
+
+    def test_cold_floor_cannot_lower_an_ovh_learned_class(self):
+        with (self.paths.root / 'overflow.toml').open('a') as f:
+            f.write('\n[cold_sizes]\n"demo:suite"="large"\n')
+        with closing(admission.Store(str(self.paths.peaks))) as store:
+            store.set_class('demo','suite','xlarge',declared='medium')
+        self.assertTrue(self.claim())
+        self.assertEqual(self.ledger.get('r-original')['ceiling_mib'],12288)

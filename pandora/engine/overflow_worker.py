@@ -1,4 +1,4 @@
-"""Experimental frozen-packet worker entrypoint, without production routing.
+"""Frozen-packet worker entrypoint for exclusive overflow leases.
 
 A trusted dispatcher must hold an exclusive compute lease through execution,
 collection and cleanup, and supply an isolated engine root and frozen source.

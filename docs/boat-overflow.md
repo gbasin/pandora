@@ -17,6 +17,12 @@ hard ceiling must be an existing size class at most 12,288 MiB and at least the
 job's declared floor. A smaller reservation does not make a larger ceiling fit.
 Commands over 195 minutes are excluded to leave room inside the provider TTL.
 
+A fresh Boat job can need more memory than a warm OVH job. An optional
+`[cold_sizes]` entry sets an explicit primary-side floor for an allowlisted job.
+It raises, never lowers, its selected ceiling; an increased class reserves its
+entire ceiling. The original declaration stays recorded separately. All limits
+are frozen before destination claim, and the worker cannot override them.
+
 ## Operator configuration
 
 The worker reads `<engine-root>/overflow.toml`, not a client or repository
@@ -30,6 +36,9 @@ allow = ["eichler:native-unit"]
 after_seconds = 60
 max_claims = 2
 # signer = "ssh-ed25519 ... pandora-overflow"
+
+[cold_sizes]
+"eichler:native-unit" = "large"
 ```
 
 The installed primary worker maintenance code and clients must first be upgraded
