@@ -35,6 +35,9 @@ MEMBERS = (
     'engine/admission.py',
     'engine/batches.py',
     'engine/ledger.py',
+    'engine/bundle.py',
+    'engine/overflow.py',
+    'engine/overflow_worker.py',
     'engine/scheduler.py',
     'engine/result.py',
     'engine/retry.py',
@@ -68,6 +71,9 @@ MEMBERS = (
     'worker/goldens.py',
     'worker/pins.py',
     'worker/versions.py',
+    'snapshot/__init__.py',
+    'snapshot/freeze.py',
+    'snapshot/transfer.py',
 )
 
 # Unpacks a verified bundle under ~/pandora-engine/bundles/<digest>/ and prints

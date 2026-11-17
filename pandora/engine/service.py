@@ -61,7 +61,8 @@ from pandora.engine.scheduler import Scheduler, gate              # noqa: E402
 # payload carries `golden_pins`, and `golden` answers what a recipe resolves to.
 # A v5 bundle still runs beside it (its runs use the unpinned recipe golden),
 # so provision keeps the floor at 5 for now (`provision.MIN_ENGINE_FLOOR`).
-ENGINE_VERSION = 6
+# 7: sticky overflow ownership and a settlement fence in the shared ledger.
+ENGINE_VERSION = 7
 # `toolchain.json` keys only the worker writes; a client's are dropped.
 WORKER_ONLY = ('pins', 'pin_notes', 'built_from')
 CLIENT_PATTERN = re.compile(r'[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}')

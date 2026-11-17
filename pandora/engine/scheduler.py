@@ -122,7 +122,8 @@ class Scheduler:
         by a run that is not using a core and would spend a slot on bookkeeping.
         """
         return [row for row in self.ledger.live()
-                if row['state'] in LIVE and (row['role'] or 'single') != 'parent']
+                if row['state'] in LIVE and row['destination'] != 'boat'
+                and (row['role'] or 'single') != 'parent']
 
     def queue(self, now=None):
         """The rows waiting for admission, in the order they will be admitted.
@@ -135,7 +136,8 @@ class Scheduler:
         """
         now = time.time() if now is None else now
         rows = [row for row in self.ledger.live()
-                if row['state'] == 'queued' and row['queued_at'] is not None
+                if row['state'] == 'queued' and row['destination'] != 'boat'
+                and row['queued_at'] is not None
                 and (row['role'] or 'single') != 'parent'
                 and (row['updated'] or 0) >= now - QUEUE_STALE]
         return sorted(rows, key=lambda row: (row['queued_at'], row['created'], row['run_id']))
@@ -176,6 +178,8 @@ class Scheduler:
         `state` and `never` is waited out in the one queue.
         """
         row = self.ledger.get(run_id)
+        if row is not None and row['destination'] == 'boat':
+            return {'admitted': False, 'reason': 'destination', 'destination': 'boat'}
         if row is not None and row['state'] != 'queued':
             return {'admitted': False, 'reason': 'state', 'state': row['state']}
         role = (row['role'] if row is not None else None) or 'single'

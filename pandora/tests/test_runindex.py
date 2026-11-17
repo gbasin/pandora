@@ -94,6 +94,19 @@ class TheIndex(unittest.TestCase):
         (self.runs / 'a').rmdir()
         self.assertEqual(index.newest(), [])
 
+    def test_entry_changes_with_unchanged_parent_timestamp_are_visible(self):
+        write_row(self.runs, 'a')
+        index = runindex.RunIndex(self.runs)
+        self.assertEqual(index.newest(), ['a'])
+        stamp = self.runs.stat()
+        (self.runs / 'a' / 'meta.json').unlink()
+        (self.runs / 'a').rmdir()
+        write_row(self.runs, 'b')
+        os.utime(self.runs, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        self.assertEqual(self.runs.stat().st_mtime_ns, stamp.st_mtime_ns)
+        self.assertEqual(index.newest(), ['b'])
+        self.assertNotIn('a', index.dates)
+
     def result_file(self, run_id='a', **result):
         folder = write_row(self.runs, run_id)
         path = folder / 'result.json'

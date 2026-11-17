@@ -236,11 +236,13 @@ def run(root, *, journey=None, surfaces=None, source=None, hog_kind='file',
             megabytes = (quota_gib + 1) * 1024
             _, out, _ = driver.sh(
                 instance.name,
-                'dd if=/dev/zero of=/work/.pandora-quota-probe bs=1M count=%d 2>&1 | tail -1; '
+                # dd prints the quota error before its final byte-count line.
+                # Keep the diagnostics or a real refusal looks like a success.
+                'dd if=/dev/zero of=/work/.pandora-quota-probe bs=1M count=%d 2>&1; '
                 'rm -f /work/.pandora-quota-probe' % megabytes,
                 check=False, timeout=600)
             refused = any(word in out.lower() for word in
-                          ('no space', 'quota exceeded', 'disk quota', 'error writing'))
+                          ('no space', 'quota exceeded', 'disk quota'))
             checks.add('disk quota refuses an over-limit write', refused,
                        '%d GiB quota over a %.2f GiB golden, wrote %d MiB: %s'
                        % (size, base, megabytes, out.strip()[:140]))

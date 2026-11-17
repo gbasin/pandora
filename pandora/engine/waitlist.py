@@ -284,6 +284,13 @@ def wait(root, run_id, *, python=None, poll=POLL, clock=time.time, sleep=time.sl
                         return 'queue-timeout'
                     verdict = admit(paths, scheduler, run_id, row['repo'], row['job'],
                                     row['size_declared'] or row['size_class'])
+                    from .overflow import claim_if_eligible
+                    if (not verdict['admitted'] and verdict.get('reason') in ('memory','slots','queue')
+                            and not verdict.get('never')
+                            and claim_if_eligible(paths, ledger, row, now=clock)):
+                        pid = runner.spawn(paths.root, run_id, python=python or sys.executable)
+                        ledger.update(run_id, supervisor_pid=pid)
+                        return 'boat'
                 finally:
                     store.close()
                 if verdict.get('reason') == 'disk-floor':
