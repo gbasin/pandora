@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.29](https://github.com/gbasin/pandora/compare/v0.3.28...v0.3.29) (2026-11-19)
+
+
+### Bug Fixes
+
+* end a pre-accept run on cancel, a departed caller or a stalled freeze ([#280](https://github.com/gbasin/pandora/issues/280)) ([e548187](https://github.com/gbasin/pandora/commit/e5481871ef1d0185a8e81ce3f7bba501c001a89f))
+* say why a worker health probe failed ([#281](https://github.com/gbasin/pandora/issues/281)) ([5bee094](https://github.com/gbasin/pandora/commit/5bee0940841b3e370bf7509e688006a7d915abca))
+
 ## [0.3.28](https://github.com/gbasin/pandora/compare/v0.3.27...v0.3.28) (2026-11-19)
 
 
