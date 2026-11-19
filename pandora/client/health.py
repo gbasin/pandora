@@ -27,14 +27,18 @@ notifications. A cached `down` result reads as `unknown` until this daemon has
 two failed probes: the old daemon's failure must not route new requests locally.
 A state older than `stale_after` also reads as `unknown`.
 
-**Saying why a probe failed.** Every failed probe, and every probe slower than
+**Saying why a probe failed.** A failed probe, and a probe slower than
 `SLOW_PROBE_SECONDS`, logs one line: how long it took, which stage failed
 (`transport` for ssh itself, `remote` for the engine's health command,
 `timeout` for a client-side timeout with no output), the ssh exit code and the
 last stderr line, whether the ssh control master answers, and what this host's
 memory and load looked like at that moment. Those are the four suspects for a
 probe that times out: the connection, the multiplexing socket, the remote
-command, or a Mac too busy to run ssh promptly.
+command, or a Mac too busy to run ssh promptly. The line comes after the
+verdict, never before it, and nothing that builds it can stop the polling. A
+failed probe logs it on the first failure and on the down transition, then at
+most every `DIAGNOSE_EVERY_SECONDS` while the worker stays down; a slow probe at
+most that often. The answer that ends a run of failures logs one plain line.
 """
 import json
 import subprocess
@@ -58,6 +62,8 @@ STATES = ('unknown', 'reachable', 'degraded', 'down')
 SLOW_PROBE_SECONDS = 5.0
 # The failure diagnostics' own bounds: neither may hold up the next poll for long.
 MUX_CHECK_SECONDS = 3.0
+# While the worker stays down, the full diagnostic repeats at most this often.
+DIAGNOSE_EVERY_SECONDS = 600.0
 PRESSURE_WAIT_SECONDS = 2.0
 # ssh's own stderr, mapped to the transport failure it names.
 SSH_HINTS = (
@@ -127,6 +133,9 @@ class Monitor:
                         'ready': None, 'kernel_drift': False,
                         'host': None, 'health': None, 'polls': 0, 'probe': None}
         self.failures = 0
+        # When this monitor last logged a failed or a slow probe, on `timer`.
+        self.failed_logged_at = None
+        self.slow_logged_at = None
         self._load()
 
     # -- reading -----------------------------------------------------------
@@ -156,15 +165,31 @@ class Monitor:
             worker = self.open_worker()
             answer = worker.health()
         except Exception as error:                    # noqa: BLE001 - a probe, never a crash
-            seconds = self.timer() - started
-            found = classify(error)
+            ended = self.timer()
+            seconds = ended - started
             reason = (str(error)[:300] if isinstance(error, PandoraError)
-                      else '%s: %s' % (found['stage'], found['detail']))
-            return self.failed(reason, probe=self.probe_record(seconds, found),
-                               diagnosis=self.diagnose(worker, seconds, found))
-        seconds = self.timer() - started
-        if seconds >= SLOW_PROBE_SECONDS:
-            self.log(self.diagnose(worker, seconds, None))
+                      else '%s: %s' % (type(error).__name__, error))
+            try:
+                found = classify(error)
+            except Exception:                         # noqa: BLE001 - diagnostics never decide
+                found = None
+            if found is not None and not isinstance(error, PandoraError):
+                reason = '%s: %s' % (found['stage'], found['detail'])
+            # The verdict first: diagnostics must not delay a down transition.
+            state = self.failed(reason, probe=self.probe_record(
+                seconds, found or {'stage': 'error'}))
+            if self.failures <= 2 or self.due(self.failed_logged_at, ended):
+                self.failed_logged_at = ended
+                self.report(worker, seconds, found, reason)
+            return state
+        ended = self.timer()
+        seconds = ended - started
+        if self.failures:
+            self.log('worker health probe answered after %.1f s, after %d consecutive '
+                     'failure(s)' % (seconds, self.failures))
+        elif seconds >= SLOW_PROBE_SECONDS and self.due(self.slow_logged_at, ended):
+            self.slow_logged_at = ended
+            self.report(worker, seconds, None, None)
         self.failures = 0
         capacity = answer.get('capacity') or {}
         disk = ('below floor' if not capacity.get('ok')
@@ -186,6 +211,21 @@ class Monitor:
         return {'seconds': round(seconds, 2), 'at': self.clock(), 'ok': found is None,
                 'stage': found['stage'] if found else None}
 
+    @staticmethod
+    def due(last, now):
+        return last is None or now - last >= DIAGNOSE_EVERY_SECONDS
+
+    def report(self, worker, seconds, found, reason):
+        """Log the diagnostic line; never let building it break the probe loop."""
+        try:
+            line = self.diagnose(worker, seconds, found)
+        except Exception as error:                    # noqa: BLE001 - diagnostics never decide
+            line = ('worker health probe %s after %.1f s (consecutive failure %d): %s '
+                    '[diagnostics failed: %s]'
+                    % ('failed' if reason else 'slow', seconds, self.failures,
+                       reason or 'answered', type(error).__name__))
+        self.log(line)
+
     def diagnose(self, worker, seconds, found):
         """One compact log line for a failed or slow probe.
 
@@ -198,7 +238,7 @@ class Monitor:
             head = 'worker health probe slow: answered after %.1f s' % seconds
         else:
             head = ('worker health probe failed after %.1f s (consecutive failure %d): %s'
-                    % (seconds, self.failures + 1, describe(found)))
+                    % (seconds, self.failures, describe(found)))
         parts = [head]
         mux = mux_state(worker)
         if mux:
@@ -206,15 +246,13 @@ class Monitor:
         parts.append('host: ' + host_pressure(self.gate))
         return '; '.join(parts)
 
-    def failed(self, reason, *, probe=None, diagnosis=None):
+    def failed(self, reason, *, probe=None):
         """One missed poll does not make a busy worker unavailable.
 
         Keep the previous reading and its timestamp on the first failure. It
         still ages normally; a failed probe is not fresh evidence of health.
         Any answer resets the count, including an explicitly degraded answer.
         """
-        if diagnosis:
-            self.log(diagnosis)
         self.failures += 1
         if self.failures < 2:
             if probe is not None:
@@ -255,7 +293,11 @@ class Monitor:
     def run(self):
         """The daemon's thread: poll now, then every `interval` or on a nudge."""
         while not self.stopping.is_set():
-            self.poll()
+            try:
+                self.poll()
+            except Exception as error:                # noqa: BLE001 - the thread must outlive a poll
+                self.log('worker health poll raised %s: %s; polling continues'
+                         % (type(error).__name__, error))
             if self.stopping.is_set():
                 # Checked again after the poll: `stop` sets `nudge` to break the
                 # wait, and a clear here would eat that signal and park the

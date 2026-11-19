@@ -182,8 +182,11 @@ daemon restart, a cached down result reads as unknown until two new failed
 probes confirm it. Cached facts still supply the previous state for transition
 notifications, but cannot immediately trigger local fallback.
 
-Each failed probe, and each probe that takes 5 seconds or more, writes one line
-to `<state>/logs/daemon.log`:
+A failed probe writes one line to `<state>/logs/daemon.log` on the first
+failure and on the second, which marks the worker down. While the worker stays
+down, the line repeats at most every 10 minutes, and the first answer after
+failures logs one line. A probe that answers but takes 5 seconds or more writes
+the same line, at most every 10 minutes:
 
 ```
 worker health probe failed after 20.0 s (consecutive failure 1): timeout, no output within 20 s; ssh mux: master running; host: swap 3072 MiB (+0 MiB/min over 41 s), 18.0% free, load 0.90/core

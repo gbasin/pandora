@@ -496,5 +496,80 @@ class Diagnosis(unittest.TestCase):
             release.set()
 
 
+class Steps:
+    """A monotonic clock that returns the next value each call."""
+
+    def __init__(self, values):
+        self.values = list(values)
+
+    def __call__(self):
+        return self.values.pop(0)
+
+
+class DiagnosticsNeverDecide(unittest.TestCase):
+    """Nothing that builds the diagnostic line can stop or delay the polling."""
+
+    def test_a_host_that_cannot_start_threads_or_processes_still_goes_down(self):
+        lines = []
+        worker = Worker(subprocess.TimeoutExpired(['ssh'], 20))
+        worker.link = SimpleNamespace(options=['-o', 'X=y'], host='w')
+        mon = health.Monitor(lambda: worker, notify_enabled=False, clock=Clock(),
+                             log=lines.append, timer=Timer(20.0))
+        with mock.patch('threading.Thread.start',
+                        side_effect=RuntimeError("can't start new thread")), \
+                mock.patch('subprocess.Popen', side_effect=OSError('no processes')):
+            mon.poll()
+            state = mon.poll()
+        self.assertEqual(state['worker'], 'down')
+        self.assertEqual(state['probe']['stage'], 'timeout')
+        self.assertEqual(len(lines), 2)
+        self.assertIn('[diagnostics failed: RuntimeError]', lines[1])
+        self.assertIn('consecutive failure 2', lines[1])
+
+    def test_the_thread_outlives_a_poll_that_raises(self):
+        lines = []
+        mon = health.Monitor(lambda: Worker(answer()), notify_enabled=False, clock=Clock(),
+                             log=lines.append)
+        mon.interval = 0.01
+        calls = []
+
+        def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("can't start new thread")
+            mon.stopping.set()
+        mon.poll = flaky
+        mon.run()
+        self.assertEqual(len(calls), 2)
+        self.assertIn('polling continues', lines[0])
+
+
+class DiagnosticsDuringAnOutage(unittest.TestCase):
+    def test_first_failure_down_transition_then_every_ten_minutes(self):
+        lines, reads = [], []
+        gate = FakeGate({})
+        gate.reader = lambda: reads.append(1) or {'free_percent': 40.0}
+        worker = Worker(subprocess.TimeoutExpired(['ssh'], 20))
+        # Two timer calls per poll: start and end.
+        ends = [20, 80, 140, 200, 820]
+        mon = health.Monitor(lambda: worker, notify_enabled=False, clock=Clock(),
+                             log=lines.append, gate=gate,
+                             timer=Steps([v for end in ends for v in (end - 20, end)]
+                                         + [900, 900.5]))
+        for _ in ends:
+            mon.poll()
+        self.assertEqual(mon.state()['worker'], 'down')
+        self.assertEqual([line.split('(')[1].split(')')[0] for line in lines],
+                         ['consecutive failure 1', 'consecutive failure 2',
+                          'consecutive failure 5'])
+        self.assertEqual(len(reads), 3, 'a poll that logs nothing reads nothing')
+        worker.reply = answer()
+        mon.poll()
+        self.assertEqual(lines[-2:], ['worker health probe answered after 0.5 s, after 5 '
+                                      'consecutive failure(s)',
+                                      'pandora: worker back: the engine answered; state '
+                                      'reachable'])
+
+
 if __name__ == '__main__':
     unittest.main()
