@@ -161,7 +161,10 @@ class Broker:
 def packet_of(paths,row):
     request = runner.submitted_request(paths,row['run_id'])
     request['client'] = row['client']
-    return {'run_id':row['run_id'],'request':request,'manifest':request['manifest'],
+    # The manifest travels once, at the top level, where the worker reads it.
+    # It is the bulk of the packet: about 1 MB for a 6,800-file repository.
+    manifest = request.pop('manifest')
+    return {'run_id':row['run_id'],'request':request,'manifest':manifest,
             'limits':{k:row[k] for k in ('reservation_mib','ceiling_mib','cpus_hint')}}
 
 

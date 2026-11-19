@@ -4,6 +4,7 @@ import copy
 import io
 import json
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -111,10 +112,27 @@ class OverflowRouting(unittest.TestCase):
         with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
             packet = json.load(tar.extractfile('packet.json'))
             self.assertEqual(packet['request']['input_id'],self.request['input_id'])
+            self.assertEqual(packet['manifest'],self.manifest)
+            self.assertNotIn('manifest',packet['request'])
             self.assertIn('engine/pandora/engine/overflow.py',tar.getnames())
             self.assertIn('engine/pandora/engine/bundle.py',tar.getnames())
         (self.source / 'hello.py').write_text('changed')
         with self.assertRaises(Exception):overflow.input_archive(self.paths,self.ledger.get('r-original'))
+
+    def test_worker_accepts_the_archive_the_primary_builds(self):
+        from pandora.engine import overflow_worker
+        self.assertTrue(self.claim())
+        raw = overflow.input_archive(self.paths,self.ledger.get('r-original'))
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
+            packet = json.load(tar.extractfile('packet.json'))
+        root = Path(self.tmp.name).resolve() / 'boat-engine'
+        source = root / 'src' / 'repo' / 'frozen-input'
+        shutil.copytree(self.source, source)
+        plan = packet['request']['plan']
+        validated, _ = overflow_worker.validate(packet, source, root, {(plan['repo'], plan['job'])})
+        self.assertEqual(validated, source)
+        # Each manifest entry crosses the wire once.
+        self.assertEqual(json.dumps(packet).count(self.manifest[0]['sha256']), 1)
 
     def test_collection_preserves_original_identity_and_outputs(self):
         self.claim()
