@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.28](https://github.com/gbasin/pandora/compare/v0.3.27...v0.3.28) (2026-11-19)
+
+
+### Bug Fixes
+
+* send the overflow manifest once ([#278](https://github.com/gbasin/pandora/issues/278)) ([b1de53d](https://github.com/gbasin/pandora/commit/b1de53dec6bf91473c613da1747dd489bc6963f4))
+
 ## [0.3.27](https://github.com/gbasin/pandora/compare/v0.3.26...v0.3.27) (2026-11-17)
 
 
