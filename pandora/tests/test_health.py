@@ -359,5 +359,142 @@ class Recheck(unittest.TestCase):
         self.assertEqual(mon.state()['worker'], 'reachable', 'a nudge is a question, not a verdict')
 
 
+def engine_failure(kind, message, code, stderr):
+    error = kind(message)
+    error.returncode, error.stderr = code, stderr
+    return error
+
+
+class Timer:
+    """A monotonic clock each probe advances by `step` seconds."""
+
+    def __init__(self, step):
+        self.step, self.at, self.calls = step, 0.0, 0
+
+    def __call__(self):
+        self.calls += 1
+        if self.calls % 2 == 0:
+            self.at += self.step
+        return self.at
+
+
+class FakeGate:
+    def __init__(self, reading, previous=None, evidence=None, now=100.0):
+        self.reader = lambda: reading
+        self.previous = previous
+        self.evidence = evidence
+        self.clock = lambda: now
+
+
+class Diagnosis(unittest.TestCase):
+    """A failed or slow probe says which stage failed, in one line."""
+
+    def test_ssh_exit_255_is_the_transport_with_its_hint(self):
+        from pandora.errors import WorkerUnreachable
+        error = engine_failure(
+            WorkerUnreachable, 'ssh pandora-worker: ...', 255,
+            'debug1: x\nssh: connect to host 10.0.0.1 port 22: Operation timed out\n')
+        found = health.classify(error)
+        self.assertEqual((found['stage'], found['exit'], found['hint']),
+                         ('transport', 255, 'connect timeout'))
+        self.assertEqual(health.describe(found),
+                         'transport, ssh exit 255 (connect timeout): '
+                         'ssh: connect to host 10.0.0.1 port 22: Operation timed out')
+        for stderr, hint in (('Permission denied (publickey).', 'auth'),
+                             ('mux_client_request_session: read from master failed', 'mux'),
+                             ('ssh: Could not resolve hostname x', 'dns')):
+            self.assertEqual(health.classify(engine_failure(
+                WorkerUnreachable, 'ssh x', 255, stderr))['hint'], hint)
+
+    def test_the_remote_command_failing_is_the_remote_stage(self):
+        from pandora.errors import EngineError
+        found = health.classify(engine_failure(
+            EngineError, 'engine health failed (1): boom', 1,
+            'Traceback\nModuleNotFoundError: No module named pandora'))
+        self.assertEqual((found['stage'], found['detail']), ('remote', 'exit 1'))
+        self.assertEqual(found['stderr'], 'ModuleNotFoundError: No module named pandora')
+        found = health.classify(engine_failure(
+            EngineError, 'engine health returned non-JSON: hi', 0, ''))
+        self.assertEqual((found['stage'], found['detail']), ('remote', 'bad JSON'))
+        found = health.classify(engine_failure(
+            EngineError, 'engine health said nothing; stderr: ', 0, ''))
+        self.assertEqual((found['stage'], found['detail']), ('remote', 'no output'))
+
+    def test_a_timeout_with_no_output_is_the_client_timeout(self):
+        error = subprocess.TimeoutExpired(['ssh', 'a', 'very', 'long', 'argv'], 20)
+        found = health.classify(error)
+        self.assertEqual((found['stage'], found['detail']), ('timeout', 'no output within 20 s'))
+        self.assertNotIn('argv', health.describe(found))
+
+    def test_a_timeout_after_output_is_the_remote_command_running_long(self):
+        error = subprocess.TimeoutExpired(['ssh'], 20, output=b'{"partial', stderr=b'')
+        found = health.classify(error)
+        self.assertEqual(found['stage'], 'remote')
+        self.assertIn('still running at the 20 s timeout', found['detail'])
+
+    def test_a_failed_probe_logs_one_compact_line_and_keeps_its_latency(self):
+        lines = []
+        reading = {'swap_used_mib': 3072.0, 'free_percent': 18.0, 'load_per_cpu': 0.9}
+        gate = FakeGate(reading, previous=(40.0, 3000.0), evidence=None)
+        with tempfile.TemporaryDirectory() as home:
+            store = Path(home) / 'worker-health.json'
+            worker = Worker(subprocess.TimeoutExpired(['ssh', 'argv'], 20))
+            mon = health.Monitor(lambda: worker, notify_enabled=False, clock=Clock(),
+                                 store=store, log=lines.append, gate=gate,
+                                 timer=Timer(20.0))
+            mon.poll()
+            self.assertEqual(lines, [
+                'worker health probe failed after 20.0 s (consecutive failure 1): '
+                'timeout, no output within 20 s; host: swap 3072 MiB '
+                '(+72 MiB/min over 60 s), 18.0% free, load 0.90/core'])
+            saved = json.loads(store.read_text())
+            self.assertEqual(saved['probe'], {'seconds': 20.0, 'at': 1000.0, 'ok': False,
+                                              'stage': 'timeout'})
+            self.assertEqual(saved['worker'], 'unknown', 'one failure changes no verdict')
+            mon.poll()
+            self.assertIn('consecutive failure 2', lines[1])
+            self.assertEqual(mon.state()['worker'], 'down')
+            self.assertEqual(mon.state()['reason'], 'timeout: no output within 20 s')
+
+    def test_a_slow_answer_logs_and_a_quick_one_does_not(self):
+        lines = []
+        gate = FakeGate({'free_percent': 50.0}, evidence='load average 9.0 per core, limit 8.0')
+        mon = health.Monitor(lambda: Worker(answer()), notify_enabled=False, clock=Clock(),
+                             log=lines.append, gate=gate, timer=Timer(6.25))
+        state = mon.poll()
+        self.assertEqual(state['worker'], 'reachable')
+        self.assertEqual(state['probe']['seconds'], 6.25)
+        self.assertEqual(lines, ['worker health probe slow: answered after 6.2 s; host: '
+                                 '50.0% free, local gate closed: load average 9.0 per '
+                                 'core, limit 8.0'])
+        mon.timer = Timer(0.4)
+        mon.poll()
+        self.assertEqual(len(lines), 1)
+
+    def test_the_mux_check_tells_a_wedged_master_from_a_missing_one(self):
+        worker = SimpleNamespace(link=SimpleNamespace(options=['-o', 'X=y'], host='w'))
+
+        def wedged(argv, **kwargs):
+            self.assertEqual(argv[-3:], ['-O', 'check', 'w'])
+            raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+        self.assertIn('wedged', health.mux_state(worker, run=wedged))
+        self.assertEqual(health.mux_state(worker, run=lambda argv, **k: SimpleNamespace(
+            returncode=0, stderr=b'')), 'master running')
+        self.assertEqual(health.mux_state(worker, run=lambda argv, **k: SimpleNamespace(
+            returncode=255, stderr=b'Control socket connect(/x): No such file')),
+            'no master: Control socket connect(/x): No such file')
+        self.assertIsNone(health.mux_state(SimpleNamespace()))
+
+    def test_a_host_too_slow_to_read_says_so(self):
+        import threading
+        release = threading.Event()
+        gate = FakeGate({})
+        gate.reader = lambda: release.wait(5) and {}
+        try:
+            self.assertIn('unread after 0.05 s', health.host_pressure(gate, wait=0.05))
+        finally:
+            release.set()
+
+
 if __name__ == '__main__':
     unittest.main()

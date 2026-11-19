@@ -208,17 +208,27 @@ def call(link, bundle_path, engine_root, argv, *, stdin=None, timeout=120, check
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
     from ..errors import EngineError, WorkerUnreachable
     err = (proc.stderr or b'').decode('utf-8', 'replace')
+
+    def failure(kind, message):
+        # The exit code and stderr ride on the error, so the health monitor can
+        # say which stage failed without parsing the message.
+        error = kind(message)
+        error.returncode, error.stderr = proc.returncode, err
+        return error
     if proc.returncode == 255:
-        raise WorkerUnreachable('ssh %s: %s' % (link.host, err.strip()[:400] or 'no route'))
+        raise failure(WorkerUnreachable,
+                      'ssh %s: %s' % (link.host, err.strip()[:400] or 'no route'))
     if check and proc.returncode != 0:
-        raise EngineError('engine %s failed (%d): %s'
-                          % (argv[0], proc.returncode, err.strip()[:600]))
+        raise failure(EngineError, 'engine %s failed (%d): %s'
+                      % (argv[0], proc.returncode, err.strip()[:600]))
     if binary:
         return proc.stdout or b''
     out = (proc.stdout or b'').decode('utf-8', 'replace').strip()
     if not out:
-        raise EngineError('engine %s said nothing; stderr: %s' % (argv[0], err.strip()[:400]))
+        raise failure(EngineError,
+                      'engine %s said nothing; stderr: %s' % (argv[0], err.strip()[:400]))
     try:
         return json.loads(out.splitlines()[-1])
     except ValueError:
-        raise EngineError('engine %s returned non-JSON: %s' % (argv[0], out[:400])) from None
+        raise failure(EngineError,
+                      'engine %s returned non-JSON: %s' % (argv[0], out[:400])) from None

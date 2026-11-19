@@ -369,7 +369,12 @@ def check_worker(pong, state):
         except (OSError, ValueError):
             return check('worker', WARN, 'the daemon does not report worker health and has '
                          'no cache file; `pandora ps` will say')
-    line = worker_line(health) + ', from ' + source
+    line = worker_line(health)
+    probe = health.get('probe') or {}
+    if probe.get('seconds') is not None:
+        line += ', last probe %.1f s%s' % (probe['seconds'], '' if probe.get('ok')
+                                           else ' (%s failure)' % probe.get('stage'))
+    line += ', from ' + source
     status = {'reachable': OK, 'degraded': WARN, 'down': FAIL}.get(health.get('worker'), WARN)
     return check('worker', status, line, worker=health.get('worker'))
 

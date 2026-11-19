@@ -630,7 +630,7 @@ class Daemon:
                               interval=self.config['worker'].get('health_interval_s') or 60,
                               notify_enabled=bool(self.config['notify']['enabled']),
                               store=self.state / 'worker-health.json',
-                              log=log)
+                              log=log, gate=self.gate)
 
     # -- configuration -----------------------------------------------------
 

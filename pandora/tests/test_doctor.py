@@ -499,6 +499,7 @@ class AgainstARealDaemon(DaemonCase):
         item = doctor.check_worker(pong, self.state)
         self.assertEqual(item['status'], 'fail')
         self.assertIn('DOWN', item['detail'])
+        self.assertRegex(item['detail'], r'last probe \d+\.\d s \(transport failure\)')
 
 
 CONFIG = '''

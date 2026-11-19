@@ -26,6 +26,15 @@ After a restart, cached facts remain available for diagnostics and transition
 notifications. A cached `down` result reads as `unknown` until this daemon has
 two failed probes: the old daemon's failure must not route new requests locally.
 A state older than `stale_after` also reads as `unknown`.
+
+**Saying why a probe failed.** Every failed probe, and every probe slower than
+`SLOW_PROBE_SECONDS`, logs one line: how long it took, which stage failed
+(`transport` for ssh itself, `remote` for the engine's health command,
+`timeout` for a client-side timeout with no output), the ssh exit code and the
+last stderr line, whether the ssh control master answers, and what this host's
+memory and load looked like at that moment. Those are the four suspects for a
+probe that times out: the connection, the multiplexing socket, the remote
+command, or a Mac too busy to run ssh promptly.
 """
 import json
 import subprocess
@@ -34,7 +43,8 @@ import threading
 import time
 from pathlib import Path
 
-from ..errors import PandoraError
+from ..errors import EngineError, PandoraError, WorkerUnreachable
+from . import pressure
 
 DEFAULT_INTERVAL = 60.0
 # How long a reading stands for, in intervals: one or two missed polls are not a
@@ -44,6 +54,21 @@ STALE_FACTOR = 3.0
 # pool still takes runs, but the floor is close enough to say so once.
 DISK_WARN_FACTOR = 1.5
 STATES = ('unknown', 'reachable', 'degraded', 'down')
+# A probe that answers but takes this long still gets a diagnostic line.
+SLOW_PROBE_SECONDS = 5.0
+# The failure diagnostics' own bounds: neither may hold up the next poll for long.
+MUX_CHECK_SECONDS = 3.0
+PRESSURE_WAIT_SECONDS = 2.0
+# ssh's own stderr, mapped to the transport failure it names.
+SSH_HINTS = (
+    (('timed out', 'timeout'), 'connect timeout'),
+    (('permission denied', 'host key verification', 'authentication'), 'auth'),
+    (('mux_client', 'control socket', 'controlsocket', 'controlpath', 'master'), 'mux'),
+    (('could not resolve',), 'dns'),
+    (('connection refused',), 'refused'),
+    (('connection closed', 'connection reset', 'broken pipe'), 'connection lost'),
+    (('no route',), 'no route'),
+)
 
 
 def notify(title, message, *, enabled=True, platform=None, run=None):
@@ -82,7 +107,8 @@ class Monitor:
     """
 
     def __init__(self, open_worker, *, interval=DEFAULT_INTERVAL, notify_enabled=True,
-                 store=None, clock=time.time, log=None, notifier=notify):
+                 store=None, clock=time.time, log=None, notifier=notify, gate=None,
+                 timer=time.monotonic):
         self.open_worker = open_worker
         self.interval = max(5.0, float(interval or DEFAULT_INTERVAL))
         self.notify_enabled = bool(notify_enabled)
@@ -90,13 +116,16 @@ class Monitor:
         self.clock = clock
         self.log = log or (lambda text: None)
         self.notifier = notifier
+        # The local pressure gate, read (never sampled) for a failed probe's line.
+        self.gate = gate
+        self.timer = timer
         self.lock = threading.Lock()
         self.stopping = threading.Event()
         self.nudge = threading.Event()
         self.current = {'worker': 'unknown', 'at': 0, 'reason': None, 'canary': None,
                         'disk': None, 'free_gib': None, 'floor_gib': None, 'goldens': 0,
                         'ready': None, 'kernel_drift': False,
-                        'host': None, 'health': None, 'polls': 0}
+                        'host': None, 'health': None, 'polls': 0, 'probe': None}
         self.failures = 0
         self._load()
 
@@ -121,13 +150,21 @@ class Monitor:
 
     def poll(self):
         """One health call. Returns the new state; never raises."""
+        worker = None
+        started = self.timer()
         try:
             worker = self.open_worker()
             answer = worker.health()
-        except PandoraError as error:
-            return self.failed(str(error)[:300])
         except Exception as error:                    # noqa: BLE001 - a probe, never a crash
-            return self.failed('%s: %s' % (type(error).__name__, error))
+            seconds = self.timer() - started
+            found = classify(error)
+            reason = (str(error)[:300] if isinstance(error, PandoraError)
+                      else '%s: %s' % (found['stage'], found['detail']))
+            return self.failed(reason, probe=self.probe_record(seconds, found),
+                               diagnosis=self.diagnose(worker, seconds, found))
+        seconds = self.timer() - started
+        if seconds >= SLOW_PROBE_SECONDS:
+            self.log(self.diagnose(worker, seconds, None))
         self.failures = 0
         capacity = answer.get('capacity') or {}
         disk = ('below floor' if not capacity.get('ok')
@@ -142,20 +179,51 @@ class Monitor:
                            goldens=len(answer.get('goldens') or []),
                            ready=answer.get('state'),
                            kernel_drift=bool(answer.get('kernel_drift')),
-                           health=answer)
+                           health=answer, probe=self.probe_record(seconds, None))
 
-    def failed(self, reason):
+    def probe_record(self, seconds, found):
+        """The last probe's latency and outcome, kept in worker-health.json."""
+        return {'seconds': round(seconds, 2), 'at': self.clock(), 'ok': found is None,
+                'stage': found['stage'] if found else None}
+
+    def diagnose(self, worker, seconds, found):
+        """One compact log line for a failed or slow probe.
+
+        Read after the probe returned, never during it: the ssh control
+        master's own answer and this host's pressure are both bounded, so a
+        wedged socket or a starved Mac shows up as such rather than as a
+        hung health thread.
+        """
+        if found is None:
+            head = 'worker health probe slow: answered after %.1f s' % seconds
+        else:
+            head = ('worker health probe failed after %.1f s (consecutive failure %d): %s'
+                    % (seconds, self.failures + 1, describe(found)))
+        parts = [head]
+        mux = mux_state(worker)
+        if mux:
+            parts.append('ssh mux: ' + mux)
+        parts.append('host: ' + host_pressure(self.gate))
+        return '; '.join(parts)
+
+    def failed(self, reason, *, probe=None, diagnosis=None):
         """One missed poll does not make a busy worker unavailable.
 
         Keep the previous reading and its timestamp on the first failure. It
         still ages normally; a failed probe is not fresh evidence of health.
         Any answer resets the count, including an explicitly degraded answer.
         """
+        if diagnosis:
+            self.log(diagnosis)
         self.failures += 1
         if self.failures < 2:
-            self.log('worker health probe failed once: %s' % reason)
+            if probe is not None:
+                with self.lock:
+                    self.current['probe'] = probe
+                    item = dict(self.current)
+                self._save(item)
             return self.state()
-        return self.record('down', reason=reason)
+        return self.record('down', reason=reason, probe=probe)
 
     def record(self, worker, **fields):
         """Install a reading and announce whatever changed with it."""
@@ -231,6 +299,146 @@ class Monitor:
             self.store.write_text(json.dumps(item, sort_keys=True, default=str) + '\n')
         except OSError:
             pass                      # the cache is a convenience; never fail a run for it
+
+
+def classify(error):
+    """{stage, detail, exit, stderr, hint} for one failed probe.
+
+    `transport` is ssh itself (exit 255: connect, auth, the control master).
+    `remote` is the engine's health command: a nonzero exit, no output, output
+    that is not JSON, or a command still printing when the timeout hit.
+    `timeout` is the client giving up with nothing on stdout, which leaves the
+    connection and the remote command both suspects; the mux and host readings
+    in the same line are what tell them apart. `error` is anything else.
+    """
+    if isinstance(error, subprocess.TimeoutExpired):
+        out = error.stdout or b''
+        stderr = last_line(error.stderr)
+        if out.strip():
+            return {'stage': 'remote', 'exit': None, 'stderr': stderr, 'hint': None,
+                    'detail': 'still running at the %g s timeout after %d bytes of output'
+                              % (error.timeout, len(out))}
+        return {'stage': 'timeout', 'exit': None, 'stderr': stderr, 'hint': None,
+                'detail': 'no output within %g s' % error.timeout}
+    code = getattr(error, 'returncode', None)
+    stderr = last_line(getattr(error, 'stderr', None))
+    message = str(error)
+    if isinstance(error, WorkerUnreachable):
+        if code is None and 'no answer within' in message:
+            # `Link._ssh`'s timeout, on the first poll's root lookup.
+            return {'stage': 'timeout', 'exit': None, 'stderr': None, 'hint': None,
+                    'detail': message}
+        stderr = stderr or last_line(message.partition(': ')[2]) or None
+        return {'stage': 'transport', 'exit': code, 'stderr': stderr,
+                'hint': ssh_hint(stderr),
+                'detail': 'ssh exit %d' % code if code else 'unreachable'}
+    if isinstance(error, EngineError):
+        if code:
+            detail = 'exit %d' % code
+        elif 'said nothing' in message:
+            detail = 'no output'
+        elif 'non-JSON' in message:
+            detail = 'bad JSON'
+        else:
+            detail = message[:160]
+        return {'stage': 'remote', 'exit': code, 'stderr': stderr, 'hint': None,
+                'detail': detail}
+    return {'stage': 'error', 'exit': code, 'stderr': stderr, 'hint': None,
+            'detail': ('%s: %s' % (type(error).__name__, message))[:160]}
+
+
+def describe(found):
+    """`stage, detail (hint): last stderr line`, for the log line."""
+    text = '%s, %s' % (found['stage'], found['detail'])
+    if found.get('hint'):
+        text += ' (%s)' % found['hint']
+    if found.get('stderr'):
+        text += ': ' + found['stderr']
+    return text
+
+
+def last_line(text):
+    if isinstance(text, bytes):
+        text = text.decode('utf-8', 'replace')
+    lines = [line.strip() for line in (text or '').splitlines() if line.strip()]
+    return lines[-1][:200] if lines else None
+
+
+def ssh_hint(stderr):
+    lowered = (stderr or '').lower()
+    for needles, hint in SSH_HINTS:
+        if any(needle in lowered for needle in needles):
+            return hint
+    return None
+
+
+def mux_state(worker, *, run=subprocess.run, timeout=MUX_CHECK_SECONDS):
+    """Does the ssh control master answer? `-O check` asks only the local socket.
+
+    A check that itself times out is a wedged master; one that finds no master
+    means the probe had to open a fresh connection. None when there is no link.
+    """
+    link = getattr(worker, 'link', None)
+    options = getattr(link, 'options', None)
+    if not options:
+        return None
+    try:
+        proc = run(['ssh', *options, '-O', 'check', link.host],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 'no answer from the control master within %g s (wedged)' % timeout
+    except OSError as error:
+        return 'unchecked (%s)' % error
+    if proc.returncode == 0:
+        return 'master running'
+    return 'no master' + (': ' + last_line(proc.stderr) if last_line(proc.stderr) else '')
+
+
+def host_pressure(gate=None, *, reader=None, wait=PRESSURE_WAIT_SECONDS):
+    """This host's memory and load right now, read on a side thread.
+
+    The reading is the pressure gate's own (`pressure.read_host`, or the gate's
+    reader), taken fresh without touching the gate's state. Swap growth is
+    measured against the gate's last sample. A reading that does not arrive
+    within `wait` is itself the finding: this host is slow to run a subprocess.
+    """
+    read = reader or getattr(gate, 'reader', None) or pressure.read_host
+    box = {}
+
+    def sample():
+        try:
+            box['reading'] = read() or {}
+        except Exception as error:            # noqa: BLE001 - a diagnostic, never a crash
+            box['error'] = error
+    thread = threading.Thread(target=sample, daemon=True, name='pandora-probe-pressure')
+    thread.start()
+    thread.join(wait)
+    if 'error' in box:
+        return 'unread (%s)' % type(box['error']).__name__
+    if 'reading' not in box:
+        return 'unread after %g s (slow to run a subprocess)' % wait
+    reading = box['reading']
+    parts = []
+    swap = reading.get('swap_used_mib')
+    if swap is not None:
+        text = 'swap %.0f MiB' % swap
+        previous = getattr(gate, 'previous', None)
+        if previous and previous[1] is not None:
+            span = gate.clock() - previous[0]
+            if span >= 1.0:
+                text += ' (%+.0f MiB/min over %.0f s)' % ((swap - previous[1]) * 60.0 / span,
+                                                          span)
+        parts.append(text)
+    if reading.get('free_percent') is not None:
+        parts.append('%.1f%% free' % reading['free_percent'])
+    if reading.get('psi_full_avg10') is not None:
+        parts.append('PSI full %.1f' % reading['psi_full_avg10'])
+    if reading.get('load_per_cpu') is not None:
+        parts.append('load %.2f/core' % reading['load_per_cpu'])
+    evidence = getattr(gate, 'evidence', None)
+    if evidence:
+        parts.append('local gate closed: %s' % evidence)
+    return ', '.join(parts) or 'no reading'
 
 
 def transitions(before, after):
