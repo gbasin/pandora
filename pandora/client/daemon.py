@@ -1705,11 +1705,11 @@ class Daemon:
             try:
                 worker = self.worker_for(repo)
                 submission = self.watched_submit(
-                    conn, run, worktree, beat, lambda entered, said: worker.submit(
+                    conn, run, worktree, beat, lambda entered, said, stop: worker.submit(
                         plan=plan, worktree=worktree, request_id=run.id + ':' + plan['job'],
                         control=request, progress=said, phase=entered,
                         log=lambda text: log('run %s (%s): %s' % (run.id, worktree, text)),
-                        transfer_stderr=run.dir / 'transfer.stderr'))
+                        transfer_stderr=run.dir / 'transfer.stderr', stop=stop))
                 # Uploads are complete even when the worker queue later exits
                 # before acceptance. Preserve their evidence on those paths.
                 run.transfer = getattr(submission, 'transfer', None) or {}
@@ -1846,7 +1846,7 @@ class Daemon:
     FREEZE_LIMIT = 600.0
 
     def watched_submit(self, conn, run, worktree, beat, submit):
-        """`submit(entered, said)` on its own thread, watched until it returns.
+        """`submit(entered, said, stop)` on its own thread, watched until it returns.
 
         A freeze or ship runs in the connection thread's stead, so the row no
         longer depends on it ever returning. While the work is still in
@@ -1854,7 +1854,9 @@ class Daemon:
         watcher abandons it and raises `Stopped` when the run is canceled, the
         caller has left, the worktree is gone, or a freeze outlives
         `FREEZE_LIMIT`. The abandoned thread is refused at its next phase, so it
-        never reaches `submit`. Once in `submit` the engine may have the run, and
+        never reaches `submit`, and `stop` is set, which stops a running rsync
+        and its ssh at once rather than letting it finish an upload nobody will
+        use. Once in `submit` the engine may have the run, and
         the call is waited for: it is bounded, and what follows it handles a
         cancel or a departed caller.
         """
@@ -1877,14 +1879,17 @@ class Daemon:
 
         def said(text):
             # The live caller hears it as a notice; the log keeps it for `logs`.
-            if abandoned.is_set():
-                return
-            run.said(text)
+            with gate:
+                # Under the lock the abandon is decided under: no line lands in
+                # the log of a row the watcher has already closed.
+                if abandoned.is_set():
+                    return
+                run.said(text)
             beat.say(text)
 
         def body():
             try:
-                box['submission'] = submit(entered, said)
+                box['submission'] = submit(entered, said, abandoned)
             except BaseException as error:          # noqa: BLE001 - handed to the watcher
                 box['error'] = error
             finally:

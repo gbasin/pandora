@@ -26,8 +26,10 @@ class HangingWorker(FakeWorker):
     release = None
     reached = []
     raises_in_freeze = None
+    stop = None
 
-    def submit(self, *, phase=None, **kwargs):
+    def submit(self, *, phase=None, stop=None, **kwargs):
+        HangingWorker.stop = stop
         for name in ('freeze', 'ship', 'submit'):
             phase(name)
             HangingWorker.reached.append(name)
@@ -122,6 +124,8 @@ class ACancelBeforeAcceptedSettlesTheRun(PreAcceptCase):
         self.cancel(run_id)
         frame = self.last_frame(sock)
         self.assertEqual((frame['code'], frame['exit']), ('canceled', 130))
+        # The transfer is told to stop at once, not left to finish its upload.
+        self.assertTrue(HangingWorker.stop.is_set())
         HangingWorker.release.set()
         time.sleep(0.2)
         self.assertNotIn('submit', HangingWorker.reached)

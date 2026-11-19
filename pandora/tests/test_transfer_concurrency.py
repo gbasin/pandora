@@ -263,5 +263,78 @@ class TransferConcurrencyTest(unittest.TestCase):
             self.assertIn('ssh died during cleanup', logged[0])
 
 
+class AnAbandonedSendStopsItsRsync(unittest.TestCase):
+    """A cancel during ship must not leave a 265 MiB upload running to the end."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        self.pids = self.root / 'pids'
+        # An rsync that never finishes, with an `ssh` child of its own, as the
+        # real one has: both must go when the send is abandoned.
+        fake = bin_dir / 'rsync'
+        fake.write_text('#!/bin/sh\n'
+                        'sleep 60 &\n'
+                        'echo $$ $! > "%s.tmp" && mv "%s.tmp" "%s"\n'
+                        'echo noise >&2\n'
+                        'wait\n' % (self.pids, self.pids, self.pids))
+        fake.chmod(0o755)
+        patcher = mock.patch.dict(os.environ,
+                                  {'PATH': '%s:%s' % (bin_dir, os.environ['PATH'])})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def test_a_stop_during_rsync_kills_its_group_and_publishes_nothing(self):
+        source = self.root / 'source'
+        source.mkdir()
+        (source / 'file.txt').write_text('first')
+        stop, outcome = threading.Event(), {}
+        kept = self.root / 'transfer.stderr'
+
+        def ship():
+            try:
+                transfer.send(LocalLink(), [{'path': 'file.txt'}], worktree=source,
+                              root=str(self.root / 'worker'), repo='repo', input_id='gone',
+                              stderr_path=kept, stop=stop)
+            except Exception as error:          # noqa: BLE001 - asserted below
+                outcome['error'] = error
+        thread = threading.Thread(target=ship)
+        thread.start()
+        deadline = time.monotonic() + 10
+        while not self.pids.exists():
+            self.assertLess(time.monotonic(), deadline, 'rsync never started')
+            time.sleep(0.01)
+        rsync_pid, child_pid = map(int, self.pids.read_text().split())
+        # Past several of the send's own polls, as a real upload would be.
+        time.sleep(0.7)
+        started = time.monotonic()
+        stop.set()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIsInstance(outcome.get('error'), transfer.Abandoned)
+        deadline = time.monotonic() + 5
+        while self.alive(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(self.alive(rsync_pid))
+        self.assertFalse(self.alive(child_pid))
+        paths = transfer.cache_paths(str(self.root / 'worker'), 'repo', 'gone')
+        self.assertFalse(os.path.lexists(paths['final']))
+        self.assertFalse(os.path.lexists(paths['latest']))
+        self.assertEqual(list(Path(paths['base']).glob('gone.partial*')), [])
+        self.assertFalse(kept.exists())
+
+
 if __name__ == '__main__':
     unittest.main()

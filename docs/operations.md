@@ -533,11 +533,22 @@ again. A local run that is executing ends with exit 70. A remote run still `free
 `submitting` is looked up on the worker: followed if it started, closed if
 not. Rerun what ended. Accepted remote runs continue on the worker.
 
-A remote run that is `freezing` or `shipping` does not hold a drain forever.
-The daemon checks it every second. It ends `cancelled`, exit 130, on
-`pandora cancel`. It ends `withdrawn` when its caller has gone. It ends
-`infra_failed`, exit 70, when its worktree no longer exists or its freeze has
-run for 10 minutes. In each case nothing reached the worker.
+The daemon checks a remote run that is `freezing` or `shipping` every second.
+It ends the run `cancelled`, exit 130, on `pandora cancel`. It ends the run
+`withdrawn` when its caller has gone. It ends the run `infra_failed`, exit 70,
+when its worktree no longer exists or its freeze has run for 10 minutes. In
+each case the engine never received the command, so it did not run:
+
+* A run `freezing` has sent nothing to the worker.
+* A run `shipping` may have started its upload into the worker's source cache.
+  The daemon stops rsync and its ssh, removes the staging directory, and
+  publishes nothing.
+* A run `submitting` is not stopped this way. The engine may already have the
+  command, so the daemon waits for the engine's answer (up to 120 seconds, then
+  a lookup). After that, a cancel stops or withdraws the run on the worker.
+
+Only a freeze has a time limit. A healthy slow ship still holds a drain until
+it finishes or is canceled.
 
 `--no-restart` moves `current` without restarting the daemon. The daemon runs
 its version until it restarts, and `pandora doctor` warns meanwhile.

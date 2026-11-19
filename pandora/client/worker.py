@@ -127,7 +127,7 @@ class Worker:
     # -- submission --------------------------------------------------------
 
     def submit(self, *, plan, worktree, request_id, cache_root=None, control=None,
-               progress=None, phase=None, log=None, transfer_stderr=None):
+               progress=None, phase=None, log=None, transfer_stderr=None, stop=None):
         """Freeze, ship and submit. Raises before the worker acknowledges anything.
 
         `progress` receives one line when a transfer actually starts, naming the
@@ -141,6 +141,7 @@ class Worker:
 
         `log` gets the transfer's start, end or failure as one line each, for
         the daemon's log; `transfer_stderr` is where rsync's stderr is kept.
+        `stop`, a `threading.Event`, stops a running transfer (`transfer.send`).
         """
         marks, freeze_steps, transfer_report = {}, {}, {}
         step = {'name': None, 'at': time.monotonic()}
@@ -193,7 +194,8 @@ class Worker:
                 source = transfer.send(
                     self.link, manifest, worktree=worktree, root=transfer_root,
                     repo=plan['repo'], input_id=input_id, on_send=on_send,
-                    log=log, stderr_path=transfer_stderr, report=transfer_report)
+                    log=log, stderr_path=transfer_stderr, report=transfer_report,
+                    stop=stop)
             except PandoraError as error:
                 if log is not None:
                     log('transfer failed: input %s, %s, rsync exit %s, after %.1f s: %s'
