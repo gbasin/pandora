@@ -131,6 +131,7 @@ def claim_if_eligible(paths, ledger, row, *, now=None):
     # Pin the entire operator policy with the attempt. Changes to the default
     # endpoint must not redirect an already submitted attempt after restart.
     durable_json(paths.attempt(row['run_id']) / 'overflow-policy.json', settings)
+    durable_bytes(paths.attempt(row['run_id']) / PACKET_FORMAT, b'2\n')
     ledger.update(row['run_id'], destination='boat', state='admitted',
                   reservation_mib=reservation, ceiling_mib=ceiling, cpus_hint=cpus,
                   size_class=size, admitted_at=now)
@@ -158,12 +159,22 @@ class Broker:
         return raw
 
 
+PACKET_FORMAT = 'overflow-packet-format'
+
+
 def packet_of(paths,row):
+    """The attempt's immutable packet, in the format pinned when it was claimed.
+
+    The broker binds every call to the packet's identity, which a relay
+    recomputes on restart. Attempts claimed before format 2 keep the manifest
+    inside the request too, so their identity survives an upgrade.
+    """
     request = runner.submitted_request(paths,row['run_id'])
     request['client'] = row['client']
-    # The manifest travels once, at the top level, where the worker reads it.
-    # It is the bulk of the packet: about 1 MB for a 6,800-file repository.
-    manifest = request.pop('manifest')
+    if (paths.attempt(row['run_id']) / PACKET_FORMAT).exists():
+        manifest = request.pop('manifest')
+    else:
+        manifest = request['manifest']
     return {'run_id':row['run_id'],'request':request,'manifest':manifest,
             'limits':{k:row[k] for k in ('reservation_mib','ceiling_mib','cpus_hint')}}
 

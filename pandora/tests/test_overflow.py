@@ -134,6 +134,18 @@ class OverflowRouting(unittest.TestCase):
         # Each manifest entry crosses the wire once.
         self.assertEqual(json.dumps(packet).count(self.manifest[0]['sha256']), 1)
 
+    def test_attempt_claimed_before_format_two_keeps_its_identity(self):
+        self.assertTrue(self.claim())
+        (self.paths.attempt('r-original') / overflow.PACKET_FORMAT).unlink()
+        row = self.ledger.get('r-original')
+        legacy = {'run_id':'r-original','request':dict(self.request,client=row['client']),
+                  'manifest':self.manifest,
+                  'limits':{k:row[k] for k in ('reservation_mib','ceiling_mib','cpus_hint')}}
+        self.assertEqual(overflow.packet_of(self.paths,row),legacy)
+        raw = overflow.input_archive(self.paths,row)
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
+            self.assertEqual(json.load(tar.extractfile('packet.json')),legacy)
+
     def test_collection_preserves_original_identity_and_outputs(self):
         self.claim()
         result = overflow.receive(self.paths,self.ledger,'r-original',self.blob(),self.policy)
