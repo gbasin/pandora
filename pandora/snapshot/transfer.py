@@ -22,6 +22,7 @@ turns the second and later round trips from ~90 ms into ~1 ms.
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -302,8 +303,52 @@ def rsync_stats(stdout):
     return result
 
 
+class Abandoned(TransferError):
+    """The caller gave the send up (`stop` was set) while rsync ran. Nothing published."""
+
+
+def _rsync(argv, names, *, timeout, stop):
+    """rsync, as `subprocess.run` would run it, or stoppable when `stop` is given.
+
+    With `stop`, rsync runs in its own process group, so the ssh it starts is
+    stopped with it: SIGTERM to the group as soon as `stop` is set or `timeout`
+    passes, then SIGKILL after two seconds. A stop raises `Abandoned`.
+    """
+    env = {**os.environ, 'LC_ALL': 'C'}
+    if stop is None:
+        return subprocess.run(argv, input=names, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=timeout, env=env)
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=env, start_new_session=True)
+    deadline = time.monotonic() + timeout
+    # The input goes with the first call only: a retried `communicate` keeps
+    # feeding what is left of it, and refuses to be handed it again.
+    pending = names
+    while True:
+        try:
+            out, err = proc.communicate(input=pending, timeout=0.2)
+            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            pending = None
+        if stop.is_set() or time.monotonic() >= deadline:
+            break
+    for sig, grace in ((signal.SIGTERM, 2.0), (signal.SIGKILL, None)):
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            out, err = proc.communicate(timeout=grace)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    if stop.is_set():
+        raise Abandoned('rsync to its worker was stopped: the send was abandoned')
+    raise subprocess.TimeoutExpired(argv, timeout, output=out, stderr=err)
+
+
 def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_send=None,
-         log=None, stderr_path=None, report=None):
+         log=None, stderr_path=None, report=None, stop=None):
     """Place this input in the worker's source cache. Idempotent.
 
     `on_send` is called once, just before rsync starts, and only when there is
@@ -318,6 +363,11 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
     `report`, an optional mutable dictionary, receives phase timings and observed
     cache, base, and rsync counters. A failed phase retains its elapsed time.
     Missing rsync counters remain unknown rather than becoming zero.
+
+    `stop`, an optional `threading.Event`, abandons the send: a running rsync
+    and its ssh are stopped (`_rsync`), nothing is published, `stderr_path` is
+    not written, and `Abandoned` is raised. The staging directory is removed as
+    on any failure; a stop before rsync starts is not looked at.
 
     Returns {'path', 'reused', 'link_dests', 'seconds', 'files'}.
     """
@@ -374,9 +424,7 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
             measured('progress', on_send)
         started = time.monotonic()
         try:
-            proc = measured('rsync', subprocess.run, argv, input=names,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            timeout=timeout, env={**os.environ, 'LC_ALL': 'C'})
+            proc = measured('rsync', _rsync, argv, names, timeout=timeout, stop=stop)
         except subprocess.TimeoutExpired as expired:
             # A TransferError, so the fallback policy decides: a bare
             # TimeoutExpired escaped every handler up to the connection thread.
@@ -389,7 +437,8 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
         if report is not None:
             report['rsync'] = rsync_stats(proc.stdout)
             report['rsync_exit'] = proc.returncode
-        keep_stderr(stderr_path, proc.stderr)
+        if stop is None or not stop.is_set():
+            keep_stderr(stderr_path, proc.stderr)
         if proc.returncode != 0:
             error = TransferError('rsync to %s failed (%d): %s'
                                   % (link.host, proc.returncode, _text(proc.stderr).strip()[:600]))
@@ -398,6 +447,10 @@ def send(link, manifest, *, worktree, root, repo, input_id, timeout=1800, on_sen
         # A concurrent attempt may already have published this input. Keep that
         # completed tree, then atomically point latest at it. Each attempt uses
         # a separate temporary symlink, including across different inputs.
+        if stop is not None and stop.is_set():
+            # rsync finished as the stop landed: the run is closed, so its
+            # tree is not published and the stage goes with the cleanup.
+            raise Abandoned('the send was abandoned before publishing')
         measured('publish', link.feed, FEEDS['publish'],
                  (stage, paths['final'], paths['latest'], root), timeout=120)
     finally:
