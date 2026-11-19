@@ -146,6 +146,18 @@ class Heartbeat:
         return self.gone.is_set()
 
 
+class Stopped(Exception):
+    """A freeze or ship the daemon gave up on; nothing reached the engine.
+
+    Raised by `Daemon.watched_submit` in the connection thread, so the row is
+    closed in the words of why while the abandoned work runs out on its own.
+    """
+
+    def __init__(self, state, exit, code, message):
+        super().__init__(message)
+        self.state, self.exit, self.code, self.message = state, exit, code, message
+
+
 class Locked:
     """A connection whose sends serialize with a heartbeat's beats.
 
@@ -1688,26 +1700,16 @@ class Daemon:
         # be asked what it did (`Worker.recover`), so it never falls back.
         # `beat` has been running since serve_run took the connection; the stop
         # below is what makes two threads never share the socket past here.
-
-        def entered(name):
-            # `pandora ps` reads meta.json: a slow ship shows as `shipping`,
-            # not as a `queued` row nobody can tell apart from a stuck one.
-            run.phase = name
-            run.save()
-
-        def said(text):
-            # The live caller hears it as a notice; the log keeps it for `logs`.
-            run.said(text)
-            beat.say(text)
         waited = None
         try:
             try:
                 worker = self.worker_for(repo)
-                submission = worker.submit(
-                    plan=plan, worktree=worktree, request_id=run.id + ':' + plan['job'],
-                    control=request, progress=said, phase=entered,
-                    log=lambda text: log('run %s (%s): %s' % (run.id, worktree, text)),
-                    transfer_stderr=run.dir / 'transfer.stderr')
+                submission = self.watched_submit(
+                    conn, run, worktree, beat, lambda entered, said: worker.submit(
+                        plan=plan, worktree=worktree, request_id=run.id + ':' + plan['job'],
+                        control=request, progress=said, phase=entered,
+                        log=lambda text: log('run %s (%s): %s' % (run.id, worktree, text)),
+                        transfer_stderr=run.dir / 'transfer.stderr'))
                 # Uploads are complete even when the worker queue later exits
                 # before acceptance. Preserve their evidence on those paths.
                 run.transfer = getattr(submission, 'transfer', None) or {}
@@ -1727,6 +1729,17 @@ class Daemon:
                 # Stopped before any other frame is written: two threads never
                 # share the socket.
                 left = beat.stop()
+        except Stopped as stop:
+            run.note(stop.message)
+            log('run %s closed as %s during %s: %s' % (run.id, stop.state, run.phase,
+                                                       stop.message))
+            run.finish(stop.exit, state=stop.state)
+            if stop.state != 'withdrawn':
+                try:
+                    self.deny(conn, stop.code, stop.message, exit=stop.exit)
+                except OSError:
+                    pass
+            return
         except ExecutionUncertain as error:
             # The one pre-accept failure that is not provably non-executing: the
             # submit call failed and the engine could not say whether it had
@@ -1823,6 +1836,105 @@ class Daemon:
             run.note(checked['reason'] + '; the arguments were not pre-checked')
         threading.Thread(target=self.execute, args=(run, repo, plan), daemon=True).start()
         self.stream(conn, reader, run, 0)
+
+    # -- freeze and ship, before `accepted` -------------------------------
+
+    # How often the connection thread looks up from a freeze or ship, and how
+    # long a freeze may take. A freeze only reads this Mac's worktree: 21 s is
+    # the slowest measured, so ten minutes is a freeze that is not coming back.
+    PRE_ACCEPT_POLL = 1.0
+    FREEZE_LIMIT = 600.0
+
+    def watched_submit(self, conn, run, worktree, beat, submit):
+        """`submit(entered, said)` on its own thread, watched until it returns.
+
+        A freeze or ship runs in the connection thread's stead, so the row no
+        longer depends on it ever returning. While the work is still in
+        `freeze` or `ship` -- before anything has reached the engine -- the
+        watcher abandons it and raises `Stopped` when the run is canceled, the
+        caller has left, the worktree is gone, or a freeze outlives
+        `FREEZE_LIMIT`. The abandoned thread is refused at its next phase, so it
+        never reaches `submit`. Once in `submit` the engine may have the run, and
+        the call is waited for: it is bounded, and what follows it handles a
+        cancel or a departed caller.
+        """
+        gate = threading.Lock()
+        settled, abandoned = threading.Event(), threading.Event()
+        box = {}
+        since = {'at': time.monotonic()}
+        detached = bool(run.request.get('detach'))
+
+        def entered(name):
+            with gate:
+                if abandoned.is_set():
+                    raise Stopped('withdrawn', INFRA, 'abandoned',
+                                  'abandoned before %s' % name)
+                since['at'] = time.monotonic()
+                # `pandora ps` reads meta.json: a slow ship shows as `shipping`,
+                # not as a `queued` row nobody can tell apart from a stuck one.
+                run.phase = name
+                run.save()
+
+        def said(text):
+            # The live caller hears it as a notice; the log keeps it for `logs`.
+            if abandoned.is_set():
+                return
+            run.said(text)
+            beat.say(text)
+
+        def body():
+            try:
+                box['submission'] = submit(entered, said)
+            except BaseException as error:          # noqa: BLE001 - handed to the watcher
+                box['error'] = error
+            finally:
+                settled.set()
+
+        threading.Thread(target=body, name='submit %s' % run.id, daemon=True).start()
+        while not settled.wait(self.PRE_ACCEPT_POLL):
+            why = self.pre_accept_stop(conn, run, worktree, beat, since['at'], detached)
+            if why is None:
+                continue
+            with gate:
+                if run.phase not in ('freeze', 'ship') or settled.is_set():
+                    continue
+                abandoned.set()
+            raise why
+        error = box.get('error')
+        if (isinstance(error, Exception) and not isinstance(error, PandoraError)
+                and run.phase in ('freeze', 'ship')):
+            # A bug, not a policy decision: say so to the caller, who would
+            # otherwise see only a closed socket. Nothing reached the engine.
+            raise Stopped('infra_failed', INFRA, 'pre-accept-failed',
+                          'the %s failed (%s: %s), before anything reached the worker; '
+                          'nothing ran. Rerun it' % (run.phase, type(error).__name__, error)
+                          ) from error
+        if error is not None:
+            raise error
+        return box['submission']
+
+    def pre_accept_stop(self, conn, run, worktree, beat, since, detached):
+        """Why a freeze or ship should be given up on now, as `Stopped`; else None."""
+        phase = run.phase or 'freeze'
+        if run.canceled.is_set():
+            return Stopped('cancelled', CANCELED, 'canceled',
+                           'run %s was canceled during %s, before anything reached the '
+                           'worker; nothing ran' % (run.id, phase))
+        if (beat.gone.is_set() or not client_alive(conn)) and not detached:
+            return Stopped('withdrawn', INFRA, 'left',
+                           'the caller left during %s, before anything reached the worker; '
+                           'withdrawn, nothing ran' % phase)
+        if worktree and not os.path.isdir(worktree):
+            return Stopped('infra_failed', INFRA, 'worktree-gone',
+                           'the worktree %s no longer exists, so its %s cannot finish; '
+                           'nothing ran' % (worktree, phase))
+        waited = time.monotonic() - since
+        if phase == 'freeze' and waited >= self.FREEZE_LIMIT:
+            return Stopped('infra_failed', INFRA, 'freeze-stalled',
+                           'freezing %s did not finish in %s; abandoned it, nothing ran. '
+                           'Rerun it, and report it if it happens again'
+                           % (worktree, engine_history.fmt_seconds(waited)))
+        return None
 
     # -- the worker queue, before `accepted` ------------------------------
 

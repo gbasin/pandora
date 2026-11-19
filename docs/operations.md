@@ -533,6 +533,12 @@ again. A local run that is executing ends with exit 70. A remote run still `free
 `submitting` is looked up on the worker: followed if it started, closed if
 not. Rerun what ended. Accepted remote runs continue on the worker.
 
+A remote run that is `freezing` or `shipping` does not hold a drain forever.
+The daemon checks it every second. It ends `cancelled`, exit 130, on
+`pandora cancel`. It ends `withdrawn` when its caller has gone. It ends
+`infra_failed`, exit 70, when its worktree no longer exists or its freeze has
+run for 10 minutes. In each case nothing reached the worker.
+
 `--no-restart` moves `current` without restarting the daemon. The daemon runs
 its version until it restarts, and `pandora doctor` warns meanwhile.
 
