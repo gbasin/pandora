@@ -4,6 +4,7 @@ import copy
 import io
 import json
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -111,10 +112,39 @@ class OverflowRouting(unittest.TestCase):
         with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
             packet = json.load(tar.extractfile('packet.json'))
             self.assertEqual(packet['request']['input_id'],self.request['input_id'])
+            self.assertEqual(packet['manifest'],self.manifest)
+            self.assertNotIn('manifest',packet['request'])
             self.assertIn('engine/pandora/engine/overflow.py',tar.getnames())
             self.assertIn('engine/pandora/engine/bundle.py',tar.getnames())
         (self.source / 'hello.py').write_text('changed')
         with self.assertRaises(Exception):overflow.input_archive(self.paths,self.ledger.get('r-original'))
+
+    def test_worker_accepts_the_archive_the_primary_builds(self):
+        from pandora.engine import overflow_worker
+        self.assertTrue(self.claim())
+        raw = overflow.input_archive(self.paths,self.ledger.get('r-original'))
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
+            packet = json.load(tar.extractfile('packet.json'))
+        root = Path(self.tmp.name).resolve() / 'boat-engine'
+        source = root / 'src' / 'repo' / 'frozen-input'
+        shutil.copytree(self.source, source)
+        plan = packet['request']['plan']
+        validated, _ = overflow_worker.validate(packet, source, root, {(plan['repo'], plan['job'])})
+        self.assertEqual(validated, source)
+        # Each manifest entry crosses the wire once.
+        self.assertEqual(json.dumps(packet).count(self.manifest[0]['sha256']), 1)
+
+    def test_attempt_claimed_before_format_two_keeps_its_identity(self):
+        self.assertTrue(self.claim())
+        (self.paths.attempt('r-original') / overflow.PACKET_FORMAT).unlink()
+        row = self.ledger.get('r-original')
+        legacy = {'run_id':'r-original','request':dict(self.request,client=row['client']),
+                  'manifest':self.manifest,
+                  'limits':{k:row[k] for k in ('reservation_mib','ceiling_mib','cpus_hint')}}
+        self.assertEqual(overflow.packet_of(self.paths,row),legacy)
+        raw = overflow.input_archive(self.paths,row)
+        with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
+            self.assertEqual(json.load(tar.extractfile('packet.json')),legacy)
 
     def test_collection_preserves_original_identity_and_outputs(self):
         self.claim()
