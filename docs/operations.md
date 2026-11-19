@@ -182,6 +182,26 @@ daemon restart, a cached down result reads as unknown until two new failed
 probes confirm it. Cached facts still supply the previous state for transition
 notifications, but cannot immediately trigger local fallback.
 
+A failed probe writes one line to `<state>/logs/daemon.log` on the first
+failure and on the second, which marks the worker down. While the worker stays
+down, the line repeats at most every 10 minutes, and the first answer after
+failures logs one line. A probe that answers but takes 5 seconds or more writes
+the same line, at most every 10 minutes:
+
+```
+worker health probe failed after 20.0 s (consecutive failure 1): timeout, no output within 20 s; ssh mux: master running; host: swap 3072 MiB (+0 MiB/min over 41 s), 18.0% free, load 0.90/core
+```
+
+The stage after the colon says what failed. `transport` is ssh itself, exit
+255: a connect timeout, an authentication failure, or a control master problem,
+with the last line of ssh's stderr. `remote` is the engine's health command: a
+nonzero exit, no output, output that is not JSON, or a command still printing
+at the timeout. `timeout` is the client's 20-second limit with no output. The
+`ssh mux` reading says whether the control master answered `ssh -O check`
+within 3 seconds, and `host` is this Mac's memory and load at that moment.
+`<state>/worker-health.json` keeps the last probe's latency under `probe`, and
+`pandora doctor` shows it on the `worker` line.
+
 `pandora/client/settings.py` documents every key. Remove `[worker] budget_mib`,
 `[client] max_wait_seconds`, `[client] fallback_slots`,
 `[client] fallback_wait_seconds`, and the `[backend]` table from older
@@ -295,7 +315,7 @@ ok    recursion guard    PANDORA_ROUTE_DEPTH is not set
 ok    pandora on PATH    ~/.local/bin/pandora imports ~/.local/share/pandora/versions/f91ef4e7a1c2 from any directory
 ok    install            current is f91ef4e7a1c2, from ~/Code/pandora; `pandora` and the shim run through it
 ok    daemon             pid 47841 on ~/.local/state/pandora/default/client.sock, worker ubuntu@WORKER_IP, runs current (f91ef4e7a1c2)
-ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), from the daemon
+ok    worker             worker: reachable (disk 7.8 GiB free; polled 25s ago), last probe 0.4 s, from the daemon
 ok    daemon supervision launchd runs pid 47841 as com.pandora.daemon, interpreter /opt/homebrew/bin/python3 (3.14.0); launchd starts it with /opt/homebrew/bin/python3; `pandora upgrade` restarts it into new code
 ok    repository         enrolled as acme, registration ~/Code/acme/.git/pandora-repo
 ok    claim cache        fresh: 20 claimed form(s), derived from ~/Code/acme/pandora.toml; cache ~/Code/acme/.git/pandora-claims
