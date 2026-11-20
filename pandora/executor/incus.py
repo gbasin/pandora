@@ -36,6 +36,7 @@ LOOKUP_TIMEOUT = 30
 # base image under (`prepare`).
 BUILT_FROM = 'user.pandora.built_from'
 GOLDEN_IDENTITY = 'user.pandora.golden_identity'
+ETAG_CONFLICT = re.compile(r"ETag does not match|ETag doesn't match: [0-9a-f]{64} vs [0-9a-f]{64}")
 # The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
 # `file` is what says whether the run's own processes filled the cgroup or its
 # file pages did (`file` includes `shmem`, which cannot be reclaimed without
@@ -242,7 +243,7 @@ class IncusDriver(Executor):
                 return
             # Concurrent warm preparations update the same instance. A new
             # config-set reads fresh config and its ETag, preserving other keys.
-            if error.strip().removeprefix('Error: ') != 'ETag does not match' or attempt == 4:
+            if attempt == 4 or not ETAG_CONFLICT.fullmatch(error.strip().removeprefix('Error: ')):
                 break
             time.sleep(0.05 * (attempt + 1))
         raise PrepareFailed('could not record golden identity: %s' % error.strip()[:200])

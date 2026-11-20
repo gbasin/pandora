@@ -85,7 +85,7 @@ class GoldenIdentity(unittest.TestCase):
             with lock:
                 if etag != revision:
                     conflicts += 1
-                    return 1, '', 'Error: ETag does not match\n'
+                    return 1, '', f"Error: ETag doesn't match: {etag:064x} vs {revision:064x}\n"
                 config.clear()
                 config.update(writable)
                 revision += 1
@@ -138,12 +138,15 @@ class GoldenIdentity(unittest.TestCase):
     def test_a_failed_identity_write_refuses_the_prepare(self):
         driver = IncusDriver(root='/tmp/pandora-identity-test')
         driver.exists = driver.warm = lambda name: True
-        driver.incus = unittest.mock.Mock(return_value=(1, '', 'permission denied'))
-        with unittest.mock.patch.object(incus_driver.time, 'sleep') as sleep:
-            with self.assertRaisesRegex(incus_driver.PrepareFailed, 'permission denied'):
-                driver.prepare(Toolchain())
-        self.assertEqual(driver.incus.call_count, 1)
-        sleep.assert_not_called()
+        for error in ('permission denied', "Error: ETag doesn't match: invalid header"):
+            with self.subTest(error=error):
+                driver.incus = unittest.mock.Mock(return_value=(1, '', error))
+                with unittest.mock.patch.object(incus_driver.time, 'sleep') as sleep:
+                    with self.assertRaises(incus_driver.PrepareFailed) as failure:
+                        driver.prepare(Toolchain())
+                self.assertIn(error, str(failure.exception))
+                self.assertEqual(driver.incus.call_count, 1)
+                sleep.assert_not_called()
 
     def test_persistent_identity_conflicts_are_bounded(self):
         driver = IncusDriver(root='/tmp/pandora-identity-test')
