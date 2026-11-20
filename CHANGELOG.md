@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.30](https://github.com/gbasin/pandora/compare/v0.3.29...v0.3.30) (2026-11-20)
+
+
+### Bug Fixes
+
+* **incus:** retry golden identity writes on ETag conflicts ([c17de18](https://github.com/gbasin/pandora/commit/c17de18aa3677d0b1929130434d0df697d02c673))
+
 ## [0.3.29](https://github.com/gbasin/pandora/compare/v0.3.28...v0.3.29) (2026-11-19)
 
 
