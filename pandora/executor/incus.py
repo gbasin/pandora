@@ -36,6 +36,7 @@ LOOKUP_TIMEOUT = 30
 # base image under (`prepare`).
 BUILT_FROM = 'user.pandora.built_from'
 GOLDEN_IDENTITY = 'user.pandora.golden_identity'
+ETAG_CONFLICT = re.compile(r"ETag does not match|ETag doesn't match: [0-9a-f]{64} vs [0-9a-f]{64}")
 # The `memory.stat` fields a thrash verdict keeps, in bytes. `anon` against
 # `file` is what says whether the run's own processes filled the cgroup or its
 # file pages did (`file` includes `shmem`, which cannot be reclaimed without
@@ -233,11 +234,19 @@ class IncusDriver(Executor):
         value = {'fingerprint': toolchain.fingerprint(),
                  'recipe': replace(toolchain, pins=()).fingerprint(),
                  'source_id': toolchain.source_id, 'base_image': toolchain.base_image,
-                 'pins': dict(toolchain.pins), 'last_used': time.time()}
-        rc, _, error = self.incus('config', 'set', name,
-                                  GOLDEN_IDENTITY + '=' + json.dumps(value), check=False)
-        if rc != 0:
-            raise PrepareFailed('could not record golden identity: %s' % error.strip()[:200])
+                 'pins': dict(toolchain.pins)}
+        for attempt in range(5):
+            value['last_used'] = time.time()
+            rc, _, error = self.incus('config', 'set', name,
+                                      GOLDEN_IDENTITY + '=' + json.dumps(value), check=False)
+            if rc == 0:
+                return
+            # Concurrent warm preparations update the same instance. A new
+            # config-set reads fresh config and its ETag, preserving other keys.
+            if attempt == 4 or not ETAG_CONFLICT.fullmatch(error.strip().removeprefix('Error: ')):
+                break
+            time.sleep(0.05 * (attempt + 1))
+        raise PrepareFailed('could not record golden identity: %s' % error.strip()[:200])
 
     def golden_metadata(self, name):
         """None for an old golden; a failed read must not look like no identity."""
