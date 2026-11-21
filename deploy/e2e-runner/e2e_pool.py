@@ -52,7 +52,7 @@ DEFAULTS = {
 }
 NAME = re.compile(r'^e2e-[0-9a-f]{12}$')
 CREATED, STARTED, BUSY = 'user.e2e.created', 'user.e2e.started', 'user.e2e.busy'
-START_RUNNER = '/opt/pandora-e2e/start-runner'
+START_RUNNER = '/usr/local/libexec/pandora-e2e/start-runner'
 API = 'https://api.github.com'
 JIT_LIMIT = 1024 * 1024
 
@@ -178,7 +178,14 @@ class Incus:
         self('config', 'set', name, '%s=%d' % (key, now), timeout=60)
 
     def delete(self, name):
-        self('delete', '--force', name, timeout=300, check=False)
+        """True when the VM is gone."""
+        try:
+            proc = self('delete', '--force', name, timeout=300, check=False)
+        except subprocess.TimeoutExpired:
+            return False
+        if proc.returncode == 0:
+            return True
+        return self('info', name, timeout=60, check=False).returncode != 0
 
 
 # --- the pool ------------------------------------------------------------------
@@ -188,28 +195,36 @@ def stamp(vm, key):
     return int(value) if str(value).isdecimal() else None
 
 
+BACKOFF_FIRST, BACKOFF_MAX = 30, 1800
+
+
 class Pool:
     def __init__(self, config, incus, github, clock=time.time, sleep=time.sleep, say=print):
         self.config, self.incus, self.github = config, incus, github
         self.clock, self.sleep, self.say = clock, sleep, say
+        self.failures, self.next_launch = 0, 0.0
 
     def retire(self, name, runner, why):
+        """Delete the VM and its registration. False while the VM still exists."""
         self.say('retire %s: %s' % (name, why))
-        self.incus.delete(name)
+        gone = self.incus.delete(name)
+        if not gone:
+            self.say('retire %s: the VM is not gone yet; it still counts' % name)
         if runner is not None:
             try:
                 self.github.remove(runner)
             except PoolError as error:
                 self.say('retire %s: %s' % (name, error))
+        return gone
 
     def launch(self):
         name = 'e2e-' + secrets.token_hex(6)
-        now = int(self.clock())
         self.say('launch %s' % name)
         minted = False
         try:
-            self.incus.launch(self.config['image'], name, self.config['profile'], now)
-            deadline = now + self.config['start_timeout_seconds']
+            self.incus.launch(self.config['image'], name, self.config['profile'],
+                              int(self.clock()))
+            deadline = self.clock() + self.config['start_timeout_seconds']
             while not self.incus.agent_ready(name):
                 if self.clock() > deadline:
                     raise PoolError('the VM agent did not answer')
@@ -219,9 +234,13 @@ class Pool:
             self.incus.start_runner(name, jit)
             del jit
             self.incus.mark(name, STARTED, int(self.clock()))
+            self.failures, self.next_launch = 0, 0.0
             return name
         except (PoolError, subprocess.TimeoutExpired) as error:
-            self.say('launch %s failed: %s' % (name, error))
+            self.failures += 1
+            delay = min(BACKOFF_FIRST * 2 ** (self.failures - 1), BACKOFF_MAX)
+            self.next_launch = self.clock() + delay
+            self.say('launch %s failed: %s; next launch in %ds' % (name, error, delay))
             self.incus.delete(name)
             if minted:
                 try:
@@ -238,17 +257,24 @@ class Pool:
         cfg = self.config
         vms = self.incus.vms()
         runners = self.github.runners()
-        live, idle, busy = set(), 0, 0
+        live, idle, busy, stuck = set(), 0, 0, 0
+
+        def retire(name, runner, why):
+            nonlocal stuck
+            if not self.retire(name, runner, why):
+                live.add(name)
+                stuck += 1
+
         for vm in vms:
             name = vm['name']
             runner = runners.get(name)
             created, started, since = stamp(vm, CREATED), stamp(vm, STARTED), stamp(vm, BUSY)
             if vm.get('status') not in ('Running', 'Starting', None) and started is not None:
-                self.retire(name, runner, 'status %s' % vm.get('status'))
+                retire(name, runner, 'status %s' % vm.get('status'))
                 continue
             if started is None:
                 if created is None or now - created > cfg['start_timeout_seconds']:
-                    self.retire(name, runner, 'its runner never started')
+                    retire(name, runner, 'its runner never started')
                     continue
                 live.add(name)
                 idle += 1
@@ -258,16 +284,20 @@ class Pool:
                     self.incus.mark(name, BUSY, now)
                     since = now
                 if now - since > cfg['job_max_seconds']:
-                    self.retire(name, runner, 'its job ran past %ds' % cfg['job_max_seconds'])
+                    retire(name, runner, 'its job ran past %ds' % cfg['job_max_seconds'])
                     continue
                 live.add(name)
                 busy += 1
                 continue
-            if since is not None or (runner is None and now - started > cfg['gone_grace_seconds']):
-                self.retire(name, runner, 'its job is over')
+            past_grace = now - started > cfg['gone_grace_seconds']
+            if since is not None or (runner is None and past_grace):
+                retire(name, runner, 'its job is over')
+                continue
+            if runner is not None and runner.get('status') == 'offline' and past_grace:
+                retire(name, runner, 'its runner is offline')
                 continue
             if now - started > cfg['idle_max_seconds']:
-                self.retire(name, runner, 'idle past %ds' % cfg['idle_max_seconds'])
+                retire(name, runner, 'idle past %ds' % cfg['idle_max_seconds'])
                 continue
             live.add(name)
             idle += 1
@@ -279,15 +309,16 @@ class Pool:
                 except PoolError as error:
                     self.say('deregister %s: %s' % (name, error))
         launched = []
-        while idle < cfg['idle_target'] and len(live) < cfg['max_vms']:
+        while (idle < cfg['idle_target'] and len(live) < cfg['max_vms']
+               and self.clock() >= self.next_launch):
             name = self.launch()
             if name is None:
                 break
             launched.append(name)
             live.add(name)
             idle += 1
-        return {'at': now, 'vms': sorted(live), 'idle': idle, 'busy': busy,
-                'launched': launched}
+        return {'at': now, 'vms': sorted(live), 'idle': idle, 'busy': busy, 'stuck': stuck,
+                'launched': launched, 'launch_failures': self.failures}
 
     def drain(self):
         runners = self.github.runners()
@@ -325,15 +356,17 @@ def public_ranges(exclude=()):
 def acl(exclude):
     """Egress to public IPv4 only, minus the host's own public addresses.
 
-    Incus applies reject rules before allow rules, so the ACL lists only what is
-    allowed and the bridge rejects the rest by default. Incus still answers DHCP
-    and DNS on the bridge address.
+    Incus applies reject rules before allow rules, so the SMTP reject wins over
+    the allow, and the bridge rejects everything the allow does not name. Incus
+    still answers DHCP and DNS on the bridge address.
     """
     nets = [ipaddress.ip_network(value, strict=False) for value in exclude]
     if not nets or any(net.version != 4 for net in nets):
         raise PoolError("exclude the host's own public IPv4 addresses")
     return {'description': 'Pandora e2e VMs: the public internet, not the host or its VMs',
-            'egress': [{'action': 'allow', 'state': 'enabled',
+            'egress': [{'action': 'reject', 'state': 'enabled', 'protocol': 'tcp',
+                        'destination_port': '25', 'description': 'No outbound SMTP'},
+                       {'action': 'allow', 'state': 'enabled',
                         'description': "Public IPv4 except the host's addresses",
                         'destination': ','.join(map(str, public_ranges(nets)))}],
             'ingress': []}

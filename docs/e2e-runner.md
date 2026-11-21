@@ -64,7 +64,9 @@ host (root)
 | --- | --- |
 | Incus project | `pandora-e2e` (own images and profiles, default networks) |
 | Bridge and ACL | `pandorae2ebr0` (10.142.0.1/24, no IPv6), `pandora-e2e-vm` |
-| Profile | `pandora-e2e`: 4 vCPU, 8 GiB, 40 GiB root on `default`, port isolation |
+| Storage pool | `pandora-e2e`, btrfs, 120 GiB loop file: each VM is a copy-on-write clone of the image |
+| Profile | `pandora-e2e`: 4 vCPU, 8 GiB, 40 GiB root on `pandora-e2e`, port isolation |
+| Scripts and hook | `/usr/local/libexec/pandora-e2e/`, root-owned, in the VM and, for Phase 1, on the host |
 | Image alias | `pandora-e2e`, pointing at `pandora-e2e-<12 hex commit>` |
 | Runner labels | `self-hosted`, `Linux`, `X64`, `e2e` |
 | Runner and VM names | `e2e-<12 hex>` |
@@ -75,16 +77,20 @@ host (root)
    `max_vms` (2) VMs.
 2. To add one, it launches an ephemeral VM from `pandora-e2e`, waits for the
    Incus agent, mints a JIT configuration for that VM's name, and sends it to
-   `/opt/pandora-e2e/start-runner` on stdin. The configuration never appears
-   on the host's argv, environment or disk.
+   `/usr/local/libexec/pandora-e2e/start-runner` on stdin. The configuration
+   never appears on the host's argv, environment or disk. In the VM it reaches
+   the runner as `ACTIONS_RUNNER_INPUT_JITCONFIG`, not as an argument.
 3. `pandora-e2e-runner.service` runs `run.sh --jitconfig` as `gh-runner`. The
    runner takes one job and exits. `ExecStopPost` powers the VM off, and Incus
    deletes it. Nothing from the job survives.
 4. The next pass sees the VM gone, removes the runner registration if GitHub
    has not, and launches a replacement.
-5. A VM whose runner never started (600 s), a job past `job_max_seconds`
-   (2 h, above every e2e timeout), and a runner idle past 6 h are deleted and
-   deregistered.
+5. A VM whose runner never started (600 s), a runner offline past
+   `gone_grace_seconds` (180 s), a job past `job_max_seconds` (2 h, above every
+   e2e timeout), and a runner idle past 6 h are deleted and deregistered. A VM
+   that Incus fails to delete still counts against `max_vms` until it is gone.
+6. A failed launch waits 30 s before the next one, doubling to at most 30 min,
+   and resets on a success.
 
 The pool keeps no state of its own. Creation, start and busy times are
 `user.e2e.*` keys on each VM, so a restart adopts the running VMs. Stopping
@@ -107,8 +113,8 @@ Pandora checkout to `/opt/pandora-src`, and runs `vm/setup-vm.sh`:
 * `seal`: removes the build's client state, proves there is no runner
   registration, and empties `/etc/machine-id` so each VM gets its own.
 
-Every VM therefore boots as a ready worker with warm goldens and its own
-verdict key. That key is not in `.github/pandora/allowed_signers`, so an e2e
+Every VM therefore boots as a ready worker with warm goldens. The verdict key
+is made during the build, so every VM from one image shares that image's key. That key is not in `.github/pandora/allowed_signers`, so an e2e
 verdict never lets CI skip the suite.
 
 ### The job-started hook
@@ -148,31 +154,39 @@ trusted jobs. Phase 2 does that.
      && sudo git -C /opt/pandora-e2e/src checkout -q --detach $REV"
    ```
 
-2. Install the hook:
+2. Install the hook outside `/opt/pandora-e2e`, which Phase 2 makes root-only:
 
    ```sh
-   ssh $H 'sudo install -d -m 0755 /opt/pandora-e2e/hook \
-     && sudo install -m 0555 /opt/pandora-e2e/src/deploy/e2e-runner/trusted_job.py \
-          /opt/pandora-e2e/src/deploy/e2e-runner/job-started.sh /opt/pandora-e2e/hook/'
+   ssh $H 'sudo install -d -m 0755 -o root -g root /usr/local/libexec/pandora-e2e \
+     && sudo install -m 0555 -o root -g root /opt/pandora-e2e/src/deploy/e2e-runner/trusted_job.py \
+          /opt/pandora-e2e/src/deploy/e2e-runner/job-started.sh /usr/local/libexec/pandora-e2e/'
    ```
 
 3. Check the verdicts without running a refusal. A refusal kills every
-   `gh-runner` process, so never run `job-started.sh` by hand:
+   `gh-runner` process, so never run `job-started.sh` by hand. The first
+   payload is a fork, the second a branch of this repository:
 
    ```sh
-   ssh $H 'cd /tmp && printf "%s" "{\"pull_request\":{\"head\":{\"repo\":{\"id\":1,\"full_name\":\"x/pandora\"}},\"user\":{\"login\":\"x\"}}}" > e2e-fork.json \
-     && sudo -u gh-runner env -i GITHUB_EVENT_NAME=pull_request GITHUB_REPOSITORY=gbasin/pandora \
-          GITHUB_EVENT_PATH=/tmp/e2e-fork.json python3 -I -c "import sys; sys.path.insert(0, \"/opt/pandora-e2e/hook\"); import trusted_job, os; print(trusted_job.verdict(os.environ))"; rm -f /tmp/e2e-fork.json'
+   ssh $H 'cd /tmp \
+     && printf "%s" "{\"pull_request\":{\"head\":{\"repo\":{\"full_name\":\"x/pandora\"}},\"user\":{\"login\":\"x\"}}}" > e2e-fork.json \
+     && printf "%s" "{\"pull_request\":{\"head\":{\"repo\":{\"full_name\":\"gbasin/pandora\"}},\"user\":{\"login\":\"gbasin\"}}}" > e2e-same.json \
+     && for f in e2e-fork.json e2e-same.json; do sudo -u gh-runner env -i GITHUB_EVENT_NAME=pull_request \
+          GITHUB_REPOSITORY=gbasin/pandora GITHUB_EVENT_PATH=/tmp/$f /usr/bin/python3 -I -c "import sys, os; sys.path.insert(0, \"/usr/local/libexec/pandora-e2e\"); import trusted_job; print(trusted_job.verdict(os.environ))"; done; \
+     rm -f e2e-fork.json e2e-same.json'
    ```
 
-   The output must name `x/pandora` as the head repository.
+   The first line must name `x/pandora` as the head repository. The second
+   line must be `None`.
 
-4. Add the hook and an automatic restart to the runner unit:
+4. Add the hook and an automatic restart to the runner unit, and make the
+   runner's `.env` root-owned so a job cannot change the runner's settings:
 
    ```sh
    ssh $H "sudo install -d /etc/systemd/system/$RUNNER.d \
-     && printf '[Service]\nEnvironment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/pandora-e2e/hook/job-started.sh\nRestart=on-failure\nRestartSec=30\n' \
+     && printf '[Service]\nEnvironment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/pandora-e2e/job-started.sh\nRestart=on-failure\nRestartSec=30\n' \
         | sudo tee /etc/systemd/system/$RUNNER.d/10-trusted-jobs.conf >/dev/null \
+     && sudo chown root:root /home/gh-runner/actions-runner/.env \
+     && sudo chmod 0644 /home/gh-runner/actions-runner/.env \
      && sudo systemctl daemon-reload"
    ```
 
@@ -185,16 +199,18 @@ trusted jobs. Phase 2 does that.
 6. Restart the runner: `ssh $H sudo systemctl restart $RUNNER`.
 7. Dispatch the e2e workflow: `gh workflow run e2e.yml -R gbasin/pandora --ref main`.
 8. Open the run's `Set up runner` or `Set up job` group. It must say that a
-   job started hook ran `/opt/pandora-e2e/hook/job-started.sh`. Both jobs must
+   job started hook ran `/usr/local/libexec/pandora-e2e/job-started.sh`. Both jobs must
    pass.
 
 Rollback: remove `/etc/systemd/system/$RUNNER.d/10-trusted-jobs.conf`, run
-`sudo systemctl daemon-reload`, and restart the runner when it is idle.
+`sudo systemctl daemon-reload`, and restart the runner when it is idle. The
+hook files and the root-owned `.env` can stay.
 
 ### Phase 2: one-job VMs
 
-1. Check capacity on the host. The pool needs 8 vCPU, 16 GiB and about
-   60 GiB of disk at `max_vms = 2`, plus the images:
+1. Check capacity on the host. The pool needs 8 vCPU and 16 GiB at
+   `max_vms = 2`, and a 120 GiB btrfs loop file (sparse) for the VMs and
+   images:
 
    ```sh
    ssh $H 'nproc; grep MemAvailable /proc/meminfo; df -h /var/lib/incus; ip -4 route'
@@ -223,7 +239,13 @@ Rollback: remove `/etc/systemd/system/$RUNNER.d/10-trusted-jobs.conf`, run
 
 4. Prepare the host. Add each OVH failover IP routed to this server to
    `E2E_EXTRA_EXCLUDE`, separated by spaces. The script already excludes every
-   address on the host's interfaces:
+   address on the host's interfaces. If the host firewall is installed
+   (`/etc/eichler-host-firewall`), the script first writes
+   `/etc/eichler-host-firewall/local.d/bridge-pandorae2ebr0.nft`, which adds
+   `pandorae2ebr0` to the `guest_bridges` set, and reloads
+   `eichler-host-firewall`, so the VMs get DHCP and DNS from the host. Then it
+   creates the bridge. If the firewall is installed later, run this step
+   again:
 
    ```sh
    ssh $H 'sudo E2E_EXTRA_EXCLUDE="" /opt/pandora-e2e/src/deploy/e2e-runner/setup-host.sh /opt/pandora-e2e/src'
@@ -241,8 +263,13 @@ Rollback: remove `/etc/systemd/system/$RUNNER.d/10-trusted-jobs.conf`, run
 6. Prove the boundary and the worker in a test VM. Its name is outside the
    pool's `e2e-<12 hex>` pattern, so the pool ignores it:
 
+   `HOST_LL` is the host bridge's IPv6 link-local address. Bash's `/dev/tcp`
+   takes the `%eth0` zone in it:
+
    ```sh
    CTRL_IP=$(ssh $H sudo incus list compute-control --project compute -c 4 -f csv | cut -d' ' -f1)
+   HOST_LL=$(ssh $H ip -6 -o addr show dev pandorae2ebr0 scope link | awk '{split($4, a, "/"); print a[1]}')
+   echo "${HOST_LL:-no link-local address: drop the last probe}"
    ssh $H "sudo incus --project pandora-e2e launch pandora-e2e e2etest --vm --ephemeral --profile pandora-e2e \
      && until sudo incus --project pandora-e2e exec e2etest -- true 2>/dev/null; do sleep 3; done \
      && sudo incus --project pandora-e2e exec e2etest -- bash -c '
@@ -252,7 +279,9 @@ Rollback: remove `/etc/systemd/system/$RUNNER.d/10-trusted-jobs.conf`, run
           probe 10.142.0.1 22
           probe 10.4.79.1 22
           probe $CTRL_IP 22
-          probe 169.254.169.254 80'"
+          probe 169.254.169.254 80
+          probe smtp.gmail.com 25
+          probe $HOST_LL%eth0 22'"
    ```
 
    Only `api.github.com:443` may say `REACHED`. Then run a signed selftest in
@@ -318,7 +347,29 @@ Do this phase only after Phase 2, step 12. It cannot be undone by a command.
 Rolling back after it means fixing the VM pool forward, not restoring the host
 runner.
 
-1. Stop the `pandora-ci` user manager, which linger keeps running. Then
+1. Check what removing `pandora-ci` would take from the live worker. The
+   live worker's manifest must not name `pandora-ci` or its home, and no file
+   outside `/home/pandora-ci` may belong to it:
+
+   ```sh
+   ssh $H 'grep -n pandora-ci /home/ubuntu/pandora/worker/versions.toml || echo "manifest: clean"; \
+     sudo find / -xdev -user pandora-ci -not -path "/home/pandora-ci/*" -not -path /home/pandora-ci 2>/dev/null | head'
+   ```
+
+   Then list the e2e engine's leftovers in the live project, and check that
+   the live worker's gc would remove them. Run the gc as a dry run from a Mac
+   that points at the live worker:
+
+   ```sh
+   ssh $H "sudo incus --project pandora list -c ns -f csv | grep -v '^golden-' | head"
+   pandora worker gc --dry-run
+   ```
+
+   Continue only when the manifest is clean, `find` prints nothing, no
+   `run-*` instance of the e2e engine is running, and the dry run accounts for
+   the e2e selftest golden (removed, or kept on purpose). Write down any
+   golden it keeps.
+2. Stop the `pandora-ci` user manager, which linger keeps running. Then
    confirm that nothing runs as the two users:
 
    ```sh
@@ -327,14 +378,14 @@ runner.
 
    The output must be `none`.
 
-2. Delete the old registration:
+3. Delete the old registration:
 
    ```sh
    ID=$(gh api repos/gbasin/pandora/actions/runners --jq '.runners[] | select(.name == "worker-e2e") | .id')
    gh api -X DELETE repos/gbasin/pandora/actions/runners/$ID
    ```
 
-3. Remove the unit, the sudo rule and both users:
+4. Remove the unit, the sudo rule and both users:
 
    ```sh
    ssh $H "cd /home/gh-runner/actions-runner && sudo ./svc.sh uninstall \
@@ -343,12 +394,12 @@ runner.
      && sudo userdel -r gh-runner && sudo userdel -r pandora-ci"
    ```
 
-4. Verify: `ssh $H 'sudo grep -rl pandora-ci /etc/sudoers.d; id pandora-ci; id gh-runner'`
+5. Verify: `ssh $H 'sudo grep -rl pandora-ci /etc/sudoers.d; id pandora-ci; id gh-runner'`
    prints no file and two `no such user` lines.
 
 Instances the old e2e engine left in the live `pandora` project, such as its
 selftest golden, belong to the live worker's `pandora worker gc` from now on.
-Do not delete them by hand.
+Do not delete them by hand. Step 1 checked that the gc accounts for them.
 
 ## Operating
 

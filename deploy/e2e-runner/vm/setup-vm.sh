@@ -15,6 +15,7 @@ HERE=$SRC/deploy/e2e-runner
 RUNNER_VERSION=2.338.2
 RUNNER_SHA256=baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40
 RUNNER_HOME=/home/gh-runner
+LIBEXEC=/usr/local/libexec/pandora-e2e
 CI_CONFIG=$RUNNER_HOME/.config-pandora-e2e.toml
 BAKE_CONFIG=$RUNNER_HOME/.config-pandora-bake.toml
 
@@ -72,13 +73,15 @@ install_stage() {
     rm -f /tmp/runner.tar.gz
     "$RUNNER_HOME/actions-runner/bin/installdependencies.sh" >/dev/null
   fi
-  printf 'LANG=C.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/pandora-e2e/job-started.sh\n' \
+  # Root-owned, like the hook, so the runner user cannot rewrite its settings.
+  printf 'LANG=C.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED=%s/job-started.sh\n' "$LIBEXEC" \
     > "$RUNNER_HOME/actions-runner/.env"
-  chown gh-runner:gh-runner "$RUNNER_HOME/actions-runner/.env"
+  chown root:root "$RUNNER_HOME/actions-runner/.env"
+  chmod 0644 "$RUNNER_HOME/actions-runner/.env"
 
-  install -d -m 0755 /opt/pandora-e2e
-  install -m 0555 "$HERE/trusted_job.py" "$HERE/job-started.sh" \
-    "$HERE/vm/start-runner" "$HERE/vm/run-runner" /opt/pandora-e2e/
+  install -d -m 0755 -o root -g root "$LIBEXEC"
+  install -m 0555 -o root -g root "$HERE/trusted_job.py" "$HERE/job-started.sh" \
+    "$HERE/vm/start-runner" "$HERE/vm/run-runner" "$LIBEXEC/"
   install -m 0644 "$HERE/vm/pandora-e2e-runner.service" /etc/systemd/system/
   systemctl daemon-reload
 

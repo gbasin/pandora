@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=gh-runner
 WorkingDirectory=/home/gh-runner/actions-runner
-Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/pandora-e2e/job-started.sh
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/pandora-e2e/job-started.sh
 Environment=LANG=C.UTF-8
-ExecStart=/opt/pandora-e2e/run-runner
+ExecStart=/usr/local/libexec/pandora-e2e/run-runner
 ExecStopPost=+/usr/bin/systemctl --no-block poweroff
 KillMode=control-group
 TimeoutStopSec=30

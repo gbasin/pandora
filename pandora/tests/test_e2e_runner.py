@@ -126,6 +126,9 @@ class FakeIncus:
         self.deleted = []
         self.started = {}
         self.fail_start = False
+        self.stuck = set()
+        self.launch_seconds = 0
+        self.clock = None
 
     def vms(self):
         return [{'name': name, 'status': 'Running', 'config': dict(config)}
@@ -133,6 +136,8 @@ class FakeIncus:
 
     def launch(self, image, name, profile, now):
         self.instances[name] = {pool.CREATED: str(now)}
+        if self.clock is not None:
+            self.clock[0] += self.launch_seconds
 
     def agent_ready(self, name):
         return True
@@ -147,7 +152,10 @@ class FakeIncus:
 
     def delete(self, name):
         self.deleted.append(name)
+        if name in self.stuck:
+            return False
         self.instances.pop(name, None)
+        return True
 
 
 class FakeGitHub:
@@ -160,7 +168,8 @@ class FakeGitHub:
         return {name: dict(runner) for name, runner in self.registered.items()}
 
     def jit(self, name):
-        self.registered[name] = {'id': self.next_id, 'name': name, 'busy': False}
+        self.registered[name] = {'id': self.next_id, 'name': name, 'busy': False,
+                                 'status': 'online'}
         self.next_id += 1
         return 'Zm9v'
 
@@ -267,6 +276,55 @@ class PoolTest(unittest.TestCase):
         self.pool.drain()
         self.assertIn(name, self.incus.deleted)
 
+    def test_an_offline_runner_is_retired_after_grace(self):
+        (name,) = self.pool.step()['launched']
+        self.github.registered[name]['status'] = 'offline'
+        self.now += 10
+        self.pool.step()
+        self.assertNotIn(name, self.incus.deleted)
+        self.now += self.config['gone_grace_seconds']
+        self.pool.step()
+        self.assertIn(name, self.incus.deleted)
+        self.assertIn(name, self.github.removed)
+
+    def test_launch_failures_back_off_exponentially_and_reset_on_success(self):
+        self.incus.fail_start = True
+        self.pool.step()
+        self.assertEqual(self.pool.failures, 1)
+        self.now += 10
+        self.assertEqual(self.pool.step()['launched'], [])
+        self.assertEqual(len(self.incus.deleted), 1, 'no launch inside the backoff')
+        self.now += 30
+        self.pool.step()
+        self.assertEqual(self.pool.failures, 2)
+        self.assertEqual(self.pool.next_launch, self.now + 60)
+        self.incus.fail_start = False
+        self.now += 60
+        self.assertEqual(len(self.pool.step()['launched']), 1)
+        self.assertEqual(self.pool.failures, 0)
+
+    def test_a_vm_that_will_not_delete_still_counts_against_max_vms(self):
+        (first,) = self.pool.step()['launched']
+        self.github.registered[first]['busy'] = True
+        (second,) = self.pool.step()['launched']
+        self.incus.stuck.add(first)
+        self.github.registered.pop(first)
+        self.now += 5
+        status = self.pool.step()
+        self.assertIn(first, status['vms'])
+        self.assertEqual(status['stuck'], 1)
+        self.assertEqual(status['launched'], [], 'max_vms is 2')
+
+    def test_the_agent_deadline_starts_after_the_launch_returns(self):
+        clock = [self.now]
+        self.incus.clock = clock
+        self.incus.launch_seconds = self.config['start_timeout_seconds'] + 60
+        ready = iter([False, False, True])
+        self.incus.agent_ready = lambda name: next(ready)
+        poolobj = pool.Pool(self.config, self.incus, self.github, clock=lambda: clock[0],
+                            sleep=lambda s: None, say=self.log.append)
+        self.assertIsNotNone(poolobj.launch())
+
 
 class Response:
     def __init__(self, body):
@@ -339,7 +397,9 @@ class GitHubTest(unittest.TestCase):
 
 class AclTest(unittest.TestCase):
     def test_the_host_and_every_private_range_are_unreachable(self):
-        rule = pool.acl(['5.135.138.35'])['egress'][0]
+        smtp, rule = pool.acl(['5.135.138.35'])['egress']
+        self.assertEqual((smtp['action'], smtp['protocol'], smtp['destination_port']),
+                         ('reject', 'tcp', '25'))
         nets = [ipaddress.ip_network(n) for n in rule['destination'].split(',')]
         for address in ('5.135.138.35', '10.4.79.1', '10.141.0.1', '10.142.0.1',
                         '169.254.169.254', '127.0.0.1', '100.100.100.100', '192.168.1.1'):

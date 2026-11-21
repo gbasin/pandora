@@ -3,8 +3,10 @@
 #
 #   sudo deploy/e2e-runner/setup-host.sh /opt/pandora-e2e/src
 #
-# Creates the Incus project, the bridge and its egress ACL, and the VM profile,
-# and installs the pool daemon and its unit. Starts nothing and holds no
+# Registers the bridge with the host firewall when it is installed, then creates
+# the Incus project, a btrfs storage pool of its own (so each VM is a
+# copy-on-write clone of the image), the bridge and its egress ACL, and the VM
+# profile, and installs the pool daemon and its unit. Starts nothing and holds no
 # credential. Safe to run again. E2E_EXTRA_EXCLUDE adds IPv4 addresses the
 # VMs must not reach beyond the host's own interface addresses, for example
 # OVH failover IPs routed to this server.
@@ -17,7 +19,9 @@ PROFILE=pandora-e2e
 BRIDGE=pandorae2ebr0
 SUBNET=${E2E_SUBNET:-10.142.0.1/24}
 ACL=pandora-e2e-vm
-POOL=${E2E_STORAGE_POOL:-default}
+POOL=pandora-e2e
+POOL_SIZE=${E2E_POOL_SIZE:-120GiB}
+FIREWALL=/etc/eichler-host-firewall
 VM_CPU=${E2E_VM_CPU:-4}
 VM_MEMORY=${E2E_VM_MEMORY:-8GiB}
 VM_DISK=${E2E_VM_DISK:-40GiB}
@@ -27,6 +31,19 @@ VM_DISK=${E2E_VM_DISK:-40GiB}
 if ! incus project show "$PROJECT" >/dev/null 2>&1; then
   incus project create "$PROJECT" -c features.images=true -c features.profiles=true \
     -c features.storage.volumes=true -c features.networks=false
+fi
+
+# The host firewall drops guest traffic to the host except DHCP and DNS on
+# bridges in its guest_bridges set. Register the bridge before it exists.
+if [ -d "$FIREWALL" ]; then
+  install -d -m 0755 "$FIREWALL/local.d"
+  printf 'add element inet eichler_host guest_bridges { "%s" }\n' "$BRIDGE" \
+    > "$FIREWALL/local.d/bridge-$BRIDGE.nft"
+  systemctl reload eichler-host-firewall
+fi
+
+if ! incus storage show "$POOL" >/dev/null 2>&1; then
+  incus storage create "$POOL" btrfs size="$POOL_SIZE"
 fi
 
 if ! incus network show "$BRIDGE" >/dev/null 2>&1; then
