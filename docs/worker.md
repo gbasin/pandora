@@ -432,7 +432,8 @@ running as the worker user, so a teammate who can ship a bundle can run
 anything as that user. Identity, revocation and verb scoping are what it buys;
 isolation between users stays out of scope.
 
-The e2e workflow exercises it against the live worker:
+The e2e workflow exercises it against a real worker in a one-job VM
+([docs/e2e-runner.md](e2e-runner.md)):
 `scripts/e2e-gateway.sh` generates a teammate keypair, installs `bin/gateway`,
 `feeds.allow` and a managed `authorized_keys` block over the admin key
 (the e2e worker keeps no manifest to re-provision), refuses a shell, a

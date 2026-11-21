@@ -1,0 +1,35 @@
+# The Pandora worker inside each e2e VM. `build-image.sh` provisions it once,
+# into the image, so every one-job VM starts as a ready worker:
+#
+#   pandora worker --host pandora-ci@localhost provision \
+#     --versions deploy/e2e-runner/worker.toml --no-canary
+#
+# The VM is disposable, so `pandora-ci` keeps passwordless sudo inside it. The
+# host never runs this worker.
+
+[packages]
+incus = "*"
+incus-client = "*"
+btrfs-progs = "*"
+git = "*"
+rsync = "*"
+python3 = "*"
+
+[worker]
+root = "~/pandora"
+engine_root = "~/pandora-engine"
+project = "pandora"
+pool = "pandorapool"
+profile = "runner"
+bridge = "pandorabr0"
+subnet = "10.141.0.1/24"
+user = "pandora-ci"
+
+device = ""
+loop_size_gib = 24
+
+disk_floor_gib = 4
+run_disk_gib = 8
+golden_keep = 2
+max_running = 0
+unattended_upgrades = false

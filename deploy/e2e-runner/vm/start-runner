@@ -1,0 +1,20 @@
+#!/bin/sh
+# Called by the host's pool, as root, through `incus exec`, with the runner's JIT
+# configuration on stdin. Stores it for the runner user and starts the one-job
+# runner. The configuration never appears in argv or the environment here.
+set -eu
+dir=/run/pandora-e2e
+install -d -m 0700 -o gh-runner -g gh-runner "$dir"
+umask 077
+head -c 1048577 > "$dir/jitconfig.new"
+size=$(wc -c < "$dir/jitconfig.new")
+if [ "$size" -lt 1 ] || [ "$size" -gt 1048576 ] \
+    || LC_ALL=C grep -q '[^A-Za-z0-9+/=]' "$dir/jitconfig.new"; then
+  rm -f "$dir/jitconfig.new"
+  echo 'start-runner: invalid JIT configuration' >&2
+  exit 65
+fi
+chown gh-runner:gh-runner "$dir/jitconfig.new"
+chmod 0400 "$dir/jitconfig.new"
+mv "$dir/jitconfig.new" "$dir/jitconfig"
+systemctl start --no-block pandora-e2e-runner.service

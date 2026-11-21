@@ -1,0 +1,15 @@
+[Unit]
+Description=Pandora e2e runner: one job, then power off
+After=network-online.target ssh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gh-runner
+WorkingDirectory=/home/gh-runner/actions-runner
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/pandora-e2e/job-started.sh
+Environment=LANG=C.UTF-8
+ExecStart=/opt/pandora-e2e/run-runner
+ExecStopPost=+/usr/bin/systemctl --no-block poweroff
+KillMode=control-group
+TimeoutStopSec=30

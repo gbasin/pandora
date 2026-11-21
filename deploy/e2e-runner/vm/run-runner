@@ -1,0 +1,9 @@
+#!/bin/sh
+# pandora-e2e-runner.service's ExecStart, as gh-runner: one job, then exit. The
+# unit's ExecStopPost powers the VM off, and Incus deletes the ephemeral VM.
+set -eu
+file=/run/pandora-e2e/jitconfig
+config=$(cat "$file")
+rm -f "$file"
+cd /home/gh-runner/actions-runner
+exec ./run.sh --jitconfig "$config"
