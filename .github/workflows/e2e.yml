@@ -9,11 +9,15 @@ on:
     # A daily canary: a silently broken routed path is worse than a loud one.
     - cron: '23 7 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   selftest:
-    # The worker-e2e runner: pandora-ci@localhost with an own engine_root.
-    # Pull requests run only from branches in this repository: a fork's code
-    # would execute here with SSH access to the worker.
+    # Each e2e job gets its own one-job VM, a ready worker at
+    # pandora-ci@localhost (docs/e2e-runner.md). Pull requests run only from
+    # branches in this repository. This guard is courtesy: a fork's workflow
+    # can delete it, so the runner's job-started hook is what refuses forks.
     if: github.event_name != 'pull_request' ||
         github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, e2e]

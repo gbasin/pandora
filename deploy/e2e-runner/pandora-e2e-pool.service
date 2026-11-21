@@ -1,0 +1,15 @@
+[Unit]
+Description=Pandora e2e one-job VM runners
+After=incus.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 -I /opt/pandora-e2e/e2e_pool.py run --config /etc/pandora-e2e/pool.toml
+Restart=always
+RestartSec=10
+RuntimeDirectory=pandora-e2e
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

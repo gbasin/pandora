@@ -93,8 +93,8 @@ flowchart LR
 
 Pandora v0.3 has been tested with one repository and one shared Linux worker,
 with Macs and a teammate-key client talking to it; the e2e proves that path
-against a live worker every run ([Sharing a
-worker](docs/worker.md#sharing-a-worker)). Read
+against a real worker, in a one-job VM, every run ([Sharing a
+worker](docs/worker.md#sharing-a-worker), [the e2e runner](docs/e2e-runner.md)). Read
 [Operating limits](docs/operations.md#operating-limits) before you rely on it.
 
 ## Install

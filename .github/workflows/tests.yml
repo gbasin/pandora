@@ -39,7 +39,9 @@ jobs:
             else brew install shellcheck; fi
           }
           # SC3013: -nt is deliberate; dash and bash have had it for decades.
-          shellcheck -e SC3013 bin/pnpm bin/pandora scripts/verdict-verify.sh scripts/verdict-prune.sh
+          shellcheck -e SC3013 bin/pnpm bin/pandora scripts/verdict-verify.sh scripts/verdict-prune.sh \
+            deploy/e2e-runner/*.sh deploy/e2e-runner/vm/setup-vm.sh \
+            deploy/e2e-runner/vm/start-runner deploy/e2e-runner/vm/run-runner
       - name: unittest
         if: runner.os != 'Linux' || steps.verdict.outputs.verified != 'true'
         run: python3 -m unittest discover -s pandora

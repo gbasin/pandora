@@ -1,0 +1,17 @@
+# /etc/pandora-e2e/pool.toml. Every key is optional; these are the defaults.
+repository = "gbasin/pandora"
+labels = ["self-hosted", "Linux", "X64", "e2e"]
+project = "pandora-e2e"
+image = "pandora-e2e"
+profile = "pandora-e2e"
+# The selftest and gateway jobs run one after the other, so one idle VM covers
+# a push. max_vms bounds the host's share: each VM is 4 vCPU and 8 GiB.
+idle_target = 1
+max_vms = 2
+interval_seconds = 15
+start_timeout_seconds = 600
+gone_grace_seconds = 180
+idle_max_seconds = 21600
+job_max_seconds = 7200
+token_file = "/etc/pandora-e2e/github-token"
+status_file = "/run/pandora-e2e/status.json"
