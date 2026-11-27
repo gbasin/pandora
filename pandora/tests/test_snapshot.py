@@ -301,6 +301,15 @@ class FreezeTimings(unittest.TestCase):
 class IndexTest(unittest.TestCase):
     """A file git vouches for is not read, and the manifest cannot tell."""
 
+    def test_batch_attributes_round_trip_output_larger_than_a_pipe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(Path(tmp) / 'repo', {'.gitattributes': '*.txt eol=crlf\n'})
+            paths = [f'folder {index}/line\nbreak.txt'.encode() for index in range(4096)]
+            records = snapshot._git(repo, 'check-attr', '-z', '--stdin', 'eol', 'text',
+                                    input=b'\0'.join(paths) + b'\0')
+            self.assertEqual(records, b''.join(
+                path + b'\0eol\0crlf\0' + path + b'\0text\0unspecified\0' for path in paths))
+
     def both_ways(self, repo, cache):
         """Freeze by reading everything, then from the index cold and warm."""
         legacy = snapshot.freeze(repo, index=False)
