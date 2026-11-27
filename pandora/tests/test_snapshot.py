@@ -1,5 +1,6 @@
 """Freezing a worktree: what travels, what does not, and what the id means."""
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -305,8 +306,19 @@ class IndexTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(Path(tmp) / 'repo', {'.gitattributes': '*.txt eol=crlf\n'})
             paths = [f'folder {index}/line\nbreak.txt'.encode() for index in range(4096)]
-            records = snapshot._git(repo, 'check-attr', '-z', '--stdin', 'eol', 'text',
-                                    input=b'\0'.join(paths) + b'\0')
+            run = subprocess.run
+
+            def check_stdio(command, **kwargs):
+                # Fail before starting Git if the old pair of blocking pipes comes back.
+                for stream in ('stdin', 'stdout'):
+                    descriptor = kwargs.get(stream)
+                    self.assertTrue(hasattr(descriptor, 'fileno'), stream)
+                    self.assertTrue(stat.S_ISREG(os.fstat(descriptor.fileno()).st_mode), stream)
+                return run(command, **kwargs)
+
+            with mock.patch.object(subprocess, 'run', side_effect=check_stdio):
+                records = snapshot._git(repo, 'check-attr', '-z', '--stdin', 'eol', 'text',
+                                        input=b'\0'.join(paths) + b'\0')
             self.assertEqual(records, b''.join(
                 path + b'\0eol\0crlf\0' + path + b'\0text\0unspecified\0' for path in paths))
 
