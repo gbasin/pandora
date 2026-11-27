@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.30](https://github.com/gbasin/pandora/compare/v0.3.29...v0.3.30) (2026-11-27)
+
+
+### Bug Fixes
+
+* **incus:** retry golden identity writes on ETag conflicts ([c17de18](https://github.com/gbasin/pandora/commit/c17de18aa3677d0b1929130434d0df697d02c673))
+* prevent Git attribute capture from deadlocking on macOS ([#286](https://github.com/gbasin/pandora/issues/286)) ([8824950](https://github.com/gbasin/pandora/commit/882495051f436d8d3f3cf5020d8c1cd99632b015))
+
 ## [0.3.29](https://github.com/gbasin/pandora/compare/v0.3.28...v0.3.29) (2026-11-19)
 
 
