@@ -86,9 +86,18 @@ def digest_blob(path, oid, size):
 
 
 def _git(repo, *args, input=None):
+    command = ['git', '-C', str(repo), *args]
     try:
-        return subprocess.check_output(['git', '-C', str(repo), *args], input=input,
-                                       stderr=subprocess.DEVNULL if input is not None else None)
+        if input is None:
+            return subprocess.check_output(command)
+        # Git emits attributes while reading paths. On macOS both sides of the pipe can block.
+        with tempfile.TemporaryFile() as paths, tempfile.TemporaryFile() as attributes:
+            paths.write(input)
+            paths.seek(0)
+            subprocess.run(command, stdin=paths, stdout=attributes, stderr=subprocess.DEVNULL,
+                           check=True)
+            attributes.seek(0)
+            return attributes.read()
     except (OSError, subprocess.SubprocessError) as error:
         raise SnapshotError('git %s failed in %s: %s' % (args[0], repo, error)) from None
 
